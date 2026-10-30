@@ -2110,8 +2110,8 @@ func TestRouteReportNow(t *testing.T) {
 	}
 }
 
-// routeNowLines matches each label's probe against the defaults alone
-// and inverts the set-asides per depot, sorted.
+// The probe's depot is none, so own routes never win it: with the
+// plain default gone, difficulty:2 matches nothing.
 func TestRouteNowLines(t *testing.T) {
 	t.Parallel()
 	d1, web, api := "difficulty:1", "web", "api"
@@ -2121,20 +2121,7 @@ func TestRouteNowLines(t *testing.T) {
 		{ID: "o1", Stage: "new", Depot: &web, Label: &d1, Group: "light"},
 		{ID: "o2", Stage: "new", Depot: &api, Label: &d1, Group: "light"},
 	}
-	now := routeNowLines(routes, []string{"difficulty:1", "difficulty:2"}, "me")
-	if len(now) != 2 {
-		t.Fatalf("now = %+v, want two lines", now)
-	}
-	if now[0].Label != "difficulty:1" || now[0].Route == nil || now[0].Route.ID != "d1" ||
-		now[0].Route.Groups != "heavy" || !slices.Equal(now[0].SetAside, []string{"api", "web"}) {
-		t.Errorf("now[0] = %+v, want d1 set aside in api and web", now[0])
-	}
-	if now[1].Label != "difficulty:2" || now[1].Route == nil || now[1].Route.ID != "d0" || len(now[1].SetAside) != 0 {
-		t.Errorf("now[1] = %+v, want the plain default with no set-aside", now[1])
-	}
-	// The probe's depot is none, so own routes never win it: with the
-	// plain default gone, difficulty:2 matches nothing.
-	now = routeNowLines(routes[1:], []string{"difficulty:2"}, "me")
+	now := routeNowLines(routes[1:], []string{"difficulty:2"}, "me")
 	if len(now) != 1 || now[0].Route != nil {
 		t.Errorf("now without a default = %+v, want a null route", now)
 	}

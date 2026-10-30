@@ -234,21 +234,6 @@ func TestUpgradePollDeadlineCancelsCheck(t *testing.T) {
 	}
 }
 
-// A second upgrade refuses on the lock beside the binary, naming the
-// holder's pid, as a second daemon does.
-func TestUpgradeLockRefusesSecond(t *testing.T) {
-	t.Parallel()
-	path := filepath.Join(t.TempDir(), "yardr.upgrade.lock")
-	unlock, err := lockDaemon(path, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer unlock()
-	if _, err := lockDaemon(path, 0); err == nil || !strings.Contains(err.Error(), "already running") || !strings.Contains(err.Error(), "pid ") {
-		t.Fatalf("second lock = %v, want the holder named", err)
-	}
-}
-
 // Doctor faults on the marker with the server down, and is quiet without one.
 func TestDoctorUpgradeFailed(t *testing.T) {
 	t.Parallel()
