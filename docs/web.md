@@ -1004,9 +1004,10 @@ and the command's are added:
   refuses comes back on the redrawn page with why.
 
 `/depots`, `/groups`, `/routes`, `/peers`, `/deps` and `/limits` have one
-page each, under the menu's Config entry: the lists as their commands
-print them, each marking that entry current and linking back to the hub
-(`/config`), which links to all six, with Telemetry for the operator.
+page each, as rows of the rail's Settings column: the lists as their
+commands print them, each marking its own row current and linking back
+to the hub (`/config`), which links to all six, with Telemetry for the
+operator.
 `?all=1` is a list command's `--all`: every closed bead, every ended
 session the yard keeps, every edge between closed beads, with no limit.
 Any value but none, `0` or `false` asks for it.
@@ -1328,7 +1329,7 @@ bead: reload the page to see it.
 
 ## The yard panel
 
-`/flows?panel=1` (the Yard entry of the menu) draws every depot's flows as
+`/flows?panel=1` (the Yard row of the Lines column) draws every depot's flows as
 a signal panel: one line plan per flow — one thin track line, each stage a
 section of it with its name and count under it, a manual stage as a short
 siding above, the other edges as thin unlabelled lines — with the open
@@ -1866,7 +1867,7 @@ Reload the page.
 footplate: the server's build and start time, whether the daemon holds
 its lock, on which build, and when it last completed a pass, and the
 view's own build. It is a machine route: JSON to every client, with no
-template and no menu entry.
+template and no rail entry.
 
 ```sh
 curl -s http://127.0.0.1:8791/health
@@ -1895,9 +1896,9 @@ head sequence is deliberately not among it.
 
 ## Telemetry
 
-`/telemetry` is the yard's opt-in telemetry switch for a browser, under
-the menu's Config entry: off unless turned on, and turning on only on
-an explicit click. Every reader gets the consent words the switch is
+`/telemetry` is the yard's opt-in telemetry switch for a browser, a row
+of the rail's Settings column: off unless turned on, and turning on
+only on an explicit click. Every reader gets the consent words the switch is
 turned on under — the four questions the batch answers and where it
 goes, the id-only profile, the pseudonymous sentence — while the
 switch itself, the install id and the next payload are the operator's
@@ -1941,16 +1942,17 @@ it. `head` is the yard's newest seq from before the preview was read.
 
 ## Layout
 
-Three columns on a desktop, the centre fluid. Simplicity is the point:
+Four columns on a desktop, the centre fluid. Simplicity is the point:
 **a new view is a new feed in the centre column, never a new
 arrangement.**
 
-- **Left**, 200px: the yard's name and a short menu (Home, Yard, Flows,
-  Beads, Sessions, Crew members, Config).
+- **Left**, 64px: the rail — the yard's chip, the Crew, Decide and
+  Lines tiles, and Settings at the foot — with the open mode's column
+  of rows beside it, 200px, under its section head.
 - **Centre**: the page. At 1100px and wider it takes all the width the
-  menu and the aside leave, so every page fills the window; home and the
-  line keep the aside, and every other page counts what waits in its
-  header instead.
+  rail, the column and the aside leave, so every page fills the window;
+  home and the line keep the aside, and every other page counts what
+  waits in its header instead.
 - **Right**, 300px, beside home and the line alone: what waits for a
   person, and a summary of the line. Home's aside is the line alone:
   home lists the waits at the top of its centre already.
@@ -1961,15 +1963,16 @@ time at the right edge; running text (a bead's body, a note: `.text`,
 pairs (`.figures`, `.rows`, `.facts`) use the width.
 
 The page scrolls as a document: no column has a scrollbar of its own, at
-any width. The menu stays in view while the page scrolls under it; the
-aside scrolls with the page. Wide text that must not wrap (a stage
-file, `.text.file`) still scrolls sideways inside its block.
+any width. The rail and the column stay in view while the page scrolls
+under them; the aside scrolls with the page. Wide text that must not
+wrap (a stage file, `.text.file`) still scrolls sideways inside its
+block.
 
 | window | arrangement |
 |---|---|
-| 1100px and wider | menu, a fluid centre, right beside home and the line |
-| 700px to 1099px | menu and centre, up to 600px and centred; the aside goes |
-| under 700px (a phone) | the centre column alone; the menu is a bar at the bottom, Line included, which stays in view while the page scrolls |
+| 1100px and wider | rail, column, a fluid centre, right beside home and the line |
+| 700px to 1099px | rail, column and centre, up to 600px and centred; the aside goes |
+| under 700px (a phone) | the centre column alone; the rail is a bar at the bottom — Crew, Decide, Lines, Settings, More — which stays in view while the page scrolls |
 
 The shell is `internal/web/templates/shell.html`; the aside is the
 `aside` template (`aside.html`), which `/line` renders in the centre too.
@@ -1984,7 +1987,7 @@ anywhere else.
 | token | value | for |
 |---|---|---|
 | `--ground` | `#161718` | the page |
-| `--panel` | `#1c1d1f` | panels, the phone's menu bar |
+| `--panel` | `#1c1d1f` | panels, the phone's rail bar |
 | `--hairline` | `#27282b` | rules between entries, panel borders |
 | `--hairline-strong` | `#333538` | a rule that must show on a panel |
 | `--ink` | `#e9e9ea` | text |
@@ -2009,7 +2012,7 @@ anywhere else.
 | `--text`, `--small`, `--large` | | | 14px, 11px (labels), 20px (names and figures; on home the answer line alone) |
 | `--gap` | | | 16px, the one spacing unit |
 | `--label-spacing` | | | 0.14em, for uppercase labels |
-| `--menu-width`, `--centre-width`, `--right-width` | | | the three columns |
+| `--rail-width`, `--column-width`, `--centre-width`, `--right-width` | | | the four columns |
 
 The view is dark only: there is no light theme. Its colours are the
 yardr design system's (dusk surfaces, one rust accent, green only for
@@ -2025,8 +2028,9 @@ Rules the stylesheet holds to, and a test checks the second:
   human words (titles, reasons, the answer) in `--sans`, machine words
   (ids, counts, times, stages) monospace; every row and feed line one
   line, ending in an ellipsis.
-- Corners are square everywhere (`border-radius: 0`). The one circle is a
-  status dot (`.dot`, with `.working`, `.running` or `.held`).
+- Corners are square everywhere (`border-radius: 0`). Circles are a
+  status dot (`.dot`, with `.working`, `.running` or `.held`) and the
+  rail's chip, tiles and pills, which keep footplate's rounded corners.
 - Words come from the yard: line, landed, held, waits for you.
 
 Classes a page builds from: `.item` (one entry of the centre feed, with a
@@ -2079,7 +2083,8 @@ A page is one template and one handler, in `internal/web`.
    }
    ```
 
-   `Menu` is the menu entry to mark as current.
+   `Menu` names the page for the rail: its mode's tile stands open and
+   its column row is marked current.
 
    A live page reads the yard's head before its data and gives it to the
    page (`head`; `respond` reads one itself only for a page that gives
@@ -2090,11 +2095,11 @@ A page is one template and one handler, in `internal/web`.
    <div id="live" hx-get="/sessions" hx-trigger="sse:message" hx-select="#live > *" hx-swap="innerHTML ignoreTitle:true">
    ```
 4. **The route**, in `routes` (`server.go`), with its method:
-   `s.mux.HandleFunc("GET /beads", s.handleBeads)`. For a page the menu
+   `s.mux.HandleFunc("GET /beads", s.handleBeads)`. For a page the rail
    already links to, take its name out of `unbuilt`.
 5. **Tests** in `web_test.go`, with `httptest`: the JSON and the HTML of the
    same request. `TestNoOtherHost` walks every link from Home, so a new
-   page is checked for other hosts and inline styles once the menu or a
+   page is checked for other hosts and inline styles once the rail or a
    page links to it; add the page to those the walk must reach.
 6. **This file**: the row in Pages, and the JSON's shape.
 

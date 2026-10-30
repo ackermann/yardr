@@ -251,7 +251,7 @@ func TestPanelReadError(t *testing.T) {
 			t.Errorf("the panel lacks %q", want)
 		}
 	}
-	if n := strings.Count(r.body, "<svg"); n != 0 {
+	if n := strings.Count(r.body, "panel-svg"); n != 0 {
 		t.Errorf("the panel draws %d diagrams, want none: line's flows fail and loose has none", n)
 	}
 }
@@ -723,7 +723,7 @@ func TestYardPageIsWide(t *testing.T) {
 	css, err := os.ReadFile("assets/yard.css")
 	must(t, err)
 	for _, want := range []string{
-		".shell.wide { grid-template-columns: var(--menu-width) minmax(0, 1fr); }",
+		".shell.wide { grid-template-columns: var(--rail-width) var(--column-width) minmax(0, 1fr); }",
 		"#panel { display: flex; flex-wrap: wrap; column-gap: var(--gap); }",
 		"#panel > .item { flex: 1 1 max-content; max-width: 100%; min-width: 0; }",
 	} {

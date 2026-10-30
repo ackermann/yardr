@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -443,7 +444,7 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 	s.respond(w, r, Page{Template: "home", Title: "Home", Menu: "home", Data: ov, line: l, head: feed.Head, stream: stream})
 }
 
-// Unbuilt is the Data of a menu page no child of the train has built yet.
+// Unbuilt is the Data of a rail page no child of the train has built yet.
 type Unbuilt struct {
 	Page  string `json:"page"`
 	Built bool   `json:"built"`
@@ -451,10 +452,8 @@ type Unbuilt struct {
 
 func (s *Server) handleUnbuilt(name string) http.HandlerFunc {
 	title := name
-	for _, m := range menu {
-		if m.Name == name {
-			title = m.Label
-		}
+	if len(title) > 0 {
+		title = strings.ToUpper(title[:1]) + title[1:]
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		// 501, not 200: a client reading JSON must not take the stub for

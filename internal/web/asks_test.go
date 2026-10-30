@@ -144,6 +144,9 @@ func TestHomeNeedsAskDetail(t *testing.T) {
 	t.Parallel()
 	f := askFixture(t)
 	b := askBead(t, f, "a door", "new")
+	if body := f.get("/").body; strings.Contains(body, "pill") {
+		t.Errorf("a bead with no ask carries a pill: %s", body)
+	}
 	askOn(t, f, b.ID, pickAsk())
 
 	s := answerSection(t, f.get("/").body)
@@ -445,6 +448,36 @@ func TestHomeNeedsAskTwice(t *testing.T) {
 	got := waiting(lineJSON(t, f))
 	if len(got) != 1 || len(got[0].Why) != 2 {
 		t.Fatalf("/line waits %+v, want both asks", got)
+	}
+	body := f.get("/").body
+	if !strings.Contains(body, `title="Decide — 1 waits for you" aria-label="Decide — 1 waits for you"`) ||
+		!strings.Contains(body, `<span class="pill" aria-hidden="true">1</span>`) {
+		t.Errorf("two asks on one bead do not count once in Decide: %s", body)
+	}
+	if strings.Contains(body, `title="Crew —`) {
+		t.Errorf("Crew carries a pill where the view acts as no user: %s", body)
+	}
+	if tile := linesTile(t, body); strings.Contains(tile, "pill") {
+		t.Errorf("Lines carries a pill: %s", tile)
+	}
+	// A held asked bead still counts, while a held bead with no ask does not.
+	ctx := context.Background()
+	must(t, func() error { _, err := f.st.SetHold(ctx, b.ID, true, store.Expect{}, "me"); return err }())
+	plain := askBead(t, f, "a plain door", "new")
+	must(t, func() error { _, err := f.st.SetHold(ctx, plain.ID, true, store.Expect{}, "me"); return err }())
+	body = f.get("/").body
+	if !strings.Contains(body, `title="Decide — 1 waits for you"`) {
+		t.Errorf("a held asked bead and a held bead with no ask count incorrectly: %s", body)
+	}
+	// The numeral caps above nine; the accessible name retains the count.
+	for i := 0; i < 9; i++ {
+		extra := askBead(t, f, "another bead", "new")
+		askOn(t, f, extra.ID, store.Ask{Question: "Move it?", To: "mckean", Context: []string{"The shed is full."}})
+	}
+	body = f.get("/").body
+	if !strings.Contains(body, `title="Decide — 10 wait for you" aria-label="Decide — 10 wait for you"`) ||
+		!strings.Contains(body, `<span class="pill" aria-hidden="true">9&#43;</span>`) {
+		t.Errorf("ten asked beads do not use the capped pill: %s", body)
 	}
 }
 

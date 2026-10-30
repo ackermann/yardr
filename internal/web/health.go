@@ -49,7 +49,7 @@ type HealthView struct {
 var describeServer = server.Describe
 
 // handleHealth answers GET /health directly as JSON, with no template and
-// no menu entry. It reads nothing but what it reports: the server through
+// no rail entry. It reads nothing but what it reports: the server through
 // the probe, the daemon's lock and pass stamp from the home, the daemon's
 // build from its start events, and the view's own build.
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {

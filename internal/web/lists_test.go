@@ -198,7 +198,7 @@ func TestConfigPages(t *testing.T) {
 		`<div><dt>test</dt><dd>make test</dd></div>`,
 		`<h2>docs</h2>`,
 		`<div><dt>kind</dt><dd>dir</dd></div>`,
-		`<a href="/config" aria-current="page">Config</a>`,
+		`<a href="/depots" aria-current="page">Depots</a>`,
 	} {
 		if !strings.Contains(depots, want) {
 			t.Errorf("/depots lacks %s", want)
@@ -221,7 +221,7 @@ func TestConfigPages(t *testing.T) {
 		`<div><dt>model</dt><dd>opus</dd></div>`,
 		`<h2>decisions</h2>`,
 		`<div><dt>members</dt><dd>jo, mo</dd></div>`,
-		`<a href="/config" aria-current="page">Config</a>`,
+		`<a href="/groups" aria-current="page">Groups</a>`,
 	} {
 		if !strings.Contains(groups, want) {
 			t.Errorf("/groups lacks %s", want)
@@ -252,7 +252,7 @@ func TestConfigPages(t *testing.T) {
 		`<details class="route-id"><summary>id</summary>` + narrow.ID + `</details>`,
 		`<h2>new → builders</h2>`,
 		`<details class="route-id"><summary>id</summary>` + plain.ID + `</details>`,
-		`<a href="/config" aria-current="page">Config</a>`,
+		`<a href="/routes" aria-current="page">Routes</a>`,
 	} {
 		if !strings.Contains(routes, want) {
 			t.Errorf("/routes lacks %s", want)
@@ -316,7 +316,7 @@ func TestConfigPagesPeersDeps(t *testing.T) {
 		`<div><dt>waiting</dt><dd>0</dd></div>`,
 		`<h2>laptop</h2>`,
 		`<div><dt>url</dt><dd>none — it calls this yard</dd></div>`,
-		`<a href="/config" aria-current="page">Config</a>`,
+		`<a href="/peers" aria-current="page">Peers</a>`,
 	} {
 		if !strings.Contains(peers, want) {
 			t.Errorf("/peers lacks %s", want)
@@ -342,7 +342,7 @@ func TestConfigPagesPeersDeps(t *testing.T) {
 		`<a class="bead" href="/beads/` + one + `">` + one + `</a><span class="faint">blocks</span><span class="faint">at review</span><span class="edge-title">one</span><span class="label">backlog</span></li>`,
 		`<a class="bead" href="/beads/` + five + `">` + five + `</a><span class="label">line · triage · bug</span>`,
 		`<a class="bead" href="/beads/` + three + `">` + three + `</a><span class="faint">discovered-from</span><span class="edge-title">three</span><span class="label">new</span></li>`,
-		`<a href="/config" aria-current="page">Config</a>`,
+		`<a href="/deps" aria-current="page">Deps</a>`,
 	} {
 		if !strings.Contains(deps, want) {
 			t.Errorf("/deps lacks %s", want)
@@ -524,9 +524,9 @@ func TestConfigEscapes(t *testing.T) {
 	}
 }
 
-// The hub links to the six configuration pages, and each of them marks
-// the Config entry current and links back. The hub itself is static links
-// with no live part.
+// The hub links to the six configuration pages, and each marks its own
+// Settings column row current and links back. The hub itself is static
+// links with no live part; the column keeps the operator and JWT filters.
 func TestConfigHub(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
@@ -558,10 +558,13 @@ func TestConfigHub(t *testing.T) {
 		got.Links[3].Path != "/peers" || got.Links[4].Path != "/deps" || got.Links[5].Path != "/limits" || got.Head == 0 {
 		t.Errorf("the hub as JSON: %+v", got)
 	}
-	for _, path := range []string{"/depots", "/groups", "/routes", "/peers", "/deps", "/limits"} {
+	for path, label := range map[string]string{
+		"/depots": "Depots", "/groups": "Groups", "/routes": "Routes",
+		"/peers": "Peers", "/deps": "Deps", "/limits": "Limits",
+	} {
 		body := squash(f.get(path).body)
 		for _, want := range []string{
-			`<a href="/config" aria-current="page">Config</a>`,
+			`<a href="` + path + `" aria-current="page">` + label + `</a>`,
 			`<a href="/config">‹ Config</a>`,
 		} {
 			if !strings.Contains(body, want) {
@@ -569,6 +572,54 @@ func TestConfigHub(t *testing.T) {
 			}
 		}
 	}
+	t.Run("column visibility follows its filters", func(t *testing.T) {
+		ctx := context.Background()
+		member, _ := talkFixture(t, "sam")
+		must(t, func() error { _, err := member.st.AddUser(ctx, "jo", "jo"); return err }())
+		must(t, member.st.SetSetting(ctx, store.OperatorSetting, "jo", "jo"))
+		must(t, func() error { _, err := member.st.AddUser(ctx, "sam", "jo"); return err }())
+		body := member.get("/config").body
+		for _, want := range []string{
+			`<li><a href="/config" aria-current="page">Config</a></li>`,
+			`<li><a href="/depots">Depots</a></li>`,
+			`<li><a href="/groups">Groups</a></li>`,
+			`<li><a href="/routes">Routes</a></li>`,
+			`<li><a href="/peers">Peers</a></li>`,
+			`<li><a href="/deps">Deps</a></li>`,
+			`<li><a href="/limits">Limits</a></li>`,
+		} {
+			if !strings.Contains(body, want) {
+				t.Errorf("a member's column lacks %s: %s", want, body)
+			}
+		}
+		for _, foreign := range []string{`>Telemetry<`, `>Pair device<`} {
+			if strings.Contains(body, foreign) {
+				t.Errorf("a member's column holds %s: %s", foreign, body)
+			}
+		}
+		// The operator sees Telemetry, and an unsigned view still does
+		// not see Pair device.
+		op, _ := talkFixture(t, "jo")
+		must(t, func() error { _, err := op.st.AddUser(ctx, "jo", "jo"); return err }())
+		must(t, op.st.SetSetting(ctx, store.OperatorSetting, "jo", "jo"))
+		body = op.get("/config").body
+		if !strings.Contains(body, `<li><a href="/telemetry">Telemetry</a></li>`) {
+			t.Errorf("the operator's column holds no Telemetry: %s", body)
+		}
+		if strings.Contains(body, `>Pair device<`) {
+			t.Errorf("an unsigned view's column holds Pair device: %s", body)
+		}
+		// A JWT view sees Pair device.
+		keys := mustJWTTestKeys(t)
+		jwks := newJWKStub(t, jwksDoc(t, rsaJWK("a", &keys.a.PublicKey)))
+		signed := jwtFixture(t, jwks, "", map[string]string{"jo@example.net": "jo"})
+		must(t, func() error { _, err := signed.st.AddUser(ctx, "jo", "jo"); return err }())
+		token := signRSA(t, keys.a, "a", jwtClaims("jo@example.net"))
+		body = signed.get("/config", web.DefaultJWTHeader, token).body
+		if !strings.Contains(body, `<li><a href="/pairing">Pair device</a></li>`) {
+			t.Errorf("a JWT view's column holds no Pair device: %s", body)
+		}
+	})
 }
 
 // /beads has every field `yardr bead list --json` prints of a bead, and

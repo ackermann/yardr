@@ -155,7 +155,7 @@ func (s *Server) handleTalk(w http.ResponseWriter, r *http.Request) {
 	}
 	out.Letters = shown
 	title := "Talk with " + with
-	s.respond(w, r, Page{Template: "talk", Title: title, Menu: "talk", Data: out, head: head})
+	s.respond(w, r, Page{Template: "talk", Title: title, Menu: "talk", Data: out, head: head, inbox: box})
 }
 
 // talkLetters is the conversation's letters as the talk page shows them:
@@ -367,7 +367,7 @@ func (s *Server) talkAgain(w http.ResponseWriter, r *http.Request, with, text, w
 		return
 	}
 	out.Letters = shown
-	s.respond(w, r, Page{Template: "talk", Title: "Talk with " + with, Menu: "talk", Data: out, head: head})
+	s.respond(w, r, Page{Template: "talk", Title: "Talk with " + with, Menu: "talk", Data: out, head: head, inbox: box})
 }
 
 // ownOrigin reports whether origin is this request's own: an http or

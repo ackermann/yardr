@@ -19,18 +19,36 @@
        (Page.stream): each has an unnamed message per event, which is all
        the column needs. An error page has no column and no stream. */}}
 <div class="shell{{if .Wide}} wide{{end}}"{{if .Aside}} hx-ext="sse" sse-connect="/events?after={{.Head}}{{with .Stream}}&amp;format={{.}}{{end}}"{{end}}>
-  <nav class="menu" aria-label="Pages">
-    <a class="yard" href="/">{{.Yard}}</a>
+  {{- /* The rail: the yard's chip, the three mode tiles in the rail's
+         order, and Settings at the foot. Each tile links to its page;
+         the open one stands marked, and a tile whose mode waits on the
+         person carries its numeral, with the count in words in its title
+         and aria-label. The glyphs are footplate's own drawings on its
+         24-grid, in the current colour. */}}
+  <nav class="rail" aria-label="Modes">
+    <a class="chip chip-{{.Rail.Shade}}" href="/line" title="{{.Rail.Yard}}" aria-label="{{.Rail.Yard}}">{{.Rail.Chip}}</a>
+    <ul class="tiles">
+      {{- range .Rail.Tiles}}{{if ne .Name "settings"}}<li>{{template "tile" .}}</li>{{end}}{{end}}
+    </ul>
+    <div class="foot">{{range .Rail.Tiles}}{{if eq .Name "settings"}}{{template "tile" .}}{{end}}{{end}}</div>
+    {{- /* The phone's bottom bar shows the rail's tiles alone; the open
+           mode's column opens under More, above the bar. The stylesheet
+           shows it below 700 px only. */}}
+    {{- with .Rail.Column}}
+    <div class="more"><details><summary>More</summary><ul>{{range .Rows}}<li><a href="{{.Path}}"{{if .Current}} aria-current="page"{{end}}>{{.Label}}</a></li>{{end}}</ul></details></div>
+    {{- end}}
+  </nav>
+  {{- /* The open mode's column beside the rail, under its section head. */}}
+  {{with .Rail.Column}}
+  <nav class="rail-column" aria-label="{{.Head}}">
+    <p class="section-head">{{.Head}}</p>
     <ul>
-      {{- range .Entries}}
-      <li{{if not .Phone}} class="phone-more"{{end}}><a href="{{.Path}}"{{if eq .Name $.Menu}} aria-current="page"{{end}}>{{.Label}}</a></li>
+      {{- range .Rows}}
+      <li><a href="{{.Path}}"{{if .Current}} aria-current="page"{{end}}>{{.Label}}</a></li>
       {{- end}}
-      {{- /* The phone's bottom bar shows the phone entries alone; the
-             rest open under More, in the menu's order. The stylesheet
-             shows it below 700 px only. */}}
-      <li class="more"><details><summary{{if .MoreCurrent}} aria-current="page"{{end}}>More</summary><ul>{{range .Entries}}{{if not .Phone}}<li><a href="{{.Path}}"{{if eq .Name $.Menu}} aria-current="page"{{end}}>{{.Label}}</a></li>{{end}}{{end}}</ul></details></li>
     </ul>
   </nav>
+  {{end}}
   <main class="centre" id="centre">
     {{- /* Home lists what waits in its centre and the line keeps it in
            its own; every other page counts it in its header, one line
@@ -48,3 +66,18 @@
 </div>
 </body>
 </html>
+{{define "tile"}}
+<a class="tile{{if .Open}} open{{end}}" href="{{.Path}}" title="{{.Title}}" aria-label="{{.Title}}"{{if .Open}} aria-current="true"{{end}}>
+  {{- if eq .Glyph "lamp"}}
+  <svg class="glyph" viewBox="0 0 24 24" width="28" height="28" aria-hidden="true"><line x1="12" y1="21" x2="12" y2="13"/><circle cx="12" cy="7" r="4"/></svg>
+  {{- else if eq .Glyph "semaphore"}}
+  <svg class="glyph" viewBox="0 0 24 24" width="28" height="28" aria-hidden="true"><line x1="6" y1="21" x2="6" y2="4"/><line x1="6" y1="5" x2="17" y2="11"/><circle class="solid" cx="6" cy="4" r="1.4"/></svg>
+  {{- else if eq .Glyph "track"}}
+  <svg class="glyph" viewBox="0 0 24 24" width="28" height="28" aria-hidden="true"><line x1="7" y1="1.5" x2="7" y2="22.5"/><line x1="17" y1="1.5" x2="17" y2="22.5"/><g class="heavy"><line x1="4.5" y1="5.5" x2="19.5" y2="5.5"/><line x1="4.5" y1="12" x2="19.5" y2="12"/><line x1="4.5" y1="18.5" x2="19.5" y2="18.5"/></g></svg>
+  {{- else}}
+  <svg class="glyph" viewBox="0 0 24 24" width="28" height="28" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><circle class="teeth" cx="12" cy="12" r="7"/></svg>
+  {{- end}}
+  <span class="tile-label">{{.Label}}</span>
+  {{- if .Pill}}<span class="pill" aria-hidden="true">{{.Pill}}</span>{{end}}
+</a>
+{{end}}

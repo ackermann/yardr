@@ -53,14 +53,17 @@ func TestPagesFillTheWindow(t *testing.T) {
 	css, err := os.ReadFile("assets/yard.css")
 	must(t, err)
 	for _, want := range []string{
-		// The desktop shell: a fluid centre between the menu and the aside.
-		"grid-template-columns: var(--menu-width) minmax(0, 1fr) var(--right-width);",
+		// The desktop shell: a fluid centre between the rail, the column
+		// and the aside.
+		"grid-template-columns: var(--rail-width) var(--column-width) minmax(0, 1fr) var(--right-width);",
 		// A page without the aside fills the window too.
-		".shell:not(:has(aside.right)) { grid-template-columns: var(--menu-width) minmax(0, 1fr); }",
+		".shell:not(:has(aside.right)) { grid-template-columns: var(--rail-width) var(--column-width) minmax(0, 1fr); }",
+		// An error page stands under the rail with no column.
+		".shell:not(:has(nav.rail-column)) { grid-template-columns: var(--rail-width) minmax(0, 1fr); }",
 		// Running text keeps a measure of about 90 characters.
 		".text, .entry-note { max-width: 90ch; }",
 		// Below 1100 px the centre keeps its width, centred.
-		".shell { grid-template-columns: var(--menu-width) minmax(0, var(--centre-width)); justify-content: center; }",
+		".shell { grid-template-columns: var(--rail-width) var(--column-width) minmax(0, var(--centre-width)); justify-content: center; }",
 		// A list's rows keep their one line.
 		".entry-line .entry-what { display: flex; align-items: baseline; gap: 6px; margin-top: 0; overflow: hidden; white-space: nowrap; }",
 		".needs li > a { display: flex; align-items: baseline; gap: 6px; width: 100%; min-width: 0; box-sizing: border-box; overflow: hidden; white-space: nowrap; font-family: var(--sans); }",
@@ -71,8 +74,8 @@ func TestPagesFillTheWindow(t *testing.T) {
 	}
 	// --centre-width caps the narrow centre only: the desktop shell no
 	// longer names it.
-	if n := strings.Count(string(css), "var(--centre-width)"); n != 1 {
-		t.Errorf("var(--centre-width) is used %d times, want once (below 1100 px)", n)
+	if n := strings.Count(string(css), "var(--centre-width)"); n != 2 {
+		t.Errorf("var(--centre-width) is used %d times, want twice (with and without the column, below 1100 px)", n)
 	}
 }
 
@@ -229,83 +232,90 @@ func TestRoutesCompactRows(t *testing.T) {
 	}
 }
 
-// On a phone the menu is a bottom bar of the phone entries and More: five
-// targets of about 78 px at 390 px, none cut. More opens the rest above
-// the bar, in the menu's order, and stands for the current page when it is
-// one the bar hides. The desktop menu shows all ten, as before. What the
-// pixels do is the bead's screenshots.
+// On a phone the rail is a bottom bar of its four tiles and More: five
+// targets of about 78 px at 390 px, none cut, each 48 high. More opens
+// the open mode's column above the bar. The desktop rail shows the chip
+// and tiles with the column beside them, as before. What the pixels do
+// is the bead's screenshots.
 func TestPhoneBarMore(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
 	body := f.get("/").body
-	// The bar's entries carry no class; the entries More opens carry
-	// phone-more on the main list.
-	for _, path := range []string{"/", "/talk", "/beads", "/line"} {
-		if strings.Contains(body, `phone-more"><a href="`+path+`"`) {
-			t.Errorf("the bar hides %s under More", path)
+	// The bar's tiles in the rail's order, Decide open on home.
+	for _, want := range []string{
+		`<a class="tile" href="/talk" title="Crew" aria-label="Crew">`,
+		`<a class="tile open" href="/line" title="Decide" aria-label="Decide" aria-current="true">`,
+		`<a class="tile" href="/flows?panel=1" title="Lines" aria-label="Lines">`,
+		`<a class="tile" href="/config" title="Settings" aria-label="Settings">`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the bar lacks %s", want)
 		}
 	}
-	for _, path := range []string{"/flows?panel=1", "/flows", "/sessions", "/crew", "/previews", "/config"} {
-		if !strings.Contains(body, `<li class="phone-more"><a href="`+path+`"`) {
-			t.Errorf("%s is not marked for More", path)
-		}
-	}
-	if !strings.Contains(body, `<li><a href="/line"`) {
-		t.Error("Line is not a plain entry of the bar")
-	}
-	if strings.Contains(body, "aside-entry") {
-		t.Error("the menu still marks an entry for the aside")
-	}
-	// More stands last, after Line, and holds the rest in the menu's
-	// order, under their own names.
-	more := strings.Index(body, `<li class="more">`)
+	// More stands last, after Settings, and holds the open mode's
+	// column, with the current page marked in both copies.
+	more := strings.Index(body, `<div class="more">`)
 	if more < 0 {
-		t.Fatal("the menu has no More entry")
+		t.Fatal("the bar has no More entry")
 	}
-	if line := strings.Index(body, `<a href="/line"`); line < 0 || line > more {
-		t.Error("More does not stand after Line")
+	if settings := strings.Index(body, `href="/config" title="Settings"`); settings < 0 || settings > more {
+		t.Error("More does not stand after Settings")
 	}
-	want := `<li><a href="/flows?panel=1">Yard</a></li>` +
-		`<li><a href="/flows">Flows</a></li>` +
-		`<li><a href="/sessions">Sessions</a></li>` +
-		`<li><a href="/crew">Crew</a></li>` +
-		`<li><a href="/previews">Previews</a></li>` +
-		`<li><a href="/config">Config</a></li>`
+	want := `<li><a href="/" aria-current="page">Home</a></li>` +
+		`<li><a href="/line">Line</a></li>` +
+		`<li><a href="/previews">Previews</a></li>`
 	if !strings.Contains(body[more:], want) {
-		t.Errorf("More does not hold the rest in order: %s", body[more:])
+		t.Errorf("More does not hold Decide's column: %s", body[more:])
 	}
-	// On a page the bar shows, More is plain; on one it hides, More
-	// stands for the current page, and both copies mark it.
+	if n := strings.Count(body, `<a href="/" aria-current="page">`); n != 2 {
+		t.Errorf("/ marks %d copies of itself, want 2 (the column's and More's)", n)
+	}
+	// On another mode's page More holds that mode's column instead.
+	beads := f.get("/beads").body
+	more = strings.Index(beads, `<div class="more">`)
+	if more < 0 {
+		t.Fatal("/beads has no More entry")
+	}
+	want = `<li><a href="/flows?panel=1">Yard</a></li>` +
+		`<li><a href="/flows">Flows</a></li>` +
+		`<li><a href="/beads" aria-current="page">Beads</a></li>`
+	if !strings.Contains(beads[more:], want) {
+		t.Errorf("More does not hold Lines' column: %s", beads[more:])
+	}
+	// More itself is never current: the open tile stands marked.
+	if strings.Contains(body, `<summary aria-current`) || strings.Contains(beads, `<summary aria-current`) {
+		t.Error("More stands marked current")
+	}
 	if !strings.Contains(body, `<summary>More</summary>`) {
-		t.Error("/ leaves More marked current")
-	}
-	flows := f.get("/flows").body
-	if !strings.Contains(flows, `<summary aria-current="page">More</summary>`) {
-		t.Error("/flows leaves More unmarked")
-	}
-	if n := strings.Count(flows, `<a href="/flows" aria-current="page">`); n != 2 {
-		t.Errorf("/flows marks %d copies of itself, want 2 (the bar's and More's)", n)
+		t.Error("More's summary is not plain")
 	}
 	css, err := os.ReadFile("assets/yard.css")
 	must(t, err)
 	text := string(css)
-	// The desktop menu shows all ten: More shows below 700 px only.
-	if more := cssRule(t, ".menu .more"); !strings.Contains(more, "display: none;") {
-		t.Errorf(".menu .more stands on a wide window too: %s", more)
-	}
-	if n := strings.Count(text, "phone-more"); n != 1 {
-		t.Errorf("phone-more is named %d times in the stylesheet, want once (below 700 px)", n)
+	// The desktop rail shows the column beside it: More shows below
+	// 700 px only.
+	if more := cssRule(t, ".rail .more"); !strings.Contains(more, "display: none;") {
+		t.Errorf(".rail .more stands on a wide window too: %s", more)
 	}
 	phone := mediaCSS(t, text, "max-width: 699px")
 	for _, want := range []string{
-		".menu li.phone-more { display: none; }",
-		".menu .more { display: block; }",
-		".menu .more summary::-webkit-details-marker { display: none; }",
-		`.menu .more summary::marker { content: ""; }`,
+		".rail-column { display: none; }",
+		".rail .chip { display: none; }",
+		".rail .tiles, .rail .foot { display: contents; }",
+		".rail .tile { flex: 1 1 0; min-width: 0; min-height: 48px; justify-content: center; border-radius: 0; }",
+		".rail .more { display: block; flex: 1 1 0; min-width: 0; }",
+		".rail .more summary::-webkit-details-marker { display: none; }",
+		`.rail .more summary::marker { content: ""; }`,
 	} {
 		if !strings.Contains(phone, want) {
 			t.Errorf("the phone rules lack %s", want)
 		}
+	}
+	// More's summary keeps the bar's 48-pixel target, five to the bar.
+	summary := phone[strings.Index(phone, ".rail .more summary {"):]
+	summary = summary[:strings.Index(summary, "}")]
+	if !strings.Contains(summary, "min-height: 48px;") {
+		t.Errorf("More's summary is not 48 high: %s", summary)
 	}
 	// More opens upward, a full-width list above the bar, each row tall
 	// enough to tap; the bar keeps its overflow for the popup.
@@ -317,8 +327,8 @@ func TestPhoneBarMore(t *testing.T) {
 	if !strings.Contains(phone, "overflow: visible;") {
 		t.Error("the phone bar clips More's list")
 	}
-	if !strings.Contains(phone, "min-height: 44px;") {
-		t.Error("More's rows are not tall enough to tap")
+	if !strings.Contains(phone, "min-height: 48px;") {
+		t.Error("the bar's targets are not 48 high")
 	}
 }
 
@@ -368,9 +378,9 @@ func TestMoreBackdrop(t *testing.T) {
 	must(t, err)
 	phone := mediaCSS(t, string(css), "max-width: 699px")
 	for _, want := range []string{
-		".menu .more details[open] > summary { position: relative; z-index: 1; }",
-		`.menu .more details[open] > summary::before { content: ""; position: fixed; inset: 0; background: var(--shade); }`,
-		".menu .more details[open] > ul { z-index: 1; }",
+		".rail .more details[open] > summary { position: relative; z-index: 1; }",
+		`.rail .more details[open] > summary::before { content: ""; position: fixed; inset: 0; background: var(--shade); }`,
+		".rail .more details[open] > ul { z-index: 1; }",
 	} {
 		if !strings.Contains(phone, want) {
 			t.Errorf("the phone rules lack %s", want)

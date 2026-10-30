@@ -38,61 +38,9 @@ import (
 //go:embed templates/*.html
 var templateFS embed.FS
 
-// menu is the left menu, in order. Phone marks the entries the phone's
-// bottom bar shows; the rest open under its More entry, in the same order.
-var menu = []menuItem{
-	{Name: "home", Label: "Home", Path: "/", Phone: true},
-	{Name: "talk", Label: "Talk", Path: "/talk", Phone: true},
-	{Name: "yard", Label: "Yard", Path: "/flows?panel=1"},
-	{Name: "flows", Label: "Flows", Path: "/flows"},
-	{Name: "beads", Label: "Beads", Path: "/beads", Phone: true},
-	{Name: "sessions", Label: "Sessions", Path: "/sessions"},
-	{Name: "crew", Label: "Crew", Path: "/crew"},
-	{Name: "previews", Label: "Previews", Path: "/previews"},
-	{Name: "config", Label: "Config", Path: "/config"},
-	{Name: "pairing", Label: "Pair device", Path: "/pairing", SignedInOnly: true},
-	{Name: "line", Label: "Line", Path: "/line", Phone: true},
-}
-
-type menuItem struct {
-	Name, Label, Path string
-	// Phone marks an entry the phone's bottom bar shows itself; the
-	// rest open under its More entry.
-	Phone        bool
-	SignedInOnly bool
-}
-
-// moreCurrent is whether name is a menu entry the phone's bottom bar
-// hides: its More entry then stands for the current page. Entries is the
-// menu this view is allowed to show.
-func moreCurrent(name string, entries []menuItem) bool {
-	for _, m := range entries {
-		if m.Name == name {
-			return !m.Phone
-		}
-	}
-	return false
-}
-
-// menuFor hides the pairing page from views that cannot open one. The
-// handlers still refuse those views, but a signed-in user can reach the
-// page from the web view without knowing its path.
-func menuFor(signedIn bool) []menuItem {
-	if signedIn {
-		return menu
-	}
-	entries := make([]menuItem, 0, len(menu))
-	for _, item := range menu {
-		if !item.SignedInOnly {
-			entries = append(entries, item)
-		}
-	}
-	return entries
-}
-
-// unbuilt are the menu's pages no child of the train has built yet: each
+// unbuilt are the rail's pages no child of the train has built yet: each
 // answers with the "not built yet" page. A child that builds one removes it
-// here and registers its handler in routes. Every page of the menu is
+// here and registers its handler in routes. Every page of the rail is
 // built now; a new entry starts here.
 var unbuilt = []string{}
 
@@ -263,7 +211,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /assets/{file}", s.handleAsset)
 	// The yard's liveness facts for a monitor, a proxy or footplate: a
 	// machine route, answered directly as JSON, with no template and no
-	// menu entry.
+	// rail entry.
 	s.mux.HandleFunc("GET /health", s.handleHealth)
 	// A browser asks for one unbidden; the view has no image, and an empty
 	// answer keeps its console clear of a 404.
@@ -476,7 +424,8 @@ type Page struct {
 	Template string
 	// Title is the browser's title for the page; the yard's name follows it.
 	Title string
-	// Menu is the name of the menu entry the page belongs to, "" for none.
+	// Menu is the name the rail knows the page by: its mode's tile
+	// stands open and its column row is marked current. "" for none.
 	Menu string
 	Data any
 	// line is the shell's line, for a handler that has read the yard
@@ -489,6 +438,10 @@ type Page struct {
 	// head is the yard's newest seq from before the handler read the yard,
 	// for a handler that read it; respond reads it otherwise.
 	head uint64
+	// inbox is the acting user's inbox read, for a handler that has read
+	// it already; respond reads it otherwise, once, for the rail's Crew
+	// pill. The JSON never carries it.
+	inbox *store.Mailbox
 	// stream is the ?format= of the page's stream, for a page that hangs
 	// more on it than the shell does: card on /flows, seq on a page that
 	// only reads itself again, home on / for the entries its feed keeps.
@@ -510,9 +463,9 @@ type errorData struct {
 // itself shows around it.
 type view struct {
 	Page
-	Yard    string
-	Entries []menuItem
-	Aside   *Line
+	Yard  string
+	Rail  rail
+	Aside *Line
 	// Needs counts what waits for the visitor, as home lists it: the
 	// header's line on a page without the aside, nothing at zero.
 	Needs int
@@ -521,9 +474,6 @@ type view struct {
 	Head uint64
 	// Stream is the stream's ?format=, "" for the feed's entries.
 	Stream string
-	// MoreCurrent is whether the phone's More entry stands for the
-	// current page: one the bottom bar hides.
-	MoreCurrent bool
 }
 
 // respond answers r with p, as JSON or as HTML (see wantsJSON). Every
@@ -548,8 +498,7 @@ func (s *Server) respond(w http.ResponseWriter, r *http.Request, p Page) {
 	}
 	// The shell shows the yard's name on every page: the aside beside
 	// home and the line, and the header's count elsewhere.
-	entries := menuFor(s.jwt != nil)
-	v := view{Page: p, Entries: entries, Yard: s.yardName(r.Context()), Aside: p.line, Head: p.head, Stream: p.stream, MoreCurrent: moreCurrent(p.Menu, entries)}
+	v := view{Page: p, Yard: s.yardName(r.Context()), Aside: p.line, Head: p.head, Stream: p.stream}
 	if v.Aside == nil {
 		var err error
 		// A handler's own head stands: it is from before the handler read
@@ -573,6 +522,26 @@ func (s *Server) respond(w http.ResponseWriter, r *http.Request, p Page) {
 		// pass their line and never reach here.
 		v.Needs = len(attention(ov, v.Aside))
 	}
+	// The rail's Crew pill beside the line: the acting user's aggregate
+	// unread, read once per request — the talk page passes its own read
+	// through — and not read at all where the view acts as no user. A
+	// visitor the yard holds no inbox for reads with no pill, as a yard
+	// whose asks cannot be read waits without them.
+	inbox := p.inbox
+	if inbox == nil {
+		if as := s.acting(r.Context()); as != "" {
+			var err error
+			if inbox, err = s.st.UserInbox(r.Context(), as, 1, as); err != nil {
+				if r.Context().Err() != nil {
+					s.fail(w, r, err)
+					return
+				}
+				s.log.Error("web: user inbox", "err", err)
+				inbox = nil
+			}
+		}
+	}
+	v.Rail = s.rail(r.Context(), p.Menu, r.URL.EscapedPath(), v.Aside, inbox)
 	// Rendered whole before the first byte: a template that fails halfway
 	// must not leave half a page under a 200.
 	var buf bytes.Buffer
@@ -619,10 +588,11 @@ func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 		_ = json.NewEncoder(w).Encode(p.Data)
 		return
 	}
-	entries := menuFor(s.jwt != nil)
-	v := view{Page: p, Entries: entries, Yard: s.yardName(r.Context()), MoreCurrent: moreCurrent(p.Menu, entries)}
-	// An error page still carries the header's count when the yard can
-	// answer it; keep the error itself renderable when those reads failed.
+	v := view{Page: p, Yard: s.yardName(r.Context())}
+	// An error page stands under the rail with no open mode and no pills;
+	// it still carries the header's count when the yard can answer it.
+	// Keep the error itself renderable when those reads failed.
+	v.Rail = s.rail(r.Context(), "", r.URL.EscapedPath(), nil, nil)
 	if ov, overviewErr := s.overview(r.Context(), nil); overviewErr == nil {
 		if l, lineErr := s.line(r.Context(), ov); lineErr == nil {
 			v.Needs = len(attention(ov, l))

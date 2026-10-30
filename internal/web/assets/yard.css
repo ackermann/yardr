@@ -19,6 +19,9 @@
   --accent: #d3602f; /* --yard-500 */
   /* the accent's hover, for every rule that hovers into it */
   --accent-hover: #e2794a; /* --yard-400 */
+  /* a tile's pill fill: rust 600, which carries white text at 5.2:1
+     where the accent fill cannot (the design readme) */
+  --pill: #b54e22; /* --yard-600 */
   /* A landed bead is done, so it shares the quiet done text tier. */
   --landed: var(--faint); /* --text-disabled */
   /* The phone's More sheet dims the page with a translucent dusk ground. */
@@ -54,10 +57,11 @@
   --gap: 16px;
   --label-spacing: 0.14em;
 
-  /* the columns: the menu and the right column keep their width, and the
-     centre takes the rest; --centre-width caps it only where the window
-     has no room for the right column */
-  --menu-width: 200px;
+  /* the columns: the rail, the open mode's column and the right column
+     keep their width, and the centre takes the rest; --centre-width caps
+     it only where the window has no room for the right column */
+  --rail-width: 64px;
+  --column-width: 200px;
   --centre-width: 600px;
   --right-width: 300px;
 }
@@ -83,38 +87,52 @@ ul, ol { list-style: none; }
 
 /* --- the shell ---------------------------------------------------------- */
 
-/* On a desktop the centre takes all the width the menu and the aside
-   leave, so every page fills the window and both stand in the same place
-   on every page that has them. */
+/* On a desktop the centre takes all the width the rail, the column and
+   the aside leave, so every page fills the window and each stands in the
+   same place on every page that has it. */
 .shell {
   display: grid;
-  grid-template-columns: var(--menu-width) minmax(0, 1fr) var(--right-width);
+  grid-template-columns: var(--rail-width) var(--column-width) minmax(0, 1fr) var(--right-width);
   min-height: 100vh;
   min-height: 100dvh;
 }
 
-/* The menu stays in view while the page scrolls under it. It is short, so
-   staying needs no scrollbar of its own. */
-.menu { position: sticky; top: 0; align-self: start; padding: var(--gap); overflow: hidden; }
-.menu .yard {
-  display: block;
-  padding: 6px 0 var(--gap);
-  font-size: var(--large);
-  overflow-wrap: anywhere;
-}
-.menu li a {
-  display: block;
-  padding: 8px 0;
-  color: var(--dim);
-  font-size: var(--small);
-  letter-spacing: var(--label-spacing);
-  text-transform: uppercase;
-}
-.menu li a:hover { color: var(--accent-hover); }
-.menu li a[aria-current="page"] { color: var(--ink); box-shadow: inset 2px 0 0 var(--accent); padding-left: 10px; }
+/* The rail: the window's far left edge, 64 pixels, in footplate's order:
+   the yard's chip, the three mode tiles, and Settings at the foot. It
+   stays in view while the page scrolls under it. The chip and the tiles
+   keep footplate's rounded corners; the reset above squares everything
+   else. */
+.rail { position: sticky; top: 0; align-self: start; display: flex; flex-direction: column; align-items: center; gap: 4px; min-height: 100vh; min-height: 100dvh; padding: 8px 6px var(--gap); border-right: 1px solid var(--hairline); }
+.chip { display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 8px; color: #161718; font-family: var(--sans); font-size: 15px; font-weight: 600; }
+.chip-0 { background: #eba17e; } /* --yard-300 */
+.chip-1 { background: #e2794a; } /* --yard-400 */
+.chip-2 { background: #d3602f; } /* --yard-500 */
+.tiles { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.tile { position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; width: 52px; padding: 4px 0; border-radius: 8px; color: var(--dim); }
+.tile:hover { color: var(--ink); }
+.tile.open { background: var(--panel); color: var(--ink); }
+.tile .glyph { width: 28px; height: 28px; fill: none; stroke: currentColor; stroke-width: 2; }
+.glyph .heavy { stroke-width: 3; }
+.glyph .solid { fill: currentColor; stroke: none; }
+.glyph .teeth { stroke-dasharray: 3.2 2.6; }
+.tile-label { font-size: 10px; line-height: 1.2; }
+/* A tile whose mode waits on the person carries its numeral at its top
+   right, in the accent; the tile's title and aria-label carry the count
+   in words. */
+.pill { position: absolute; top: 0; right: 0; display: flex; align-items: center; justify-content: center; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 999px; background: var(--pill); color: #fff; font-size: var(--small); font-weight: 600; }
+.rail .foot { margin-top: auto; }
+
+/* The open mode's column beside the rail: its section head and rows. It
+   stays in view with the rail. */
+.rail-column { position: sticky; top: 0; align-self: start; padding: var(--gap); }
+.section-head { font-family: var(--sans); font-size: 13px; font-weight: 600; }
+.rail-column ul { margin-top: 4px; }
+.rail-column li a { display: block; padding: 8px 0; color: var(--dim); font-family: var(--sans); font-size: 13px; }
+.rail-column li a:hover { color: var(--accent-hover); }
+.rail-column li a[aria-current="page"] { color: var(--ink); box-shadow: inset 2px 0 0 var(--accent); padding-left: 10px; }
 /* The phone's More entry shows below 700 px only, where the bottom bar
-   has no room for the whole menu. */
-.menu .more { display: none; }
+   has no room for the open mode's column. */
+.rail .more { display: none; }
 
 .centre {
   border-left: 1px solid var(--hairline);
@@ -127,15 +145,18 @@ ul, ol { list-style: none; }
    window's edge, as the yard page's does. Below 1100 px the narrower
    rule below already centres a fixed-width centre, with or without it. */
 @media (min-width: 1100px) {
-  .shell:not(:has(aside.right)) { grid-template-columns: var(--menu-width) minmax(0, 1fr); }
+  .shell:not(:has(aside.right)) { grid-template-columns: var(--rail-width) var(--column-width) minmax(0, 1fr); }
 }
 
 /* The yard page has no right column, so its centre runs to the window's
    edge, with the depots in as many columns as fit. On a phone they
    stack, as every page does. */
 @media (min-width: 700px) {
-  .shell.wide { grid-template-columns: var(--menu-width) minmax(0, 1fr); }
+  .shell.wide { grid-template-columns: var(--rail-width) var(--column-width) minmax(0, 1fr); }
 }
+/* An error page stands under the rail with no open mode and no column:
+   its centre runs from the rail to the window's edge. */
+.shell:not(:has(nav.rail-column)) { grid-template-columns: var(--rail-width) minmax(0, 1fr); }
 /* The yard panel: each depot as wide as its widest plan needs, depots
    side by side where there is room and wrapping where not. A depot wider
    than the window keeps to it, and its diagrams pan inside, as on a
@@ -496,45 +517,60 @@ code { font: inherit; color: var(--dim); overflow-wrap: anywhere; }
 
 /* --- narrower windows ---------------------------------------------------- */
 
-/* No room for three columns: the right one goes. The centre keeps its
+/* No room for four columns: the right one goes. The centre keeps its
    width, centred, as on every narrower window. */
 @media (max-width: 1099px) {
-  .shell { grid-template-columns: var(--menu-width) minmax(0, var(--centre-width)); justify-content: center; }
+  .shell { grid-template-columns: var(--rail-width) var(--column-width) minmax(0, var(--centre-width)); justify-content: center; }
+  .shell:not(:has(nav.rail-column)) { grid-template-columns: var(--rail-width) minmax(0, var(--centre-width)); justify-content: center; }
   .right { display: none; }
 }
 
-/* A phone: the centre column alone, the menu a bar at the bottom. The bar
-   stays in view while the page scrolls, as the menu does on a wide window.
-   It shows the phone entries and More alone, five targets of about 78 px
-   at 390 px, none cut; the rest open under More, above the bar. */
+/* A phone: the centre column alone, the rail a bar at the bottom in its
+   order — Crew, Decide, Lines, Settings, More — five targets of about
+   78 px at 390 px, none cut, each 48 high. The bar stays in view while
+   the page scrolls, as the rail does on a wide window, and the open
+   mode's column opens under More, above the bar. */
 @media (max-width: 699px) {
   .shell { display: flex; flex-direction: column; }
   /* min-width: 0, as the grids' minmax(0, ...) above: what is wider than
      the window (a diagram, a stage file) pans inside its block instead of
-     widening the page and pushing the menu bar off it. */
+     widening the page and pushing the bar off it. */
   .centre { order: 1; flex: 1 0 auto; min-width: 0; border-left: 0; border-right: 0; }
-  .menu {
+  .rail-column { display: none; }
+  .rail {
     order: 2;
     position: sticky;
     bottom: 0;
     align-self: stretch;
+    flex-direction: row;
+    align-items: stretch;
+    gap: 0;
+    min-height: 0;
     padding: 0 0 env(safe-area-inset-bottom);
     background: var(--panel);
     border-top: 1px solid var(--hairline-strong);
-    /* Visible, as the desktop's hidden is not: More opens above the bar. */
+    border-right: 0;
+    /* Visible, so More opens above the bar. */
     overflow: visible;
   }
-  .menu .yard { display: none; }
-  .menu ul { display: flex; }
-  .menu li { flex: 1 1 0; min-width: 0; }
-  .menu li a { padding: 14px 2px; text-align: center; font-size: 10px; letter-spacing: 0.04em; overflow: hidden; text-overflow: ellipsis; }
-  .menu li a[aria-current="page"] { padding-left: 2px; box-shadow: inset 0 2px 0 var(--accent); }
-  .menu li.phone-more { display: none; }
-  .menu .more { display: block; }
-  .menu .more summary {
-    display: block;
-    padding: 14px 2px;
-    text-align: center;
+  .rail .chip { display: none; }
+  .rail .tiles, .rail .foot { display: contents; }
+  .rail .tile { flex: 1 1 0; min-width: 0; min-height: 48px; justify-content: center; border-radius: 0; }
+  .rail .tile .glyph { width: 20px; height: 20px; }
+  .rail .tile.open { background: none; box-shadow: inset 0 2px 0 var(--accent); }
+  .rail .more { display: block; flex: 1 1 0; min-width: 0; }
+  /* The bar's fifth entry. Note for the next shot: chrome
+     --screenshot drops a centred summary's text wherever the bar holds
+     more than one entry, while every browser window and CDP shot keeps
+     it — so the phone's shots come from agent-browser, not the shot
+     script. The summary stays a plain centred flex row; bending it for
+     the shot tool (left-aligned text, fixed offsets) would bend what
+     every person reads. */
+  .rail .more summary {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 48px;
     font-size: 10px;
     letter-spacing: 0.04em;
     text-transform: uppercase;
@@ -542,11 +578,10 @@ code { font: inherit; color: var(--dim); overflow-wrap: anywhere; }
     cursor: pointer;
     list-style: none;
   }
-  .menu .more summary::-webkit-details-marker { display: none; }
-  .menu .more summary::marker { content: ""; }
-  .menu .more summary:hover { color: var(--accent-hover); }
-  .menu .more summary[aria-current="page"] { color: var(--ink); box-shadow: inset 0 2px 0 var(--accent); }
-  .menu .more ul {
+  .rail .more summary::-webkit-details-marker { display: none; }
+  .rail .more summary::marker { content: ""; }
+  .rail .more summary:hover { color: var(--accent-hover); }
+  .rail .more ul {
     position: absolute;
     bottom: 100%;
     left: 0;
@@ -555,16 +590,16 @@ code { font: inherit; color: var(--dim); overflow-wrap: anywhere; }
     background: var(--panel);
     border-top: 1px solid var(--hairline-strong);
   }
-  .menu .more li + li { border-top: 1px solid var(--hairline); }
-  .menu .more li a { padding: 14px var(--gap); text-align: left; font-size: var(--small); letter-spacing: var(--label-spacing); min-height: 44px; }
-  .menu .more li a[aria-current="page"] { padding-left: var(--gap); box-shadow: inset 2px 0 0 var(--accent); }
+  .rail .more li + li { border-top: 1px solid var(--hairline); }
+  .rail .more li a { display: block; padding: 14px var(--gap); font-family: var(--sans); font-size: 13px; min-height: 48px; }
+  .rail .more li a[aria-current="page"] { color: var(--ink); box-shadow: inset 2px 0 0 var(--accent); }
   /* More opens as a layer over the page: a backdrop dims the page under
      it, so the sheet's edge reads, and a tap on it closes the sheet —
      the tap lands on the summary the backdrop belongs to, which shuts
      the details. The sheet and the bar's More stand above the shade. */
-  .menu .more details[open] > summary { position: relative; z-index: 1; }
-  .menu .more details[open] > summary::before { content: ""; position: fixed; inset: 0; background: var(--shade); }
-  .menu .more details[open] > ul { z-index: 1; }
+  .rail .more details[open] > summary { position: relative; z-index: 1; }
+  .rail .more details[open] > summary::before { content: ""; position: fixed; inset: 0; background: var(--shade); }
+  .rail .more details[open] > ul { z-index: 1; }
   /* The talk page: the shell fills the viewport, the centre takes what
      the bottom bar leaves, and the letters scroll between the crew and
      the form as on a desktop. */

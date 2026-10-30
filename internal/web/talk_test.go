@@ -138,8 +138,10 @@ func TestTalk(t *testing.T) {
 		`maxlength="65536"`,
 		`<a href="/talk?with=scribe">scribe</a>`,
 		`<a href="/talk?with=yardmaster" aria-current="page">`, // the one in conversation
-		`<a href="/talk" aria-current="page">`,                 // the menu's entry
+		`<a href="/talk" aria-current="page">`,                 // the Crew column's entry
 		`class="dot unread"`,                                   // the yardmaster's mail to jo is unread
+		`title="Crew — 1 unread letter" aria-label="Crew — 1 unread letter"`,
+		`<span class="pill" aria-hidden="true">1</span>`,
 	} {
 		if !strings.Contains(r.body, want) {
 			t.Errorf("the page lacks %q:\n%s", want, r.body)
@@ -158,6 +160,43 @@ func TestTalk(t *testing.T) {
 	}
 	if r := f.get("/talk?before=nope"); r.status != 400 {
 		t.Errorf("/talk?before=nope: status %d, want 400", r.status)
+	}
+	// The aggregate counts mail from both senders. The scribe's unseen
+	// letter is interleaved before the newest yardmaster letter; opening
+	// that conversation must not acknowledge it.
+	ctx := context.Background()
+	must(t, f.st.Mail(ctx, "jo", "sweep the yard", "scribe"))
+	must(t, f.st.Mail(ctx, "jo", "and oil the gate", "yardmaster"))
+	r = f.get("/talk?with=yardmaster")
+	if r.status != 200 || !strings.Contains(r.body, `title="Crew — 3 unread letters" aria-label="Crew — 3 unread letters"`) ||
+		!strings.Contains(r.body, `<span class="pill" aria-hidden="true">3</span>`) {
+		t.Errorf("opening the conversation changed the aggregate unread count: %s", r.body)
+	}
+	if !strings.Contains(r.body, `<a href="/talk?with=scribe"><span class="dot unread"`) {
+		t.Errorf("the second sender's mark fell: %s", r.body)
+	}
+	box, err := f.st.UserInbox(ctx, "jo", 0, "jo")
+	must(t, err)
+	if box.Unread != 3 {
+		t.Errorf("jo's unread is %d, want 3: opening the conversation acknowledged mail", box.Unread)
+	}
+	// Above nine the numeral caps, while the title and aria-label retain
+	// the full count. An acknowledgement elsewhere changes the next render.
+	for i := 0; i < 7; i++ {
+		must(t, f.st.Mail(ctx, "jo", fmt.Sprintf("letter %d", i), "yardmaster"))
+	}
+	r = f.get("/talk?with=yardmaster")
+	if !strings.Contains(r.body, `title="Crew — 10 unread letters" aria-label="Crew — 10 unread letters"`) ||
+		!strings.Contains(r.body, `<span class="pill" aria-hidden="true">9&#43;</span>`) {
+		t.Errorf("ten unread letters do not use the capped pill: %s", r.body)
+	}
+	box, err = f.st.UserInbox(ctx, "jo", 0, "jo")
+	must(t, err)
+	must(t, f.st.AckUserInbox(ctx, "jo", box.Mail[0].Seq, "jo"))
+	r = f.get("/talk?with=yardmaster")
+	if !strings.Contains(r.body, `title="Crew — 9 unread letters"`) ||
+		!strings.Contains(r.body, `<span class="pill" aria-hidden="true">9</span>`) {
+		t.Errorf("an acknowledgement elsewhere did not lower the next render: %s", r.body)
 	}
 }
 
