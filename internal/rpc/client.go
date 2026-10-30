@@ -50,6 +50,13 @@ type Client struct {
 // SessionHeader carries the caller's session on every call.
 const SessionHeader = "X-Yardr-Session"
 
+// FreshWitnessHeader carries the call's fresh sign-in where it has one: the
+// user the gateway authenticated and their authentication time in seconds
+// since the epoch, apart by one space. The web sets it from the token it
+// verified on the request that approves (store.WithFreshWitness); the
+// socket's server reads it back onto the call.
+const FreshWitnessHeader = "X-Yardr-Fresh-Witness"
+
 var _ store.API = (*Client)(nil)
 
 func NewClient(socket string) *Client {
@@ -153,6 +160,9 @@ func (c *Client) callOnce(ctx context.Context, method string, out any, body []by
 	}
 	if c.Session != "" {
 		req.Header.Set(SessionHeader, c.Session)
+	}
+	if fw, ok := store.FreshWitnessOf(ctx); ok {
+		req.Header.Set(FreshWitnessHeader, fw.User+" "+strconv.FormatInt(fw.AuthTime.Unix(), 10))
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {

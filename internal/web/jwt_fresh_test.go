@@ -2,6 +2,7 @@ package web
 
 import (
 	"math"
+	"sync"
 	"testing"
 	"time"
 
@@ -72,5 +73,55 @@ func TestFreshAt(t *testing.T) {
 		if got := (jwtIdentity{authTime: c.auth}).freshAt(now, c.window, c.since); got != c.want {
 			t.Errorf("%s: freshAt = %v, want %v", c.name, got, c.want)
 		}
+	}
+}
+
+// A return state is spent once even when two gateway callbacks arrive at
+// the same time; an expired state cannot be spent either.
+func TestFreshChallengeReturnStateIsOneUse(t *testing.T) {
+	t.Parallel()
+	challenge := freshChallenge{bead: "yardr-one", ask: 3, user: "jo", at: time.Now()}
+	s := &Server{
+		freshPending: map[string]freshChallenge{"state": challenge},
+		freshStrong:  map[string]freshAuth{},
+	}
+	auth := challenge.at.Add(time.Second)
+	start := make(chan struct{})
+	results := make(chan bool, 32)
+	var wg sync.WaitGroup
+	for range 32 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			results <- s.consumeFresh("state", challenge, "jo", auth)
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(results)
+	succeeded := 0
+	for ok := range results {
+		if ok {
+			succeeded++
+		}
+	}
+	if succeeded != 1 {
+		t.Fatalf("concurrent returns consumed the state %d times, want once", succeeded)
+	}
+	if len(s.freshPending) != 0 {
+		t.Fatal("the consumed return state remains pending")
+	}
+	if got := s.freshStrong["jo"]; !got.auth.Equal(auth) || !got.since.Equal(challenge.at) {
+		t.Fatalf("the returned authentication is %+v, want auth %v since %v", got, auth, challenge.at)
+	}
+
+	expired := freshChallenge{bead: "yardr-two", ask: 4, user: "jo", at: time.Now().Add(-freshPendingTTL - time.Second)}
+	s.freshPending["expired"] = expired
+	if s.consumeFresh("expired", expired, "jo", auth) {
+		t.Fatal("an expired return state was consumed")
+	}
+	if _, ok := s.freshPending["expired"]; ok {
+		t.Fatal("the expired return state remains pending")
 	}
 }

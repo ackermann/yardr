@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 // A setup pack the tests' reader serves: one minted source with a read
@@ -638,6 +639,45 @@ func TestSetupApprovalRecordsCarryPending(t *testing.T) {
 	// answer's event is witnessed terminal.
 	if ev := lastAnswer(t, y); Witness(ev) != WitnessTerminal || Via(ev) != "" {
 		t.Errorf("the setup approval's event is witnessed %q via %q, want terminal with no device", Witness(ev), Via(ev))
+	}
+}
+
+// A strong setup is approved under a fresh sign-in as a run card is: the
+// approval carries the card out and witnesses the answer's event, and a
+// stale sign-in refuses with no carrying record and the ask open.
+func TestSetupApprovalUnderAFreshSignIn(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y, _ := runYard(t)
+	y.setSetupPack(setupMailPack())
+	seq := y.ask(t, setupAsk(), "yardmaster")
+	if !StrongWeight(y.asked(t, seq).Ask.Weight) {
+		t.Fatalf("the setup weighs %s, want it strong", WeightWords(y.asked(t, seq).Ask.Weight))
+	}
+	if err := y.SetSetting(y.ctx, WebJWTPrivilegedSessionMaxAgeSetting, "15m", "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	values := map[string]string{"SETUP_ACCOUNT": "ops@example.com"}
+	stale := WithFreshWitness(y.ctx, "mckean", y.now.Add(-time.Hour))
+	want := "ask " + strconv.FormatUint(seq, 10) + " is strong (code): this approval's fresh sign-in is outside the gateway's window, and a strong card is approved in the hosted web only under one inside it. Nothing ran, and the ask stays open"
+	if _, err := y.ApproveSetup(stale, y.bead, seq, 2, values, "", "mckean", true); err == nil || err.Error() != want {
+		t.Fatalf("approving a strong setup under a stale sign-in = %v, want %q", err, want)
+	}
+	if rec, err := y.CarryOf(y.ctx, y.bead, seq); err != nil || rec != nil {
+		t.Fatalf("a refused approval left a carrying record: %+v, %v", rec, err)
+	}
+	if got := y.asked(t, seq); got.State != AskOpen {
+		t.Fatalf("the ask is %s after the refusal, want it open", got.State)
+	}
+	fresh := WithFreshWitness(y.ctx, "mckean", y.now)
+	done, err := y.ApproveSetup(fresh, y.bead, seq, 2, values, "", "mckean", true)
+	if err != nil {
+		t.Fatalf("approving a strong setup under a fresh sign-in = %v", err)
+	}
+	if done.Result != CarryPending {
+		t.Fatalf("the fresh approval recorded %q", done.Result)
+	}
+	if ev := lastAnswer(t, y); Witness(ev) != WitnessFreshSignIn || Via(ev) != "" {
+		t.Fatalf("the setup approval's event is witnessed %q via %q, want a fresh sign-in with no device", Witness(ev), Via(ev))
 	}
 }
 

@@ -154,6 +154,12 @@ type Server struct {
 	// jwt verifies a gateway's token per request (UseJWT), nil when the
 	// view takes no JWT mode.
 	jwt *jwtVerifier
+	// freshMu guards freshPending, the strong-card sign-ins waiting at
+	// the gateway, and freshStrong, the authentication time each
+	// operator's last consumed challenge returned (approve.go).
+	freshMu      sync.Mutex
+	freshPending map[string]freshChallenge
+	freshStrong  map[string]freshAuth
 }
 
 // NewServer serves the yard behind st, whose home directory is home.
@@ -165,7 +171,8 @@ func NewServer(st store.API, home string, log *slog.Logger) (*Server, error) {
 		streamsBy: map[string]int{}, streamMax: streamMax, streamPerAddr: streamPerAddr,
 		limitsBy: map[string]*limitsEntry[ProviderLimits]{}, sourceLimitsBy: map[string]*limitsEntry[SourceLimits]{},
 		limitsEvery: defaultLimitsEvery, estimates: eta.EstimateManyViaStore,
-		pagesMux: http.NewServeMux(), pagesAddr: store.DefaultWebPagesAddr}
+		pagesMux: http.NewServeMux(), pagesAddr: store.DefaultWebPagesAddr,
+		freshPending: map[string]freshChallenge{}, freshStrong: map[string]freshAuth{}}
 	var err error
 	if s.assets, err = loadAssets(); err != nil {
 		return nil, err
@@ -185,7 +192,7 @@ var partial = []string{"shell", "aside", "entry", "card", "csrf"}
 // loadPages parses every template of templates/ with the shell, one set per
 // page: each page defines "content", so two pages cannot share a set.
 func (s *Server) loadPages() (map[string]*template.Template, error) {
-	funcs := template.FuncMap{"asset": s.assetURL, "blobURL": blobURL, "clock": clock, "csrf": s.csrfValue, "inc": inc, "markAuthor": markAuthor}
+	funcs := template.FuncMap{"asset": s.assetURL, "blobURL": blobURL, "clock": clock, "csrf": s.csrfValue, "inc": inc, "markAuthor": markAuthor, "strong": store.StrongWeight}
 	var parts []string
 	for _, name := range partial {
 		parts = append(parts, "templates/"+name+".html")
@@ -233,6 +240,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /flows", s.handleFlows)
 	s.mux.HandleFunc("GET /beads", s.handleBeads)
 	s.mux.HandleFunc("GET /beads/{id}", s.handleBead)
+	// The gateway's return after a strong card's sign-in: the one-use
+	// state the approve minted, bound to its card (approve.go).
+	s.mux.HandleFunc("GET /beads/{id}/fresh/{ask}/{state}", s.handleFresh)
 	s.mux.HandleFunc("GET /blobs/{hash}", s.handleBlob)
 	s.mux.HandleFunc("GET /blobs/{hash}/{name}", s.handleBlob)
 	// The configuration lists (lists.go, limits.go): each has a page under

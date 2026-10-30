@@ -214,9 +214,10 @@ func (s *Server) beadMove(w http.ResponseWriter, r *http.Request, b *store.Bead,
 	http.Redirect(w, r, "/beads/"+url.PathEscape(moved.ID), http.StatusSeeOther)
 }
 
-// beadAnswer answers the form's ask through AnswerAsk, DeferAsk or
-// DeclineAsk, as the request's user. The ask must be open to them: one
-// answered already, or asked of another, is refused.
+// beadAnswer answers the form's ask through AnswerAsk, DeferAsk,
+// DeclineAsk or GiveSecret, or approves its run or setup card, as the
+// request's user. The ask must be open to them: one answered already, or
+// asked of another, is refused.
 func (s *Server) beadAnswer(w http.ResponseWriter, r *http.Request, b *store.Bead, rev string) {
 	ctx := r.Context()
 	seq, err := strconv.ParseUint(r.PostFormValue("ask"), 10, 64)
@@ -232,6 +233,12 @@ func (s *Server) beadAnswer(w http.ResponseWriter, r *http.Request, b *store.Bea
 	i := slices.IndexFunc(asks, func(a store.BeadAsk) bool { return a.Ask == seq })
 	if i < 0 {
 		s.beadAgain(w, r, b.ID, fmt.Sprintf("ask %d on bead %s is answered already, or asked of another; read it again", seq, b.ID))
+		return
+	}
+	// An approval carries its preset pick as an option too: it is read by
+	// the approval, not as a pick.
+	if r.PostFormValue("action") == "approve" {
+		s.beadApprove(w, r, b, asks[i])
 		return
 	}
 	answer := store.Answer{Ask: seq, Words: r.PostFormValue("words")}

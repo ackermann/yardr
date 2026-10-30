@@ -323,3 +323,28 @@ func TestClientMailLong(t *testing.T) {
 		t.Fatalf("a text past %d mails = %v", store.MaxMailParts, err)
 	}
 }
+
+// A call made with a fresh sign-in on its context carries the witness
+// header: the user the gateway authenticated and their authentication
+// time. One made without carries none.
+func TestCallSendsFreshWitness(t *testing.T) {
+	sock := socket(t)
+	var got []string
+	serve(t, sock, func(w http.ResponseWriter, r *http.Request) {
+		got = append(got, r.Header.Get(FreshWitnessHeader))
+		writeJSON(w, reply{Result: uint64(1)})
+	})
+	c := NewClient(sock)
+	at := time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
+	ctx := store.WithFreshWitness(context.Background(), "jo", at)
+	if _, err := c.Head(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Head(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"jo " + fmt.Sprint(at.Unix()), ""}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("witness headers = %q, want %q", got, want)
+	}
+}

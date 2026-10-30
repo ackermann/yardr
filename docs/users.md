@@ -807,24 +807,31 @@ front of the listener and nothing more
 crosses a link to another yard.
 
 **A stolen device of the operator can have the commands of a run ask run,
-and no other.** Whoever holds its token can approve every open run ask
-that is asked of the operator. They need not wait for one: a device cannot
-write a run ask, but it writes mail as the operator, and the yardmaster
-does what the operator asks by mail, so the holder can ask the yardmaster
-to propose a command and then approve it. So the commands a run ask may
-hold are what a stolen device of the operator can have run, with one
-agent's help, until `yardr user device rm`. Row by row:
+and no other — and a strong card's command not by the paired-device token
+alone.** Whoever holds its token can approve every open run ask that is
+asked of the operator, except a strong one (below). They need not wait for
+one: a device cannot write a run ask, but it writes mail as the operator,
+and the yardmaster does what the operator asks by mail, so the holder can
+ask the yardmaster to propose a command and then approve it. So the
+commands a run ask may hold are what a stolen device of the operator can
+have run, with one agent's help, until `yardr user device rm` — with the
+one exception the next paragraph names. Row by row:
 
 | the command | what a holder of the token gains |
 |---|---|
+| `peer add <name> <invite>`: a peer linked from an invite | Nothing with only the paired-device token: the card is strong (trust). With the operator's fresh sign-in in the hosted web, or at a terminal on the yard's machine, the invited yard is linked and its calls and mail then cross as the invite says — a way in that stands after the device is removed |
+| `peer set <name> --url <url>`: where a peer is called moved | Nothing with only the paired-device token: the card is strong (trust). With a fresh sign-in or at a terminal, the link calls the moved address and the old address is stranded |
 | `peer allow <peer> --mail-limit <n>`: a link's mail limit raised | A yard that is linked already may write here more often. Nothing of the holder's own |
 | `peer allow <peer> --send <kinds>` or `--receive <kinds>`: what a link carries widened, of any kind | Mail may flow where it did not: out to a linked yard's crew through a crew member the holder directs by mail, or in from the linked yard. With `bead` beads may cross, and only once an intake says where they go does one arrive; with `ask`, `file` and `thread` the linked yard's questions stand among this yard's decisions, its files land in this yard's blobs and what it says of a bead is kept on it. Nothing of the holder's own |
+| `peer allow <peer> --expose <names>`, `--trust <names>` or `--reach <name>@<peer>=<user>`: a link's trust widened | Nothing with only the paired-device token: the card is strong (trust). With a fresh sign-in or at a terminal, who is exposed, which names are trusted and whose asks are sent widen as the card showed; narrowing is anyone's and no card |
 | `peer intake <peer> --depot <depot> --flow <flow>`: where a linked yard's beads go | The beads a linked yard sends, once the link takes `bead`, become beads of a depot of this yard, pinned to a flow, and whoever the routes lead the flow's first stage to works them. Where that is a group of agents, work starts on the other yard's text, which becomes the brief of an agent that runs with this yard's permissions, with nobody of this yard looking first: the card names the group. A linked yard the holder runs can then start work here. Anyone takes an intake away again, and only the operator replaces one |
 | `source set <source> calls_per_hour=<n>` or `updates_per_hour=<n>`: a source's calls an hour raised | Calls that are granted already may be made more often. Only the operator lowers it again |
 | `source grant <source> read\|<call> --crew <name>` or `--group <name>`: a grant of a source's calls | The yard's credential for that source now works for a crew member or a group that the holder directs by mail: the holder can have the source read, and for an update call written to, and reads the results in the notes. Without the grant the holder has only what was granted before |
 | `source add <file>`: a new source declared by a file with relative command programs and a card that fits | A source the holder names stands that did not, its declaration and each command file it names installed as the card showed them. The yard's own credential for it is still unset, so nothing is read or written until the operator gives a key and grants a call; but what then runs and where it sends are the file the holder had installed |
 | `source ignore <source> --rm <id>`: a sender of a source no longer ignored | The sender's next message follows the hook's word again: under `unknown` a fresh mapping card is offered, under `allow` it is heard as an outsider. The rest stay ignored, and the sender is ignored again only from the mapping card their next message offers |
+| `source add <file>`, replacing a source that stands: a source's declaration replaced | Nothing with only the paired-device token: the card is strong (code) in every replacement form. With a fresh sign-in or at a terminal, the new declaration and each command file it names are installed as the card's diff showed them |
 | `pack apply <name>`, with no flag: an embedded pack whose card fits 40 lines | Of kind source, the pack's sources added, or replaced with their diffs on the card, with the pack's command files installed from the yardr build the yard runs. Of a depot kind, re-applied to the one depot that holds it where its plan asks nothing and is not refused or blocked by edited files, the plan's objects created and changed as the card showed them: flows, groups, roles and scripts. Either still grants no call, makes no hook and sets no credential's file |
+| `pack apply <name>`, first install of an embedded depot pack to a named depot | Nothing with only the paired-device token where the pack brings a program or trust: the card is strong. A credential by itself does not make a card strong. With a fresh sign-in or at a terminal, the pack is installed to the named depot with the mappings and plan the card showed. A pack of kind source is installed with `bead ask --setup`, never this row |
 | `hook add <name> --source <source>`: a new webhook endpoint for a declared source | A URL on the yard, `POST /hooks/<name>`, that runs the source's normalize command on each delivery it verifies with the signing secret the holder gave on the hook's own secret card: the holder knows the secret, so can send deliveries the yard hears as the source's, which reach whoever subscribes to it. Where the yard registers the hook itself the secret is the yard's made one, which the holder never sees, and the approval registers it at the service with the values the holder gives the card's asked names. It maps no stage and acts as no crew member, which stay in a terminal |
 | `subscribe <user> yardr …`, asked of the operator: a subscription to the yard's own events, the operator's or another user's | That user is told of more of what happens in the yard, as notifications in their inbox and, where a source tells them, outside the yard. The holder reads those events in the stream already |
 | `user set <user> tell=<parts>`, asked of the operator: which parts a source tells the operator or another user of outside the yard | That user's phone is told of more or of less, and what still waited to be told of a part that is dropped is not told. Where it is told and with which address stay as they are, and the inbox and the queue of decisions are filled as before. The holder gains nothing to read |
@@ -848,6 +855,24 @@ agent's help, until `yardr user device rm`. Row by row:
 | `depot test <depot>`: a depot's test command changed | The holder's command stands as what tests the depot: a script group's command gets it as YARDR_TEST, and builders' primes tell them to run it. Only the operator takes it back, with another card carrying the command that stood |
 | `depot base <depot> <base>`: a depot's base changed | Bead branches of the depot start from the holder's base instead. Only the operator takes it back, with the base that stood |
 
+**Strong cards.** A card the yard weighs `trust` or `code` — it widens
+who the yard listens to, or it brings a program the yard will run —
+cannot be approved with only a paired-device token. On a hosted yard it
+is approved in the hosted web, in a session the gateway authenticated for
+a strong card no more than fifteen minutes earlier, which the yard reads
+from the signed time the gateway gives and from no token of the yard's;
+one fresh sign-in witnesses every strong card approved inside those
+fifteen minutes. On any yard it is approved on the yard's socket, at a
+terminal on the yard's machine. Everywhere the approval says how it was
+witnessed (`witness: fresh sign-in`, `witness: terminal`) beside the
+`via` it carries. The bead and event stream show the approval to clients
+that read or follow them; an outside notification depends on the
+operator's existing subscriptions and `notify` and `tell` settings, and
+successful delivery, so no alert to every paired device or outside
+address is promised. A card weighed neither trust nor code — a credential
+or an update taken alone, a routine card, and every narrowing, `peer rm`
+among them — is approved as it always was.
+
 A setup approval is no run ask, and gives a holder nothing past what one
 decision carries: an embedded pack of sources applied (the `pack apply`
 row), its account typed (the giving above) or taken from a source the yard
@@ -856,20 +881,19 @@ preset's calls granted (the `source grant` row). It is asked as a run ask
 is, by mail to the yardmaster.
 
 What it still cannot have run, because no run ask may hold it: adding a
-device or pairing one, adding a link or trusting a name of another yard,
-moving one, giving one reach or exposing one, taking a peer's
-identity back, changing the operator, changing through
-which source a user is told or where their address is read from, replacing
-a source from a file or removing one, replacing a hook or removing one,
-setting a hook's stage map or the crew member it acts as, reading a
-source's credential or setting where it is read from or the command that
-mints one, defining what a group runs or a crew member is, and applying a
-pack yardr does not embed,
-with any flag, or where its plan asks. So it cannot make itself a
-second way in — no new device, no new credential, and the operator stands
-— and removing the device ends what it could do. What a grant let happen
-in between has happened, and what an approval changed stays until it is
-taken back: the card and `yardr prime --bead` name the command that does.
+device or pairing one, changing the operator, changing through which
+source a user is told or where their address is read from, replacing a
+hook or removing one, setting a hook's stage map or the crew member it
+acts as, reading a source's credential or setting where it is read from
+or the command that mints one, defining what a group runs or a crew
+member is, removing a source, and applying a pack yardr does not embed,
+with any flag, or where its plan asks. So a stolen device still cannot
+make itself a second way in — no new device, no new credential of its
+own, and the operator stands — and where a card would make one for it (a
+link added or widened, a program installed), the device alone is refused
+the card. Removing the device ends what it could do; what a properly
+witnessed approval changed stands until it is taken back, as before: the
+card and `yardr prime --bead` name the command that does.
 
 What stands against it besides: the yard runs the command stored on the
 ask and takes no word of it from the call; an approval is refused when
@@ -887,14 +911,21 @@ when and from which address a device was last used. A device of any other
 user, and a credential that anything but the yard's own record of a device
 vouches for, approves nothing.
 
-**Approvals cross the edge.** A paired device approves run and setup asks
-from wherever it reaches the yard, down the link from the edge included.
-The edge sees the device's token on every call, so a dishonest or
-compromised edge, or a stolen phone that is unlocked, can approve exactly
-the command stored on an ask. What holds it is that the command is fixed
-on the ask, that the operator paired the device, that the phone's unlock
-stands in front of the approval, which the yard cannot verify, and that
-`yardr user device rm` ends it at the next request.
+**Approvals cross the edge, and strong approvals do not ride a device
+token.** A paired-device token approves run and setup asks from wherever
+it reaches the yard, down the link from the edge included — except a
+strong card, which it cannot approve. The same physical device may open
+the hosted web after a fresh account sign-in. The edge sees the device's
+token on every call, so a dishonest or compromised edge, or a stolen
+phone that is unlocked, can approve exactly the command stored on an ask
+that is not strong. What holds it is that the command is fixed on the
+ask, that the operator paired the device, that the phone's unlock stands
+in front of the approval, which the yard cannot verify, and that `yardr
+user device rm` ends it at the next request. A strong card is held by one
+thing more: within fifteen minutes before it ran, the operator's own
+account was signed in to again at the gateway for a strong card, or the
+approval was made at a terminal on the yard's machine, and the device's
+token was no part of either.
 
 **A harness login's code crosses the edge too.** When the yard leads a
 harness's login for the operator ([crew.md](crew.md#the-yard-leads-a-harnesss-login)),

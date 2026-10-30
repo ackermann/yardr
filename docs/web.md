@@ -271,7 +271,8 @@ they are again. The time is fresh while it is no older than
 privileged session (Kratos's `privileged_session_max_age` on a hosted yard).
 A token without the claim is never fresh, so a gateway that signs none
 leaves every session not fresh; and a claim that cannot be read is served
-like none, since reading it refuses nothing.
+like none, since reading it refuses nothing. A strong card's approval is
+what reads it ([One bead](#one-bead)).
 
 ### `--unsafe`: every interface
 
@@ -1444,20 +1445,34 @@ On a view that acts, the page answers the bead's open asks to its user,
 oldest first: the question, who asked, the context, the
 options numbered with what each does, the recommendation, and for a secret
 what it asks for, for a run the command with what it changes and the way
-back. A weighty card shows its weight first, one line a class, and
-since the page has no gate to put before it, the card offers no control
-the yard would refuse for want of its person's word: a secret ask shows
-no field and no giving, a mapping ask shows its options as a list with no
-pick, and each names the terminal command instead, where the card is
-given or picked. Each answers under itself, with its options as buttons
-where the card offers any, with Later and Decline; a secret ask still
-names the terminal command beside, as does a run ask, which is approved
-with `yardr bead answer`. A giving or a writing pick posted straight at
+back, for a setup the pack with the yard's sentences, the account and the
+presets. A weighty card shows its weight first, one line a class. A run
+card that is routine approves below it, with fields where the card asks
+for values in the clear; a setup card approves with its preset pick and
+the account typed beside it, the candidate taken instead, or a bare pick
+where the card keeps the account that stands. A card that is weighty but
+not strong has no gate in this window: a secret ask shows no field and no
+giving, a mapping ask shows its options as a list with no pick, a run or
+setup card shows no approval, and each names the terminal command
+instead, where the card is given, picked or approved. Each answers under
+itself, with its options as buttons where the card offers any, with Later
+and Decline; a run or setup card still names the terminal command beside
+its approval. A giving, a writing pick or an approval posted straight at
 the handler is still the yard's to refuse, in its own words, with nothing
 written. Where the bead waits
 for the user in a stage a manual group works, the outcomes send it on as
 `yardr review` offers them, with a note. Each write carries the revision
 the page was drawn from ([Acting as a user](#acting-as-a-user)).
+
+On a hosted yard, a strong card — trust or code in its weight — approves
+on the page under a fresh sign-in ([Behind an auth
+gateway](#behind-an-auth-gateway)): approving starts the gateway
+re-authentication unless the session's last authentication was already a
+strong-card re-authentication by the operator inside the gateway's
+window, and the return approves the card it was raised for and no other.
+One fresh sign-in witnesses several strong cards inside the window. A
+self-hosted yard approves strong cards at a terminal on the yard's
+machine, never on the page.
 
 A note's files are what `yardr bead note --file` attached to it. Each
 image shows below the note's words, with those words as its alt text; each

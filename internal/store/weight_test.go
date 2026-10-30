@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -8,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // weighs is the classes the yard gives the command a card would propose,
@@ -507,6 +509,96 @@ func TestStrongCardRefusesADevicesApproval(t *testing.T) {
 	}
 	if ev := events[len(events)-1]; ev.Kind != "test_followup" || Witness(ev) != "" {
 		t.Fatalf("the later event is %+v, want no witness", ev)
+	}
+}
+
+// A strong card is approved under a fresh sign-in: the call carries the
+// door's statement of who the gateway authenticated and when, judged
+// against the gateway's own window, and the answer's event records the
+// fresh sign-in. One made as another user, with no authentication time,
+// or outside the window is refused, runs nothing, and leaves the ask open;
+// a routine card takes no witness either way.
+func TestStrongCardApprovesUnderAFreshSignIn(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y := listYard(t)
+	fresh := func(user string, at time.Time) context.Context {
+		return WithFreshWitness(y.ctx, user, at)
+	}
+	trust := y.ask(t, listAsk("mckean", "peer allow airy --mail-limit 300"), "yardmaster")
+
+	// With no window set, nothing is fresh.
+	wantWindow := "ask " + itoa(trust) + " is strong (trust): this approval's fresh sign-in is outside the gateway's window, and a strong card is approved in the hosted web only under one inside it. Nothing ran, and the ask stays open"
+	if _, err := y.ApproveAsk(fresh("mckean", y.now), y.bead, trust, "mckean", true, nil); err == nil || err.Error() != wantWindow {
+		t.Fatalf("approving a strong card with no window set = %v, want %q", err, wantWindow)
+	}
+	if err := y.SetSetting(y.ctx, WebJWTPrivilegedSessionMaxAgeSetting, "15m", "mckean"); err != nil {
+		t.Fatal(err)
+	}
+
+	// A fresh sign-in runs the card and witnesses the answer's event, with
+	// no device behind it.
+	if _, err := y.ApproveAsk(fresh("mckean", y.now.Add(-time.Minute)), y.bead, trust, "mckean", true, nil); err != nil {
+		t.Fatalf("approving a strong card under a fresh sign-in = %v", err)
+	}
+	if got := y.peerOf(t, "airy").MailsAnHour(); got != 300 {
+		t.Fatalf("the fresh approval left the mail limit at %d", got)
+	}
+	if ev := lastAnswer(t, y); Witness(ev) != WitnessFreshSignIn || Via(ev) != "" {
+		t.Fatalf("the fresh approval's event is witnessed %q via %q, want a fresh sign-in with no device", Witness(ev), Via(ev))
+	}
+
+	// At the window's edge the sign-in still counts.
+	edge := y.ask(t, listAsk("mckean", "peer allow airy --mail-limit 400"), "yardmaster")
+	if _, err := y.ApproveAsk(fresh("mckean", y.now.Add(-15*time.Minute)), y.bead, edge, "mckean", true, nil); err != nil {
+		t.Fatalf("approving at the window's edge = %v", err)
+	}
+
+	// Past it, and ahead of the clock past its skew, the approval is
+	// refused, runs nothing, and leaves the ask open.
+	stale := y.ask(t, listAsk("mckean", "peer allow airy --mail-limit 500"), "yardmaster")
+	wantStale := "ask " + itoa(stale) + " is strong (trust): this approval's fresh sign-in is outside the gateway's window, and a strong card is approved in the hosted web only under one inside it. Nothing ran, and the ask stays open"
+	for name, at := range map[string]time.Time{
+		"a minute past the window": y.now.Add(-16 * time.Minute),
+		"ahead of the clock":       y.now.Add(2 * time.Minute),
+	} {
+		if _, err := y.ApproveAsk(fresh("mckean", at), y.bead, stale, "mckean", true, nil); err == nil || err.Error() != wantStale {
+			t.Fatalf("%s: approving a strong card = %v, want %q", name, err, wantStale)
+		}
+	}
+	if got := y.peerOf(t, "airy").MailsAnHour(); got != 400 {
+		t.Fatalf("a refused approval set the mail limit to %d", got)
+	}
+	if r := y.asked(t, stale); r.State != AskOpen {
+		t.Fatalf("the ask is %s after the refusal, want it open", r.State)
+	}
+
+	// With no authentication time, and as another user, the same: refused,
+	// nothing run, the ask open.
+	wantNone := "ask " + itoa(stale) + " is strong (trust): this approval carries a fresh sign-in with no authentication time, and a strong card is approved in the hosted web only under one. Nothing ran, and the ask stays open"
+	if _, err := y.ApproveAsk(fresh("mckean", time.Time{}), y.bead, stale, "mckean", true, nil); err == nil || err.Error() != wantNone {
+		t.Fatalf("approving with no authentication time = %v, want %q", err, wantNone)
+	}
+	wantOther := "ask " + itoa(stale) + " is strong (trust): this approval's fresh sign-in was made as hal, not as mckean. Nothing ran, and the ask stays open"
+	if _, err := y.ApproveAsk(fresh("hal", y.now), y.bead, stale, "mckean", true, nil); err == nil || err.Error() != wantOther {
+		t.Fatalf("approving under another user's sign-in = %v, want %q", err, wantOther)
+	}
+
+	// Through a device the strong refusal still comes first: the witness
+	// on the call buys it nothing.
+	phone := WithFreshWitness(WithVia(y.ctx, "mckean", "phone"), "mckean", y.now)
+	wantDevice := "ask " + itoa(stale) + " is strong (trust): this approval arrived through the device phone, and a strong card is not approved through a device. Approve it at a terminal on the yard's machine. Nothing ran, and the ask stays open"
+	if _, err := y.ApproveAsk(phone, y.bead, stale, "mckean", true, nil); err == nil || err.Error() != wantDevice {
+		t.Fatalf("approving a strong card through a device with a witness = %v, want %q", err, wantDevice)
+	}
+
+	// A routine card takes no witness: it approves with one on the call as
+	// without, and claims none.
+	routine := y.ask(t, listAsk("mckean", "source set crm calls_per_hour=30"), "yardmaster")
+	if _, err := y.ApproveAsk(fresh("mckean", y.now), y.bead, routine, "mckean", false, nil); err != nil {
+		t.Fatalf("approving a routine card with a witness on the call = %v", err)
+	}
+	if ev := lastAnswer(t, y); Via(ev) != "" || Witness(ev) != "" {
+		t.Fatalf("the routine approval's event is via %q witnessed %q, want neither", Via(ev), Witness(ev))
 	}
 }
 

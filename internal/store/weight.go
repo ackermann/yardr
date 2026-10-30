@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 	"unicode"
 
 	"yardr.dev/yardr/internal/source"
@@ -146,18 +147,20 @@ func weighedRefusal(seq uint64, weight []AskWeight, weighed bool) error {
 	return fmt.Errorf("ask %d is %s: approve it where its weight is shown; a client sends \"weighed\": true once its person has passed its gate", seq, WeightWords(weight))
 }
 
-// strongWeight reports whether the card's stored weight makes it a strong
+// StrongWeight reports whether the card's stored weight makes it a strong
 // card (design yardr-2nb1 5.2): trust or code, one class enough. Identity
-// cards (as-user) are not strong.
-func strongWeight(weight []AskWeight) bool {
+// cards (as-user) are not strong. The web reads the same predicate before
+// it starts a strong card's sign-in, never its own.
+func StrongWeight(weight []AskWeight) bool {
 	return slices.ContainsFunc(weight, func(w AskWeight) bool {
 		return w.Class == WeightTrust || w.Class == WeightCode
 	})
 }
 
-// strongWords names a strong card's weight in a refusal: strong with the
-// trust and code classes it carries.
-func strongWords(ws []AskWeight) string {
+// StrongWords names a strong card's weight in a refusal: strong with the
+// trust and code classes it carries. The web names it the same way before
+// it starts a strong card's sign-in.
+func StrongWords(ws []AskWeight) string {
 	var classes []string
 	for _, w := range ws {
 		if w.Class == WeightTrust || w.Class == WeightCode {
@@ -176,25 +179,63 @@ func strongWords(ws []AskWeight) string {
 // elsewhere a terminal on the yard's machine. Nothing runs, and the ask
 // stays open.
 func strongRefusal(seq uint64, stored []AskWeight, device string, hosted bool) error {
-	if device == "" || !strongWeight(stored) {
+	if device == "" || !StrongWeight(stored) {
 		return nil
 	}
 	place := "at a terminal on the yard's machine"
 	if hosted {
 		place = "in the hosted web, with a fresh sign-in"
 	}
-	return fmt.Errorf("ask %d is %s: this approval arrived through the device %s, and a strong card is not approved through a device. Approve it %s. Nothing ran, and the ask stays open", seq, strongWords(stored), device, place)
+	return fmt.Errorf("ask %d is %s: this approval arrived through the device %s, and a strong card is not approved through a device. Approve it %s. Nothing ran, and the ask stays open", seq, StrongWords(stored), device, place)
 }
 
 // gateRefusal is a run or setup approval's gate behind the stale check:
-// the weighed refusal first, the strong refusal second (weighedRefusal,
-// strongRefusal). The door the approval came by and the yard's hosted
-// flag are the write's own, read here so the approval reads as one gate.
+// the weighed refusal first, the strong refusal second, the fresh
+// witness's third (weighedRefusal, strongRefusal, freshRefusal). The door
+// the approval came by and the yard's hosted flag are the write's own,
+// read here so the approval reads as one gate.
 func (w *wtx) gateRefusal(seq uint64, weight, stored []AskWeight, actor string, weighed bool) error {
 	if err := weighedRefusal(seq, weight, weighed); err != nil {
 		return err
 	}
-	return strongRefusal(seq, stored, w.viaOf(actor), w.settingValue(HostedSetting) == "true")
+	if err := strongRefusal(seq, stored, w.viaOf(actor), w.settingValue(HostedSetting) == "true"); err != nil {
+		return err
+	}
+	return w.freshRefusal(seq, stored, actor)
+}
+
+// freshSkew is how far ahead of the yard's clock a fresh sign-in's time
+// may be: the gateway verifier's minute of clock skew (internal/web
+// jwtLeeway), so a gateway clock running ahead does not refuse every
+// sign-in, and past it no time counts.
+const freshSkew = time.Minute
+
+// freshRefusal says why the approval of the ask seq is refused when it
+// carries a fresh sign-in that does not witness it: nil for a routine
+// card, which asks for no witness, and for an approval that carries none,
+// which the socket witnesses as a terminal's (witnessStrong). A strong
+// card approved in the hosted web carries the request's: one made as
+// another user, one with no authentication time, or one outside the
+// gateway's privileged-session window refuses, and the ask stays open.
+// Whether the sign-in answered a strong card's challenge is the web's to
+// have checked before it stated the witness; the store takes the
+// statement and checks whom and when.
+func (w *wtx) freshRefusal(seq uint64, stored []AskWeight, actor string) error {
+	if !w.hasFresh || !StrongWeight(stored) {
+		return nil
+	}
+	switch fw := w.fresh; {
+	case fw.User != actor:
+		return fmt.Errorf("ask %d is %s: this approval's fresh sign-in was made as %s, not as %s. Nothing ran, and the ask stays open", seq, StrongWords(stored), fw.User, actor)
+	case fw.AuthTime.IsZero():
+		return fmt.Errorf("ask %d is %s: this approval carries a fresh sign-in with no authentication time, and a strong card is approved in the hosted web only under one. Nothing ran, and the ask stays open", seq, StrongWords(stored))
+	default:
+		window, err := ParseSpan(w.settingValue(WebJWTPrivilegedSessionMaxAgeSetting))
+		if err != nil || window <= 0 || fw.AuthTime.Before(now().Add(-window)) || fw.AuthTime.After(now().Add(freshSkew)) {
+			return fmt.Errorf("ask %d is %s: this approval's fresh sign-in is outside the gateway's window, and a strong card is approved in the hosted web only under one inside it. Nothing ran, and the ask stays open", seq, StrongWords(stored))
+		}
+		return nil
+	}
 }
 
 // weighAsk weighs the card the ask a holds, as the yard wrote it: a secret,

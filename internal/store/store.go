@@ -397,8 +397,14 @@ type wtx struct {
 	// witness is how this write's approval was witnessed, recorded on the
 	// answer's event beside via; "" where the approval claims none. An
 	// approval sets it just before it records its answer, so the answer's
-	// event alone carries it (witnessTerminal).
+	// event alone carries it (witnessStrong).
 	witness string
+	// fresh is the call's fresh sign-in, and hasFresh whether it carries
+	// one: the web's statement on an approval (WithFreshWitness), read
+	// from the call's context as via is. Only a strong card's approval
+	// reads it (gateRefusal, witnessStrong).
+	fresh    FreshWitness
+	hasFresh bool
 	// repos are the repository flows, by depot, that a run ask's card needs
 	// and that were read before the write, since git must not run inside
 	// one (runCommand.ready); nil for a write that needs none.

@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"reflect"
 	"strconv"
+	"strings"
 	"time"
 
 	"yardr.dev/yardr/internal/eta"
@@ -96,7 +97,12 @@ func handler(st *store.Store, log *slog.Logger, writeTimeout time.Duration) http
 		}
 		// Who may make the call is asked before it is made (Access): the
 		// store's own check of it, if it has one, comes after.
-		if err := allowed(callerCtx(r), st, r.PathValue("method")); err != nil {
+		ctx, err := callerCtx(r)
+		if err != nil {
+			writeJSON(w, reply{Error: toWire(err)})
+			return
+		}
+		if err := allowed(ctx, st, r.PathValue("method")); err != nil {
 			writeJSON(w, reply{Error: toWire(err)})
 			return
 		}
@@ -176,10 +182,15 @@ func (a *api) call(w http.ResponseWriter, r *http.Request, name string, body jso
 		writeJSON(w, noSuchMethod(name))
 		return
 	}
-	result, more, err := invoke(callerCtx(r), m, body)
+	ctx, err := callerCtx(r)
+	if err != nil {
+		writeJSON(w, reply{Error: toWire(err)})
+		return
+	}
+	result, more, err := invoke(ctx, m, body)
 	if err != nil {
 		if a.shapeErr != nil {
-			err = a.shapeErr(callerCtx(r), m.name, err)
+			err = a.shapeErr(ctx, m.name, err)
 		}
 		writeJSON(w, reply{Error: toWire(err)})
 		return
@@ -188,13 +199,44 @@ func (a *api) call(w http.ResponseWriter, r *http.Request, name string, body jso
 }
 
 // callerCtx is the request's context with the session the call says it is
-// of, as the store reads a caller (store.WithSession).
-func callerCtx(r *http.Request) context.Context {
+// of, as the store reads a caller (store.WithSession), and the fresh
+// sign-in it carries where it has one (store.WithFreshWitness). A witness
+// header that names no user and time refuses the call: only the web sets
+// it, and a malformed one is no statement to approve under.
+func callerCtx(r *http.Request) (context.Context, error) {
 	ctx := r.Context()
 	if id := r.Header.Get(SessionHeader); id != "" {
 		ctx = store.WithSession(ctx, id)
 	}
-	return ctx
+	if raw := r.Header.Get(FreshWitnessHeader); raw != "" {
+		fw, err := parseFreshWitness(raw)
+		if err != nil {
+			return nil, err
+		}
+		ctx = store.WithFreshWitness(ctx, fw.User, fw.AuthTime)
+	}
+	return ctx, nil
+}
+
+// parseFreshWitness is the fresh sign-in the header carries: the user the
+// gateway authenticated and their authentication time in seconds since the
+// epoch, apart by one space (FreshWitnessHeader). No second counts before
+// the epoch: one names no authentication time, which the gate refuses in
+// its own words.
+func parseFreshWitness(raw string) (store.FreshWitness, error) {
+	user, secs, ok := strings.Cut(raw, " ")
+	if !ok || user == "" || secs == "" || strings.Contains(secs, " ") {
+		return store.FreshWitness{}, fmt.Errorf("the call's fresh witness names no user and time")
+	}
+	n, err := strconv.ParseInt(secs, 10, 64)
+	if err != nil {
+		return store.FreshWitness{}, fmt.Errorf("the call's fresh witness names no user and time")
+	}
+	var at time.Time
+	if n > 0 {
+		at = time.Unix(n, 0).UTC()
+	}
+	return store.FreshWitness{User: user, AuthTime: at}, nil
 }
 
 func noSuchMethod(name string) reply {
