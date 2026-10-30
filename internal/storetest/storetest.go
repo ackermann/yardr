@@ -96,10 +96,23 @@ func newIn(t testing.TB, home string) (store.API, *store.Store) {
 	// would be refused without a holder: the test process holds the
 	// lock, as the daemon does.
 	t.Cleanup(HoldDaemon(t, home))
-	// Unix socket paths are limited to ~108 bytes; t.TempDir is too long.
+	// Unix socket paths are capped (104 bytes on macOS, 108 on Linux),
+	// so the socket sits in a short directory of its own: t.TempDir is
+	// too long, and so is a TMPDIR a test lengthened. Past 100 bytes the
+	// directory falls back to /tmp, under both caps with margin.
 	dir, err := os.MkdirTemp("", "ys")
 	if err != nil {
 		t.Fatal(err)
+	}
+	// The directory goes with the test even when the bind below fails.
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	if len(filepath.Join(dir, "s")) > 100 {
+		if err := os.RemoveAll(dir); err != nil {
+			t.Fatalf("remove socket directory with an overlong path: %v", err)
+		}
+		if dir, err = os.MkdirTemp("/tmp", "ys"); err != nil {
+			t.Fatal(err)
+		}
 	}
 	sock := filepath.Join(dir, "s")
 	ln, err := net.Listen("unix", sock)
@@ -112,7 +125,6 @@ func newIn(t testing.TB, home string) (store.API, *store.Store) {
 	t.Cleanup(func() {
 		_ = c.Close(context.Background())
 		_ = srv.Close()
-		os.RemoveAll(dir)
 	})
 	return c, s
 }

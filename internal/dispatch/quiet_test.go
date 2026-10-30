@@ -976,9 +976,8 @@ func TestQuietExecRunEnvironment(t *testing.T) {
 			must(t, err)
 			if tc.tmpLink {
 				// Set last: the run's worktree is all that is to be made
-				// under the link, and a store over the socket (YARDR_TEST_RPC)
-				// binds its socket under TMPDIR, a path a link this long
-				// would overrun.
+				// under the link, which the check below wants empty after
+				// the run.
 				link := filepath.Join(t.TempDir(), "tmp")
 				must(t, os.Symlink(t.TempDir(), link))
 				t.Setenv("TMPDIR", link)

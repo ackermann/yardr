@@ -1,14 +1,17 @@
 package storetest
 
 import (
+	"context"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/peer"
+	"yardr.dev/yardr/internal/store"
 )
 
 // proxyEnviron are the proxy and CA variables of a box behind a company's
@@ -77,5 +80,28 @@ func TestNameTestBinary(t *testing.T) {
 	}
 	if wait, err := time.ParseDuration(config.Getenv(config.TestStartWaitEnv)); err != nil || wait < time.Minute {
 		t.Errorf("%s = %q after NameTestBinary (%v): want a duration of a minute or more", config.Key(config.TestStartWaitEnv), config.Getenv(config.TestStartWaitEnv), err)
+	}
+}
+
+// A store over the socket binds whatever TMPDIR a test sets: past 100
+// bytes the socket's directory falls back to /tmp, and no ys* directory
+// is left under the long TMPDIR. Serial: it sets the process's TMPDIR.
+func TestNewBindsWithALongTmpdir(t *testing.T) {
+	long := filepath.Join(t.TempDir(), strings.Repeat("d", 90))
+	if err := os.Mkdir(long, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TMPDIR", long)
+	t.Setenv(config.Key("TEST_RPC"), "1")
+	s := New(t)
+	ctx := context.Background()
+	if err := s.SetSetting(ctx, store.QuietLandingsSetting, "1", "me"); err != nil {
+		t.Fatalf("SetSetting over the socket under a long TMPDIR: %v", err)
+	}
+	if all, err := s.Settings(ctx); err != nil || all[store.QuietLandingsSetting] != "1" {
+		t.Fatalf("Settings over the socket under a long TMPDIR = %v, %v; want the setting read back", all, err)
+	}
+	if left, err := filepath.Glob(filepath.Join(long, "ys*")); err != nil || len(left) != 0 {
+		t.Fatalf("ys* directories under the long TMPDIR = %v, %v; want none", left, err)
 	}
 }
