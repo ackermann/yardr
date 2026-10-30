@@ -458,7 +458,7 @@ func TestWebApprovesAStrongSetupCard(t *testing.T) {
 	t.Parallel()
 	y := newApproveYard(t, true)
 	sum := sha256.Sum256([]byte(approveSetupMint))
-	y.own.SetPackReader(func(ctx context.Context, name string, yard store.API) (*store.PackReading, error) {
+	y.own.SetPackReader(func(ctx context.Context, name string, depot string, mappings store.Mappings, yard store.API) (*store.PackReading, error) {
 		if name != "setupmail" {
 			return nil, errors.New("no pack " + name)
 		}

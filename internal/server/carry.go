@@ -361,7 +361,12 @@ func (c *carrier) carryPackApply(ctx context.Context, rec *store.Carry, run *sto
 	if run.Pack == nil {
 		return nil, nil, failWords("the ask holds no pack reading to carry out", terminal)
 	}
-	reading, err := c.st.ReadPack(ctx, name)
+	// The card's own depot and mappings, never a fresh reading of the
+	// ask's words: what approval runs is the plan the card showed. A
+	// A card written before mappings were carried has no mappings; its
+	// recorded depot still names the target it was approved for.
+	depot, mappings := run.Pack.Depot, run.Pack.Mappings
+	reading, err := c.st.ReadPack(ctx, name, depot, mappings)
 	if err != nil {
 		return nil, nil, failWords(err.Error(), terminal)
 	}
@@ -374,16 +379,22 @@ func (c *carrier) carryPackApply(ctx context.Context, rec *store.Carry, run *sto
 		!sameSources(reading.Sources, run.Carried) {
 		return nil, nil, staleWords(store.CardedUnder(rec.Ask, cardedBuild, reading.Build)+", whose pack differs", terminal)
 	}
-	if reading.Depot != run.Pack.Depot {
-		return nil, nil, staleWords(fmt.Sprintf("pack %s would now be re-applied to depot %s, not %s", name, reading.Depot, run.Pack.Depot), terminal)
+	if reading.Depot != depot {
+		return nil, nil, staleWords(fmt.Sprintf("pack %s would now be re-applied to depot %s, not %s", name, reading.Depot, depot), terminal)
 	}
 	p, sub, err := c.load(name)
 	if err != nil {
 		return nil, nil, failWords(err.Error(), terminal)
 	}
-	plan, err := pack.Build(ctx, c.st, p, pack.Options{Depot: run.Pack.Depot, Home: c.home})
+	plan, err := pack.Build(ctx, c.st, p, packOptions(depot, c.home, mappings))
 	if err != nil {
 		return nil, nil, failWords(err.Error(), terminal)
+	}
+	answers, open, calls := pack.Answers{}, map[string]map[string]bool(nil), map[string]map[string]bool(nil)
+	if !mappings.IsZero() {
+		if answers, open, calls, err = mappingAnswers(ctx, c.st, plan, mappings, c.home); err != nil {
+			return nil, nil, failWords(err.Error(), terminal)
+		}
 	}
 	// The yard's side, a source at a time, before anything writes.
 	stored := map[string]bool{}
@@ -400,7 +411,7 @@ func (c *carrier) carryPackApply(ctx context.Context, rec *store.Carry, run *sto
 	}
 	// A depot pack's yard side is its objects, one at a time (3.7).
 	if run.Pack.Plan != nil {
-		if err := holdDepotObjects(run.Pack.Plan, askPlanOf(sub, plan)); err != nil {
+		if err := holdDepotObjects(run.Pack.Plan, askPlanOf(sub, plan, answers, open, calls)); err != nil {
 			return nil, nil, staleWords(fmt.Sprintf("ask %d: %s", rec.Ask, err), terminal)
 		}
 	}
@@ -419,7 +430,7 @@ func (c *carrier) carryPackApply(ctx context.Context, rec *store.Carry, run *sto
 		}
 	}
 	res, err := pack.Apply(ctx, c.st, plan, pack.ApplyOptions{
-		Answers: pack.Answers{}, Actor: rec.Actor,
+		Answers: answers, OpenThreads: open, Calls: calls, Actor: rec.Actor,
 		ApprovedBead: rec.Bead, ApprovedAsk: rec.Ask,
 	})
 	if err != nil {
@@ -441,11 +452,11 @@ func (c *carrier) carryPackApply(ctx context.Context, rec *store.Carry, run *sto
 		}
 	}
 	if run.Pack.Plan != nil {
-		after, err := pack.Build(ctx, c.st, p, pack.Options{Depot: run.Pack.Depot, Home: c.home})
+		after, err := pack.Build(ctx, c.st, p, packOptions(depot, c.home, mappings))
 		if err != nil {
 			return nil, nil, failWords(err.Error(), terminal)
 		}
-		if err := verifyDepotObjects(run.Pack.Plan, askPlanOf(sub, after)); err != nil {
+		if err := verifyDepotObjects(run.Pack.Plan, askPlanOf(sub, after, answers, open, calls)); err != nil {
 			return nil, nil, failWords(err.Error(), terminal)
 		}
 		for _, obj := range after.Objects {

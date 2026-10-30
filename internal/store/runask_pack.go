@@ -27,18 +27,6 @@ import (
 	"yardr.dev/yardr/internal/source"
 )
 
-// AskPack is a pack apply ask's pack as the yard's server read it: its
-// name, its kind, the depot a depot kind would be re-applied to, and
-// the build label the pack is embedded in. A depot kind carries the
-// plan the server built inside the write that stored the ask.
-type AskPack struct {
-	Name  string   `json:"name"`
-	Kind  string   `json:"kind,omitempty"`
-	Depot string   `json:"depot,omitempty"`
-	Label string   `json:"label"`
-	Plan  *AskPlan `json:"plan,omitempty"`
-}
-
 // AskPlan is a depot pack's plan as a card holds it: every object with
 // its action and changes, the governs, and what the plan still asks or
 // refuses, in the store's own words so no view needs internal/pack.
@@ -90,54 +78,6 @@ type AskGovern struct {
 	Type string `json:"type,omitempty"`
 	Flow string `json:"flow"`
 	Now  string `json:"now,omitempty"`
-}
-
-// PackReading is what the server's reading of one embedded pack hands
-// the store: the pack's name and kind, the build label it is embedded
-// in, each declared source's whole text with its command files' bytes,
-// the pack's presets with their grants, and, for a depot kind, the depot
-// it would be re-applied to and the plan built against the yard. Nothing
-// of it is the asker's.
-type PackReading struct {
-	Name    string
-	Kind    string // pack.KindSource ("source") for a yard pack, else a depot kind
-	Depot   string
-	Label   string // "embedded in yardr <build>"
-	Build   string // the <build> of Label, kept apart so refusals name it
-	Sources []AskSource
-	Presets []AskPreset
-	Plan    *AskPlan
-}
-
-// PackReader reads the embedded pack of a name for a pack apply ask:
-// the yard is the store's own API, so a depot plan is built from the
-// yard's records as the write that stores the ask holds them. An error
-// refuses the ask, storing nothing, in the reader's words.
-type PackReader func(ctx context.Context, name string, yard API) (*PackReading, error)
-
-// SetPackReader tells the store how its owning process reads the packs
-// yardr embeds, as SetYard tells it what only that process knows. A
-// store no server owns has none, and a pack ask of it is refused naming
-// the server.
-func (s *Store) SetPackReader(r PackReader) { s.packReader = r }
-
-// ReadPack reads the embedded pack of a name through the registered
-// reading, for the server's carrying out of an approved pack apply:
-// the same reading the approval was held to, taken again.
-func (s *Store) ReadPack(ctx context.Context, name string) (*PackReading, error) {
-	if s.packReader == nil {
-		return nil, fmt.Errorf("pack %s: no server has registered its reading of the packs yardr embeds on this store", name)
-	}
-	return s.packReader(ctx, name, s)
-}
-
-// packReaderOf is the reading registered on the store this write
-// belongs to, nil where there is none.
-func (w *wtx) packReaderOf() PackReader {
-	if w.store == nil {
-		return nil
-	}
-	return w.store.packReader
 }
 
 // parsePackApply reads the words of pack apply <name>: one bare name
@@ -381,7 +321,14 @@ func (w *wtx) packApplyCard(run AskRun, asking bool) (AskRun, error) {
 	if read == nil {
 		return AskRun{}, fmt.Errorf("pack %s: no server has registered its reading of the packs yardr embeds on this store, so no card can be written from the binary that runs the yard: a pack is proposed from a yard its server runs", name)
 	}
-	reading, err := read(context.Background(), name, w.store)
+	// A stored card rebuilds from its own depot and mappings, so the
+	// approval is held to the plan the card showed; a new ask names
+	// neither yet, and reads as a re-apply always has.
+	depot, mappings := "", Mappings{}
+	if run.Pack != nil {
+		depot, mappings = run.Pack.Depot, run.Pack.Mappings
+	}
+	reading, err := read(context.Background(), name, depot, mappings, w.store)
 	if err != nil {
 		return AskRun{}, err
 	}
@@ -443,8 +390,12 @@ func (w *wtx) packApplyCard(run AskRun, asking bool) (AskRun, error) {
 			return AskRun{}, err
 		}
 	}
+	cardedMappings := reading.Mappings
+	if cardedMappings.IsZero() {
+		cardedMappings = mappings
+	}
 	card := AskRun{Argv: run.Argv, Seen: seenMap, Carried: carried,
-		Pack: &AskPack{Name: name, Kind: reading.Kind, Depot: reading.Depot, Label: reading.Label}}
+		Pack: &AskPack{Name: name, Kind: reading.Kind, Depot: reading.Depot, Mappings: cardedMappings, Label: reading.Label}}
 	if reading.Kind == "source" {
 		does, err := w.packSourceDoes(name, reading, carried, decls)
 		if err != nil {
@@ -837,6 +788,9 @@ func (w *wtx) packDepotDoes(name string, reading *PackReading, carried []AskSour
 	}
 	does := []string{fmt.Sprintf("pack %s (%s), of %s, into depot %s: %d to create, %d to change, %d unchanged, and %d dropped and left where they stand. It asks nothing.",
 		name, reading.Label, kind, reading.Depot, counts["create"], counts["change"], counts["unchanged"], counts["dropped"])}
+	for _, flag := range packMappingFlags(reading.Mappings) {
+		does = append(does, "the plan uses mapping "+flag+".")
+	}
 	for _, o := range plan.Objects {
 		switch o.Action {
 		case "create", "change":

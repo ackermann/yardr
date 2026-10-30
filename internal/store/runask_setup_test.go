@@ -122,7 +122,7 @@ func setupMailPack() *setupPack {
 }
 
 func (y *askYard) setSetupPack(f *setupPack) {
-	y.Store.SetPackReader(func(ctx context.Context, name string, yard API) (*PackReading, error) {
+	y.Store.SetPackReader(func(ctx context.Context, name string, depot string, mappings Mappings, yard API) (*PackReading, error) {
 		if name != "setupmail" {
 			return nil, errFakeNoPack(name)
 		}

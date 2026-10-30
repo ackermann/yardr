@@ -44,7 +44,7 @@ func cliSetupReading() *store.PackReading {
 func setupYardCLI(t *testing.T) (*cliYard, *store.Bead) {
 	t.Helper()
 	y, b := runYardCLI(t, "setup", airyKey(t))
-	y.own.SetPackReader(func(ctx context.Context, name string, yard store.API) (*store.PackReading, error) {
+	y.own.SetPackReader(func(ctx context.Context, name string, depot string, mappings store.Mappings, yard store.API) (*store.PackReading, error) {
 		if name != "clipphone" {
 			return nil, errFakeNoPackCLI(name)
 		}
@@ -146,7 +146,7 @@ func beadAskSetupSourceBase(t *testing.T) {
 	}
 	reading := cliSetupReading()
 	reading.Sources[0].Text = decl
-	y.own.SetPackReader(func(ctx context.Context, name string, yard store.API) (*store.PackReading, error) {
+	y.own.SetPackReader(func(ctx context.Context, name string, depot string, mappings store.Mappings, yard store.API) (*store.PackReading, error) {
 		if name != "clipphone" {
 			return nil, errFakeNoPackCLI(name)
 		}

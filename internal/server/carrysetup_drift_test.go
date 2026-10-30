@@ -61,7 +61,7 @@ func TestCarrySetupDriftGrantsNewAndRevokesNothing(t *testing.T) {
 	drain(t, st, home, "boot-one")
 	grantHeld(t, st, "google-mail", to, "read")
 
-	reading, err := st.ReadPack(ctx, "google-mail")
+	reading, err := st.ReadPack(ctx, "google-mail", "", store.Mappings{})
 	if err != nil {
 		t.Fatal(err)
 	}

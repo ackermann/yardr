@@ -390,8 +390,8 @@ func withoutAccount(card *store.SetupAsked, ran *store.AskRan) (*store.SetupAske
 // changes and what is there now (a setting's stored value, a user's file, a
 // hook's secret file), the command that takes it back, the declarations and
 // command files it carries, the plan of a pack with the paths and the diffs of
-// the files it writes, and what the command printed, which names them too: the
-// operator's configuration, and a path with words around it is still the path.
+// the files it writes and the mappings that shaped it, and what the command printed,
+// which names them too: the operator's configuration, and a path with words around it is still the path.
 // A pack ask keeps the pack's name and the depot it is for. Where the typed
 // words themselves carry a value or a path (store.RunArgvHeld), argv and
 // command are cut too, and an approval's argv with them: what the asker typed
@@ -409,7 +409,7 @@ func withoutRunWords(run *store.RunAsked, ran *store.AskRan) (*store.RunAsked, *
 	}
 	if bare.Pack != nil {
 		pack := *bare.Pack
-		pack.Plan = nil
+		pack.Plan, pack.Mappings = nil, store.Mappings{}
 		bare.Pack = &pack
 	}
 	if ran != nil {

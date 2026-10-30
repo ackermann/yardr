@@ -769,7 +769,7 @@ func TestHomeSetupCard(t *testing.T) {
 	t.Parallel()
 	f := askFixture(t)
 	sum := sha256.Sum256([]byte(approveSetupMint))
-	f.own.SetPackReader(func(ctx context.Context, name string, yard store.API) (*store.PackReading, error) {
+	f.own.SetPackReader(func(ctx context.Context, name string, depot string, mappings store.Mappings, yard store.API) (*store.PackReading, error) {
 		if name != "setupmail" {
 			return nil, errors.New("no pack " + name)
 		}

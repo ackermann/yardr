@@ -850,8 +850,9 @@ nothing else. What is not the same:
   a hook's secret file), and is `[]`. `run.back` is the command that takes it
   back, and is `""`. `ran.result` is what the command printed, and is `""`.
   `run.back_by`, `run.carried` (the declarations and command files a source
-  brings) and `run.pack.plan` (the paths and the diffs of the files a pack
-  writes) are absent. Where the typed words themselves carry a value or a
+  brings), `run.pack.plan` (the paths and the diffs of the files a pack
+  writes) and `run.pack.mappings` (the people, grants and sources that plan
+  was shaped by) are absent. Where the typed words themselves carry a value or a
   path, they are the operator's alone: on a run ask that sets a setting or
   adds a source, `run.argv` is `[]` and `run.command` is `""` to such a
   device, and an approved ask's `ran.argv` is `[]`, the question and the

@@ -154,7 +154,7 @@ func TestGoogleMintChangeIsShown(t *testing.T) {
 	}
 
 	// The card: the server's reading of a pack whose mint changed.
-	reading, err := readEmbeddedPack(ctx, "google-mail", st, home)
+	reading, err := readEmbeddedPack(ctx, "google-mail", "", store.Mappings{}, st, home)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +163,9 @@ func TestGoogleMintChangeIsShown(t *testing.T) {
 			reading.Sources[0].Files[i].Text, reading.Sources[0].Files[i].SHA256 = changed, sha([]byte(changed))
 		}
 	}
-	st.SetPackReader(func(context.Context, string, store.API) (*store.PackReading, error) { return reading, nil })
+	st.SetPackReader(func(context.Context, string, string, store.Mappings, store.API) (*store.PackReading, error) {
+		return reading, nil
+	})
 	seq, err := st.AddAsk(ctx, bead, packAskOf("google-mail"), "yardmaster")
 	if err != nil {
 		t.Fatal(err)

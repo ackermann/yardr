@@ -67,7 +67,7 @@ func setupYard(t *testing.T) (*secretYard, string) {
 	plain := &store.PackReading{Name: "plain", Kind: "source", Label: "embedded in yardr test",
 		Sources: []store.AskSource{{Name: "plain", Text: plainDecl}},
 		Presets: []store.AskPreset{{Name: "read", Grants: []store.AskPresetGrant{{Source: "plain", Calls: []string{"read"}}}}}}
-	y.st.SetPackReader(func(_ context.Context, name string, _ store.API) (*store.PackReading, error) {
+	y.st.SetPackReader(func(_ context.Context, name string, _ string, _ store.Mappings, _ store.API) (*store.PackReading, error) {
 		if name == "plain" {
 			return plain, nil
 		}
@@ -551,7 +551,7 @@ func blankHeld(q *store.AskQueue) {
 		}
 		run.Does, run.Back, run.BackBy, run.Carried = []string{}, "", "", nil
 		if run.Pack != nil {
-			run.Pack.Plan = nil
+			run.Pack.Plan, run.Pack.Mappings = nil, store.Mappings{}
 		}
 	}
 	for i := range q.Open {
@@ -575,6 +575,26 @@ func blankHeld(q *store.AskQueue) {
 		if d.Ran != nil {
 			d.Ran.Result = ""
 		}
+	}
+}
+
+// A pack card's mappings name the people, grants and sources its plan was
+// shaped by, as its sentences do: a device that is no operator's keeps the
+// pack's name and depot and is told none of them, and the card it was cut
+// from is left as it was.
+func TestWithoutRunWordsHoldsAPackCardsMappings(t *testing.T) {
+	mappings := store.Mappings{Flow: "default", Members: []string{"decisions=sam"}, Calls: []string{"builders=linear:read"}}
+	run := &store.RunAsked{Argv: []string{"pack", "apply", "starter"},
+		Pack: &store.AskPack{Name: "starter", Depot: "web", Mappings: mappings, Plan: &store.AskPlan{}}}
+	bare, _ := withoutRunWords(run, nil)
+	if bare.Pack.Name != "starter" || bare.Pack.Depot != "web" {
+		t.Errorf("the device lost the pack's name or depot: %+v", bare.Pack)
+	}
+	if !bare.Pack.Mappings.IsZero() || bare.Pack.Plan != nil {
+		t.Errorf("the device is told the card's mappings or plan: %+v", bare.Pack)
+	}
+	if run.Pack.Mappings.IsZero() || run.Pack.Plan == nil {
+		t.Errorf("the cut changed the card it was given: %+v", run.Pack)
 	}
 }
 

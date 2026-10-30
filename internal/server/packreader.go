@@ -23,8 +23,8 @@ import (
 // directory, a URL or an earlier import's record. home is the yard's,
 // where a depot plan reads the installed files it would change.
 func packReaderFor(home string) store.PackReader {
-	return func(ctx context.Context, name string, yard store.API) (*store.PackReading, error) {
-		return readEmbeddedPack(ctx, name, yard, home)
+	return func(ctx context.Context, name string, depot string, mappings store.Mappings, yard store.API) (*store.PackReading, error) {
+		return readEmbeddedPack(ctx, name, depot, mappings, yard, home)
 	}
 }
 
@@ -45,8 +45,10 @@ func presetReaderFor() store.PresetReader {
 
 // readEmbeddedPack reads the embedded pack of a name: its kind, each
 // declared source's whole text with each command file's bytes, and for
-// a depot kind the plan built against the yard the reader is given.
-func readEmbeddedPack(ctx context.Context, name string, yard store.API, home string) (*store.PackReading, error) {
+// a depot kind the plan built against the named depot with the named
+// mappings, or, naming neither, against the depot that already holds
+// the pack, as a re-apply always has.
+func readEmbeddedPack(ctx context.Context, name string, depot string, mappings store.Mappings, yard store.API, home string) (*store.PackReading, error) {
 	if _, err := fs.Stat(packs.FS, name+"/pack.yaml"); err != nil {
 		return nil, fmt.Errorf("pack %s: yardr embeds no pack of that name: a pack that is a directory, a URL or an earlier import's record is the operator's to apply in a terminal (yardr pack check %s shows its plan there)", name, name)
 	}
@@ -59,7 +61,7 @@ func readEmbeddedPack(ctx context.Context, name string, yard store.API, home str
 	if err != nil {
 		return nil, err
 	}
-	reading := &store.PackReading{Name: p.Name, Kind: p.Kind, Label: label, Build: version.Describe()}
+	reading := &store.PackReading{Name: p.Name, Kind: p.Kind, Mappings: mappings, Label: label, Build: version.Describe()}
 	for _, d := range p.Declared {
 		src := store.AskSource{Name: d.Name, Text: d.Text}
 		seenProg := map[string]bool{}
@@ -87,28 +89,40 @@ func readEmbeddedPack(ctx context.Context, name string, yard store.API, home str
 	if p.Kind == pack.KindSource {
 		return reading, nil
 	}
-	recs, err := yard.Packs(ctx)
+	target := depot
+	if target == "" {
+		recs, err := yard.Packs(ctx)
+		if err != nil {
+			return nil, err
+		}
+		var depots []string
+		for _, r := range recs {
+			if r.Pack == p.Name && !contains(depots, r.Depot) {
+				depots = append(depots, r.Depot)
+			}
+		}
+		switch {
+		case len(depots) == 0:
+			return nil, fmt.Errorf("pack %s: this yard has no standing import of it: a first install asks what a card cannot answer, and is the operator's to type in a terminal (yardr pack check %s --depot <depot> shows its plan there)", name, name)
+		case len(depots) > 1:
+			return nil, fmt.Errorf("pack %s: this yard holds it in depots %s: which one is the operator's to name in a terminal (yardr pack check %s --depot <depot> shows its plan there)", name, strings.Join(depots, ", "), name)
+		}
+		target = depots[0]
+	}
+	plan, err := pack.Build(ctx, yard, p, packOptions(target, home, mappings))
 	if err != nil {
 		return nil, err
 	}
-	var depots []string
-	for _, r := range recs {
-		if r.Pack == p.Name && !contains(depots, r.Depot) {
-			depots = append(depots, r.Depot)
+	// No mappings read exactly as a re-apply always has, byte for byte;
+	// mappings answer what they name, and leave the rest still asking.
+	answers, open, calls := pack.Answers{}, map[string]map[string]bool(nil), map[string]map[string]bool(nil)
+	if !mappings.IsZero() {
+		if answers, open, calls, err = mappingAnswers(ctx, yard, plan, mappings, home); err != nil {
+			return nil, err
 		}
 	}
-	switch {
-	case len(depots) == 0:
-		return nil, fmt.Errorf("pack %s: this yard has no standing import of it: a first install asks what a card cannot answer, and is the operator's to type in a terminal (yardr pack check %s --depot <depot> shows its plan there)", name, name)
-	case len(depots) > 1:
-		return nil, fmt.Errorf("pack %s: this yard holds it in depots %s: which one is the operator's to name in a terminal (yardr pack check %s --depot <depot> shows its plan there)", name, strings.Join(depots, ", "), name)
-	}
-	plan, err := pack.Build(ctx, yard, p, pack.Options{Depot: depots[0], Home: home})
-	if err != nil {
-		return nil, err
-	}
-	reading.Depot = depots[0]
-	reading.Plan = askPlanOf(sub, plan)
+	reading.Depot = target
+	reading.Plan = askPlanOf(sub, plan, answers, open, calls)
 	return reading, nil
 }
 
@@ -132,20 +146,25 @@ func declDirOf(file string) string {
 // askPlanOf is a depot plan as a card holds it, with each created or
 // changed file's text as the import would install it (filled) and its
 // unified diff against the installed text, computed here from the two
-// texts the file's hashes already name.
-func askPlanOf(sub fs.FS, plan *pack.Plan) *store.AskPlan {
+// texts the file's hashes already name. What the mappings already
+// answer, in answers, open and calls, is no part of what it still asks.
+func askPlanOf(sub fs.FS, plan *pack.Plan, answers pack.Answers, open, calls map[string]map[string]bool) *store.AskPlan {
 	out := &store.AskPlan{}
-	for _, q := range plan.Missing(pack.Answers{}) {
+	for _, q := range plan.Missing(answers) {
 		out.Missing = append(out.Missing, q.ID+": "+q.Ask)
 	}
 	for _, ot := range plan.OpenThreads {
 		for _, a := range ot.Asks {
-			out.Asks = append(out.Asks, fmt.Sprintf("let %s open threads in %s", ot.CrewMember, a))
+			if _, done := open[ot.CrewMember][a]; !done {
+				out.Asks = append(out.Asks, fmt.Sprintf("let %s open threads in %s", ot.CrewMember, a))
+			}
 		}
 	}
 	for _, c := range plan.Calls {
 		for _, a := range c.Asks {
-			out.Asks = append(out.Asks, fmt.Sprintf("let %s make the call %s of the source %s", c.Grantee(), a, c.Source))
+			if _, done := calls[c.Grantee().String()][pack.CallKey(c.Source, a)]; !done {
+				out.Asks = append(out.Asks, fmt.Sprintf("let %s make the call %s of the source %s", c.Grantee(), a, c.Source))
+			}
 		}
 	}
 	for _, e := range plan.Expose {

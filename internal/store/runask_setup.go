@@ -463,7 +463,7 @@ func (w *wtx) setupCard(pack string, to []Grantee, base string) (*AskSetup, erro
 	if read == nil {
 		return nil, fmt.Errorf("pack %s: no server has registered its reading of the packs yardr embeds on this store, so no card can be written from the binary that runs the yard: a setup is proposed from a yard its server runs", pack)
 	}
-	reading, err := read(context.Background(), pack, w.store)
+	reading, err := read(context.Background(), pack, "", Mappings{}, w.store)
 	if err != nil {
 		return nil, err
 	}

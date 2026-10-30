@@ -27,7 +27,7 @@ func packReaderYard(t *testing.T) *store.Store {
 // sources' texts and command files from the binary itself.
 func TestReadEmbeddedSourcePack(t *testing.T) {
 	st := packReaderYard(t)
-	r, err := readEmbeddedPack(context.Background(), "telegram", st, t.TempDir())
+	r, err := readEmbeddedPack(context.Background(), "telegram", "", store.Mappings{}, st, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +47,7 @@ func TestReadEmbeddedSourcePack(t *testing.T) {
 	if !progs["telegram/thread"] || !progs["telegram/normalize"] {
 		t.Fatalf("its command files = %v", progs)
 	}
-	r, err = readEmbeddedPack(context.Background(), "pushover", st, t.TempDir())
+	r, err = readEmbeddedPack(context.Background(), "pushover", "", store.Mappings{}, st, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +55,7 @@ func TestReadEmbeddedSourcePack(t *testing.T) {
 		r.Sources[0].Files[0].SHA256 == "" || r.Sources[0].Files[0].Text == "" {
 		t.Fatalf("the pushover reading = %+v", r.Sources)
 	}
-	if _, err := readEmbeddedPack(context.Background(), "nosuchpack", st, t.TempDir()); err == nil ||
+	if _, err := readEmbeddedPack(context.Background(), "nosuchpack", "", store.Mappings{}, st, t.TempDir()); err == nil ||
 		!strings.Contains(err.Error(), "yardr embeds no pack of that name") {
 		t.Fatalf("a name yardr does not embed = %v", err)
 	}
@@ -65,7 +65,7 @@ func TestReadEmbeddedSourcePack(t *testing.T) {
 // file order, for the setup card to count as pack show prints them.
 func TestReadEmbeddedPackCarriesPresets(t *testing.T) {
 	st := packReaderYard(t)
-	r, err := readEmbeddedPack(context.Background(), "google-mail", st, t.TempDir())
+	r, err := readEmbeddedPack(context.Background(), "google-mail", "", store.Mappings{}, st, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +120,7 @@ func TestPresetReaderFor(t *testing.T) {
 func TestReadEmbeddedDepotPack(t *testing.T) {
 	ctx := context.Background()
 	st := packReaderYard(t)
-	if _, err := readEmbeddedPack(ctx, "starter", st, t.TempDir()); err == nil ||
+	if _, err := readEmbeddedPack(ctx, "starter", "", store.Mappings{}, st, t.TempDir()); err == nil ||
 		!strings.Contains(err.Error(), "no standing import") {
 		t.Fatalf("a first install = %v", err)
 	}
@@ -131,7 +131,7 @@ func TestReadEmbeddedDepotPack(t *testing.T) {
 		t.Fatal(err)
 	}
 	home := t.TempDir()
-	r, err := readEmbeddedPack(ctx, "starter", st, home)
+	r, err := readEmbeddedPack(ctx, "starter", "", store.Mappings{}, st, home)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +160,7 @@ func TestReadEmbeddedDepotPack(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	other := askPlanOf(sub, plan)
+	other := askPlanOf(sub, plan, pack.Answers{}, nil, nil)
 	if len(other.Objects) != len(r.Plan.Objects) {
 		t.Fatalf("under another build's label the plan has %d objects, not %d", len(other.Objects), len(r.Plan.Objects))
 	}
@@ -171,6 +171,60 @@ func TestReadEmbeddedDepotPack(t *testing.T) {
 	}
 	if !reflect.DeepEqual(other, r.Plan) {
 		t.Fatalf("under another build's label the plan reads otherwise beyond its objects:\n%+v\nnot\n%+v", other, r.Plan)
+	}
+
+	// Named to a depot that does not hold the pack, the reading builds
+	// its plan against that depot: a first install can be read at all.
+	if err := st.PutDepot(ctx, store.Depot{Name: "web", Path: t.TempDir()}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	first, err := readEmbeddedPack(ctx, "starter", "web", store.Mappings{}, st, home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Depot != "web" || first.Plan == nil || len(first.Plan.Objects) == 0 {
+		t.Fatalf("the first-install reading = depot %q, plan %+v", first.Depot, first.Plan)
+	}
+	if i := slices.IndexFunc(first.Plan.Objects, func(o store.AskPlanObject) bool { return o.Kind == "group" && o.Name == "web-builders" }); i < 0 ||
+		first.Plan.Objects[i].Action != "create" {
+		t.Fatalf("the first-install reading's builders = %+v, want a create in depot web", first.Plan.Objects)
+	}
+
+	// The mappings answer the asks they name: a group the yard has takes
+	// the pack's builders, and a bind answers the reviewers' agent.
+	if err := st.PutGroup(ctx, store.Group{Name: "takers", Runner: "herdr", Config: map[string]any{"kind": "claude"}}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	mapped, err := readEmbeddedPack(ctx, "starter", "web", store.Mappings{
+		Groups: map[string]string{"builders": "takers"},
+		Binds:  []string{"reviewers=claude:opus"},
+	}, st, home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mapped.Depot != "web" || mapped.Mappings.Groups["builders"] != "takers" {
+		t.Fatalf("the mapped reading = depot %q, mappings %+v", mapped.Depot, mapped.Mappings)
+	}
+	if i := slices.IndexFunc(mapped.Plan.Objects, func(o store.AskPlanObject) bool { return o.Kind == "group" && o.Name == "takers" }); i < 0 ||
+		mapped.Plan.Objects[i].Action != "takes" {
+		t.Fatalf("the mapped reading's builders = %+v, want takers to take them", mapped.Plan.Objects)
+	}
+	for _, answered := range []string{"group.web-reviewers.kind", "group.web-reviewers.model", "group.web-reviewers.args"} {
+		for _, missing := range mapped.Plan.Missing {
+			if strings.HasPrefix(missing, answered+":") {
+				t.Errorf("the bind left %q still asking:\n%s", answered, strings.Join(mapped.Plan.Missing, "\n"))
+			}
+		}
+	}
+	// What no mapping names still asks: the crew member the pack wants.
+	foundCrewAsk := false
+	for _, missing := range mapped.Plan.Missing {
+		if strings.HasPrefix(missing, "crew.yardmaster.") {
+			foundCrewAsk = true
+		}
+	}
+	if !foundCrewAsk {
+		t.Errorf("the mapped reading asks nothing of the crew:\n%s", strings.Join(mapped.Plan.Missing, "\n"))
 	}
 }
 
@@ -391,7 +445,7 @@ func TestPackApplyGoogleDocsChangeCardFits(t *testing.T) {
 	if _, err := st.PutSource(ctx, "google-docs.yaml", googleDocsPreBuildDecl, "mckean"); err != nil {
 		t.Fatal(err)
 	}
-	reading, err := readEmbeddedPack(ctx, "google-docs", st, home)
+	reading, err := readEmbeddedPack(ctx, "google-docs", "", store.Mappings{}, st, home)
 	if err != nil {
 		t.Fatal(err)
 	}

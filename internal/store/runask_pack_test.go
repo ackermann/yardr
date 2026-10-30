@@ -15,12 +15,13 @@ import (
 // packReaderOf returns a reader of one fake embedded pack, wired, whose
 // label and files the test moves between asking and approving.
 type fakePack struct {
-	label string
-	build string
-	files map[string]string
-	plan  *AskPlan
-	kind  string
-	depot string
+	label    string
+	build    string
+	files    map[string]string
+	plan     *AskPlan
+	kind     string
+	depot    string
+	mappings Mappings
 }
 
 func (f *fakePack) reading() *PackReading {
@@ -35,7 +36,7 @@ func (f *fakePack) reading() *PackReading {
 	// In the declaration's command order, as a server reading builds it.
 	var srcs []AskSource
 	_ = srcs
-	return &PackReading{Name: "wired", Kind: kind, Depot: f.depot, Label: f.label, Build: f.build,
+	return &PackReading{Name: "wired", Kind: kind, Depot: f.depot, Mappings: f.mappings, Label: f.label, Build: f.build,
 		Sources: []AskSource{{Name: "wired", Text: wiredDecl, Files: askFilesOrdered(files)}}, Plan: f.plan}
 }
 
@@ -50,7 +51,7 @@ func askFilesOrdered(files map[string]string) []AskFile {
 }
 
 func (y *askYard) setPack(f *fakePack) {
-	y.Store.SetPackReader(func(ctx context.Context, name string, yard API) (*PackReading, error) {
+	y.Store.SetPackReader(func(ctx context.Context, name string, depot string, mappings Mappings, yard API) (*PackReading, error) {
 		if name != "wired" && name != "starter" {
 			return nil, errFakeNoPack(name)
 		}
@@ -352,7 +353,7 @@ func TestPackApplyDroppedFileKeepsItsLine(t *testing.T) {
 			files = append(files, f)
 		}
 	}
-	y.Store.SetPackReader(func(ctx context.Context, name string, yard API) (*PackReading, error) {
+	y.Store.SetPackReader(func(ctx context.Context, name string, depot string, mappings Mappings, yard API) (*PackReading, error) {
 		if name != "wired" {
 			return nil, errFakeNoPack(name)
 		}
@@ -668,7 +669,16 @@ func TestPackApplyDepotCardAndStale(t *testing.T) {
 		},
 		Governs: []AskGovern{{Flow: "default", Now: "other"}},
 	}
-	f := &fakePack{label: "embedded in yardr test1", kind: "git", depot: "yardr", plan: plan}
+	mappings := Mappings{
+		Flow:        "default",
+		Crew:        map[string]string{"yardmaster": "mayor"},
+		Groups:      map[string]string{"builders": "takers"},
+		Binds:       []string{"reviewers=claude:opus"},
+		Members:     []string{"decisions=mckean"},
+		OpenThreads: []string{"yardmaster=linear"},
+		Calls:       []string{"builders=crm:read"},
+	}
+	f := &fakePack{label: "embedded in yardr test1", kind: "git", depot: "yardr", plan: plan, mappings: mappings}
 	y.setPack(f)
 	ask := packAsk()
 	ask.Run.Argv = []string{"pack apply starter"}
@@ -687,6 +697,13 @@ func TestPackApplyDepotCardAndStale(t *testing.T) {
 		"group builders: cmd sets YARDR_LAND=squash before the script.",
 		"file roles/old.md: dropped by the pack, left where it stands.",
 		"depot yardr would follow flow default; it follows other now.",
+		"the plan uses mapping --flow default.",
+		"the plan uses mapping --crew yardmaster=mayor.",
+		"the plan uses mapping --group builders=takers.",
+		"the plan uses mapping --bind reviewers=claude:opus.",
+		"the plan uses mapping --members decisions=mckean.",
+		"the plan uses mapping --open-threads yardmaster=linear.",
+		"the plan uses mapping --calls builders=crm:read.",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("the card lacks %q:\n%s", want, joined)
@@ -702,10 +719,17 @@ func TestPackApplyDepotCardAndStale(t *testing.T) {
 	if err != nil || done.Result != "approved, to be carried out" {
 		t.Fatalf("the approval = %+v, %v", done, err)
 	}
-	// A plan that moves under a second ask stales its approval.
+	// A mapping that moves under a second ask stales its approval too,
+	// even when its depot objects have not changed.
 	seq2 := y.ask(t, ask, "yardmaster")
+	f.mappings.Calls = []string{"builders=crm:none"}
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq2, "mckean", false, nil); err == nil || !strings.Contains(err.Error(), "card is from before that changed") {
+		t.Fatalf("a moved mapping: ApproveAsk = %v", err)
+	}
+	f.mappings = mappings
+	seqPlan := y.ask(t, ask, "yardmaster")
 	plan.Objects[1].Changes[0].New = "herdr"
-	if _, err := y.ApproveAsk(y.ctx, y.bead, seq2, "mckean", false, nil); err == nil || !strings.Contains(err.Error(), "the plan") {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seqPlan, "mckean", false, nil); err == nil || !strings.Contains(err.Error(), "the plan") {
 		t.Fatalf("a moved plan: ApproveAsk = %v", err)
 	}
 	// So does an env that moves: the card showed the other.
@@ -742,7 +766,7 @@ func TestPackApplyDepotRefusals(t *testing.T) {
 // card past forty lines, and a payload past the bound.
 func TestPackApplyStoreRefusals(t *testing.T) {
 	y, _ := runYard(t)
-	y.Store.SetPackReader(func(ctx context.Context, name string, yard API) (*PackReading, error) {
+	y.Store.SetPackReader(func(ctx context.Context, name string, depot string, mappings Mappings, yard API) (*PackReading, error) {
 		return &PackReading{Name: name, Kind: "source", Label: "embedded in yardr test1",
 			Sources: []AskSource{{Name: "other", Text: wiredDecl}}}, nil
 	})
@@ -750,7 +774,7 @@ func TestPackApplyStoreRefusals(t *testing.T) {
 		t.Fatalf("a carried name the parse does not give: AddAsk = %v", err)
 	}
 	// Past the line bound: many sources, each with its own card lines.
-	y.Store.SetPackReader(func(ctx context.Context, name string, yard API) (*PackReading, error) {
+	y.Store.SetPackReader(func(ctx context.Context, name string, depot string, mappings Mappings, yard API) (*PackReading, error) {
 		var srcs []AskSource
 		for i := 0; i < 6; i++ {
 			text := strings.Replace(wiredDecl, "name: wired", "name: wiredx", 1)

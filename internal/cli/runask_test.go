@@ -898,7 +898,7 @@ func TestRunListIsTheCLIs(t *testing.T) {
 				// A pack approval is carried out by the server after it
 				// (B3), so there is no typed state to compare yet: the
 				// row is held to its card and its recorded approval.
-				approved.own.SetPackReader(func(ctx context.Context, name string, yard store.API) (*store.PackReading, error) {
+				approved.own.SetPackReader(func(ctx context.Context, name string, depot string, mappings store.Mappings, yard store.API) (*store.PackReading, error) {
 					return &store.PackReading{Name: name, Kind: "source", Label: "embedded in yardr test",
 						Sources: []store.AskSource{{Name: "phone", Text: "name: phone\nbase: https://phone.example.com/v1\ncredential: { env: PHONE_TOKEN, header: \"Authorization: Bearer {credential}\" }\ncalls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n"}}}, nil
 				})
@@ -1728,7 +1728,7 @@ func TestBeadAskRunPackApply(t *testing.T) {
 	t.Parallel()
 	key := airyKey(t)
 	y, b := runYardCLI(t, "mac", key)
-	y.own.SetPackReader(func(ctx context.Context, name string, yard store.API) (*store.PackReading, error) {
+	y.own.SetPackReader(func(ctx context.Context, name string, depot string, mappings store.Mappings, yard store.API) (*store.PackReading, error) {
 		return &store.PackReading{Name: name, Kind: "source", Label: "embedded in yardr test",
 			Sources: []store.AskSource{{Name: "phone", Text: "name: phone\nbase: https://phone.example.com/v1\ncredential: { env: PHONE_TOKEN, header: \"Authorization: Bearer {credential}\" }\ncalls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n"}}}, nil
 	})

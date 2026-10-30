@@ -186,7 +186,7 @@ func TestCarryPackApplyTelegram(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reading, err := st.ReadPack(ctx, "telegram")
+	reading, err := st.ReadPack(ctx, "telegram", "", store.Mappings{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -415,7 +415,7 @@ func TestCarryLooseSourceWithCommands(t *testing.T) {
 func TestCarryPackStaleCopiesFail(t *testing.T) {
 	ctx := context.Background()
 	readingOf := func(t *testing.T, st *store.Store) *store.PackReading {
-		r, err := st.ReadPack(ctx, "telegram")
+		r, err := st.ReadPack(ctx, "telegram", "", store.Mappings{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -474,7 +474,7 @@ func TestCarryPackRejectsChangedReadingIdentity(t *testing.T) {
 		t.Run(change, func(t *testing.T) {
 			st, home, bead := carryYard(t)
 			seq := askApprove(t, st, bead, packAskOf("telegram"))
-			reading, err := st.ReadPack(ctx, "telegram")
+			reading, err := st.ReadPack(ctx, "telegram", "", store.Mappings{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -494,7 +494,7 @@ func TestCarryPackRejectsChangedReadingIdentity(t *testing.T) {
 				reading.Sources[0].Text += "# changed in the new build\n"
 				words = "whose pack differs"
 			}
-			st.SetPackReader(func(context.Context, string, store.API) (*store.PackReading, error) {
+			st.SetPackReader(func(context.Context, string, string, store.Mappings, store.API) (*store.PackReading, error) {
 				return reading, nil
 			})
 			drain(t, st, home, "boot-one")
@@ -529,7 +529,7 @@ func TestCarryPackFinishesPartialSourceWrites(t *testing.T) {
 	ctx := context.Background()
 	craft := func(t *testing.T, mode string) {
 		st, home, bead := carryYard(t)
-		r, err := st.ReadPack(ctx, "telegram")
+		r, err := st.ReadPack(ctx, "telegram", "", store.Mappings{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -660,7 +660,7 @@ func TestCarryLooseTakenUp(t *testing.T) {
 func TestCarryWritesModeTheCardShowed(t *testing.T) {
 	ctx := context.Background()
 	st, home, bead := carryYard(t)
-	r, err := st.ReadPack(ctx, "telegram")
+	r, err := st.ReadPack(ctx, "telegram", "", store.Mappings{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -699,7 +699,7 @@ func TestCarryBesideTerminalApplyAndAdd(t *testing.T) {
 	ctx := context.Background()
 	st, home, bead := carryYard(t)
 	askApprove(t, st, bead, packAskOf("telegram"))
-	r, err := st.ReadPack(ctx, "telegram")
+	r, err := st.ReadPack(ctx, "telegram", "", store.Mappings{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -832,7 +832,7 @@ func TestCarryWritesRecordAfterStopBeforeIt(t *testing.T) {
 	seq := askApprove(t, st, bead, packAskOf("pushover"))
 	// The stop: the source stored (pushover names no command files),
 	// no import record written.
-	r, err := st.ReadPack(ctx, "pushover")
+	r, err := st.ReadPack(ctx, "pushover", "", store.Mappings{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -920,7 +920,7 @@ func depotYard(t *testing.T) (*store.Store, string, string, string) {
 	if _, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{Answers: answers, Actor: "mckean"}); err != nil {
 		t.Fatal(err)
 	}
-	st.SetPackReader(func(ctx context.Context, name string, yard store.API) (*store.PackReading, error) {
+	st.SetPackReader(func(ctx context.Context, name string, depot string, mappings store.Mappings, yard store.API) (*store.PackReading, error) {
 		p, err := pack.LoadDir(dir)
 		if err != nil {
 			return nil, err
@@ -930,7 +930,7 @@ func depotYard(t *testing.T) (*store.Store, string, string, string) {
 			return nil, err
 		}
 		return &store.PackReading{Name: p.Name, Kind: p.Kind, Depot: "yardr",
-			Label: "embedded in yardr test", Plan: askPlanOf(os.DirFS(dir), plan)}, nil
+			Label: "embedded in yardr test", Plan: askPlanOf(os.DirFS(dir), plan, pack.Answers{}, nil, nil)}, nil
 	})
 	return st, home, bead, dir
 }
@@ -989,6 +989,8 @@ func TestCarryDepotPack(t *testing.T) {
 		t.Fatalf("the carried-out card reads:\n%s", lines)
 	}
 
+	t.Run("first install with mappings", carryFirstInstallWithMappings)
+
 	st2, home2, bead2, dir2 := depotYard(t)
 	writeMiniPack(t, dir2, "build v2\n", "yardmaster v2\n")
 	seq2 := askApprove(t, st2, bead2, packAskOf("mini"))
@@ -1002,6 +1004,55 @@ func TestCarryDepotPack(t *testing.T) {
 	}
 	if data, err := os.ReadFile(builder2); err != nil || string(data) != "build by hand\n" {
 		t.Fatalf("the moved file was applied over: %q, %v", data, err)
+	}
+}
+
+// carryFirstInstallWithMappings checks the first-install case of
+// TestCarryDepotPack: the carrier builds and applies for the depot and
+// with the mappings the card holds.
+func carryFirstInstallWithMappings(t *testing.T) {
+	ctx := context.Background()
+	st, home, bead := carryYard(t)
+	if err := st.PutDepot(ctx, store.Depot{Name: "web", Path: t.TempDir()}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	mappings := store.Mappings{
+		Binds:   []string{"builders=claude:opus", "reviewers=claude:opus"},
+		Members: []string{"backlog=mckean", "decisions=mckean"},
+	}
+	reading, err := st.ReadPack(ctx, "starter", "web", mappings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reading.Depot != "web" || reading.Plan == nil || len(reading.Plan.Missing) != 0 || len(reading.Plan.Asks) != 0 {
+		t.Fatalf("the first-install reading still asks: depot %q, missing %v, asks %v", reading.Depot, reading.Plan.Missing, reading.Plan.Asks)
+	}
+	run := &store.AskRun{Argv: []string{"pack", "apply", "starter"},
+		Pack:    &store.AskPack{Name: reading.Name, Kind: reading.Kind, Depot: reading.Depot, Mappings: mappings, Label: reading.Label, Plan: reading.Plan},
+		Carried: reading.Sources,
+		Seen:    map[string]string{"pack starter build": reading.Build}}
+	c := testCarrier(st, home, "boot-one")
+	res, plan, failure := c.carryPackApply(ctx, &store.Carry{Bead: bead, Ask: 42, Actor: "mckean"}, run)
+	if failure != "" {
+		t.Fatalf("the first install failed: %s", failure)
+	}
+	if res == nil || plan == nil || plan.Depot != "web" || res.Depot != "web" {
+		t.Fatalf("the carried-out install = %+v, plan depot %q", res, plan.Depot)
+	}
+	recs, err := st.Packs(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(recs, func(r store.PackImport) bool { return r.Pack == "starter" && r.Depot == "web" }) {
+		t.Fatalf("the import records = %+v, want starter in depot web", recs)
+	}
+	groups, err := st.Groups(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if i := slices.IndexFunc(groups, func(g store.Group) bool { return g.Name == "web-builders" }); i < 0 ||
+		groups[i].Config["kind"] != "claude" || groups[i].Config["model"] != "opus" {
+		t.Fatalf("the carried-out builders = %+v, want web-builders bound to claude opus", groups)
 	}
 }
 

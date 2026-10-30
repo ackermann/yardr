@@ -1657,7 +1657,7 @@ func apiStore(t *testing.T) (*store.Store, string) {
 		packs[u.name] = &store.PackReading{Name: u.name, Kind: "source", Label: "embedded in yardr doctest",
 			Sources: []store.AskSource{{Name: u.name, Text: u.now}}, Presets: presets(u.name)}
 	}
-	st.SetPackReader(func(ctx context.Context, name string, yard store.API) (*store.PackReading, error) {
+	st.SetPackReader(func(ctx context.Context, name string, depot string, mappings store.Mappings, yard store.API) (*store.PackReading, error) {
 		if reading, ok := packs[name]; ok {
 			return reading, nil
 		}

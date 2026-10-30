@@ -72,7 +72,7 @@ func TestCarrySetupGoogleMail(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reading, err := st.ReadPack(ctx, "google-mail")
+	reading, err := st.ReadPack(ctx, "google-mail", "", store.Mappings{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,8 +185,8 @@ func TestCarrySetupRunsPastAMovedBuild(t *testing.T) {
 	to := store.Grantee{Crew: "yardmaster"}
 	seq := askSetupApprove(t, st, bead, "google-mail", 1, setupMailValues(), to)
 	read := packReaderFor(home)
-	st.SetPackReader(func(ctx context.Context, name string, yard store.API) (*store.PackReading, error) {
-		reading, err := read(ctx, name, yard)
+	st.SetPackReader(func(ctx context.Context, name string, depot string, mappings store.Mappings, yard store.API) (*store.PackReading, error) {
+		reading, err := read(ctx, name, depot, mappings, yard)
 		if err == nil {
 			reading.Label, reading.Build = "embedded in yardr test2", "test2"
 		}
@@ -206,7 +206,7 @@ func TestCarrySetupApplyFailureStopsRest(t *testing.T) {
 	ctx := context.Background()
 	st, home, bead := carryYard(t)
 	seq := askSetupApprove(t, st, bead, "google-mail", 1, setupMailValues(), store.Grantee{Crew: "yardmaster"})
-	reading, err := st.ReadPack(ctx, "google-mail")
+	reading, err := st.ReadPack(ctx, "google-mail", "", store.Mappings{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -236,7 +236,7 @@ func TestCarrySetupApplyFailureStopsRest(t *testing.T) {
 func TestCarrySetupAccountFailureStopsGrants(t *testing.T) {
 	ctx := context.Background()
 	st, home, bead := carryYard(t)
-	reading, err := st.ReadPack(ctx, "google-mail")
+	reading, err := st.ReadPack(ctx, "google-mail", "", store.Mappings{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -366,7 +366,7 @@ func TestCarrySetupLostValuesFailsAskedAgain(t *testing.T) {
 			t.Fatalf("the record has no %q: %+v", want, rec)
 		}
 	}
-	reading, err := st.ReadPack(ctx, "google-mail")
+	reading, err := st.ReadPack(ctx, "google-mail", "", store.Mappings{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -387,7 +387,7 @@ func TestCarrySetupLostValuesFailsAskedAgain(t *testing.T) {
 func TestCarrySetupLostValuesDoesNotReuseExistingAccount(t *testing.T) {
 	ctx := context.Background()
 	st, home, bead := carryYard(t)
-	reading, err := st.ReadPack(ctx, "google-mail")
+	reading, err := st.ReadPack(ctx, "google-mail", "", store.Mappings{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -425,7 +425,7 @@ func TestCarrySetupLostValuesDoesNotReuseExistingAccount(t *testing.T) {
 func TestCarrySetupResumedAfterAccountWrite(t *testing.T) {
 	ctx := context.Background()
 	st, home, bead := carryYard(t)
-	reading, err := st.ReadPack(ctx, "google-mail")
+	reading, err := st.ReadPack(ctx, "google-mail", "", store.Mappings{})
 	if err != nil {
 		t.Fatal(err)
 	}

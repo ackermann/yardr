@@ -160,7 +160,7 @@ func TestCarrySetupTypingAnotherLeavesShared(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reading, err := st.ReadPack(ctx, "google-mail")
+	reading, err := st.ReadPack(ctx, "google-mail", "", store.Mappings{})
 	if err != nil {
 		t.Fatal(err)
 	}
