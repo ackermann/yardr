@@ -80,13 +80,14 @@ popups. WebRTC blocking depends on browser support, and a page opened
 top-level can navigate itself (docs/web.md). It listens on
 --pages-addr, else on YARDR_WEB_PAGES_ADDR when set in the command's
 environment, else on the yard's web_pages_addr setting (yardr settings
-set web_pages_addr <host:port>), else on 127.0.0.1:8789, on loopback
-like the view and under the same Host rules. A bead's page carries run
-beside each page's static link, opening the same bytes there. Behind a
-proxy of yours the origin is reached by the name the view was reached
-by, on the origin's port, which the proxy forwards beside the view's;
---pages-host names a second name for it instead, which the proxy routes
-to the origin and run links use (docs/web.md, "Behind a proxy").
+set web_pages_addr <host:port>), else on 127.0.0.1:8789 (on a free port
+when the view's own port is 0), on loopback like the view and under the
+same Host rules. A bead's page carries run beside each page's static
+link, opening the same bytes there. Behind a proxy of yours the origin
+is reached by the name the view was reached by, on the origin's port,
+which the proxy forwards beside the view's; --pages-host names a second
+name for it instead, which the proxy routes to the origin and run links
+use (docs/web.md, "Behind a proxy").
 
 The view acts as --as when it is given, else as YARDR_WEB_AS when set in
 the command's environment, else as the yard's web_as setting (yardr
@@ -341,7 +342,7 @@ this machine. Both answers carry Retry-After.`,
 	serve.Flags().BoolVar(&unsafe, "unsafe", false, "listen on every interface, or on any --addr; outside JWT mode there is no authentication, and a view that acts is refused")
 	serve.Flags().StringSliceVar(&hosts, "host", nil, "a host name this machine is reached by, answered as its own are (repeatable)")
 	serve.Flags().StringVar(&as, "as", "", "act as this user of the yard: talk, asks, moves (default: YARDR_WEB_AS, else web_as)")
-	serve.Flags().StringVar(&pagesAddr, "pages-addr", webPagesLocalAddr, "listen address of the sandbox origin, on loopback (default: YARDR_WEB_PAGES_ADDR, else web_pages_addr, else "+webPagesLocalAddr+"); every interface on that port with --unsafe")
+	serve.Flags().StringVar(&pagesAddr, "pages-addr", webPagesLocalAddr, "listen address of the sandbox origin, on loopback (default: YARDR_WEB_PAGES_ADDR, else web_pages_addr, else "+webPagesLocalAddr+", or a free port beside a view on one); every interface on that port with --unsafe")
 	serve.Flags().StringVar(&pagesHost, "pages-host", "", "public name of the sandbox origin behind a proxy of yours, for run links (default: YARDR_WEB_PAGES_HOST, else web_pages_host)")
 	cmd.AddCommand(serve)
 	cmd.AddCommand(a.webOpenCmd())
@@ -350,7 +351,7 @@ this machine. Both answers carry Retry-After.`,
 		c.Flags().Lookup("addr").Usage = "listen address, on loopback (default: YARDR_WEB_ADDR, else web_addr, else " + webLocalAddr + ")"
 		c.Flags().Lookup("host").Usage = "a host name the view answers to besides the loopback names, for a proxy of yours in front of it (repeatable)"
 		c.Flags().Lookup("as").Usage = "act as this user of the yard: talk, asks, moves (default: YARDR_WEB_AS, else web_as)"
-		c.Flags().Lookup("pages-addr").Usage = "listen address of the sandbox origin, on loopback (default: YARDR_WEB_PAGES_ADDR, else web_pages_addr, else " + webPagesLocalAddr + ")"
+		c.Flags().Lookup("pages-addr").Usage = "listen address of the sandbox origin, on loopback (default: YARDR_WEB_PAGES_ADDR, else web_pages_addr, else " + webPagesLocalAddr + ", or a free port beside a view on one)"
 		c.Flags().Lookup("pages-host").Usage = "public name of the sandbox origin behind a proxy of yours, for run links (default: YARDR_WEB_PAGES_HOST, else web_pages_host)"
 	}
 	v.start.Short = "Start the web view in the background, on loopback, and print its address"
@@ -424,7 +425,9 @@ func webAsRefused(as, from string) error {
 // given. It is the web kind's FromSetting: serve, start and install go
 // by it, so a start and an install check and hand on what serve would
 // listen on. The flags stay ones that were not given. The yard is asked
-// only when a setting decides.
+// only when a setting decides. Where none of them gives the sandbox
+// origin an address, a view on a free port gets one beside it
+// (freePagesAddr), and any other view leaves it on the default.
 func (a *app) pagesFlagsFromSetting(ctx context.Context, cfg *config.Config, flags *pflag.FlagSet) error {
 	givenAddr, givenHost := flags.Changed("pages-addr"), flags.Changed("pages-host")
 	if givenAddr && givenHost {
@@ -464,6 +467,10 @@ func (a *app) pagesFlagsFromSetting(ctx context.Context, cfg *config.Config, fla
 			if err := flags.Lookup("pages-addr").Value.Set(v); err != nil {
 				return err
 			}
+		} else if free, ok := freePagesAddr(flags.Lookup("addr").Value.String()); ok {
+			if err := flags.Lookup("pages-addr").Value.Set(free); err != nil {
+				return err
+			}
 		}
 	}
 	if !givenHost {
@@ -474,6 +481,20 @@ func (a *app) pagesFlagsFromSetting(ctx context.Context, cfg *config.Config, fla
 		}
 	}
 	return nil
+}
+
+// freePagesAddr is where the sandbox origin listens when nothing gave it
+// an address and the view's (viewAddr, as resolved) asks for a free port:
+// a free port on the view's host. The default's fixed port is one that a
+// machine running its own view holds, and a view told to take whatever
+// port is free would otherwise end at the bind of it. ok is false for a
+// view with a port of its own, which leaves the origin on its default.
+func freePagesAddr(viewAddr string) (addr string, ok bool) {
+	if !portZero(viewAddr) {
+		return "", false
+	}
+	host, _, _ := net.SplitHostPort(viewAddr)
+	return net.JoinHostPort(host, "0"), true
 }
 
 // webJWTConfig is JWT mode as the yard's settings shape it, when its

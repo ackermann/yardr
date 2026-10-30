@@ -236,22 +236,64 @@ func TestPagesSettingsAreCheckedAsTheFlags(t *testing.T) {
 // web serve takes the setting, environment or flag in precedence order
 // for the sandbox origin beside the view: the origin answers blob
 // bytes only under the scripted policy, no yard route, and the view's
-// Host rules.
+// Host rules. Where none of them gives it an address, a view on a free
+// port (port 0 from the flag, the environment or the setting) gets a
+// free port for it too, and the serving line names both; the default's
+// port is held meanwhile, as on a machine that runs its own view. A
+// serve on the default itself is not run here, for that machine's view
+// may hold it.
 func TestServeTakesThePagesSetting(t *testing.T) {
 	// The setting variables are blank in the process already (TestMain).
 	home, st, _ := statusYard(t, "abcdef123456")
 	cfg := &config.Config{Home: home}
 	a := func() *app { return &app{st: st, cfg: cfg, actor: "me"} }
-	settingAddr := freeAddr(t)
-	if err := st.SetSetting(context.Background(), store.WebPagesAddrSetting, settingAddr, "Jo"); err != nil {
+	// Held, a serve on a free port that needed the default origin's port
+	// would end at the bind. A port some other process holds already is
+	// as good.
+	if held, err := net.Listen("tcp", store.DefaultWebPagesAddr); err == nil {
+		t.Cleanup(func() { held.Close() })
+	}
+	// The serve logs where it listens to os.Stderr: its line is read back
+	// through a pipe, as the daemon's is (homewatch_test.go).
+	r, w, err := os.Pipe()
+	if err != nil {
 		t.Fatal(err)
 	}
+	old := os.Stderr
+	os.Stderr = w
+	logged := &syncBuffer{}
+	read := make(chan struct{})
+	go func() { _, _ = io.Copy(logged, r); close(read) }()
+	t.Cleanup(func() {
+		os.Stderr = old
+		w.Close()
+		<-read
+		r.Close()
+	})
+	// A port of 0 in a want is any free port on its host, which is not
+	// the default origin's.
+	bound := func(got, want string) bool {
+		if !portZero(want) {
+			return got == want
+		}
+		wantHost, _, _ := net.SplitHostPort(want)
+		host, port, err := net.SplitHostPort(got)
+		return err == nil && host == wantHost && port != "0" && got != store.DefaultWebPagesAddr
+	}
+	// serves runs web serve with args and --addr viewAddr, none for "":
+	// the view then takes the address the environment or the setting gives
+	// it, and is wanted on a free port of 127.0.0.1.
 	serves := func(args []string, viewAddr, pagesAddr string) {
 		t.Helper()
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		cmd := a().rootCmd()
-		cmd.SetArgs(append([]string{"web", "serve", "--addr", viewAddr}, args...))
+		argv := []string{"web", "serve"}
+		wantView := "127.0.0.1:0"
+		if viewAddr != "" {
+			argv, wantView = append(argv, "--addr", viewAddr), viewAddr
+		}
+		cmd.SetArgs(append(argv, args...))
 		cmd.SilenceUsage, cmd.SilenceErrors = true, true
 		done := make(chan error, 1)
 		go func() { done <- cmd.ExecuteContext(ctx) }()
@@ -268,11 +310,23 @@ func TestServeTakesThePagesSetting(t *testing.T) {
 			}
 			up = k.running(cfg)
 		}
-		if up[0].Addr != viewAddr {
-			t.Errorf("web serve listens on %s, want %s", up[0].Addr, viewAddr)
+		views := webViews(cfg)
+		if len(views) != 1 {
+			t.Fatalf("the record is %+v, want one view", views)
 		}
-		if views := webViews(cfg); len(views) != 1 || views[0].PagesAddr != pagesAddr {
-			t.Errorf("the record's sandbox origin is %+v, want %s", views, pagesAddr)
+		viewBound, pagesBound := up[0].Addr, views[0].PagesAddr
+		if !bound(viewBound, wantView) {
+			t.Errorf("web serve listens on %s, want %s", viewBound, wantView)
+		}
+		if !bound(pagesBound, pagesAddr) {
+			t.Errorf("the record's sandbox origin is %s, want %s", pagesBound, pagesAddr)
+		}
+		// The serving line names both, as bound.
+		line := "url=http://" + viewBound + "/ pages=http://" + pagesBound + "/"
+		for deadline := time.Now().Add(10 * time.Second); !strings.Contains(logged.String(), line); time.Sleep(10 * time.Millisecond) {
+			if time.Now().After(deadline) {
+				t.Fatalf("web serve %v did not log %q:\n%s", args, line, logged.String())
+			}
 		}
 		get := func(addr, target string, host string) (int, http.Header, string) {
 			t.Helper()
@@ -293,16 +347,16 @@ func TestServeTakesThePagesSetting(t *testing.T) {
 		}
 		// The origin answers no yard route, and a missing blob
 		// plainly, both under the scripted policy.
-		if status, header, body := get(pagesAddr, "/", ""); status != 404 || !strings.Contains(body, "404 page not found") {
+		if status, header, body := get(pagesBound, "/", ""); status != 404 || !strings.Contains(body, "404 page not found") {
 			t.Errorf("the origin's /: status %d, want the mux's 404: %s", status, body)
 		} else if csp := header.Get("Content-Security-Policy"); !strings.Contains(csp, "sandbox allow-scripts") || !strings.Contains(csp, "webrtc 'block'") {
 			t.Errorf("the origin's Content-Security-Policy %q, want the scripted policy", csp)
 		}
-		if status, _, body := get(pagesAddr, "/blobs/"+strings.Repeat("0", 64), ""); status != 404 || !strings.Contains(body, "no such blob") {
+		if status, _, body := get(pagesBound, "/blobs/"+strings.Repeat("0", 64), ""); status != 404 || !strings.Contains(body, "no such blob") {
 			t.Errorf("the origin's missing blob: status %d, want a plain 404: %s", status, body)
 		}
 		// Its Host rules are the view's.
-		if status, _, _ := get(pagesAddr, "/", "evil.example.net"); status != http.StatusMisdirectedRequest {
+		if status, _, _ := get(pagesBound, "/", "evil.example.net"); status != http.StatusMisdirectedRequest {
 			t.Errorf("Host evil.example.net: status %d, want 421", status)
 		}
 		cancel()
@@ -315,10 +369,35 @@ func TestServeTakesThePagesSetting(t *testing.T) {
 			t.Fatalf("web serve did not stop")
 		}
 	}
+	// Nothing gives the origin an address, and the view asks for a free
+	// port: so does the origin.
+	serves(nil, "127.0.0.1:0", "127.0.0.1:0")
+	// The view's port of 0 may come from the environment or the setting.
+	cfg.WebAddr = "127.0.0.1:0"
+	serves(nil, "", "127.0.0.1:0")
+	cfg.WebAddr = ""
+	ctx := context.Background()
+	if err := st.SetSetting(ctx, store.WebAddrSetting, "127.0.0.1:0", "Jo"); err != nil {
+		t.Fatal(err)
+	}
+	serves(nil, "", "127.0.0.1:0")
+	if err := st.SetSetting(ctx, store.WebAddrSetting, "", "Jo"); err != nil {
+		t.Fatal(err)
+	}
+
+	// An address from the setting, the environment or the flag is taken
+	// as it stands, by a view on a free port as by any other.
+	settingAddr := freeAddr(t)
+	if err := st.SetSetting(ctx, store.WebPagesAddrSetting, settingAddr, "Jo"); err != nil {
+		t.Fatal(err)
+	}
 	serves(nil, freeAddr(t), settingAddr)
+	serves(nil, "127.0.0.1:0", settingAddr)
 	envAddr := freeAddr(t)
 	cfg.WebPagesAddr = envAddr
 	serves(nil, freeAddr(t), envAddr)
+	serves(nil, "127.0.0.1:0", envAddr)
 	flagAddr := freeAddr(t)
 	serves([]string{"--pages-addr", flagAddr}, freeAddr(t), flagAddr)
+	serves([]string{"--pages-addr", flagAddr}, "127.0.0.1:0", flagAddr)
 }

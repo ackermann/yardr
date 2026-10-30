@@ -36,10 +36,16 @@ YARDR_WEB_ADDR=127.0.0.1:8793 yardr web start # the environment overrides the se
 yardr web start --addr 127.0.0.1:9000        # --addr still wins
 ```
 
-A port of 0 asks for a free port: with `--addr 127.0.0.1:0` the view
-listens where the machine has room, and the start prints the bound
-address (the serve logs it); `--pages-addr 127.0.0.1:0` does the same
-for the sandbox origin beside it.
+A port of 0 asks for a free port: with `--addr 127.0.0.1:0` (or that
+address from `YARDR_WEB_ADDR` or `web_addr`) the view listens where the
+machine has room, and the start prints the bound address (the serve logs
+it). The sandbox origin beside it takes a free port on the same host
+too, unless `--pages-addr`, `YARDR_WEB_PAGES_ADDR` or `web_pages_addr`
+gives it an address, so a view on a free port starts on a machine whose
+own view holds `127.0.0.1:8789`, and the start prints both bound
+addresses. `--pages-addr 127.0.0.1:0` asks the same of the origin alone;
+any other address given for it is taken as written, and a port that is
+taken fails the view.
 
 The setting takes what `--addr` takes on loopback (next) and refuses the
 rest with the same sentence. It moves nothing that runs: a view keeps its
@@ -66,11 +72,12 @@ yardr web start --as jo            # --as still wins
 The sandbox origin, where a note's pages run ([One bead](#one-bead)),
 listens on `--pages-addr` when it is given, else on
 `YARDR_WEB_PAGES_ADDR` when set in the command's environment, else on
-the yard's `web_pages_addr` setting, else on `127.0.0.1:8789`, on
-loopback like the view and under the same Host rules (`--unsafe` opens
-it on every interface too, on its port). A second yard on this machine
-sets both addresses, as the view's address alone no longer moves it
-off the first yard's ports:
+the yard's `web_pages_addr` setting, else on `127.0.0.1:8789` (a free
+port when the view's own port is 0, [above](#the-address)), on loopback
+like the view and under the same Host rules (`--unsafe` opens it on
+every interface too, on its port). A second yard on this machine sets
+both addresses, as the view's address alone no longer moves it off the
+first yard's ports:
 
 ```sh
 yardr settings set web_addr 127.0.0.1:8792

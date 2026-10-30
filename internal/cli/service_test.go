@@ -1145,6 +1145,58 @@ func TestWebStart(t *testing.T) {
 	}
 	clear()
 
+	// A view on port 0 alone asks the origin for a free port too, which
+	// the serve gives it: only the view's address is handed on, and the
+	// start prints the origin as the serve bound it, beside the view.
+	spawnsWith := func(want []string, pages string) {
+		stub(t, &spawn, func(_ []string, _ *config.Config, _ *longRunning, args []string) (int, <-chan error, func() error, error) {
+			if !slices.Equal(args, want) {
+				t.Errorf("started with %q, want %q", args, want)
+			}
+			var err error
+			if clear, err = kindOf(svcWeb).announce(cfg, map[string]any{"addr": bound, "pages_addr": pages}); err != nil {
+				t.Fatal(err)
+			}
+			return os.Getpid(), nil, func() error { return nil }, nil
+		})
+	}
+	spawnsWith([]string{"--addr", "127.0.0.1:0"}, pagesBound)
+	out, err = run(t, a().rootCmd(), "web", "start", "--addr", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantText(t, out, "The web view: http://"+bound+"/", "The sandbox origin: http://"+pagesBound+"/")
+	clear()
+
+	// An address for the origin from the flag or the setting is its own,
+	// and no free port: the start does not print it as one that was bound.
+	spawnsWith([]string{"--addr", "127.0.0.1:0", "--pages-addr", "127.0.0.1:9001"}, "127.0.0.1:9001")
+	out, err = run(t, a().rootCmd(), "web", "start", "--addr", "127.0.0.1:0", "--pages-addr", "127.0.0.1:9001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantText(t, out, "The web view: http://"+bound+"/")
+	if strings.Contains(out, "sandbox origin") {
+		t.Errorf("the start printed the origin of a fixed --pages-addr:\n%s", out)
+	}
+	clear()
+	if _, err := run(t, a().rootCmd(), "settings", "set", "web_pages_addr", "127.0.0.1:9100"); err != nil {
+		t.Fatal(err)
+	}
+	spawnsWith([]string{"--addr", "127.0.0.1:0"}, "127.0.0.1:9100")
+	out, err = run(t, a().rootCmd(), "web", "start", "--addr", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantText(t, out, "The web view: http://"+bound+"/")
+	if strings.Contains(out, "sandbox origin") {
+		t.Errorf("the start printed the origin of web_pages_addr:\n%s", out)
+	}
+	clear()
+	if _, err := run(t, a().rootCmd(), "settings", "set", "web_pages_addr", ""); err != nil {
+		t.Fatal(err)
+	}
+
 	// The origin alone on port 0: a fixed view address waits as before,
 	// and the bound origin is printed beside it.
 	origin, err := net.Listen("tcp", "127.0.0.1:0")
