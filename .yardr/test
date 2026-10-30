@@ -1810,7 +1810,7 @@ filesizebudget() {
       if ($0 ~ /^[^ ]+ [0-9]+ /) {
         f = $0; sub(/ .*/, "", f)
         m = $0; sub(/^[^ ]+ /, "", m); sub(/ .*/, "", m)
-        ceil[f] = m
+        ceil[f] = m + 0
       }
       next
     }

@@ -5069,6 +5069,14 @@ func TestYardTestBudgets(t *testing.T) {
 	shrink := func(t *testing.T, dir string, row filesizeRow) {
 		writeFile(t, dir, row.path, strings.Repeat("x\n", row.ceil-1))
 	}
+	shrinkDigits := func(t *testing.T, dir string, row filesizeRow) {
+		// A 3-digit file under a 4-digit ceiling: the digit mismatch is
+		// what a string comparison misjudges as over.
+		if row.ceil < 1000 {
+			t.Fatalf("ceiling %d of %s is no longer 4 digits: move this case with the table", row.ceil, row.path)
+		}
+		writeFile(t, dir, row.path, strings.Repeat("x\n", 929))
+	}
 	remove := func(t *testing.T, dir string, row filesizeRow) {
 		if err := os.Remove(filepath.Join(dir, row.path)); err != nil {
 			t.Fatal(err)
@@ -5085,6 +5093,11 @@ func TestYardTestBudgets(t *testing.T) {
 	underCeiling := func(tail string) func(filesizeRow) string {
 		return func(row filesizeRow) string {
 			return fmt.Sprintf("test: %s has %d lines, under its %d-line ceiling: %s", row.path, row.ceil-1, row.ceil, tail)
+		}
+	}
+	underDigits := func(tail string) func(filesizeRow) string {
+		return func(row filesizeRow) string {
+			return fmt.Sprintf("test: %s has 929 lines, under its %d-line ceiling: %s", row.path, row.ceil, tail)
 		}
 	}
 	gone := func(tail string) func(filesizeRow) string {
@@ -5110,10 +5123,14 @@ func TestYardTestBudgets(t *testing.T) {
 			overOnly("split it along a concept, one concept per file (a second same-stem file such as routing2.go is not a split)")},
 		{"a ceiling left above a shrunk file fails the file size budget", shrink, false, 1,
 			underCeiling("lower the row in the same change")},
+		{"a ceiling left above a file shrunk below 1000 lines fails the file size budget", shrinkDigits, false, 1,
+			underDigits("lower the row in the same change")},
 		{"a row whose file is gone fails the file size budget", remove, false, 1,
 			gone("delete the row with the file")},
 		{"a shrunk file passes the file size budget at landing", shrink, true, 0,
 			underCeiling("landing keeps the higher base row (the branch lowers it)")},
+		{"a file shrunk below 1000 lines passes the file size budget at landing", shrinkDigits, true, 0,
+			underDigits("landing keeps the higher base row (the branch lowers it)")},
 		{"a row whose file is gone passes the file size budget at landing", remove, true, 0,
 			gone("landing keeps the base row (the branch deletes it)")},
 		{"a grown listed file fails the file size budget at landing", grow, true, 1,
