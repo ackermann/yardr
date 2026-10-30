@@ -178,6 +178,11 @@ func (r limitRead) unknown() string {
 // limitsMu. A key whose answer is missing or stale is noted as wanted
 // at the caller's age before limitNone is returned.
 func (d *Dispatcher) cachedLimits(ctx context.Context, kind, provider string, age time.Duration, env []string) limitRead {
+	if d.host != nil {
+		// A crew worker's clone reads the pass's cache (see crewClone in
+		// crew.go): the cache and its lock are the pass's, not the clone's.
+		return d.host.cachedLimits(ctx, kind, provider, age, env)
+	}
 	as, err := limits.Answerers(ctx, d.Store, d.Home)
 	if err != nil {
 		return limitRead{err: err, state: limitUnresolvable}
@@ -210,6 +215,9 @@ func (d *Dispatcher) cachedLimits(ctx context.Context, kind, provider string, ag
 // memory is the providers' own, whose keys name a provider beside the
 // source, where a source's names none.
 func (d *Dispatcher) cachedSource(ctx context.Context, source string, age time.Duration) limitRead {
+	if d.host != nil {
+		return d.host.cachedSource(ctx, source, age)
+	}
 	as, err := limits.Answerers(ctx, d.Store, d.Home)
 	if err != nil {
 		return limitRead{err: err, state: limitUnresolvable}

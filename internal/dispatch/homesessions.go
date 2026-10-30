@@ -150,8 +150,14 @@ func (d *Dispatcher) noteHomeStarted(s HomeSession) {
 }
 
 // dropHome forgets a session the pass stopped or found gone: its pane is
-// closed, or its handle is kept where the runtime closes leftovers.
+// closed, or its handle is kept where the runtime closes leftovers. A
+// crew worker's clone drops through the pass's own record (see crewClone
+// in crew.go): the snapshot and its lock are the pass's, not the clone's.
 func (d *Dispatcher) dropHome(key string) {
+	if d.host != nil {
+		d.host.dropHome(key)
+		return
+	}
 	d.homeMu.Lock()
 	defer d.homeMu.Unlock()
 	delete(d.home, key)

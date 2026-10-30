@@ -34,28 +34,30 @@ type passTiming struct {
 	// sessions is how many sessions the pass found live: what the steps
 	// that ask a runner about each of them grow with.
 	sessions int
-	// slowest is the slowest single runner ask reap made this pass, kept
-	// by the apply (see ask) so the slow pass line can name the call that
-	// dominated reap instead of only reap's total. Nil when reap made no
-	// timed ask, or every one was instant on the dispatcher's clock.
+	// slowest is the slowest single runner ask reap or crew made this
+	// pass, kept by their applies (see ask) so the slow pass line can
+	// name the call that dominated them instead of only their totals.
+	// Nil when neither made a timed ask, or every one was instant on
+	// the dispatcher's clock.
 	slowest *slowAsk
 }
 
-// slowAsk is one runner ask of reap: which session it was for, which kind
-// of call (askStatus, askPane or askNudge) and how long it took. The
-// session is kept on the record for whoever reads the pass in process;
-// the slow pass line logs only the kind and the time (see endPass), so
-// no session's id reaches that line.
+// slowAsk is one runner ask of reap or crew: which session it was for,
+// which kind of call (askStatus, askPane or askNudge) and how long it
+// took. The session is kept on the record for whoever reads the pass
+// in process; the slow pass line logs only the kind and the time (see
+// endPass), so no session's id reaches that line.
 type slowAsk struct {
 	session string
 	call    string
 	took    time.Duration
 }
 
-// The kinds of runner ask reap times (see reap): a liveness or status
-// call, a read of the agent's pane (a prompt look, a screen or input
-// read, a tail; a trust answer counts here, being decided by one pane
-// read), and a typing into the pane (a prompt delivery, a submit).
+// The kinds of runner ask reap and crew time (see reap and crew): a
+// liveness or status call, a read of the agent's pane (a prompt look,
+// a screen or input read, a tail; a trust answer counts here, being
+// decided by one pane read), and a typing into the pane (a prompt
+// delivery, a submit, a stop).
 const (
 	askStatus = "status"
 	askPane   = "pane"
@@ -133,11 +135,11 @@ func (p *passTiming) callTo(name string) *callTime {
 	return c
 }
 
-// ask keeps call as the pass's slowest reap ask when it took longer
-// than the one kept so far. It is called by reap's serial apply, never
-// by its workers, so the pass's record needs no lock; an ask that took
-// no time on the dispatcher's clock is not kept, there being nothing
-// to name.
+// ask keeps call as the pass's slowest ask when it took longer than
+// the one kept so far. It is called by reap's and crew's serial
+// applies, never by their workers, so the pass's record needs no
+// lock; an ask that took no time on the dispatcher's clock is not
+// kept, there being nothing to name.
 func (p *passTiming) ask(session, call string, took time.Duration) {
 	if p == nil || took <= 0 {
 		return
@@ -188,15 +190,15 @@ func (d *Dispatcher) endPass(p *passTiming) {
 	d.Log.Warn("slow pass", attrs...)
 }
 
-// askLog is one reap worker's timed runner asks, in the order it made
-// them. A worker owns its log alone (no other goroutine touches it) and
-// hands it back in its outcome; the serial apply folds it into the
-// pass's slowest (passTiming.ask). It rides on the worker's context,
-// like the pass's PaneCache, so the prompt pass's own pane reads and
-// typings are timed without the runner being wrapped: a wrapped runner
-// would claim pane and typing interfaces the real one lacks and change
-// what the prompt pass decides. A context without a log (every serial
-// caller) times nothing.
+// askLog is one reap or crew worker's timed runner asks, in the order
+// it made them. A worker owns its log alone (no other goroutine
+// touches it) and hands it back in its outcome; the serial apply folds
+// it into the pass's slowest (passTiming.ask). It rides on the
+// worker's context, like the pass's PaneCache, so the prompt pass's
+// own pane reads and typings are timed without the runner being
+// wrapped: a wrapped runner would claim pane and typing interfaces
+// the real one lacks and change what the prompt pass decides. A
+// context without a log (every serial caller) times nothing.
 type askLog struct {
 	now   func() time.Time
 	calls []callTime
@@ -224,8 +226,8 @@ func (l *askLog) timer(kind string) func() {
 }
 
 // askTimer is timer for the log ctx carries, for the runner calls the
-// prompt pass and its helpers make (see prompt.go): outside a reap
-// worker there is no log and the call is untimed.
+// prompt pass and its helpers make (see prompt.go): outside a reap or
+// crew worker there is no log and the call is untimed.
 func askTimer(ctx context.Context, kind string) func() {
 	l, _ := ctx.Value(askLogKey{}).(*askLog)
 	return l.timer(kind)

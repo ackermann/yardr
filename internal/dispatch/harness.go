@@ -518,7 +518,9 @@ func (d *Dispatcher) crewHarnessError(ctx context.Context, runner Runner, s *mem
 	if d.now().Sub(since) > harnessLook {
 		return
 	}
+	done := askTimer(ctx, askPane)
 	tail, err := t.Tail(ctx, s.st.Handle, stallTail)
+	done()
 	if err != nil {
 		return // a pane that cannot be read says nothing either way
 	}

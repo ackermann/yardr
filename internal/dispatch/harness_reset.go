@@ -365,7 +365,9 @@ func (d *Dispatcher) crewReset(ctx context.Context, runner Runner, s *memberSess
 		d.markCrewHarnessError(ctx, s, told, nil)
 		return false, nil
 	}
+	done := askTimer(ctx, askPane)
 	tail, err := t.Tail(ctx, s.st.Handle, stallTail)
+	done()
 	if err != nil {
 		return false, nil // a pane that cannot be read says nothing: looked at again next pass
 	}
@@ -465,7 +467,9 @@ func (d *Dispatcher) crewPromptTaken(ctx context.Context, runner Runner, s *memb
 	kind := harnessKind(s.member.Config)
 	tail := ""
 	if t, ok := runner.(Tailer); ok {
+		done := askTimer(ctx, askPane)
 		tail, _ = t.Tail(ctx, s.st.Handle, stallTail)
+		done()
 	}
 	if shown, known := promptShown(ctx, runner, s.st.Handle, prompt); known && !shown {
 		if !looks {

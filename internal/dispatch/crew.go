@@ -7,6 +7,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -75,9 +76,31 @@ const (
 
 const defaultHandoffGrace = 15 * time.Minute
 
-// crew members keeps every enabled crew member running, delivers its inbox when
+// crewAskBound is how many member-sessions crew keeps at once: enough
+// that one slow runner call no longer stacks behind every session before
+// it, few enough that a sick runtime is not asked by the whole yard at
+// once. It is fixed, not a setting, as reapAskBound is for reap.
+const crewAskBound = 8
+
+// crew keeps every enabled crew member running, delivers its inbox when
 // it is idle, and rotates it through handoffs. One pass, idempotent. While
 // paused by the upgrade gate it keeps them and tells them, but starts none.
+//
+// The sessions are kept side by side (keepCrewSession, at most
+// crewAskBound at once), as reap judges its sessions: one slow runner
+// call then costs the pass about that call, not itself stacked behind
+// every member-session before it. A session's whole keep runs in its one
+// worker, in the order it always ran: nothing inside a session is
+// parallel, since its nudge and stop order is the semantics. No order
+// is promised across sessions: each has its own map key and crew-session
+// row, and runner asks carry that session's handle. Events may share a
+// member's journal, where the session's user identifies them, and their
+// append order is unspecified. What the pass kept of each is merged back
+// in member order after the join (applyCrewMemory), timed asks are folded
+// into the pass's slowest (passTiming.ask), and starts a keep asked for
+// are handed there too, first per member as the serial pass handed them.
+// crewUsage and its serial order stay before the workers, and
+// harnessLogins after them.
 func (d *Dispatcher) crew(ctx context.Context, paused bool) error {
 	if _, err := d.Store.ExpireMemories(ctx); err != nil {
 		d.Log.Warn("expire memories", "err", err)
@@ -93,9 +116,42 @@ func (d *Dispatcher) crew(ctx context.Context, paused bool) error {
 	// the next, once its agent has had the time between to write its last lines
 	// (as usage runs before teardown).
 	d.crewUsage(ctx, rs)
-	for _, r := range rs {
-		if err := d.member(ctx, r, paused); err != nil {
-			d.Log.Error("crew", "crew", r.Name, "err", err)
+	jobs := d.crewJobs(ctx, rs, paused)
+	outcomes := make([]*crewOutcome, len(jobs))
+	sem := make(chan struct{}, crewAskBound)
+	var wg sync.WaitGroup
+	for i := range jobs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			out := d.keepCrewSession(ctx, jobs[i])
+			outcomes[i] = &out
+		}()
+	}
+	wg.Wait()
+	for i, job := range jobs {
+		out := outcomes[i]
+		if out == nil {
+			continue
+		}
+		key := job.session.key()
+		for _, c := range out.calls {
+			d.timing.ask(key, c.name, c.took)
+		}
+		d.applyCrewMemory(key, out.mem)
+		for _, start := range out.starts {
+			// One start in flight per crew member: the first session
+			// in member order that asked for one is handed it, as the
+			// serial pass handed it and left the rest to a later pass.
+			if _, in := d.crewInFlight[start.session.member.Name]; in {
+				continue
+			}
+			d.handCrewStart(ctx, start)
+		}
+		if out.err != nil {
+			d.Log.Error("crew", "crew", job.session.member.Name, "session", job.session.label(), "err", out.err)
 		}
 	}
 	// From the login marks as the pass read them: one a pass sets is
@@ -164,51 +220,6 @@ func (s memberSession) restartCmd() string {
 	return "yardr crew restart " + s.member.Name + " --for " + s.user
 }
 
-func (d *Dispatcher) member(ctx context.Context, r store.CrewMember, paused bool) error {
-	runner := d.Runners[r.Runner]
-	starter, ok := runner.(CrewRunner)
-	if !ok {
-		d.reportCrew(r.Name, "runner "+r.Runner+" cannot run crew members")
-		return nil
-	}
-	// The line session runs where the operator is served; a conversation
-	// session for each served user with its env set.
-	operator := d.operatorName(ctx)
-	var sessions []memberSession
-	if r.Serves(operator) {
-		sessions = append(sessions, newMemberSession(r, ""))
-	}
-	for _, user := range r.ConversationUsers() {
-		sessions = append(sessions, newMemberSession(r, user))
-	}
-	for i := range sessions {
-		if err := d.keepSession(ctx, runner, starter, &sessions[i], paused); err != nil {
-			d.Log.Error("crew", "crew", r.Name, "session", sessions[i].label(), "err", err)
-		}
-	}
-	if paused {
-		return nil
-	}
-	// Sessions the crew member no longer keeps stop: the line's where the
-	// operator is not served, and a conversation the config no longer
-	// declares. Its row lingers, unread by every slice.
-	if !r.Serves(operator) && (r.Live() || len(r.Handle) > 0) {
-		s := newMemberSession(r, "")
-		if err := d.stopCrew(ctx, runner, &s, "the crew member no longer serves the operator"); err != nil {
-			d.Log.Error("crew", "crew", r.Name, "session", s.label(), "err", err)
-		}
-	}
-	for user, cs := range r.Conversations {
-		if !r.HasConversation(user) && (cs.Live() || len(cs.Handle) > 0) {
-			s := newMemberSession(r, user)
-			if err := d.stopCrew(ctx, runner, &s, "the crew member no longer keeps a conversation session for "+user); err != nil {
-				d.Log.Error("crew", "crew", r.Name, "session", s.label(), "err", err)
-			}
-		}
-	}
-	return nil
-}
-
 // operatorName is the yard's operator setting, "" where unset: the line
 // session runs where the crew member serves them.
 func (d *Dispatcher) operatorName(ctx context.Context) string {
@@ -275,7 +286,9 @@ func (d *Dispatcher) keepSession(ctx context.Context, runner Runner, starter Cre
 				// start closes what it left even as the latest: nothing of
 				// the diagnosis is lost with it.
 				if t, ok := runner.(Tailer); ok && len(s.st.Handle) > 0 {
+					done := askTimer(ctx, askPane)
 					tail, _ = t.Tail(ctx, s.st.Handle, stallTail)
+					done()
 				}
 				if _, ok := runner.(CrewCloser); ok && len(s.st.Handle) > 0 {
 					d.setCrewHandle(ctx, s, withHandle(s.st.Handle, earlyExit, true))
@@ -368,7 +381,9 @@ func (d *Dispatcher) keepSession(ctx context.Context, runner Runner, starter Cre
 	// store, and the next pass drains its completion, where a failed start
 	// is counted (crewStartFailed) and a started one forgets what the session
 	// before it left and has what gone sessions left open closed (closeLeft).
-	d.handCrewStart(ctx, crewJob{session: *s, runner: runner, starter: starter})
+	// On a crew worker's clone the hand is recorded instead, and the pass
+	// hands it in member order after the join (queueCrewStart).
+	d.queueCrewStart(ctx, crewJob{session: *s, runner: runner, starter: starter})
 	return nil
 }
 
@@ -593,7 +608,10 @@ func (d *Dispatcher) crewStartFailed(ctx context.Context, runner Runner, s *memb
 			"reason": err.Error()}))
 	}
 	if len(handle) > 0 {
-		if stopErr := runner.Stop(ctx, handle); stopErr == nil && s.member.Runner == "herdr" && hasHomeTab(handle) {
+		done := askTimer(ctx, askNudge)
+		stopErr := runner.Stop(ctx, handle)
+		done()
+		if stopErr == nil && s.member.Runner == "herdr" && hasHomeTab(handle) {
 			d.dropHome(crewHomeKey(s.member.Name, s.user))
 		}
 	}
@@ -854,9 +872,14 @@ func (d *Dispatcher) crewRunning(ctx context.Context, runner Runner, s *memberSe
 
 func (d *Dispatcher) crewStatus(ctx context.Context, runner Runner, s *memberSession) (string, error) {
 	if st, ok := runner.(Statuser); ok {
-		return st.Status(ctx, s.st.Handle)
+		done := askTimer(ctx, askStatus)
+		status, err := st.Status(ctx, s.st.Handle)
+		done()
+		return status, err
 	}
+	done := askTimer(ctx, askStatus)
 	alive, err := runner.Alive(ctx, s.st.Handle)
+	done()
 	if err != nil || !alive {
 		return "", err
 	}
@@ -946,7 +969,10 @@ func (d *Dispatcher) stopCrew(ctx context.Context, runner Runner, s *memberSessi
 	if len(s.st.Handle) > 0 {
 		// Before the tab closes, which makes herdr forget the agent.
 		d.crewAgentSession(ctx, runner, s, true)
-		if err := runner.Stop(ctx, s.st.Handle); err != nil {
+		done := askTimer(ctx, askNudge)
+		err := runner.Stop(ctx, s.st.Handle)
+		done()
+		if err != nil {
 			d.Log.Warn("crew stop", "crew", s.member.Name, "session", s.label(), "err", err)
 		} else {
 			// Keep the handle in the home-loss snapshot if the runner could

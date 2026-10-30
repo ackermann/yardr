@@ -143,7 +143,9 @@ func (d *Dispatcher) crewHarnessDialog(ctx context.Context, r Runner, s *memberS
 	if !ok {
 		return
 	}
+	done := askTimer(ctx, askPane)
 	tail, err := t.Tail(ctx, s.st.Handle, stallTail)
+	done()
 	if err != nil {
 		return // a pane that cannot be read says nothing either way
 	}

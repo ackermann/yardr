@@ -14,6 +14,7 @@ import (
 
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/storetest"
 )
 
 // passClock is the dispatcher's clock for a test of the pass's timing: it
@@ -101,6 +102,18 @@ func (s *chargedStore) FlowMap(ctx context.Context, id string) (*store.FlowMap, 
 func (s *chargedStore) Claim(ctx context.Context, bead, group, stage, actor string, via ...store.Routed) (*store.Session, error) {
 	s.clock.charge("claim")
 	return s.API.Claim(ctx, bead, group, stage, actor, via...)
+}
+
+// chargedCrewRunner is a crewRunner whose Status takes the time the
+// test prices it at, on the pass's clock.
+type chargedCrewRunner struct {
+	*crewRunner
+	clock *passClock
+}
+
+func (r *chargedCrewRunner) Status(ctx context.Context, h map[string]any) (string, error) {
+	r.clock.charge("crew_status")
+	return r.crewRunner.Status(ctx, h)
 }
 
 // What the pass handles and must not put in the line that says where its
@@ -266,5 +279,47 @@ func TestSlowPassNamesTheStepsItsTimeWentTo(t *testing.T) {
 				t.Errorf("slow pass line carries %q:\n%s", leak, line)
 			}
 		}
+	}
+}
+
+// A crew ask is timed as reap's are: a pass the crew step dominates
+// names that step, and its slowest field is the crew session's status
+// call, kind and time only.
+func TestSlowPassNamesACrewAskAsSlowest(t *testing.T) {
+	t.Parallel()
+	s := storetest.New(t)
+	ctx := context.Background()
+	clock := &passClock{epoch: time.Date(2026, 10, 26, 9, 0, 0, 0, time.UTC)}
+	base := &crewRunner{status: map[string]string{}}
+	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{
+		"fake": &chargedCrewRunner{crewRunner: base, clock: clock}},
+		PromptSettle: -1, PromptWait: -1}
+	dispatch.SetClock(d, clock.now)
+	d.Interval = 10 * time.Second
+	var logged lockedWriter
+	d.Log = slog.New(slog.NewTextHandler(&logged, nil))
+	t.Cleanup(func() { dispatch.WaitLimitsIdle(d) })
+	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "fake"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	must(t, d.Reconcile(ctx)) // starts the session
+	must(t, d.Reconcile(ctx)) // keeps it, fast on the pass's clock
+	if lines := slowPasses(logged.String()); len(lines) != 0 {
+		t.Fatalf("a fast crew pass logged %d slow pass lines:\n%s", len(lines), logged.String())
+	}
+
+	clock.price("crew_status", 12*time.Second)
+	must(t, d.Reconcile(ctx))
+	lines := slowPasses(logged.String())
+	if len(lines) != 1 {
+		t.Fatalf("a pass of 12 s in crew logged %d slow pass lines, want 1:\n%s", len(lines), logged.String())
+	}
+	for _, want := range []string{" crew=12s", " slowest.call=status", " slowest.took=12s"} {
+		if !strings.Contains(lines[0], want) {
+			t.Errorf("slow pass line lacks %q:\n%s", want, lines[0])
+		}
+	}
+	if strings.Contains(lines[0], "yardmaster") {
+		t.Errorf("slow pass line names the crew session:\n%s", lines[0])
 	}
 }

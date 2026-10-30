@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -2539,4 +2540,208 @@ func TestNudgeTypesASingleShortMailInline(t *testing.T) {
 			t.Fatalf("nudge = %q, want %q", nudge, want)
 		}
 	})
+}
+
+// crewBarrierRunner is a crewRunner whose Status calls block until the
+// test releases them, counting how many are in flight at once: the keeps
+// crew fans out are seen overlapping, and never past its bound. It also
+// records the order of its asks, so a session's own order (its status
+// before its nudge, a stop only after its status) is checked as the
+// pass left it.
+type crewBarrierRunner struct {
+	*crewRunner
+	release  chan struct{}
+	blocking atomic.Bool
+	inFlight atomic.Int32
+	maxSeen  atomic.Int32
+
+	mu    sync.Mutex
+	order []string
+}
+
+func (r *crewBarrierRunner) record(kind, agent string) {
+	r.mu.Lock()
+	r.order = append(r.order, kind+":"+agent)
+	r.mu.Unlock()
+}
+
+func (r *crewBarrierRunner) clearOrder() {
+	r.mu.Lock()
+	r.order = nil
+	r.mu.Unlock()
+}
+
+// asks is the recorded asks for agent, in the order they happened.
+func (r *crewBarrierRunner) asks(agent string) []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []string
+	for _, o := range r.order {
+		if strings.HasSuffix(o, ":"+agent) {
+			out = append(out, strings.TrimSuffix(o, ":"+agent))
+		}
+	}
+	return out
+}
+
+func (r *crewBarrierRunner) Status(ctx context.Context, h map[string]any) (string, error) {
+	agent, _ := h["agent"].(string)
+	r.record("status", agent)
+	if r.blocking.Load() {
+		n := r.inFlight.Add(1)
+		for {
+			if m := r.maxSeen.Load(); n <= m || r.maxSeen.CompareAndSwap(m, n) {
+				break
+			}
+		}
+		select {
+		case <-r.release:
+		case <-ctx.Done():
+		}
+		r.inFlight.Add(-1)
+	}
+	return r.crewRunner.Status(ctx, h)
+}
+
+func (r *crewBarrierRunner) Nudge(ctx context.Context, h map[string]any, text string) error {
+	agent, _ := h["agent"].(string)
+	r.record("nudge", agent)
+	return r.crewRunner.Nudge(ctx, h, text)
+}
+
+func (r *crewBarrierRunner) Stop(ctx context.Context, h map[string]any) error {
+	agent, _ := h["agent"].(string)
+	r.record("stop", agent)
+	return r.crewRunner.Stop(ctx, h)
+}
+
+// Crew keeps its member-sessions side by side, at most eight at once,
+// and leaves the pass as the serial keeping left it: each idle session
+// with mail is nudged once and marked notified, each disabled one is
+// stopped, and inside a session its status is always read before its
+// nudge and before its stop.
+func TestCrewKeepsSessionsSideBySide(t *testing.T) {
+	t.Parallel()
+	s := storetest.New(t)
+	base := &crewRunner{status: map[string]string{}}
+	r := &crewBarrierRunner{crewRunner: base, release: make(chan struct{})}
+	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": r}, PromptSettle: -1, PromptWait: -1}
+	t.Cleanup(func() { dispatch.WaitLimitsIdle(d) })
+	ctx := context.Background()
+	const members = 12
+	names := make([]string, 0, members)
+	for i := 0; i < members; i++ {
+		name := fmt.Sprintf("member-%02d", i)
+		names = append(names, name)
+		if _, err := s.PutCrew(ctx, store.CrewMember{Name: name, Runner: "fake"}, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for range 20 {
+		must(t, d.Reconcile(ctx))
+		live := 0
+		for _, name := range names {
+			if m, err := s.GetCrew(ctx, name); err == nil && m.Live() {
+				live++
+			}
+		}
+		if live == members {
+			break
+		}
+	}
+	agents := make(map[string]string, members) // member -> agent
+	for _, name := range names {
+		m, err := s.GetCrew(ctx, name)
+		if err != nil || !m.Live() {
+			t.Fatalf("crew member %s not running: %+v %v", name, m, err)
+		}
+		agents[name] = m.Handle["agent"].(string)
+	}
+	// Two members are disabled: their keeps read the status, then stop.
+	disabled := names[:2]
+	for _, name := range disabled {
+		must(t, s.SetCrewEnabled(ctx, name, false, "", "me"))
+	}
+	// One works (no nudge, no stop); the rest sit idle with mail due.
+	base.set(agents[names[2]], "working")
+	nudged := names[3:]
+	wantNotified := make(map[string]uint64, len(nudged))
+	for _, name := range nudged {
+		must(t, s.Mail(ctx, name, "hi", "me"))
+		page, err := s.InboxFor(ctx, name, "", 5)
+		must(t, err)
+		wantNotified[name] = page.Last
+	}
+
+	r.clearOrder()
+	r.blocking.Store(true)
+	done := make(chan error, 1)
+	go func() { done <- d.Reconcile(ctx) }()
+	// The asks overlap up to the bound and no further, as reap's do.
+	deadline := time.Now().Add(dispatch.WaitFuse)
+	for r.maxSeen.Load() < 8 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if got := r.maxSeen.Load(); got != 8 {
+		t.Fatalf("status calls in flight = %d, want 8 held at the bound", got)
+	}
+	stable := time.Now().Add(200 * time.Millisecond)
+	for time.Now().Before(stable) {
+		if got := r.maxSeen.Load(); got != 8 {
+			t.Fatalf("status calls in flight = %d past the bound of 8", got)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	close(r.release)
+	select {
+	case err := <-done:
+		must(t, err)
+	case <-time.After(dispatch.WaitFuse):
+		t.Fatal("the fanned-out crew pass did not finish")
+	}
+	r.blocking.Store(false)
+	if got := r.maxSeen.Load(); got != 8 {
+		t.Fatalf("most status calls at once = %d, want 8", got)
+	}
+
+	// Inside a session the order is the serial one.
+	for _, name := range nudged {
+		if got, want := r.asks(agents[name]), []string{"status", "nudge"}; !slices.Equal(got, want) {
+			t.Errorf("asks for %s = %v, want %v", name, got, want)
+		}
+	}
+	for _, name := range disabled {
+		if got, want := r.asks(agents[name]), []string{"status", "stop"}; !slices.Equal(got, want) {
+			t.Errorf("asks for %s = %v, want %v", name, got, want)
+		}
+	}
+	if got, want := r.asks(agents[names[2]]), []string{"status"}; !slices.Equal(got, want) {
+		t.Errorf("asks for the working member = %v, want %v", got, want)
+	}
+
+	// The state the pass left is the serial result.
+	if len(base.nudges) != len(nudged) {
+		t.Errorf("nudges = %v, want one per idle member with mail", base.nudges)
+	}
+	if base.stops != len(disabled) {
+		t.Errorf("stops = %d, want %d", base.stops, len(disabled))
+	}
+	for _, name := range nudged {
+		m, err := s.GetCrew(ctx, name)
+		must(t, err)
+		if !m.Live() || m.Status != "idle" || m.Notified != wantNotified[name] {
+			t.Errorf("%s after the pass = live %v status %q notified %d, want live idle notified %d",
+				name, m.Live(), m.Status, m.Notified, wantNotified[name])
+		}
+	}
+	for _, name := range disabled {
+		m, err := s.GetCrew(ctx, name)
+		must(t, err)
+		if m.Live() {
+			t.Errorf("%s still live after the pass, want stopped", name)
+		}
+	}
+	if m, err := s.GetCrew(ctx, names[2]); err != nil || !m.Live() || m.Status != "working" {
+		t.Errorf("working member after the pass = %+v %v, want live and working", m, err)
+	}
 }

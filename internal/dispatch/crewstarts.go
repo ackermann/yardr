@@ -82,6 +82,18 @@ func (d *Dispatcher) initCrewStartsLocked() {
 	}
 }
 
+// queueCrewStart hands cj to its member's worker, as handCrewStart
+// does, or records it where d is a crew worker's clone (see crewClone in
+// crew.go): the pass hands the recorded starts in member order after it
+// joins the workers, first per member, as the serial pass chose.
+func (d *Dispatcher) queueCrewStart(ctx context.Context, cj crewJob) {
+	if d.crewQueued != nil {
+		*d.crewQueued = append(*d.crewQueued, cj)
+		return
+	}
+	d.handCrewStart(ctx, cj)
+}
+
 // handCrewStart hands cj to the worker of its member under Run, starting
 // the worker lazily where none runs. A pass run alone starts a one-shot
 // goroutine on the pass's context instead, as handStart does. The caller is
