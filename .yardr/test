@@ -1742,7 +1742,7 @@ sleepbudget() {
 # row with the file.
 filesizes='
 internal/chat/chat.go 1196 the chat TUI model, state and rendering
-internal/cli/bead_ask.go 1505 the ask and answer commands with secret-giving and setup approval
+internal/cli/bead_ask.go 1418 the ask and answer commands with secret-giving and setup approval
 internal/cli/beads.go 1099 the bead show, list and history commands and their printing
 internal/cli/crew.go 2304 the crew, inbox, mail and memory commands
 internal/cli/doctor.go 1274 the doctor examinations and its report
@@ -1772,7 +1772,7 @@ internal/store/graph.go 1316 the dependency graph and its queries
 internal/store/hooks.go 1118 webhook parsing and the say shapes
 internal/store/peerasks.go 1239 peer asks, their answers and ask copies
 internal/store/peerbeads.go 1763 peer bead intake and fetching
-internal/store/peers.go 1672 peer records and their allowances
+internal/store/peers.go 1619 peer records and their allowances
 internal/store/peersend.go 1263 sending beads to peers and settling them
 internal/store/policy.go 1201 the permission gates and their rules
 internal/store/routing.go 3174 groups, routes and their config merges

@@ -141,7 +141,7 @@ func TestRunAskIsStoredInTheYardsForm(t *testing.T) {
 func TestRunAskRefusals(t *testing.T) {
 	// Sequential: the package's fake clock (via newAskYard).
 	y, _ := runYard(t)
-	const list = "--run takes a command of the list (" + "yardr peer add <name> <invite>, yardr peer allow <peer> --send <kinds> | --receive <kinds> | --mail-limit <n>, yardr peer intake <peer> --depot <depot> --flow <flow> [--limit <n>] [--default], yardr peer identity <peer> <crew> --source <source> --id <id>, yardr peer rm <name>, yardr source set <source> calls_per_hour=<n>|updates_per_hour=<n>, yardr source grant <source> read|<call>|--preset <preset> --group <group>|--crew <crew member> [--as <user>], yardr source add <file>, yardr source ignore <source> --rm <id>, yardr source check <source> --user <user>, yardr pack apply <name>, yardr hook add <name> --source <declared source> [--unknown unknown|allow|ignore], yardr subscribe <user> yardr [--done] [--where <key>=<value>], yardr user set <user> tell=<parts>, yardr user key <user> <source>, yardr user add <name>, yardr user rm <name>, yardr user invite <name> --email <address> [--role operator], yardr user uninvite <name>, yardr crew set <name> open_threads=<sources> | set_state=<sources> | peers=<peers>, yardr crew identity <name> --source <source> [--id <id>] [--key <key>], yardr user identity <user> --source <source> [--id <id>] [--key <key>], yardr settings set <key> <value>, yardr peer rename <old> <new>, yardr bead update <bead> --originator <user>, yardr timer rm <id>, yardr up, yardr crew restart <name> [--for <user>], yardr depot test <depot>, yardr depot base <depot> <base>, yardr call <source> <call> [param=value ...] [--as <user>]" + "): anything else is run directly, or typed by the operator in a terminal"
+	const list = "--run takes a command of the list (" + "yardr peer add <name> <invite>, yardr peer allow <peer> --send <kinds> | --receive <kinds> | --mail-limit <n>, yardr peer intake <peer> --depot <depot> --flow <flow> [--limit <n>] [--default], yardr peer identity <peer> <crew> --source <source> --id <id>, yardr peer rm <name>, yardr source set <source> calls_per_hour=<n>|updates_per_hour=<n>, yardr source grant <source> read|<call>|--preset <preset> --group <group>|--crew <crew member> [--as <user>], yardr source add <file>, yardr source ignore <source> --rm <id>, yardr source check <source> --user <user>, yardr pack apply <name>, yardr hook add <name> --source <declared source> [--unknown unknown|allow|ignore], yardr subscribe <user> yardr [--done] [--where <key>=<value>], yardr user set <user> tell=<parts>, yardr user key <user> <source>, yardr user add <name>, yardr user rm <name>, yardr user invite <name> --email <address> [--role operator], yardr user uninvite <name>, yardr crew set <name> open_threads=<sources> | set_state=<sources> | peers=<peers>, yardr crew identity <name> --source <source> [--id <id>] [--key <key>], yardr user identity <user> --source <source> [--id <id>] [--key <key>], yardr settings set <key> <value>, yardr peer rename <old> <new>, yardr bead update <bead> --originator <user>, yardr timer rm <id>, yardr up, yardr crew restart <name> [--for <user>], yardr depot test <depot>, yardr depot base <depot> <base>, yardr call <source> <call> [param=value ...] [--as <user>], yardr peer set <name> --url <url>" + "): anything else is run directly, or typed by the operator in a terminal"
 	for _, c := range []struct {
 		name  string
 		ask   func(a *Ask)
@@ -1378,6 +1378,216 @@ func TestRunAskPeerAdd(t *testing.T) {
 	y.refusedStale(t, seq, "was written when no peer was added under west: one was added since")
 	if _, err := y.GetPeer(y.ctx, "airy"); err != nil {
 		t.Fatalf("the refused approval unlinked airy: %v", err)
+	}
+}
+
+// Moving where a peer is called is a weighty card of class trust: it names
+// the link, the address it will be called at and the one it is called at
+// now (or that it is never called), each whole, and the operator's weighed
+// approval moves exactly that address as the terminal command does, with
+// the ask on the event. Approving unweighed is refused, and so is an
+// approval through the peer's own reach; an address set since or a link
+// made again makes the card stale and nothing runs. The command that takes
+// the change back is itself a card, a crew member running peer set directly
+// is still refused, and what the command would refuse is refused when the
+// ask is written.
+func TestRunAskPeerSet(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y, key := runYard(t)
+	as := "the link with airy (it calls itself yardr, key " + key[:8] + "…)"
+	const stays = "The link stays what it is: its key, what it carries and what waits for it, which is posted to the new address at its next try. The other yard hears nothing of the move."
+	if _, err := y.AllowPeer(y.ctx, "airy", PeerAllow{Send: []string{PeerPing}}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	was := y.peerOf(t, "airy")
+
+	// A link that is never called is given an address, kept in the one form
+	// the command keeps it in.
+	seq := y.ask(t, runAsk("peer set airy --url https://airy.example.com/"), "yardmaster")
+	r := y.asked(t, seq)
+	run := *r.Ask.Run
+	want := AskRun{
+		Argv:        []string{"peer", "set", "airy", "--url", "https://airy.example.com"},
+		Description: "Change where this yard calls a peer, or make it one that is never called",
+		Does: []string{
+			as + " will be called at https://airy.example.com. It is never called now: it calls this yard and asks for what waits here.",
+			stays,
+		},
+		Back:   `yardr peer set airy --url ""`,
+		BackBy: "only the operator",
+		Seen:   map[string]string{"peer airy": key, "peer airy address": seen("")},
+	}
+	if !slices.Equal(run.Argv, want.Argv) || run.Description != want.Description || !slices.Equal(run.Does, want.Does) ||
+		run.Back != want.Back || run.BackBy != want.BackBy || !sameMap(run.Seen, want.Seen) {
+		t.Fatalf("the ask stores\n%+v\nwant\n%+v", run, want)
+	}
+	const weight = "widens who the yard listens to: the calls and mail for the peer airy then go to https://airy.example.com"
+	if want := []AskWeight{{Class: WeightTrust, Line: weight}}; !slices.Equal(r.Ask.Weight, want) {
+		t.Fatalf("the ask weighs %v, want %v", r.Ask.Weight, want)
+	}
+	card := r.Lines()
+	for _, line := range []string{
+		"      yardr peer set airy --url https://airy.example.com",
+		"  what the command does: Change where this yard calls a peer, or make it one that is never called",
+		"  the yard says: " + want.Does[0],
+		"  the yard says: " + stays,
+		"  WEIGHTY · trust: " + weight,
+		`  only the operator can take it back: yardr peer set airy --url ""`,
+	} {
+		if !slices.Contains(card, line) {
+			t.Errorf("the card lacks %q:\n%s", line, strings.Join(card, "\n"))
+		}
+	}
+
+	// Approving unweighed is refused, and the ask stays open.
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false, nil); err == nil ||
+		!strings.Contains(err.Error(), "ask 1 is weighty (trust): approve it where its weight is shown") {
+		t.Fatalf("approving unweighed = %v", err)
+	}
+	if got := y.peerOf(t, "airy").URL; got != "" {
+		t.Fatalf("the refused approval moved the link to %q", got)
+	}
+
+	// A peer must not say where its own link is called: an approval of the
+	// card through that peer's reach is refused, and the ask stays open.
+	y.refusedOpen(t, WithReach(y.ctx, "airy"), seq, "and a peer must not say where its own link is called. Approve it from this yard")
+
+	// The weighed approval moves the address exactly, and nothing else of
+	// the link.
+	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if done.Result != "peer airy is called at https://airy.example.com now" {
+		t.Fatalf("the approval printed %q", done.Result)
+	}
+	p := y.peerOf(t, "airy")
+	if p.URL != "https://airy.example.com" || p.Key != was.Key || p.Calls != was.Calls || !p.AddedAt.Equal(was.AddedAt) ||
+		!slices.Equal(p.Send, was.Send) || !slices.Equal(p.Receive, was.Receive) {
+		t.Fatalf("the link after the approval = %+v; it was %+v", p, was)
+	}
+	evs, err := y.EventsOfKind(y.ctx, "peer_url_set", 10)
+	if err != nil || len(evs) != 1 {
+		t.Fatalf("peer_url_set events = %d, %v", len(evs), err)
+	}
+	if evs[0].Data["peer"] != "airy" || evs[0].Data["url"] != "https://airy.example.com" || evs[0].Data["was"] != nil {
+		t.Fatalf("peer_url_set says %+v", evs[0].Data)
+	}
+	y.approved(t, evs[0], seq)
+
+	// An address already given has a message waiting for it, which the
+	// approval says still waits. The card shows both addresses whole, and
+	// the command that takes it back names the old one.
+	if _, err := y.PeerSend(y.ctx, "airy", PeerPing, nil, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	moved := y.ask(t, runAsk("peer set airy --url http://airy.example.com:8790"), "yardmaster")
+	run = *y.asked(t, moved).Ask.Run
+	if want := []string{
+		as + " will be called at http://airy.example.com:8790. It is called at https://airy.example.com now.",
+		stays,
+	}; !slices.Equal(run.Does, want) || run.Back != "yardr peer set airy --url https://airy.example.com" {
+		t.Fatalf("the second ask says %q, takes back with %q", run.Does, run.Back)
+	}
+
+	// An address set since makes the card stale, also to the very address
+	// it proposes, and nothing runs.
+	if _, err := y.SetPeerURL(y.ctx, "airy", "http://airy.example.com:8790", "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	y.refusedStale(t, moved, "was written when the link with airy was called at another address: it was set since (peer_url_set,")
+	if evs, _ := y.EventsOfKind(y.ctx, "peer_url_set", 10); len(evs) != 2 {
+		t.Fatalf("the refused approval left %d peer_url_set events, want the 2 before it", len(evs))
+	}
+
+	// The command that takes the change back is a card of its own.
+	back := y.ask(t, runAsk(strings.TrimPrefix(run.Back, "yardr ")), "yardmaster")
+	done, err = y.ApproveAsk(y.ctx, y.bead, back, "mckean", true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "peer airy is called at https://airy.example.com now\n1 messages that waited for it still wait, and are posted there, each at its next try"; done.Result != want {
+		t.Fatalf("the approval printed %q, want %q", done.Result, want)
+	}
+	if got := y.peerOf(t, "airy").URL; got != "https://airy.example.com" {
+		t.Fatalf("the link after taking the change back calls %q", got)
+	}
+	if evs, _ := y.EventsOfKind(y.ctx, "peer_url_set", 10); len(evs) != 3 {
+		t.Fatalf("peer_url_set events = %d, want 3", len(evs))
+	} else if evs[2].Data["was"] != "http://airy.example.com:8790" {
+		t.Fatalf("peer_url_set says %+v", evs[2].Data)
+	} else {
+		y.approved(t, evs[2], back)
+	}
+	if out, err := y.PeerOutbox(y.ctx, "airy", 0); err != nil || len(out) != 1 {
+		t.Fatalf("what waits after both moves = %+v, %v", out, err)
+	}
+
+	// A link made again under the name, with another key, makes it stale;
+	// one that is gone is refused as it stands.
+	seq = y.ask(t, runAsk("peer set airy --url https://moved.example.com"), "yardmaster")
+	if err := y.DeletePeer(y.ctx, "airy", "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	k, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "airy-again.key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.AddPeer(y.ctx, Peer{Name: "airy", Key: yardkey.Public(k), URL: "https://airy.example.com", Calls: "yardr"}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	y.refusedStale(t, seq, "was written when the link with airy was another: it was removed and made again since")
+	if err := y.DeletePeer(y.ctx, "airy", "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	y.refusedStale(t, seq, "peer airy: not found")
+
+	// Asking refuses what the command would refuse, with nothing stored.
+	y, key = runYard(t)
+	if _, err := y.SetPeerURL(y.ctx, "airy", "https://airy.example.com", "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ command, want string }{
+		{"peer set airy --url https://airy.example.com", "peer airy is called at https://airy.example.com already, so the command would change nothing"},
+		{"peer set airy --url https://airy.example.com/", "peer airy is called at https://airy.example.com already"},
+		{"peer set north --url https://north.example.com", "peer north: not found"},
+		{"peer set airy --url ftp://airy.example.com", `peer airy: url "ftp://airy.example.com": want http://host:port or https://host, where the yard's server takes webhooks`},
+		{"peer set airy --url http://ada:secret@airy.example.com", "want http://host:port or https://host"},
+		{"peer set airy --url airy.example.com", "want http://host:port or https://host"},
+		{"peer set airy --url http://airy.example.com/a?b=c", "'?' is none of their characters"},
+		{"peer set airy --url http://airy.example.com,http://south.example.com", "',' is none of their characters"},
+		{`peer set airy --url ""`, `'"' is none of their characters`},
+		{"peer set airy --url=", "--url needs its value"},
+		{"peer set airy", "it names no address"},
+		{"peer set --url http://airy.example.com:8790", "it names no peer"},
+		{"peer set airy south --url http://airy.example.com:8790", "one peer, not airy and south"},
+		{"peer set airy --url http://a.example.com --url http://b.example.com", "--url once"},
+		{"peer set airy --url http://airy.example.com:8790 --mail-limit 3", "peer set with --mail-limit is the operator's to type in a terminal"},
+	} {
+		if _, err := y.AddAsk(y.ctx, y.bead, runAsk(c.command), "yardmaster"); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("--run %q = %v, want %q", c.command, err, c.want)
+		}
+	}
+	if _, err := y.AddAsk(y.ctx, y.bead, runAsk("peer set airy --url http://airy.example.com:8790"), "mckean"); err == nil ||
+		!strings.Contains(err.Error(), "yardr peer set airy --url http://airy.example.com:8790 needs no approval: run it yourself") {
+		t.Fatalf("the operator asking themselves = %v", err)
+	}
+	if got := len(y.resolved(t)); got != 0 {
+		t.Fatalf("the refused asks left %d on the bead", got)
+	}
+
+	// A crew member running peer set directly is still refused, in the
+	// words it had, and the address stays; the refusal is one a run ask
+	// may propose.
+	_, err = y.SetPeerURL(y.ctx, "airy", "http://airy.example.com:8790", "yardmaster")
+	if err == nil || err.Error() != "only the operator (mckean) may change where a peer is called; this is yardmaster" {
+		t.Fatalf("a crew member setting a peer's URL = %v", err)
+	}
+	if class, ok := IsOperatorOnly(err); !ok || class != Askable {
+		t.Fatalf("the refusal is %v, %v, want an operator-only refusal marked Askable", class, ok)
+	}
+	if got := y.peerOf(t, "airy").URL; got != "https://airy.example.com" {
+		t.Fatalf("the refused change moved the link to %q", got)
 	}
 }
 

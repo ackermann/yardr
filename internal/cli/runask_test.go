@@ -391,7 +391,6 @@ func TestBeadAskRunPeerIntakeAndIdentity(t *testing.T) {
 		{"peer intake airy --depot web --none", "needs no approval: run it yourself"},
 		{"peer identity airy mayor --source talk --rm", "peer identity with --rm is the operator's to type in a terminal"},
 		{"peer add north abc", `"abc" is no invite: want the line yardr peer invite prints (yardr-peer-1,<name>,<key>[,<url>])`},
-		{"peer set airy --url http://airy.example:8790", "it is the operator's alone, typed in a terminal and never proposed as a run ask"},
 	} {
 		if _, err := y.as(t, "yardmaster", "ask", b.ID, "May I?", "--context", "why", "--run", c.command); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("--run %q = %v, want %q", c.command, err, c.want)
@@ -631,6 +630,97 @@ func TestBeadAskRunPeerAdd(t *testing.T) {
 	}
 }
 
+// A crew member proposes moving where a peer is called as a run ask: prime
+// shows the card with both addresses whole and its trust weight, a crew
+// member running peer set directly is still refused, a weighty approval
+// with no terminal to type its number at is refused, an address set since
+// makes it stale, and the operator's weighed approval moves the address.
+func TestBeadAskRunPeerSet(t *testing.T) {
+	t.Parallel()
+	key := airyKey(t)
+	y, b := runYardCLI(t, "mac", key)
+	ctx := context.Background()
+	out, err := y.as(t, "yardmaster", "ask", b.ID, "Move airy?",
+		"--context", "its yard moved to another host", "--run", "peer set airy --url https://airy.example.com/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "ask 1 on " + b.ID + " for jo: to approve, yardr peer set airy --url https://airy.example.com\n"; out != want {
+		t.Fatalf("bead ask --run peer set printed %q, want %q", out, want)
+	}
+	shown, err := run(t, y.a.primeCmd(), "--bead", b.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"      yardr peer set airy --url https://airy.example.com",
+		"  what the command does: Change where this yard calls a peer, or make it one that is never called",
+		"  the yard says: the link with airy (it calls itself yardr, key " + key[:8] + "…) will be called at https://airy.example.com. It is never called now: it calls this yard and asks for what waits here.",
+		"  the yard says: The link stays what it is: its key, what it carries and what waits for it, which is posted to the new address at its next try. The other yard hears nothing of the move.",
+		"  WEIGHTY · trust: widens who the yard listens to: the calls and mail for the peer airy then go to https://airy.example.com",
+		`  only the operator can take it back: yardr peer set airy --url ""`,
+		"  approve with: yardr bead answer " + b.ID + " 1 --approve",
+	} {
+		if !strings.Contains(shown, want+"\n") {
+			t.Errorf("prime lacks %q:\n%s", want, shown)
+		}
+	}
+
+	// A crew member running peer set directly is still refused.
+	y.a.actor = "yardmaster"
+	_, err = run(t, y.a.peerCmd(), "set", "airy", "--url", "https://airy.example.com")
+	y.a.actor = "jo"
+	if err == nil || !strings.Contains(err.Error(), "only the operator (jo) may change where a peer is called; this is yardmaster") {
+		t.Fatalf("peer set as yardmaster = %v", err)
+	}
+	if p, err := y.st.GetPeer(ctx, "airy"); err != nil || p.URL != "" {
+		t.Fatalf("the refused change moved the link: %+v, %v", p, err)
+	}
+
+	// A weighty approval with no terminal to type its number at is refused,
+	// and the ask stays open.
+	if _, _, err := gated(t, y, false, strings.NewReader("1\n"), b.ID, "1", "--approve"); err == nil ||
+		!strings.Contains(err.Error(), "ask 1 is weighty (trust), and a command with no terminal to type its number at cannot approve it") {
+		t.Fatalf("approving with no terminal = %v", err)
+	}
+	if p, err := y.st.GetPeer(ctx, "airy"); err != nil || p.URL != "" {
+		t.Fatalf("the refused approval moved the link: %+v, %v", p, err)
+	}
+
+	// An address set since makes it stale; nothing runs.
+	if _, err := y.st.SetPeerURL(ctx, "airy", "https://other.example.com", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.as(t, "jo", "answer", b.ID, "1", "--approve"); err == nil ||
+		!strings.Contains(err.Error(), "was written when the link with airy was called at another address: it was set since") {
+		t.Fatalf("approving stale = %v", err)
+	}
+	if p, err := y.st.GetPeer(ctx, "airy"); err != nil || p.URL != "https://other.example.com" {
+		t.Fatalf("the stale approval moved the link: %+v, %v", p, err)
+	}
+
+	// Asked again from the link as it stands, the approval moves it.
+	if _, err := y.as(t, "yardmaster", "ask", b.ID, "Move airy?",
+		"--context", "its yard moved to another host", "--run", "peer set airy --url https://airy.example.com"); err != nil {
+		t.Fatal(err)
+	}
+	out, err = y.as(t, "jo", "answer", b.ID, "2", "--approve")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"jo approved it, and the yard ran it:\n",
+		"peer airy is called at https://airy.example.com now\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the approval printed %q, which lacks %q", out, want)
+		}
+	}
+	if p, err := y.st.GetPeer(ctx, "airy"); err != nil || p.URL != "https://airy.example.com" || p.Key != key {
+		t.Fatalf("the link after the approval = %+v, %v", p, err)
+	}
+}
+
 // runCLI are the commands of internal/cli that the rows of the store's
 // list stand for, by the word a stored command begins with.
 func runCLI(a *app) map[string]*cobra.Command {
@@ -669,8 +759,9 @@ func TestRunListIsTheCLIs(t *testing.T) {
 		"yardr peer identity <peer> <crew> --source <source> --id <id>": {
 			"peer identity airy mayor --source talk --id U1",
 		},
-		"yardr peer rm <name>": {"peer rm airy"},
-		"yardr source set <source> calls_per_hour=<n>|updates_per_hour=<n>":                                            {"source set crm updates_per_hour=3"},
+		"yardr peer rm <name>":                                              {"peer rm airy"},
+		"yardr peer set <name> --url <url>":                                 {"peer set airy --url https://airy.example.com"},
+		"yardr source set <source> calls_per_hour=<n>|updates_per_hour=<n>": {"source set crm updates_per_hour=3"},
 		"yardr source grant <source> read|<call>|--preset <preset> --group <group>|--crew <crew member> [--as <user>]": {"source grant crm note --crew yardmaster --group builders"},
 		"yardr source add <file>": {"source add " + addedFile},
 		"yardr source ignore <source> --rm <id>": {
@@ -1187,7 +1278,7 @@ func TestRunListIsTheCLIs(t *testing.T) {
 				}
 				var changes []map[string]any
 				for _, kind := range []string{"peer_added", "peer_allowed", "source_set", "source_granted", "subscribed", "user_set",
-					"peer_renamed", "peer_removed", "user_added", "user_removed", "crew_defined", "crew_restart_requested", "setting_changed", "timer_removed", "originator_changed", "source_added", "hook_added", "identity_set", "identity_removed", "sender_unignored", "peer_intake", "peer_identity_set"} {
+					"peer_renamed", "peer_removed", "user_added", "user_removed", "crew_defined", "crew_restart_requested", "setting_changed", "timer_removed", "originator_changed", "source_added", "hook_added", "identity_set", "identity_removed", "sender_unignored", "peer_intake", "peer_identity_set", "peer_url_set"} {
 					evs, err := y.st.EventsOfKind(ctx, kind, 10)
 					if err != nil {
 						t.Fatal(err)

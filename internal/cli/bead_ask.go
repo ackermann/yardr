@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"strconv"
@@ -199,6 +198,10 @@ one of the list the yard runs from a card:
       the link is removed with its intakes, identities and queued mail;
       the beads it sent stay and say their link is removed, and the
       other yard stands; adding it again is peer add from a fresh invite
+  peer set <name> --url <url>
+      the link is called at the new address, which the card shows beside
+      the address now, each whole; its key, what it carries and what
+      waits for it stay; --url "" (never called) stays in a terminal
   source set <source> calls_per_hour=<n>|updates_per_hour=<n>
       one caller makes that many calls of the source in an hour, or that
       many updates among them; a lower number too, which is the operator's
@@ -314,11 +317,12 @@ or whom it trusts (a command of a group or a source, who a peer sees and
 is trusted and reached as, a device, another yard paired or
 called elsewhere), what takes a file path, and what reaches another yard.
 Such a command is typed in a terminal. A link card (peer add, peer allow,
-peer intake, peer identity, peer rm) can be approved from this yard in a
-terminal or from a paired device when its weight permits. Peer add is
-always strong (trust): a paired device cannot approve it; hosted approval
-needs a fresh sign-in. Approval through a peer's own reach is refused: it
-cannot add, widen or remove its link, route its beads or identify its crew.
+peer intake, peer identity, peer rm, peer set) can be approved from this
+yard in a terminal or from a paired device when its weight permits. Peer
+add and peer set are always strong (trust): a paired device cannot approve
+them; hosted approval needs a fresh sign-in. Approval through a peer's own
+reach is refused: it cannot add, widen, move or remove its link, route its
+beads or identify its crew.
 The subscription, the tell, the user's identity and the test
 message to them are a user's own as they are the operator's, since a
 crew member does not decide what a person is told or who they are in
@@ -1163,97 +1167,6 @@ options go as mail to the asker instead (yardr mail <asker>@<peer>).`,
 	answer.Flags().BoolVar(&ansSecret, "secret", false, "give the secret a secret ask asks for: typed unseen at a terminal, after its card's gate")
 	answer.Flags().StringVar(&ansAccount, "account", "", "with a preset pick on a setup ask: take this listed candidate's account instead of typing one")
 	return answer
-}
-
-// printAsk prints the ask seq on the bead as prime shows it: numbered
-// text with its state. The write went through; what follows only decides
-// the confirmation, so a bead that cannot be read now is said plainly.
-// askedSecret reads the secret the ask seq on the bead id asks for, as the
-// yard stored it.
-func askedSecret(ctx context.Context, st store.API, id string, seq uint64) (*store.AskSecret, error) {
-	notes, err := st.Notes(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	for _, r := range store.ResolveAsks(notes, time.Now()) {
-		if r.Note.Seq != seq {
-			continue
-		}
-		if r.AskErr != nil {
-			return nil, r.AskErr
-		}
-		if r.Ask.Secret == nil {
-			return nil, fmt.Errorf("ask %d asks for no secret: it is answered with yardr bead answer %s %d <n> [words], or --words", seq, id, seq)
-		}
-		return r.Ask.Secret, nil
-	}
-	return nil, fmt.Errorf("bead %s has no ask %d", id, seq)
-}
-
-// askedSetup reads the setup the ask seq on the bead id proposes, as the
-// yard stored it.
-func askedSetup(ctx context.Context, st store.API, id string, seq uint64) (*store.AskSetup, error) {
-	notes, err := st.Notes(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	for _, r := range store.ResolveAsks(notes, time.Now()) {
-		if r.Note.Seq != seq {
-			continue
-		}
-		if r.AskErr != nil {
-			return nil, r.AskErr
-		}
-		if r.Ask.Setup == nil {
-			return nil, fmt.Errorf("ask %d sets up no pack", seq)
-		}
-		return r.Ask.Setup, nil
-	}
-	return nil, fmt.Errorf("bead %s has no ask %d", id, seq)
-}
-
-// askedDepotPush reads the depot-push the ask seq on the bead id
-// proposes, as the yard stored it.
-func askedDepotPush(ctx context.Context, st store.API, id string, seq uint64) (*store.AskDepotPush, error) {
-	notes, err := st.Notes(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	for _, r := range store.ResolveAsks(notes, time.Now()) {
-		if r.Note.Seq != seq {
-			continue
-		}
-		if r.AskErr != nil {
-			return nil, r.AskErr
-		}
-		if r.Ask.DepotPush == nil {
-			return nil, fmt.Errorf("ask %d turns no depot's push on or off", seq)
-		}
-		return r.Ask.DepotPush, nil
-	}
-	return nil, fmt.Errorf("bead %s has no ask %d", id, seq)
-}
-
-// askedRun reads the command the ask seq on the bead id proposes, as the
-// yard stored it.
-func askedRun(ctx context.Context, st store.API, id string, seq uint64) (*store.AskRun, error) {
-	notes, err := st.Notes(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	for _, r := range store.ResolveAsks(notes, time.Now()) {
-		if r.Note.Seq != seq {
-			continue
-		}
-		if r.AskErr != nil {
-			return nil, r.AskErr
-		}
-		if r.Ask.Run == nil {
-			return nil, fmt.Errorf("ask %d proposes no command", seq)
-		}
-		return r.Ask.Run, nil
-	}
-	return nil, fmt.Errorf("bead %s has no ask %d", id, seq)
 }
 
 // giveSecret is yardr bead answer --secret: past the gate of a weighty card

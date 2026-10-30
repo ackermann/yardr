@@ -111,9 +111,8 @@ func (w *wtx) peerRmStale(seq uint64, was, now AskRun) error {
 	if err := w.peerKeyStale(seq, name, was, now); err != nil {
 		return err
 	}
-	if key := "peer " + name + " address"; was.Seen[key] != now.Seen[key] {
-		e := lastEvent(w.Tx, "peer_url_set", naming("peer", name))
-		return fmt.Errorf("ask %d was written when the link with %s was called at another address: it was set since%s. %s", seq, name, since(e), nothingRan)
+	if err := w.peerAddressStale(seq, name, was, now); err != nil {
+		return err
 	}
 	if key := "peer " + name + " intakes"; was.Seen[key] != now.Seen[key] {
 		e := lastEvent(w.Tx, "peer_intake", naming("peer", name))

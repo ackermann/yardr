@@ -220,7 +220,11 @@ What you do:
   another yard gave) is proposed this way too: one command
   in an ask, with why it is wanted in the context. The card names the
   peer, the yard and its key, and where this yard calls it, or that it
-  never calls it.
+  never calls it. Moving where a peer is called
+  (`peer set <name> --url <url>`) is proposed this way too: one command
+  in an ask, with why it is wanted in the context. The card shows the
+  address now and the new one whole; making a peer one it never calls
+  stays in a terminal.
   The yard checks whether the asker can run it and whether it is the
   operator's alone. For an operator-only command the yard can run from a
   card, ask it there; mail one it marks operator's alone in a fenced code
