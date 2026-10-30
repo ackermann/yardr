@@ -2447,9 +2447,10 @@ source — a declaration, the scripts it names, and setup notes — and no
 Go. A new one starts from the template, `packs/template`: copy the
 directory, rename its service (the skeleton calls it `acme`) in the
 files' names and text, and drop the keys the service does not need. The
-skeleton names every key a declaration in a pack of kind source may
-bring, each with when it stays; its command stubs show each stdin and
-stdout shape; its setup notes are the checklist to fill for the service.
+skeleton names the keys [pack-api.md](pack-api.md#the-files) lists
+for a declaration in a pack of kind source, each with when it stays;
+its command stubs show each stdin and stdout shape; its setup notes
+are the checklist to fill for the service.
 A test holds it to the reader — it copies the template, renames it, and
 applies the copy in a scratch yard — so what the skeleton shows is what
 the reader takes. [A declared source](#a-declared-source) with `notify`,

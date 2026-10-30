@@ -1768,8 +1768,9 @@ each carry three: read for the reads, one for the reads and some
 updates, and everything for all the pack lists.
 
 A new source pack starts from the template, `packs/template`: a skeleton
-pack for a fictional service, with every key a declaration may bring,
-command stubs showing each stdin and stdout shape, and setup notes. Copy
+pack for a fictional service, with the keys
+[pack-api.md](pack-api.md#the-files) lists for a declaration, command
+stubs showing each stdin and stdout shape, and setup notes. Copy
 the directory, rename the service, and drop the keys the service does
 not need; [integrations.md](integrations.md#adding-a-service) walks the
 rest, with the envelope and check contracts. A test holds the skeleton
