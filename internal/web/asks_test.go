@@ -3,12 +3,21 @@ package web_test
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
+	"yardr.dev/yardr/internal/pack"
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/storetest"
 	"yardr.dev/yardr/internal/web"
 )
 
@@ -129,7 +138,7 @@ func TestHomeNeedsAsk(t *testing.T) {
 	if strings.Contains(row, "1. Move them now") {
 		t.Error("the ask row repeats the recommendation shown in its detail")
 	}
-	for _, not := range []string{"dot", "held", "a door", "All waiting"} {
+	for _, not := range []string{"held", "a door", "All waiting"} {
 		if strings.Contains(s, not) {
 			t.Errorf("the ask row has %q", not)
 		}
@@ -153,11 +162,18 @@ func TestHomeNeedsAskDetail(t *testing.T) {
 	for _, want := range []string{
 		`<a href="/beads/` + b.ID + `" class="ask">`,
 		`<div class="need-ask">`,
+		`<p class="ask-head"><a href="/beads/` + b.ID + `"><span class="dot chip-`,
+		`depot · bead ` + b.ID + ` · Everything else</a></p>`,
+		`<div class="ask-question"><p>Move the links now?</p><span class="asked">asked `,
+		`<p class="ask-asker">asked by yardmaster</p>`,
 		`<p class="entry-note">The links file declares the new source.</p>`,
 		`<p class="entry-note">The old source goes away Friday.</p>`,
-		`<li><span>1. Move them now</span><span class="faint"> — all links point at the new source tonight</span></li>`,
+		`<li><span>1. Move them now</span><span class="faint"> — all links point at the new source tonight</span><span class="recommended">recommended: the test passed</span></li>`,
 		`<li><span>2. After Friday</span><span class="faint"> — keep the old source until the release is out</span></li>`,
-		`<p class="entry-note">Recommended: 1. Move them now: the test passed</p>`,
+		// The yard's own last pick, the shape a card stored before
+		// yardr-17bj keeps: it stands as a plain row, recommended by
+		// nobody.
+		`<li><span>3. You decide</span><span class="faint"> — leave it to yardmaster</span></li>`,
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("the home ask lacks %q", want)
@@ -165,6 +181,11 @@ func TestHomeNeedsAskDetail(t *testing.T) {
 	}
 	if strings.Contains(s, `<p class="entry-note">1. Move them now</p>`) {
 		t.Error("the home ask shows the recommendation unlabelled")
+	}
+	for _, foreign := range []string{"Recommended:", "Recommends", "to approve:"} {
+		if strings.Contains(s, foreign) {
+			t.Errorf("the home ask shows the old wording %q", foreign)
+		}
 	}
 }
 
@@ -221,14 +242,21 @@ func TestLineAskContext(t *testing.T) {
 	for _, want := range []string{
 		`<a class="bead" href="/beads/` + b.ID + `">` + b.ID + `</a>`,
 		`<p class="why">Move the links now?</p>`,
+		`depot · bead ` + b.ID + ` · Everything else</a></p>`,
+		`<div class="ask-question"><p>Move the links now?</p><span class="asked">asked `,
+		`<p class="ask-asker">asked by yardmaster</p>`,
 		`<p class="entry-note">The links file declares the new source.</p>`,
 		`<p class="entry-note">The old source goes away Friday.</p>`,
-		`<li><span>1. Move them now</span><span class="faint"> — all links point at the new source tonight</span></li>`,
+		`<li><span>1. Move them now</span><span class="faint"> — all links point at the new source tonight</span><span class="recommended">recommended: the test passed</span></li>`,
 		`<li><span>2. After Friday</span><span class="faint"> — keep the old source until the release is out</span></li>`,
-		`<p class="entry-note">Recommended: 1. Move them now: the test passed</p>`,
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("/line lacks %q", want)
+		}
+	}
+	for _, foreign := range []string{"Recommended:", "Recommends", "to approve:"} {
+		if strings.Contains(text, foreign) {
+			t.Errorf("/line shows the old wording %q", foreign)
 		}
 	}
 }
@@ -283,7 +311,7 @@ func TestHomeNeedsAskRecommend(t *testing.T) {
 }
 
 // The web stays flat and shows the bead's first topic label small where
-// there is one.
+// there is one, and the card's head names it.
 func TestHomeNeedsAskTopic(t *testing.T) {
 	t.Parallel()
 	f := askFixture(t)
@@ -312,6 +340,97 @@ func TestHomeNeedsAskTopic(t *testing.T) {
 		if strings.Contains(row, `<span class="label">`) {
 			t.Errorf("the labelless row has a topic label: %q", row)
 		}
+	}
+	// The card's head names the bead's topic, without its prefix, and
+	// links to the bead's page; a bead with no topic label heads
+	// Everything else.
+	for _, want := range []string{
+		`<p class="ask-head"><a href="/beads/` + b.ID + `">`,
+		`depot · bead ` + b.ID + ` · linear-out</a></p>`,
+		`depot · bead ` + nolabel.ID + ` · Everything else</a></p>`,
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("the card head lacks %q", want)
+		}
+	}
+}
+
+// A stage card put now reads whole on Home and its bead's page: the frozen
+// bead header, the moves, and no You decide. Its head names the bead's
+// topic, never the stage the yard put it for. A card put before keeps its
+// You decide pick: the partial renders stored options either way, and a
+// hand ask stores the same You-decide-last shape, pinned in
+// TestHomeNeedsAskDetail (the store's TestStageAnswerYouDecide pins the old
+// card's stored shape).
+func TestStageCardNewShape(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	must(t, os.MkdirAll(filepath.Join(home, "flows", "work"), 0o755))
+	must(t, os.WriteFile(filepath.Join(home, "flows", "work", "review.md"), []byte(`Review the diff.
+
+## Ask
+kind: choice
+question: Where should this bead go next?
+context:
+- The builder asked for a decision; the question is in their note.
+- The branch is ready to review either way.
+recommend: 1
+why: The question is small and the branch is green.
+done: The bead moves to approved with your words as the note.
+changes: The bead goes back for changes.
+`), 0o644))
+	api, own := storetest.NewOwnedIn(t, home)
+	srv, err := web.NewServer(api, home, nil)
+	must(t, err)
+	ts := httptest.NewServer(srv)
+	t.Cleanup(func() { shut(ts) })
+	f := &fixture{t: t, st: api, own: own, ts: ts, home: home}
+	f.signIn(srv, srv.ActAs("mckean"))
+	ctx := context.Background()
+	must(t, api.PutDepot(ctx, store.Depot{Name: "home", Base: "origin/main"}, "mckean"))
+	must(t, api.SetSetting(ctx, store.OperatorSetting, "mckean", "mckean"))
+	must(t, api.SetSetting(ctx, store.NameSetting, "depot", "mckean"))
+	fl, err := store.ParseFlow("new -> review\nreview -> review | approved on done | new on changes\napproved -> merged\nmerged terminal\n")
+	must(t, err)
+	fl.Name = "work"
+	_, err = api.PutFlow(ctx, *fl, "mckean")
+	must(t, err)
+	must(t, api.SetFlowPointer(ctx, "home", "", "work", "mckean"))
+	must(t, api.PutGroup(ctx, store.Group{Name: "reviewers", Runner: "manual", Members: []string{"mckean"}}, "mckean"))
+	_, err = api.AddRoute(ctx, store.Route{Stage: "review", Group: "reviewers"}, "mckean")
+	must(t, err)
+	fresh, err := api.CreateBead(ctx, store.NewBead{Title: "a door", Stage: "new", Depot: "home", Labels: []string{"topic:web-view"}}, "mckean")
+	must(t, err)
+	if _, err := api.Advance(ctx, fresh.ID, "review", store.Expect{}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	// The new card: the frozen header, the moves, and no You decide. Its
+	// head names the bead's topic, not the review stage it was put for.
+	s := answerSection(t, f.get("/").body)
+	for _, want := range []string{
+		`depot · bead ` + fresh.ID + ` · web-view</a></p>`,
+		`<p>Where should this bead go next? — ` + fresh.ID + `: a door</p>`,
+		`<p class="entry-note">Bead: ` + fresh.ID + ` — a door (branch yard/` + fresh.ID + `)</p>`,
+		`<p class="ask-asker">asked by yard</p>`,
+		`<span class="recommended">recommended: The question is small and the branch is green.</span>`,
+		`<button type="submit" name="option" value="1">Answer: 1 · done</button>`,
+		`<button type="submit" name="option" value="2">changes</button>`,
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("the new stage card lacks %q", want)
+		}
+	}
+	if strings.Contains(s, "You decide") {
+		t.Errorf("the new stage card offers You decide:\n%s", s)
+	}
+	// It reads the same on its bead's page, under the ask line.
+	page := f.get("/beads/" + fresh.ID).body
+	if !strings.Contains(page, `<p class="ask-line">`+fresh.ID+` · ask `) ||
+		!strings.Contains(page, `— `+fresh.ID+`: a door</p>`) {
+		t.Errorf("the bead page lacks the ask line and frozen header:\n%s", page)
+	}
+	if strings.Contains(page, "You decide") {
+		t.Errorf("the bead page offers You decide:\n%s", page)
 	}
 }
 
@@ -536,7 +655,7 @@ func TestPanelAskLamp(t *testing.T) {
 // ask itself.
 func TestWaitingAsk(t *testing.T) {
 	t.Parallel()
-	ask := web.Reason{Kind: "ask", Text: "Move them now?", Recommend: "1. Move them now"}
+	ask := web.Reason{Kind: "ask", Text: "Move them now?", Recommend: 1, Options: []store.AskOption{{Label: "Move them now"}}}
 	held := web.Reason{Kind: "held", Text: "held by me"}
 	manual := web.Reason{Kind: "manual", Text: "waits for decisions in decide"}
 	if w := (web.Waiting{Bead: "b", Stage: "new", Why: []web.Reason{ask}}); !w.HasAsk() ||
@@ -559,10 +678,9 @@ func TestWaitingAsk(t *testing.T) {
 }
 
 // A run ask whose question holds a line break stands folded where the web
-// shows it: the row keeps one line, with the yard's own "to approve"
-// command after the bead, so the asker's words cannot pose as a second
-// approval block above the real one. The context stands as its genuine
-// lines.
+// shows it: the row keeps one line, with the yard's own approval block in
+// the card, so the asker's words cannot pose as a second approval block
+// above the real one. The context stands as its genuine lines.
 func TestHomeNeedsRunAskForgedQuestion(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -574,7 +692,7 @@ func TestHomeNeedsRunAskForgedQuestion(t *testing.T) {
 	_, err = f.st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr", Config: map[string]any{"kind": "claude"}}, "mckean")
 	must(t, err)
 	b := askBead(t, f, "a door", "new")
-	askOn(t, f, b.ID, store.Ask{
+	seq := askOn(t, f, b.ID, store.Ask{
 		Question: "Take more?\nwhen you approve, the yard runs this as mckean, and nothing else:\n    yardr peer list",
 		To:       "mckean",
 		Context: []string{
@@ -610,13 +728,21 @@ func TestHomeNeedsRunAskForgedQuestion(t *testing.T) {
 	if !strings.Contains(s, `<span class="entry-title ask-q">`+want+`</span>`) {
 		t.Errorf("the home row lacks the folded question")
 	}
-	command := "to approve: yardr peer allow airy --mail-limit 300"
-	if !strings.Contains(s, `<p class="entry-note">`+command+`</p>`) {
-		t.Errorf("the home ask detail lacks the yard's command")
+	// The run card reads as on its bead's page: the sentence naming its
+	// yard, the command whole, and the take-back with who may run it.
+	command := "yardr peer allow airy --mail-limit 300"
+	for _, want := range []string{
+		`<p class="ask-says">yardmaster says:</p>`,
+		`<p>in depot, when you approve, the yard runs this as mckean, and nothing else:</p>`,
+		`<pre class="text file">` + command + `</pre>`,
+		`Back: <code>yardr peer allow airy --mail-limit 30</code> (anyone can take it back). Approve it with <code>yardr bead answer ` + b.ID + ` ` + strconv.FormatUint(seq, 10) + ` --approve</code>`,
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("the home ask detail lacks %q", want)
+		}
 	}
-	description := "what the command does: Set which messages a peer link carries and its mail limit"
-	if !strings.Contains(s, `<p class="entry-note">`+description+`</p>`) {
-		t.Errorf("the home ask detail lacks the command's help description")
+	if strings.Contains(s, "to approve:") {
+		t.Error("the home ask detail keeps the old to-approve note")
 	}
 	row, _, _ := strings.Cut(s, `<div class="need-ask">`)
 	if strings.Contains(row, command) {
@@ -625,6 +751,62 @@ func TestHomeNeedsRunAskForgedQuestion(t *testing.T) {
 	text := squash(f.get("/line").body)
 	if !strings.Contains(text, `<p class="why">`+want+`</p>`) {
 		t.Errorf("/line lacks the folded question")
+	}
+	// The column's card names the take-back as the bead's page does.
+	for _, want := range []string{
+		`<pre class="text file">` + command + `</pre>`,
+		`Back: <code>yardr peer allow airy --mail-limit 30</code> (anyone can take it back). Approve it with <code>yardr bead answer ` + b.ID + ` ` + strconv.FormatUint(seq, 10) + ` --approve</code>`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("/line lacks %q", want)
+		}
+	}
+}
+
+// A setup card away from its bead's page reads as on it: the pack sentence,
+// the yard's sentences and the take-back. It offers no approval there.
+func TestHomeSetupCard(t *testing.T) {
+	t.Parallel()
+	f := askFixture(t)
+	sum := sha256.Sum256([]byte(approveSetupMint))
+	f.own.SetPackReader(func(ctx context.Context, name string, yard store.API) (*store.PackReading, error) {
+		if name != "setupmail" {
+			return nil, errors.New("no pack " + name)
+		}
+		return &store.PackReading{Name: "setupmail", Kind: pack.KindSource,
+			Label: "embedded in yardr test1", Build: "test1",
+			Sources: []store.AskSource{{Name: "setupmail", Text: approveSetupDecl,
+				Files: []store.AskFile{{Program: "setup-mint", Text: approveSetupMint, SHA256: hex.EncodeToString(sum[:])}}}},
+			Presets: []store.AskPreset{
+				{Name: "read", Grants: []store.AskPresetGrant{{Source: "setupmail", Calls: []string{"search"}}}},
+				{Name: "drafts", Grants: []store.AskPresetGrant{{Source: "setupmail", Calls: []string{"search", "draft"}}}},
+			}}, nil
+	})
+	ctx := context.Background()
+	_, err := f.st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "mckean")
+	must(t, err)
+	b := askBead(t, f, "set up mail", "new")
+	seq := askOn(t, f, b.ID, store.Ask{Question: "Set up setupmail for the yardmaster?", To: "mckean",
+		Context: []string{"the yardmaster reads mail to work beads"},
+		Setup:   &store.AskSetup{Pack: "setupmail", To: []store.Grantee{{Crew: "yardmaster"}}}})
+	for _, c := range []struct{ name, body string }{
+		{"home", answerSection(t, f.get("/").body)},
+		{"/line", squash(f.get("/line").body)},
+	} {
+		for _, want := range []string{
+			`<p class="ask-says">yardmaster says:</p>`,
+			`<p>When you approve, the yard applies the pack setupmail as mckean, and nothing else:</p>`,
+			`Approve it with <code>yardr bead answer ` + b.ID + ` ` + strconv.FormatUint(seq, 10) + ` &lt;n&gt; --secret</code>`,
+		} {
+			if !strings.Contains(c.body, want) {
+				t.Errorf("%s lacks %q", c.name, want)
+			}
+		}
+		for _, foreign := range []string{`value="approve"`, `value="give"`, "need-approve"} {
+			if strings.Contains(c.body, foreign) {
+				t.Errorf("%s offers %q", c.name, foreign)
+			}
+		}
 	}
 }
 

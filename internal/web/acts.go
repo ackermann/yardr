@@ -12,6 +12,23 @@ import (
 	"yardr.dev/yardr/internal/store"
 )
 
+// MoveAction is one way the view's user may send the bead on, as `yardr
+// review` offers it: an outcome the flow names (done), or a stage it
+// allows next (advance).
+type MoveAction struct {
+	Kind  string `json:"kind"`
+	Label string `json:"label"`
+	// Outcome is the outcome a done action reports; To the stage either
+	// enters.
+	Outcome string `json:"outcome,omitempty"`
+	To      string `json:"to"`
+	// NoteRequired: sending a bead back needs a note saying what to
+	// change, or whoever picks it up next has nothing to go on.
+	NoteRequired bool `json:"note_required,omitempty"`
+	// Terminal is a stage that closes the bead entering it.
+	Terminal bool `json:"terminal,omitempty"`
+}
+
 // moveActions is what the view's user may do with b, as `yardr review`
 // offers it: the outcomes its flow names for the stage, as they stand for
 // the bead (a round limit can send the report somewhere the flow's edge
@@ -239,6 +256,26 @@ func (s *Server) beadAnswer(w http.ResponseWriter, r *http.Request, b *store.Bea
 	// the approval, not as a pick.
 	if r.PostFormValue("action") == "approve" {
 		s.beadApprove(w, r, b, asks[i])
+		return
+	}
+	if r.PostFormValue("action") == "send" {
+		ask := asks[i]
+		if len(ask.Options) == 0 || ask.Secret != nil || ask.Run != nil || ask.Setup != nil {
+			s.beadAgain(w, r, b.ID, fmt.Sprintf("ask %d does not take words as a note", seq))
+			return
+		}
+		words := r.PostFormValue("words")
+		if strings.TrimSpace(words) == "" {
+			s.beadAgain(w, r, b.ID, "a note needs words")
+			return
+		}
+		// A choice ask can take words as a note without closing: the
+		// answer is still the person's pick, so a note leaves it open.
+		if err := s.st.AddNote(ctx, b.ID, words, s.acting(ctx)); err != nil {
+			s.beadAgain(w, r, b.ID, err.Error())
+			return
+		}
+		http.Redirect(w, r, "/beads/"+url.PathEscape(b.ID), http.StatusSeeOther)
 		return
 	}
 	answer := store.Answer{Ask: seq, Words: r.PostFormValue("words")}

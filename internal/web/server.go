@@ -135,7 +135,7 @@ func NewServer(st store.API, home string, log *slog.Logger) (*Server, error) {
 
 // partial are the files of templates/ that define a part of a page, not a
 // page: every page is parsed with them.
-var partial = []string{"shell", "aside", "entry", "card", "csrf"}
+var partial = []string{"shell", "aside", "entry", "card", "ask", "csrf"}
 
 // loadPages parses every template of templates/ with the shell, one set per
 // page: each page defines "content", so two pages cannot share a set.

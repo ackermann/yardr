@@ -15,6 +15,13 @@ func (s *Server) loadBeadPageAsks(ctx context.Context, page *BeadPage, bead, act
 		return err
 	}
 	page.Asks = asks
+	if len(asks) > 0 {
+		site, err := s.cardSite(ctx)
+		if err != nil {
+			return err
+		}
+		page.site = site
+	}
 	for _, ask := range asks {
 		if ask.Identity == nil {
 			continue

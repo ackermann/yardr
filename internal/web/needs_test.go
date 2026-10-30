@@ -408,7 +408,7 @@ func TestHomeNeedsWeightyMapping(t *testing.T) {
 		`<li><span>2. mckean</span>`,
 		`<input type="text" name="words"`,
 		`<button type="submit" name="action" value="later">Later</button>`,
-		`<button type="submit" name="action" value="decline">Decline</button>`,
+		`<button type="submit" name="action" value="decline" title="Say no to all options. The asker finds another way.">Decline</button>`,
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("the row lacks %q:\n%s", want, s)
@@ -436,23 +436,25 @@ func TestHomeNeedsWeightyMapping(t *testing.T) {
 }
 
 // A weighty secret card's home row shows the weight with what the ask is
-// for, and Later and Decline: a secret row offers no control today, so
-// the weight is all it gains.
+// for, the decline path with the terminal command as its bead's page does,
+// and Later and Decline: a secret row offers no giving.
 func TestHomeNeedsWeightySecret(t *testing.T) {
 	t.Parallel()
-	f, _, _ := secretActYard(t)
+	f, b, seq := secretActYard(t)
 	s := answerSection(t, f.get("/").body)
 	for _, want := range []string{
 		`<p class="weighty">WEIGHTY · credential: gives a credential or an address to the yard: CRM_TOKEN, for the source crm (https://crm.example.com)</p>`,
 		`a secret: CRM_TOKEN, for the source crm (https://crm.example.com)`,
+		`This card is weighty and this window has no gate. Approve it in footplate, or in a terminal on the yard's machine:`,
+		`Give it with <code>yardr bead answer ` + b.ID + ` ` + strconv.FormatUint(seq, 10) + ` --secret</code>`,
 		`<button type="submit" name="action" value="later">Later</button>`,
-		`<button type="submit" name="action" value="decline">Decline</button>`,
+		`<button type="submit" name="action" value="decline" title="Say no to all options. The asker finds another way.">Decline</button>`,
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("the row lacks %q:\n%s", want, s)
 		}
 	}
-	for _, foreign := range []string{`name="option"`, "no gate", "&lt;n&gt;"} {
+	for _, foreign := range []string{`name="option"`, `type="password"`, `value="give"`} {
 		if strings.Contains(s, foreign) {
 			t.Errorf("the secret row shows %q:\n%s", foreign, s)
 		}

@@ -85,6 +85,10 @@ type Waiting struct {
 	// As is the user the view acts as, "" when it does not act: the row's
 	// asks then answer with buttons. HTML-only, as the revision is.
 	As string `json:"-"`
+	// site is where the row's cards stand, for the ask partial: the yard
+	// and who the viewing user may write to. Set where a row carries an
+	// ask.
+	site cardSite
 }
 
 // Reason is one cause a bead waits for a person.
@@ -110,14 +114,13 @@ type Reason struct {
 	// it next. Home leaves such a bead out of its count; HTML-only, as
 	// the give-up is: the JSON carries the text.
 	Answered bool `json:"-"`
-	// Recommend is an ask's recommendation in one line ("1. Move them
-	// now", or "words wanted" when the ask has no options), "" when the
-	// ask recommends nothing. The home row shows it faint; HTML-only: the
-	// JSON carries the question and the context.
-	Recommend string `json:"-"`
+	// Recommend is an ask's recommended option's number, 0 when the ask
+	// recommends nothing. HTML-only: the JSON carries the question and
+	// the context.
+	Recommend int `json:"-"`
 	// RecommendWhy is why the ask recommends it, folded to one line, ""
-	// when it says nothing or recommends nothing: what the ask's detail
-	// names after the option. HTML-only, as the recommendation is.
+	// when it says nothing or recommends nothing: what the card names
+	// under the option. HTML-only, as the recommendation is.
 	RecommendWhy string `json:"-"`
 	// Context is an ask's context lines, each folded to one line, whole:
 	// what the ask's detail shows, where Note joins and shortens them
@@ -125,18 +128,29 @@ type Reason struct {
 	// recommendation is.
 	Context []string `json:"-"`
 	// Ask is the ask's seq on its bead, 0 when the reason is no ask: what
-	// an answer names. Options are the ask's options in order, none for
-	// an ask that wants words, a secret or a command's approval.
-	// SecretLine is what a secret ask asks for, in the yard's words, ""
-	// otherwise; RunCommand the command a run ask proposes, whole, ""
-	// otherwise; RunDescription is that command's one-line help, ""
-	// otherwise. HTML-only, as the recommendation is: the row's buttons
-	// answer from them.
-	Ask            uint64            `json:"-"`
-	Options        []store.AskOption `json:"-"`
-	SecretLine     string            `json:"-"`
-	RunCommand     string            `json:"-"`
-	RunDescription string            `json:"-"`
+	// an answer names. Asker is who asked, Since when, To who must
+	// answer. Options are the ask's options in order, none for an ask
+	// that wants words, a secret or a command's approval. SecretLine is
+	// what a secret ask asks for, in the yard's words, "" otherwise;
+	// RunCommand the command a run ask proposes, whole, "" otherwise,
+	// with the yard's sentences for what it does, the command that takes
+	// it back and who may run it; SetupPack the pack a setup ask
+	// applies, "" otherwise, with the same. HTML-only, as the
+	// recommendation is: the card shows them as the bead's page does.
+	Ask         uint64            `json:"-"`
+	Asker       string            `json:"-"`
+	Since       time.Time         `json:"-"`
+	To          string            `json:"-"`
+	Options     []store.AskOption `json:"-"`
+	SecretLine  string            `json:"-"`
+	RunCommand  string            `json:"-"`
+	RunDoes     []string          `json:"-"`
+	RunBack     string            `json:"-"`
+	RunBackBy   string            `json:"-"`
+	SetupPack   string            `json:"-"`
+	SetupDoes   []string          `json:"-"`
+	SetupBack   string            `json:"-"`
+	SetupBackBy string            `json:"-"`
 	// Weight is the card's weight, each class with the yard's line, as
 	// the yard weighed it when it wrote the card, absent on a routine
 	// card; Identity is what a mapping ask maps, absent on any other
@@ -193,8 +207,8 @@ func (w Waiting) AskQuestion() string {
 // it recommends nothing or the bead carries no ask.
 func (w Waiting) AskRecommend() string {
 	for _, r := range w.Why {
-		if r.Kind == "ask" {
-			return r.Recommend
+		if r.Kind == "ask" && r.Recommend >= 1 && r.Recommend <= len(r.Options) {
+			return fmt.Sprintf("%d. %s", r.Recommend, store.OneLine(r.Options[r.Recommend-1].Label))
 		}
 	}
 	return ""
@@ -469,6 +483,21 @@ func (s *Server) waits(ctx context.Context, y *yard) (waits, parked []Waiting, e
 	latest := func(a, b Waiting) int { return b.Since.Compare(a.Since) }
 	slices.SortStableFunc(waits, latest)
 	slices.SortStableFunc(parked, latest)
+	// Where a row carries an ask, its cards stand with the yard and who
+	// the viewing user may write to; a row without one needs neither.
+	asked := slices.ContainsFunc(waits, Waiting.HasAsk) || slices.ContainsFunc(parked, Waiting.HasAsk)
+	if asked {
+		site, err := s.cardSite(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+		for i := range waits {
+			waits[i].site = site
+		}
+		for i := range parked {
+			parked[i].site = site
+		}
+	}
 	return waits, parked, nil
 }
 
@@ -590,38 +619,43 @@ func (s *Server) openAsks(ctx context.Context, y *yard) (map[string][]Reason, ma
 }
 
 // askReason is one open ask as a wait: the question in one line, its
-// context lines as the note and whole, and its recommendation in one line
-// for the home row: the recommended option's number with its label, so
-// the row names what to pick where writing lives. The row keeps one line,
-// so the question folds to it, as letters only, and a context line folds
-// to the line it is; the note's breaks are then only between genuine
-// lines. The ask's detail shows the lines whole, with the options and the
-// recommendation labelled. An ask with no options wants words, a secret
-// ask says what it asks for, and a run ask shows the command its approval
-// runs, whole. The row shows the card's weight beside the question, so
-// the yard's mark goes from the question where it carries it, as on the
-// card: a line starting with the mark is the yard's.
+// context lines as the note and whole, and what the card shows. The row
+// keeps one line, so the question folds to it, as letters only, and a
+// context line folds to the line it is; the note's breaks are then only
+// between genuine lines. The card shows the lines whole, with the options
+// and the recommendation under its own row. An ask with no options wants
+// words, a secret ask says what it asks for, and a run ask shows the
+// command its approval runs, whole, with the yard's sentences for what it
+// does, the take-back and who may run it, as the bead's page does. The
+// row shows the card's weight beside the question, so the yard's mark goes
+// from the question where it carries it, as on the card: a line starting
+// with the mark is the yard's.
 func askReason(r store.ResolvedAsk) Reason {
 	context := make([]string, len(r.Ask.Context))
 	for i, line := range r.Ask.Context {
 		context[i] = store.OneLine(line)
 	}
 	out := Reason{Kind: "ask", Text: store.WithoutWeightMark(store.OneLine(r.Ask.Question)), Note: short(strings.Join(context, "\n")),
-		Context: context, Ask: r.Note.Seq, Options: r.Ask.Options, Weight: r.Ask.Weight, Identity: r.Ask.Identity}
+		Context: context, Ask: r.Note.Seq, Asker: r.Note.Author, Since: r.Note.At, To: r.Ask.To,
+		Options: r.Ask.Options, Weight: r.Ask.Weight, Identity: r.Ask.Identity}
 	switch {
 	case r.Ask.Run != nil:
 		// The yard's own, and never shortened: the command as it would run.
-		out.Recommend = "to approve: " + r.Ask.Run.Command()
 		out.RunCommand = r.Ask.Run.Command()
-		out.RunDescription = r.Ask.Run.Description
+		out.RunDoes = r.Ask.Run.Does
+		out.RunBack = r.Ask.Run.Back
+		out.RunBackBy = r.Ask.Run.BackBy
 	case r.Ask.Secret != nil:
 		// The yard's line, never the asker's words: what is asked for.
-		out.Recommend = r.Ask.Secret.Line()
 		out.SecretLine = r.Ask.Secret.Line()
-	case len(r.Ask.Options) == 0:
-		out.Recommend = "words wanted"
-	case r.Ask.Recommend >= 1 && r.Ask.Recommend <= len(r.Ask.Options):
-		out.Recommend = fmt.Sprintf("%d. %s", r.Ask.Recommend, store.OneLine(r.Ask.Options[r.Ask.Recommend-1].Label))
+	case r.Ask.Setup != nil:
+		out.SetupPack = r.Ask.Setup.Pack
+		out.SetupDoes = r.Ask.Setup.Does
+		out.SetupBack = r.Ask.Setup.Back
+		out.SetupBackBy = r.Ask.Setup.BackBy
+	}
+	if r.Ask.Recommend >= 1 && r.Ask.Recommend <= len(r.Ask.Options) {
+		out.Recommend = r.Ask.Recommend
 		out.RecommendWhy = store.OneLine(r.Ask.Why)
 	}
 	return out

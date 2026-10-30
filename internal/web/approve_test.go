@@ -183,6 +183,7 @@ func TestWebApprovesARoutineRunCard(t *testing.T) {
 	y := newApproveYard(t, true)
 	ctx := context.Background()
 	must(t, func() error { _, err := y.st.AddUser(ctx, "gone", "jo"); return err }())
+	must(t, y.st.SetSetting(ctx, store.NameSetting, "depot", "jo"))
 	b := y.bead("take back a user")
 	seq := y.askRun(b.ID, "jo", "user", "rm", "gone")
 	tok := y.token("jo@example.net")
@@ -193,6 +194,21 @@ func TestWebApprovesARoutineRunCard(t *testing.T) {
 	}
 	if !strings.Contains(page.body, `value="approve"`) {
 		t.Fatalf("the routine card shows no approve control: %s", page.body)
+	}
+	// The card reads as in the other places: the ask line, the asker, the
+	// run sentence naming the yard that runs the command and the user the
+	// approval is called as, and Ask about this to the crew asker's
+	// conversation.
+	for _, want := range []string{
+		`<p class="ask-line">` + b.ID + ` · ask ` + strconv.FormatUint(seq, 10) + `</p>`,
+		`<p class="ask-asker">asked by yardmaster</p>`,
+		`<p>in depot, when you approve, the yard runs this as jo, and nothing else:</p>`,
+		`<pre class="text file">yardr user rm gone</pre>`,
+		`<a class="ask-about" href="/talk?with=yardmaster">Ask about this</a>`,
+	} {
+		if !strings.Contains(page.body, want) {
+			t.Errorf("the routine card lacks %q:\n%s", want, page.body)
+		}
 	}
 	r := y.post("/beads/"+b.ID, tok, y.approveForm(b.ID, seq))
 	if r.status != http.StatusSeeOther || r.header.Get("Location") != "/beads/"+b.ID {
@@ -469,6 +485,14 @@ func TestWebApprovesAStrongSetupCard(t *testing.T) {
 	}
 	if !strings.Contains(page.body, "setupmail") || !strings.Contains(page.body, "need-approve") {
 		t.Fatalf("the setup card shows no approval: %s", page.body)
+	}
+	for _, want := range []string{
+		`<p class="ask-says">yardmaster says:</p>`,
+		`<p>When you approve, the yard applies the pack setupmail as jo, and nothing else:</p>`,
+	} {
+		if !strings.Contains(page.body, want) {
+			t.Errorf("the setup card lacks %q:\n%s", want, page.body)
+		}
 	}
 	form := y.approveForm(b.ID, seq)
 	form.Set("option", "2")
