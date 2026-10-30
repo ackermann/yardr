@@ -890,12 +890,15 @@ declared source pushover, from sources/pushover.yaml
   own absolute program stays a loose declaration's. A prune removes the
   files with the source.
 - **A declaration the yard has under that name is replaced**, and keeps its
-  `env_file`. The object's lines show what changes: a `base`, the
-  credential's name (and the one of its updates, `update_env`) or header,
-  the `idempotency` header, each call that is new, gone or different
+  `env_file`. The object's lines show what changes: a `base`, the region
+  bases that are new, gone or different (`bases: (none) ->
+  {"eu":"https://eu.example.com/v1"}`: compact JSON, sorted keys, `(none)`
+  for no regions), the credential's name (and the one of its updates,
+  `update_env`) or header, the `idempotency` header, each call that is new,
+  gone or different
   (`call message: (update) POST /messages.json -> (update) POST /messages`).
   Read them: a source is where a credential of the yard is sent, and a new
-  `base` sends it somewhere else.
+  `base`, or a region's new address, sends it somewhere else.
 - **A pack carries no secret and names no file of the yard.** Where a call
   of the source is granted, the source's credential is still to be set
   after the import, and no user is told through it until one names it;
