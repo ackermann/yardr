@@ -769,7 +769,7 @@ func TestMergeLocalClean(t *testing.T) {
 	if pushed := y.git(remote, "rev-parse", "main"); pushed != main {
 		t.Fatalf("origin main %s, want %s", pushed, main)
 	}
-	if short := y.git(y.repo, "rev-parse", "--short", "main"); !strings.Contains(y.notes(), "merged "+short+", tested with the command test ! -e RED in ") {
+	if short := y.git(y.repo, "rev-parse", "--short", "main"); !strings.Contains(y.notes(), "merged "+short+" (+1 code, +0 test), tested with the command test ! -e RED in ") {
 		t.Fatalf("no merged note saying what tested it:\n%s", y.notes())
 	}
 	// One line of the log has the seconds of each step, in their order.
@@ -780,15 +780,20 @@ func TestMergeLocalClean(t *testing.T) {
 
 // The landing note ends with the seconds the tests took, the log's line has
 // the same, and a step that did not run (no rebase, no push) is not in it.
+// Beside the sha it carries the net lines the landing added, split into
+// code and *_test.go: a rewrite (+2 -1) and a new file (+1) are +2 code,
+// and a new *_test.go file (+4) is +4 test.
 func TestMergeLocalSaysHowLongTheTestsTook(t *testing.T) {
 	y := newYard(t)
 	y.tests("sleep 1")
+	y.commit(y.wt, "a.txt", "uno\ndos\n")
 	y.commit(y.wt, "b.txt", "bead\n")
+	y.commit(y.wt, "c_test.go", "package r\n\nfunc T() {}\n// x\n")
 
 	y.assembly()
 
 	short := y.git(y.repo, "rev-parse", "--short", "main")
-	m := regexp.MustCompile(`(?m)^.*merged ` + short + `, tested with the command sleep 1 in (\d+) s$`).FindStringSubmatch(y.notes())
+	m := regexp.MustCompile(`(?m)^.*merged ` + short + ` \(\+2 code, \+4 test\), tested with the command sleep 1 in (\d+) s$`).FindStringSubmatch(y.notes())
 	if m == nil {
 		t.Fatalf("the merged note does not end with the seconds the tests took:\n%s", y.notes())
 	}
@@ -848,7 +853,7 @@ func TestMergeLocalNoTestCommandLandsUntested(t *testing.T) {
 	if main := y.git(y.repo, "rev-parse", "main"); main != tip {
 		t.Fatalf("main %s, want the branch tip %s", main, tip)
 	}
-	if want := "merged " + tip[:7] + ", untested: no test command on the depot"; !strings.Contains(y.notes(), want) {
+	if want := "merged " + tip[:7] + " (+1 code, +0 test), untested: no test command on the depot"; !strings.Contains(y.notes(), want) {
 		t.Fatalf("no note saying %q:\n%s", want, y.notes())
 	}
 }
@@ -919,7 +924,7 @@ func TestMergeLocalBaseNotCheckedOut(t *testing.T) {
 	y.assembly()
 
 	short := y.git(y.repo, "rev-parse", "--short", tip)
-	if b := y.bead(); b.Status != "closed" || b.CloseReason == nil || !regexp.MustCompile(`^merged `+short+`, tested with the command test ! -e RED in \d+ s$`).MatchString(*b.CloseReason) {
+	if b := y.bead(); b.Status != "closed" || b.CloseReason == nil || !regexp.MustCompile(`^merged `+short+` \(\+1 code, \+0 test\), tested with the command test ! -e RED in \d+ s$`).MatchString(*b.CloseReason) {
 		t.Fatalf("bead %s/%s, want closed as merged %s", b.Stage, b.Status, short)
 	}
 	if main := y.git(y.repo, "rev-parse", "main"); main != tip {

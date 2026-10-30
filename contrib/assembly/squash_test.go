@@ -393,7 +393,7 @@ Yardr-Bead: r-2
 	if tested == nil || tested[1] != short {
 		t.Fatalf("the log says the tests ran on %v, want the landed %s:\n%s", tested, short, y.log)
 	}
-	if !strings.Contains(y.notesOf("r-2"), "merged "+short+", tested with") {
+	if !strings.Contains(y.notesOf("r-2"), "merged "+short+" (+3 code, +0 test), tested with") {
 		t.Fatalf("no landing note for %s:\n%s", short, y.notesOf("r-2"))
 	}
 	if y.git(wt, "rev-parse", "HEAD") != y.git(y.repo, "rev-parse", "main") || y.git(wt, "status", "--porcelain") != "" || y.git(y.repo, "status", "--porcelain") != "" {

@@ -577,8 +577,9 @@ exits.
    has installed the script and sets `upgrade_from`
    ([upgrade.md](upgrade.md#the-assembly-step));
 6. advances to the terminal stage `merged` with the note `merged <sha>`,
-   what tested it, the seconds the tests took, and how the install went
-   where it ran, which closes the bead; in a flow without `merged` it closes
+   the net lines the landing added (`+<n> code, +<m> test`), what tested
+   it, the seconds the tests took, and how the install went where it ran,
+   which closes the bead; in a flow without `merged` it closes
    the bead with that reason. Before the outcome, this one or any other, a
    line of the group's log has the seconds of each step that ran:
    `== <bead> took: rebase 1 s, the tests 355 s, push 2 s, upgrade 24 s`.
@@ -1171,9 +1172,9 @@ yardr dep add <train> <wagon> -k parent
   there is a train, and the base it lands on is that train's branch.
   Everything else is a landing, as before: a task that is a child of a
   train, and a wagon with no train, which would land on the depot's base. A
-  wagon's landing note says `merged <sha> on yard/<train>, tested with
-  <what ran> without YARDR_LANDING in <n> s; the landing run and the review
-  are train <train>'s`.
+  wagon's landing note says `merged <sha> (+<n> code, +<m> test) on yard/<train>,
+  tested with <what ran> without YARDR_LANDING in <n> s; the landing run and
+  the review are train <train>'s`.
 - **A wagon needs a train.** The quick run and the missing review are only
   safe where the whole suite and a review still stand before main, so yardr
   keeps a wagon with no parent train in the stage its flow starts in

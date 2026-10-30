@@ -78,7 +78,7 @@ both commits, so nothing untested lands. With `YARDR_PUSH` set it pushes the bas
 never forced; a failed push mails `YARDR_NOTIFY` and leaves the bead merged.
 Where the yard's `upgrade_from` setting names the bead's depot it then runs
 the installed yardr's `upgrade`, and the landing note says how the install
-went (`merged 6a07178, tested with the base's copy of .yardr/test in 355 s;
+went (`merged 6a07178 (+412 code, +98 test), tested with the base's copy of .yardr/test in 355 s;
 install ok in 24 s (scripts refreshed: merge-local)`), with the install's
 seconds in the log line. A failed install where the yard still answers still
 merges, like a failed push. Where the installed yardr predates the command
@@ -89,9 +89,10 @@ script and sets `upgrade_from` (docs/upgrade.md, "The assembly step"). The
 install also keeps the scripts the yard has in `~/.yardr/scripts` current
 from the checkout it builds, this one among them, and the note names the
 ones it refreshed (docs/upgrade.md, "The scripts").
-Finally it advances the bead to `merged` with `merged <sha>`, what tested
+Finally it advances the bead to `merged` with `merged <sha>`, the net
+lines the landing added split into code and `*_test.go`, what tested
 it, the seconds the tests took, and how the install went where it ran
-(`merged 6a07178, tested with the base's copy of .yardr/test in 355 s`).
+(`merged 6a07178 (+412 code, +98 test), tested with the base's copy of .yardr/test in 355 s`).
 Before the outcome, whichever it is, one
 line of the log has the seconds of each step that ran (`== <bead> took:
 rebase 1 s, the tests 355 s, push 2 s, upgrade 24 s`); where the steps of the test command

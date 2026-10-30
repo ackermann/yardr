@@ -33,7 +33,7 @@ with the scripts the install refreshed by name, and the seconds into
 the group's log line.
 
 ```sh
-merged 6a07178, tested with the base's copy of .yardr/test in 355 s; install ok in 24 s (scripts refreshed: merge-local)
+merged 6a07178 (+412 code, +98 test), tested with the base's copy of .yardr/test in 355 s; install ok in 24 s (scripts refreshed: merge-local)
 ```
 
 The code has landed, so a failed install where the yard still answers

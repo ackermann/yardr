@@ -69,7 +69,8 @@
 #
 # The log says how many seconds the rebase, the tests, the push and the
 # install took, in one line before the outcome's own, and the note of a
-# landing how many the tests took and how the install went.
+# landing its net lines beside the sha, how many the tests took and how the
+# install went.
 #
 # Every outcome ends in an advance, a close or a hold: exiting without one
 # counts as a failed session, and three of those hold the bead.
@@ -988,7 +989,9 @@ now=$(git -C "$REPO" rev-parse "refs/heads/$BR")
 # Land the tested commit, by its sha, fast-forward only. Where the base is
 # checked out, only when that checkout is clean (a dirty one is someone's
 # work in progress: hold rather than touch it); otherwise move the ref
-# without touching any tree.
+# without touching any tree. The base as it was is where the landing note's
+# net lines are counted from.
+before=$(git -C "$REPO" rev-parse "refs/heads/$BASE")
 co=$(git -C "$REPO" worktree list --porcelain |
   awk -v b="refs/heads/$BASE" '/^worktree /{w=substr($0,10)} $0=="branch "b{print w}')
 if [ -n "$co" ]; then
@@ -1001,10 +1004,17 @@ fi
 sha=$(git -C "$REPO" rev-parse --short "$BASE")
 echo "== landed $BEAD on $BASE at $sha"
 
+# The net lines the landing added, split into code and *_test.go, counted
+# with git diff --numstat from the base as it was to the commit that landed:
+# visible on every landing, with no limit and no refusal. A *_test.go path
+# counts to test, every other path to code, and a binary row (a dash for a
+# count) to neither.
+grow=$(git -C "$REPO" diff --numstat "$before..$tested" | awk '$1 != "-" { net = $1 - $2; if ($0 ~ /_test\.go"?$/) test += net; else code += net } END { printf "%+d code, %+d test", code, test }')
+
 # Publish, before advancing: advancing ends this session and the daemon stops
 # the script with it. Never forced. A failed push (offline, the remote moved)
 # leaves the bead merged locally; the next landing's push carries it.
-msg="merged $sha"
+msg="merged $sha ($grow)"
 if [ -z "$TEST" ]; then
   msg="$msg, untested: no test command on the depot"
 elif [ -z "$LANDING" ]; then
