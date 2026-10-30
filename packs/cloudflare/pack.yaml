@@ -2,14 +2,16 @@
 # the yard and into no depot. What Cloudflare is here: the declared
 # source cloudflare, which lists the account, its zones, its Workers
 # scripts and its Email Routing rules and addresses as wrangler reads
-# them. Every call reads; no call in this pack writes to Cloudflare.
-# Worker upload and Email Routing writes are a later bead.
+# them, and uploads Workers, puts their secrets and makes or edits
+# Email Routing rules as wrangler writes them, each write on its own
+# card.
 #
 #   yardr pack apply cloudflare
 #
 # The source is named cloudflare: yardr knows Cloudflare as this pack
 # alone.
 name: cloudflare
+api: 2
 kind: source
 setup: SETUP.md
 
@@ -25,3 +27,7 @@ presets:
     about: List accounts, zones, Workers scripts and Email Routing rules and addresses; change nothing
     grants:
       cloudflare: [read]
+  deploy:
+    about: Read as read does, and upload Workers, put Worker secrets and make or edit Email Routing rules
+    grants:
+      cloudflare: [read, worker_upload, worker_secret, email_rule, email_rule_edit]

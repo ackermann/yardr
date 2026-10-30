@@ -387,6 +387,24 @@ calls:
 	if strings.Contains(trickyBody, "\r\nX-Injected:") || !strings.Contains(trickyBody, `filename="notes%0D%0AX-Injected: yes.txt"`) {
 		t.Fatalf("filename was not safely escaped in multipart body: %q", trickyBody)
 	}
+	call, _ := d.Call("upload")
+	params := map[string]string{"path": upload, "limit": "20", "open": "true", "tag": "x"}
+	inputs, err := call.ReadInputs(params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(upload, []byte("changed after the card"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateCallParamsWithInputs(d, "upload", params, inputs); err != nil {
+		t.Fatalf("validation of the captured upload after its path changed: %v", err)
+	}
+	if _, err := DoKeyedWithInputs(context.Background(), d, "upload", params, "", "", inputs); err != nil {
+		t.Fatal(err)
+	}
+	if parts := uploadParts(t, s.got()[4]); !slices.Equal(parts, want) {
+		t.Fatalf("parts after the path changed = %+v, want the captured file bytes %+v", parts, want)
+	}
 }
 
 // A file parameter is a path that can be read, within its bound: anything

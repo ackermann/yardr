@@ -929,13 +929,10 @@ func (w *wtx) askedRun(ctx context.Context, run AskRun, to, actor string) (*AskR
 //
 // A weighty card (weight.go) is approved only by a call that says its
 // person saw the weight first (weighed): without it the approval is
-// refused, changes nothing and leaves the ask open (weighedRefusal). The
-// yard checks what the client says and no more; a routine card asks for no
-// such word.
+// refused, changes nothing and leaves the ask open (weighedRefusal).
 //
 // values are what the approval gives in the clear for the names the card
-// asks for (AskRun.Ask): a hook add the yard registers itself carries
-// them to its register call. A card that asks for none takes none.
+// asks for (AskRun.Ask); a card that asks for none takes none.
 func (s *Store) ApproveAsk(ctx context.Context, id string, ask uint64, actor string, weighed bool, values map[string]string) (*AskApproved, error) {
 	// A bead's handle never holds an "@" (validID).
 	if strings.Contains(id, "@") {
@@ -948,9 +945,12 @@ func (s *Store) ApproveAsk(ctx context.Context, id string, ask uint64, actor str
 		defer unlockHook()
 		return s.approveHookRegister(ctx, id, ask, actor, weighed, values)
 	}
-	if s.sourceCheckTarget(id, ask) {
+	if s.sourceCheckTarget(id, ask) || s.sourceCallTarget(id, ask) {
 		unlockAsk := s.askLocks.lock(askLockKey(id, ask))
 		defer unlockAsk()
+		if s.sourceCallTarget(id, ask) {
+			return s.approveSourceCall(ctx, id, ask, actor, weighed)
+		}
 		return s.approveSourceCheck(ctx, id, ask, actor, weighed)
 	}
 	// What the ask's card needs of git is read before the write.

@@ -21,6 +21,8 @@ import (
 	"syscall"
 	"time"
 	"unicode/utf8"
+
+	"yardr.dev/yardr/internal/config"
 )
 
 // Timeout bounds one call, from the connection to the last byte of the
@@ -110,11 +112,17 @@ func Do(ctx context.Context, d *Declaration, name string, params map[string]stri
 // making a request. A caller that must write something before making the
 // request can refuse bad values before that write.
 func ValidateCallParams(d *Declaration, name string, params map[string]string) error {
+	return ValidateCallParamsWithInputs(d, name, params, nil)
+}
+
+// ValidateCallParamsWithInputs checks parameters against the named call,
+// using file-backed values already read by the caller where supplied.
+func ValidateCallParamsWithInputs(d *Declaration, name string, params map[string]string, inputs map[string][]byte) error {
 	c, ok := d.Call(name)
 	if !ok {
 		return fmt.Errorf("source %s, call %s: the source has no call of that name", d.Name, name)
 	}
-	_, err := c.values(params)
+	_, err := c.values(params, inputs)
 	return err
 }
 
@@ -125,17 +133,24 @@ func ValidateCallParams(d *Declaration, name string, params map[string]string) e
 // it; "" sends none. credential is the value of the variable d names for
 // the call's kind (Credential.EnvOf).
 func DoKeyed(ctx context.Context, d *Declaration, name string, params map[string]string, credential, key string) (*Result, error) {
-	return doKeyed(ctx, d, name, params, credential, key, nil)
+	return doKeyed(ctx, d, name, params, credential, key, nil, nil)
+}
+
+// DoKeyedWithInputs is DoKeyed with file-backed inputs already read by the
+// caller. A run-ask approval uses it to send exactly the bytes its card
+// checked, even if the named files change while the request is made.
+func DoKeyedWithInputs(ctx context.Context, d *Declaration, name string, params map[string]string, credential, key string, inputs map[string][]byte) (*Result, error) {
+	return doKeyed(ctx, d, name, params, credential, key, nil, inputs)
 }
 
 // DoKeyedBody is DoKeyed with body already built, rather than filled from
 // the call's template. The body is sent unchanged; nil sends no body. Path,
 // query, credential and key are filled and checked as DoKeyed fills them.
 func DoKeyedBody(ctx context.Context, d *Declaration, name string, params map[string]string, credential, key string, body json.RawMessage) (*Result, error) {
-	return doKeyed(ctx, d, name, params, credential, key, body)
+	return doKeyed(ctx, d, name, params, credential, key, body, nil)
 }
 
-func doKeyed(ctx context.Context, d *Declaration, name string, params map[string]string, credential, key string, built json.RawMessage) (*Result, error) {
+func doKeyed(ctx context.Context, d *Declaration, name string, params map[string]string, credential, key string, built json.RawMessage, inputs map[string][]byte) (*Result, error) {
 	// Where the credential is the address, it is the secret of the call,
 	// and nothing said of the call repeats it or its host. where is how the
 	// messages below name the address, and hide takes it out of what the
@@ -185,7 +200,7 @@ func doKeyed(ctx context.Context, d *Declaration, name string, params map[string
 	if strings.ContainsFunc(key, func(r rune) bool { return r <= ' ' || r >= 0x7f }) {
 		return nil, fail(BadParam, 0, "the key of the update is no value of a header")
 	}
-	vals, err := c.values(params)
+	vals, err := c.values(params, inputs)
 	if err != nil {
 		return nil, fail(BadParam, 0, "%v", err)
 	}
@@ -397,13 +412,17 @@ type value struct {
 	// one file's. Its typed value stays the path, as a build command is
 	// handed it.
 	file []byte
+	// secret is what a secret-file parameter's path held, read under the
+	// secret-file rule. Its text and typed stay the path, as a file's do:
+	// the secret goes only where fill puts it, as a body's leaf.
+	secret string
 }
 
 // defaultText turns a declaration's typed default back into the text a call
 // parameter takes. Parse checked the type when it read the declaration.
 func defaultText(p Param) (string, error) {
 	switch p.Type {
-	case "string", "enum", "file":
+	case "string", "enum", "file", "secret-file":
 		var s string
 		if err := json.Unmarshal(p.Default, &s); err != nil {
 			return "", err
@@ -426,9 +445,87 @@ func defaultText(p Param) (string, error) {
 	}
 }
 
+// ParamsWithDefaults is params with each declared default supplied where
+// params leaves it out. A run-ask card uses the same values the call will
+// send, so a default file is shown and weighed just like an explicit one.
+func (c *Call) ParamsWithDefaults(params map[string]string) (map[string]string, error) {
+	out := make(map[string]string, len(params)+len(c.Params))
+	for name, value := range params {
+		out[name] = value
+	}
+	for _, p := range c.Params {
+		if _, given := out[p.Name]; given || len(p.Default) == 0 {
+			continue
+		}
+		value, err := defaultText(p)
+		if err != nil {
+			return nil, fmt.Errorf("parameter %s has an invalid default", p.Name)
+		}
+		out[p.Name] = value
+	}
+	return out, nil
+}
+
+// ReadInputs reads the file-backed values of a call once. Its bytes are for
+// in-memory request execution only: a caller must not store or show them.
+func (c *Call) ReadInputs(params map[string]string) (map[string][]byte, error) {
+	vals, err := c.values(params, nil)
+	if err != nil {
+		return nil, err
+	}
+	inputs := map[string][]byte{}
+	for _, p := range c.Params {
+		v, given := vals[p.Name]
+		if !given {
+			continue
+		}
+		switch p.Type {
+		case "file":
+			inputs[p.Name] = bytes.Clone(v.file)
+		case "secret-file":
+			inputs[p.Name] = []byte(v.secret)
+		}
+	}
+	return inputs, nil
+}
+
+var errCallFileTooLarge = errors.New("larger than the parameter's bound")
+
+// readCallFile reads one regular file without blocking on a FIFO swapped in
+// at its path, and keeps both the stated bound and the bytes read in one open.
+func readCallFile(path string, max int) ([]byte, int64, error) {
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil {
+		return nil, 0, err
+	}
+	if !st.Mode().IsRegular() {
+		return nil, 0, fmt.Errorf("not a regular file")
+	}
+	if max > 0 && st.Size() > int64(max) {
+		return nil, st.Size(), errCallFileTooLarge
+	}
+	var r io.Reader = f
+	if max > 0 && max < int(^uint(0)>>1) {
+		r = io.LimitReader(f, int64(max)+1)
+	}
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return nil, 0, err
+	}
+	if max > 0 && len(data) > max {
+		return nil, int64(len(data)), errCallFileTooLarge
+	}
+	return data, int64(len(data)), nil
+}
+
 // values reads params against the call's declaration. Its errors name the
 // parameter and what is wrong, never the value.
-func (c *Call) values(params map[string]string) (map[string]value, error) {
+func (c *Call) values(params map[string]string, inputs map[string][]byte) (map[string]value, error) {
 	for name := range params {
 		if _, ok := c.param(name); !ok {
 			return nil, fmt.Errorf("%s is no parameter of the call (it takes: %s)", strconv.Quote(name), or(strings.Join(c.names(), ", "), "none"))
@@ -485,21 +582,46 @@ func (c *Call) values(params map[string]string) (map[string]value, error) {
 			// size it is held to and the bytes that go are one file's.
 			// The errors name the parameter, never the path: no error of
 			// a call holds a value.
-			st, err := os.Stat(s)
-			switch {
-			case err != nil || !st.Mode().IsRegular():
-				return nil, fmt.Errorf("parameter %s is no file that can be read", p.Name)
-			case p.Max > 0 && st.Size() > int64(p.Max):
-				return nil, fmt.Errorf("parameter %s is %d bytes, and at most %d", p.Name, st.Size(), p.Max)
+			if data, ok := inputs[p.Name]; ok {
+				if p.Max > 0 && len(data) > p.Max {
+					return nil, fmt.Errorf("parameter %s is %d bytes, and at most %d", p.Name, len(data), p.Max)
+				}
+				v.file = bytes.Clone(data)
+			} else {
+				data, size, err := readCallFile(s, p.Max)
+				switch {
+				case errors.Is(err, errCallFileTooLarge):
+					return nil, fmt.Errorf("parameter %s is %d bytes, and at most %d", p.Name, size, p.Max)
+				case err != nil:
+					return nil, fmt.Errorf("parameter %s is no file that can be read", p.Name)
+				}
+				v.file = data
 			}
-			data, err := os.ReadFile(s)
-			switch {
-			case err != nil:
-				return nil, fmt.Errorf("parameter %s is no file that can be read", p.Name)
-			case p.Max > 0 && len(data) > p.Max:
-				return nil, fmt.Errorf("parameter %s is %d bytes, and at most %d", p.Name, len(data), p.Max)
+		case "secret-file":
+			// The path names a file the yard reads the secret from now,
+			// under the secret-file rule, so no caller hands the secret
+			// itself over. The errors name the parameter, never the
+			// path or what the file holds.
+			if secret, ok := inputs[p.Name]; ok {
+				switch {
+				case len(secret) == 0:
+					return nil, fmt.Errorf("parameter %s names an empty secret file", p.Name)
+				case p.Max > 0 && len(secret) > p.Max:
+					return nil, fmt.Errorf("parameter %s is %d bytes, and at most %d", p.Name, len(secret), p.Max)
+				}
+				v.secret = string(secret)
+			} else {
+				secret, _, err := config.ReadSecretFile(s)
+				switch {
+				case err != nil:
+					return nil, fmt.Errorf("parameter %s is no secret file that can be read", p.Name)
+				case len(secret) == 0:
+					return nil, fmt.Errorf("parameter %s names an empty secret file", p.Name)
+				case p.Max > 0 && len(secret) > p.Max:
+					return nil, fmt.Errorf("parameter %s is %d bytes, and at most %d", p.Name, len(secret), p.Max)
+				}
+				v.secret = string(secret)
 			}
-			v.file = data
 		default:
 			return nil, fmt.Errorf("parameter %s has no type", p.Name)
 		}
@@ -634,6 +756,9 @@ func fill(v any, vals map[string]value, credential string) (out any, keep bool) 
 		}
 		if m := mark.FindStringSubmatch(v); m != nil && m[0] == v {
 			val, given := vals[m[1]]
+			if val.secret != "" {
+				return val.secret, given
+			}
 			return val.typed, given
 		}
 		return mark.ReplaceAllStringFunc(v, func(m string) string { return vals[m[1:len(m)-1]].text }), true

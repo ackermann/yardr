@@ -1786,7 +1786,7 @@ internal/store/runask_more.go 1210 the user and crew-grant run-ask cards
 internal/store/runask_setup.go 1811 setup asks and their approval
 internal/store/secretask.go 1094 secret asks and harness key files
 internal/store/settings.go 1130 yard settings and their checks
-internal/store/sourcecalls.go 1303 source grants and callables
+internal/store/sourcecalls.go 1300 source grants and callables
 internal/store/subscriptions.go 1210 identities, subscriptions and where-clauses
 internal/store/users.go 1301 user records and operator words
 internal/web/beads.go 1106 the bead cards, flows and panels

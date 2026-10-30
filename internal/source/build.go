@@ -105,7 +105,7 @@ func BuildBody(ctx context.Context, d *Declaration, name string, params map[stri
 			return nil, fail(NoCredential, "the value of %s has a control character in it, a line break perhaps: it is one line", d.Credential.EnvOf(c.Kind))
 		}
 	}
-	vals, err := c.values(params)
+	vals, err := c.values(params, nil)
 	if err != nil {
 		return nil, fail(BadParam, "%v", err)
 	}

@@ -537,7 +537,7 @@ func TestBeadAskRunPeerRm(t *testing.T) {
 // list stand for, by the word a stored command begins with.
 func runCLI(a *app) map[string]*cobra.Command {
 	return map[string]*cobra.Command{"peer": a.peerCmd(), "source": a.sourceCmd(), "subscribe": a.subscribeCmd(),
-		"user": a.userCmd(), "bead": a.beadCmd(), "crew": a.crewCmd(), "settings": a.settingsCmd(), "timer": a.timerCmd(), "hook": a.hookCmd()}
+		"user": a.userCmd(), "bead": a.beadCmd(), "crew": a.crewCmd(), "settings": a.settingsCmd(), "timer": a.timerCmd(), "hook": a.hookCmd(), "call": a.callCmd()}
 }
 
 // The store's list of commands a run ask may name is held to the CLI: each
@@ -593,14 +593,15 @@ func TestRunListIsTheCLIs(t *testing.T) {
 		"yardr user identity <user> --source <source> [--id <id>] [--key <key>]": {
 			"user identity ada --source crm --id u1",
 		},
-		"yardr settings set <key> <value>":             {"settings set max_sessions 20"},
-		"yardr peer rename <old> <new>":                {"peer rename airy north"},
-		"yardr bead update <bead> --originator <user>": {"bead update yardmaster-journal --originator ada"},
-		"yardr timer rm <id>":                          {"timer rm t1"},
-		"yardr up":                                     {"up"},
-		"yardr crew restart <name> [--for <user>]":     {"crew restart yardmaster"},
-		"yardr depot test <depot>":                     {"depot test web"},
-		"yardr depot base <depot> <base>":              {"depot base web origin/other"},
+		"yardr settings set <key> <value>":                           {"settings set max_sessions 20"},
+		"yardr peer rename <old> <new>":                              {"peer rename airy north"},
+		"yardr bead update <bead> --originator <user>":               {"bead update yardmaster-journal --originator ada"},
+		"yardr timer rm <id>":                                        {"timer rm t1"},
+		"yardr up":                                                   {"up"},
+		"yardr crew restart <name> [--for <user>]":                   {"crew restart yardmaster"},
+		"yardr depot test <depot>":                                   {"depot test web"},
+		"yardr depot base <depot> <base>":                            {"depot base web origin/other"},
+		"yardr call <source> <call> [param=value ...] [--as <user>]": {"call crm note text=a test note"},
 	}
 	if len(asks) != len(store.RunCommands()) {
 		t.Errorf("this test has asks for %d commands, and the list has %d", len(asks), len(store.RunCommands()))
@@ -618,6 +619,13 @@ func TestRunListIsTheCLIs(t *testing.T) {
 		}
 		if !strings.Contains(askHelp.Long, strings.TrimPrefix(use, "yardr ")) {
 			t.Errorf("yardr bead ask --help does not name %s", use)
+		}
+		if use == "yardr call <source> <call> [param=value ...] [--as <user>]" {
+			// A call is made against its service, which neither yard
+			// here has: its approval is exercised against a stand-in
+			// in the store's tests (runask_call_test.go), and this
+			// test holds its row to the CLI's help, as user key's is.
+			continue
 		}
 		if use == "yardr user key <user> <source>" {
 			if !strings.Contains(askHelp.Long, "carries no address") || !strings.Contains(askHelp.Long, "is\n      refused") {

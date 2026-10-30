@@ -13,22 +13,19 @@
 // link — thread's by one command per thing the yard does there, run by
 // internal/hooks. The hook key says what the service sends in: how the
 // core verifies its webhooks, and the command that turns a verified body
-// into the envelope.
-//
-// The events key says what the source sends in about pull requests and
-// CI, and the commands that read them back: the daemon judges CI runs
-// against the pull request's head, and reads the pull request and its CI
-// live when no event told what it needs.
-//
-// The git key names the credential helper git runs for the source's
-// host, for a depot whose origin is there: the yard copies it with the
-// declaration's other command files and never runs it.
+// into the envelope. The events key says what the source sends in about
+// pull requests and CI, and the commands that read them back: the daemon
+// judges CI runs against the pull request's head, and reads the pull
+// request and its CI live when no event told what it needs. The git key
+// names the credential helper git runs for the source's host, for a depot
+// whose origin is there: the yard copies it with the declaration's other
+// command files and never runs it.
 //
 // The file holds no secret. It names the variable the credential is in, and
-// the value is read from a file of the yard's at each call, so a
-// declaration can be kept in the store, shown and copied. A service whose
-// address is its secret, a webhook URL, names the variable that holds the
-// address (credential.url), and the file names no base.
+// the value is read from a file of the yard's at each call, so a declaration
+// can be kept in the store, shown and copied. A service whose address is its
+// secret, a webhook URL, names the variable that holds the address
+// (credential.url), and the file names no base.
 package source
 
 import (
@@ -47,28 +44,25 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-// BuiltIn are the names a declaration may not take: the sources yardr
-// has in Go (hooks.Adapters), but for one whose pack has taken the name
-// while its Go adapter is still compiled in, its own name for itself
-// (store.SourceYardr), and its name for the yards it is linked with
-// (store.SourcePeer). The pack's source then wins every lookup when the
-// yard has it. A test in hooks holds this list against the adapters.
+// BuiltIn are the names a declaration may not take: the sources yardr has in Go (hooks.Adapters), but for one whose pack
+// has taken the name while its Go adapter is still compiled in, its own name for itself (store.SourceYardr), and its
+// name for the yards it is linked with (store.SourcePeer). The pack's source then wins every lookup when the yard has
+// it. A test in hooks holds this list against the adapters.
 var BuiltIn = []string{"peer", "token", "yardr"}
 
-// MaxDeclaration bounds a declaration file: it is a list of requests, read
-// whole at every use.
+// MaxDeclaration bounds a declaration file: it is a list of requests, read whole at every use.
 const MaxDeclaration = 256 << 10
 
-// The kinds of a call. An update changes something in the service; a read
-// does not, whatever its method (a search by POST, GraphQL).
+// The kinds of a call. An update changes something in the service; a read does not, whatever its method (a search by
+// POST, GraphQL).
 const (
 	Read   = "read"
 	Update = "update"
 )
 
 // CredentialMark is where the credential's value goes: in the credential's
-// header, or as a whole leaf of a body. Never in a path or a query, which
-// end up in the logs of every proxy and server on the way.
+// header, or as a whole leaf of a body. Never in a path or a query, which end
+// up in the logs of every proxy and server on the way.
 const CredentialMark = "{credential}"
 
 // Declaration is a source as its file declares it.
@@ -176,8 +170,8 @@ type Credential struct {
 	URL bool `json:"url,omitempty"`
 }
 
-// Minted reports whether the credential may be minted: the file names the
-// variables a mint takes. Nil-safe, for a file that names no credential.
+// Minted reports whether the credential may be minted: the file names the variables a mint takes. Nil-safe, for a
+// file that names no credential.
 func (c *Credential) Minted() bool { return c != nil && len(c.Mint) > 0 }
 
 // EnvOf is the name of the variable a call of kind is sent with.
@@ -188,8 +182,8 @@ func (c *Credential) EnvOf(kind string) string {
 	return c.Env
 }
 
-// Envs are the names of the variables the source's env file sets: the
-// credential's, and the one of its updates where that is another.
+// Envs are the names of the variables the source's env file sets: the credential's, and the one of its updates where
+// that is another.
 func (c *Credential) Envs() []string {
 	if c.UpdateEnv != "" {
 		return []string{c.Env, c.UpdateEnv}
@@ -198,8 +192,8 @@ func (c *Credential) Envs() []string {
 }
 
 // Names says in words what an env file sets for the credential: the static
-// names, or with a mint, the mint's names or the static ones, the mint
-// first, since it is what a call uses when both are set.
+// names, or with a mint, the mint's names or the static ones, the mint first,
+// since it is what a call uses when both are set.
 func (c *Credential) Names() string {
 	if !c.Minted() {
 		return strings.Join(c.Envs(), " and ")
@@ -207,8 +201,8 @@ func (c *Credential) Names() string {
 	return strings.Join(c.Mint, " and ") + ", or " + strings.Join(c.Envs(), " and ")
 }
 
-// Variables are the names an env file may set for the credential, every
-// one the declaration has: the mint's inputs first, then the static ones.
+// Variables are the names an env file may set for the credential, every one the declaration has: the mint's inputs
+// first, then the static ones.
 func (c *Credential) Variables() []string {
 	if c == nil {
 		return nil
@@ -217,9 +211,9 @@ func (c *Credential) Variables() []string {
 }
 
 // MintOrStatic are the names a user's own credential in the source goes by
-// unprompted: the mint's inputs where the credential is minted, else the
-// static ones. A call mints from the former and falls back to the latter;
-// an ask for a user's credential asks for these unless --env names others.
+// unprompted: the mint's inputs where the credential is minted, else the static
+// ones. A call mints from the former and falls back to the latter; an ask for
+// a user's credential asks for these unless --env names others.
 func (c *Credential) MintOrStatic() []string {
 	if c == nil {
 		return nil
@@ -230,9 +224,8 @@ func (c *Credential) MintOrStatic() []string {
 	return c.Envs()
 }
 
-// Concealed reports whether a secret ask for names is drawn hidden: false
-// where every name is one the file marks as no secret, true for a mixed or
-// secret one. Nil-safe, for a file that names no credential.
+// Concealed reports whether a secret ask for names is drawn hidden: false where every name is one the file marks as
+// no secret, true for a mixed or secret one. Nil-safe, for a file that names no credential.
 func (c *Credential) Concealed(names []string) bool {
 	if c == nil || len(names) == 0 {
 		return true
@@ -258,15 +251,15 @@ type Call struct {
 	Answer Answer   `json:"answer"`
 }
 
-// Param is one parameter of a call. All are required unless Optional or
-// Default is set.
+// Param is one parameter of a call. All are required unless Optional or Default is set.
 type Param struct {
 	Name string `json:"name"`
-	// Type is string, int, bool, enum or file.
+	// Type is string, int, bool, enum, file or secret-file: a secret-file's
+	// value names a file the yard reads the secret from at call time.
 	Type    string `json:"type"`
 	Pattern string `json:"pattern,omitempty"` // of a string: a regular expression it must match
 	// Max bounds a value: of a string its length at most, in characters;
-	// of a file its size at most, in bytes.
+	// of a file or a secret-file its size at most, in bytes.
 	Max      int      `json:"max,omitempty"`
 	Values   []string `json:"values,omitempty"` // of an enum: what it may be
 	Optional bool     `json:"optional,omitempty"`
@@ -288,10 +281,11 @@ type Request struct {
 	Path   string       `json:"path"`
 	Query  []QueryValue `json:"query,omitempty"` // in file order
 	// Body is sent as JSON: maps, lists and scalars as the file has them.
-	// A string that is exactly {param} becomes the parameter's typed value.
-	// A body that names a file parameter is sent as a multipart upload
-	// instead: each file parameter one file part, every other value a text
-	// field.
+	// A string that is exactly {param} becomes the parameter's typed value;
+	// of a secret-file, the secret its file holds, which stands in no
+	// parameter, card or record. A body that names a file parameter is
+	// sent as a multipart upload instead: each file parameter one file
+	// part, every other value a text field.
 	Body any `json:"body,omitempty"`
 }
 
@@ -311,10 +305,9 @@ type Answer struct {
 	Max int `json:"max"`
 }
 
-// Address is where the source's calls go, in words: its base, or for a
-// credential that is the address itself the variable it is in, since the
-// address is the secret and the file holds none of it. Empty for a source
-// that declares no call.
+// Address is where the source's calls go, in words: its base, or for a credential that is the address itself the
+// variable it is in, since the address is the secret and the file holds none of it. Empty for a source that declares
+// no call.
 func (d *Declaration) Address() string {
 	if d.Credential != nil && d.Credential.URL {
 		return "the URL in " + d.Credential.Env
@@ -322,11 +315,10 @@ func (d *Declaration) Address() string {
 	return d.Base
 }
 
-// BaseURL is the address the source's calls go to when its base setting
-// names name: the base for "", the named one of bases. ok is false for a
-// name the file declares none of: no free-text base is accepted from
-// anyone, anywhere, so the credential goes only to a host the file
-// declares.
+// BaseURL is the address the source's calls go to when its base setting names
+// name: the base for "", the named one of bases. ok is false for a name the
+// file declares none of: no free-text base is accepted from anyone, anywhere,
+// so the credential goes only to a host the file declares.
 func (d *Declaration) BaseURL(name string) (url string, ok bool) {
 	if name == "" {
 		return d.Base, true
@@ -335,10 +327,9 @@ func (d *Declaration) BaseURL(name string) (url string, ok bool) {
 	return u, ok
 }
 
-// WithBase is d with the base setting name in place of its own: what a
-// call of a source set to name is made against. "" and a name the file
-// declares none of are d itself: the setting names nothing under a
-// declaration that lost it, and the call goes to the default base.
+// WithBase is d with the base setting name in place of its own: what a call of a source set to name is made against.
+// "" and a name the file declares none of are d itself: the setting names nothing under a declaration that lost it,
+// and the call goes to the default base.
 func (d *Declaration) WithBase(name string) *Declaration {
 	u, ok := d.BaseURL(name)
 	if !ok || u == d.Base {
@@ -349,14 +340,12 @@ func (d *Declaration) WithBase(name string) *Declaration {
 	return &c
 }
 
-// BaseNames are the names the file declares bases under, in order: what a
-// refusal of an unknown one lists.
+// BaseNames are the names the file declares bases under, in order: what a refusal of an unknown one lists.
 func (d *Declaration) BaseNames() []string {
 	return slices.Sorted(maps.Keys(d.Bases))
 }
 
-// CheckBase holds value to the file's bases: "" is the base itself, and
-// anything else names one of bases.
+// CheckBase holds value to the file's bases: "" is the base itself, and anything else names one of bases.
 func (d *Declaration) CheckBase(value string) error {
 	if value == "" {
 		return nil
@@ -430,8 +419,7 @@ func (c *Call) usesParam(name string) bool {
 // Line is the call in a line: "POST /messages.json".
 func (r Request) Line() string { return r.Method + " " + r.Path }
 
-// Error is one thing wrong with a declaration: the file, the line and the
-// key as a dotted path from the file's root.
+// Error is one thing wrong with a declaration: the file, the line and the key as a dotted path from the file's root.
 type Error struct {
 	File string `json:"file"`
 	Line int    `json:"line,omitempty"`
@@ -450,8 +438,7 @@ func (e Error) Error() string {
 	return out + ": " + e.Msg
 }
 
-// Errors is everything wrong with a declaration, in file order: it is read
-// to its end so one run names every mistake.
+// Errors is everything wrong with a declaration, in file order: it is read to its end so one run names every mistake.
 type Errors []Error
 
 func (es Errors) Error() string {
@@ -463,36 +450,32 @@ func (es Errors) Error() string {
 }
 
 var (
-	// validName is what a source and a call may be named: each becomes a
-	// key in the store and a word on a command line.
+	// validName is what a source and a call may be named: each becomes a key in the store and a word on a command line.
 	validName = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 	// paramName is also the name of a variable, for the credential's.
 	paramName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 	// mark is a {name} in a path, a query or a body.
 	mark       = regexp.MustCompile(`\{([A-Za-z_][A-Za-z0-9_]*)\}`)
 	headerName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]*$`)
-	// hookKey is a key a hook's events may carry in their fields, as a
-	// subscription's --where names it.
+	// hookKey is a key a hook's events may carry in their fields, as a subscription's --where names it.
 	hookKey = regexp.MustCompile(`^[a-z0-9][a-z0-9_]*$`)
 )
 
 var (
 	methods = []string{"GET", "POST", "PUT", "PATCH", "DELETE"}
-	types   = []string{"string", "int", "bool", "enum", "file"}
+	types   = []string{"string", "int", "bool", "enum", "file", "secret-file"}
 )
 
-// booleans are the plain scalars YAML 1.1 reads as a boolean (see
-// internal/pack, whose reader this one follows): a key or a word that is
-// one would be a name to this reader and a boolean to the next.
+// booleans are the plain scalars YAML 1.1 reads as a boolean (see internal/pack, whose reader this one follows): a key
+// or a word that is one would be a name to this reader and a boolean to the next.
 var booleans = []string{"y", "yes", "n", "no", "on", "off", "true", "false"}
 
 func booleanLike(n *yaml.Node) bool {
 	return n.Kind == yaml.ScalarNode && (n.Tag == "!!bool" || (n.Style == 0 && slices.Contains(booleans, strings.ToLower(n.Value))))
 }
 
-// Parse reads the declaration in text. file is how errors name it. What it
-// returns with a nil error is safe to call: every refusal that does not
-// depend on a parameter's value is made here.
+// Parse reads the declaration in text. file is how errors name it. What it returns with a nil error is safe to call:
+// every refusal that does not depend on a parameter's value is made here.
 func Parse(file string, text []byte) (*Declaration, error) {
 	if len(text) > MaxDeclaration {
 		return nil, Errors{{File: file, Msg: fmt.Sprintf("%d bytes: a declaration is at most %d", len(text), MaxDeclaration)}}
@@ -969,8 +952,7 @@ func (r *reader) command(f entry, example string) []string {
 	return out
 }
 
-// The ways a text fails to be an address calls go to, as checkAddress
-// finds them.
+// The ways a text fails to be an address calls go to, as checkAddress finds them.
 type addressFault int
 
 const (
@@ -1342,13 +1324,20 @@ func (r *reader) call(e entry, credential, inPath, address bool) Call {
 	if build != nil && hasBody {
 		r.errf(build.v, build.path, "a call names request.body or build, never both")
 	}
+	var hasFile, hasSecret bool
+	for _, p := range c.Params {
+		hasFile, hasSecret = hasFile || p.Type == "file", hasSecret || p.Type == "secret-file"
+	}
+	if hasFile && hasSecret {
+		r.errf(e.v, e.path, "a call names both a file and a secret-file parameter: a file goes as an upload and a secret as a body's leaf, never both in one call")
+	}
 	return c
 }
 
 func (r *reader) param(e entry) Param {
 	p := Param{Name: e.key}
 	typed := false
-	var pattern, most, values, defaultValue *entry
+	var pattern, most, values, defaultValue, logE *entry
 	for _, f := range r.entries(e.v, e.path, "type", "pattern", "max", "values", "optional", "default", "log") {
 		switch f.key {
 		case "type":
@@ -1369,6 +1358,7 @@ func (r *reader) param(e entry) Param {
 		case "default":
 			defaultValue = &f
 		case "log":
+			logE = &f
 			p.Log, _ = r.boolean(f.v, f.path)
 		}
 	}
@@ -1403,8 +1393,8 @@ func (r *reader) param(e entry) Param {
 	// held to no bound above, since max is the bound and may be left out.
 	switch {
 	case most == nil:
-	case p.Type != "string" && p.Type != "file":
-		r.errf(most.k, most.path, "is for a parameter of type string or file, and this one is %s", p.Type)
+	case p.Type != "string" && p.Type != "file" && p.Type != "secret-file":
+		r.errf(most.k, most.path, "is for a parameter of type string, file or secret-file, and this one is %s", p.Type)
 	case p.Type == "string":
 		p.Max, _ = r.count(most.v, most.path, AnswerLimit)
 	default:
@@ -1417,6 +1407,9 @@ func (r *reader) param(e entry) Param {
 		r.errf(e.v, join(e.path, "values"), "missing: what an enum may be ([a, b])")
 	} else if p.Type == "enum" && len(p.Values) == 0 && values.v.Kind == yaml.SequenceNode && len(values.v.Content) == 0 {
 		r.errf(values.v, values.path, "an enum that may be nothing")
+	}
+	if p.Type == "secret-file" && p.Log && logE != nil {
+		r.errf(logE.v, logE.path, "a secret-file parameter is never logged: its record keeps the parameter's name alone")
 	}
 	if defaultValue != nil {
 		if raw, ok := r.paramDefault(p, *defaultValue); ok {
@@ -1469,7 +1462,7 @@ func (r *reader) paramDefault(p Param, e entry) (json.RawMessage, bool) {
 			return nil, false
 		}
 		value = b
-	case "file":
+	case "file", "secret-file":
 		// A path, held to nothing here: its bounds are the file's, read
 		// when the call is made.
 		if e.v.Kind != yaml.ScalarNode || e.v.Tag != "!!str" {
@@ -1512,6 +1505,8 @@ func (r *reader) request(c *Call, e entry, credential, inPath, address bool) (ha
 				r.errf(n, key, "%s is no parameter of the call %s", m[0], c.Name)
 			case p.Type == "file":
 				r.errf(n, key, "%s is a file: it stands as a value of the body, which is sent as one upload, not in %s", m[0], where)
+			case p.Type == "secret-file":
+				r.errf(n, key, "%s is a secret-file: it stands as a value of the body, not in %s", m[0], where)
 			case p.Optional && where == "a path":
 				r.errf(n, key, "%s is optional, and a path has no place for a value that is not given", m[0])
 			case p.Optional && s != m[0]:
@@ -1618,10 +1613,11 @@ func (r *reader) pairs(n *yaml.Node, key string) []entry {
 	return out
 }
 
-// checkFileMarks holds a file parameter to where an upload carries it:
-// alone as a value of the body's mapping, one value to one part. Anywhere
-// else there is no part to send it as: no key of its own in a list or as
-// the whole body, and no bytes to put inside a larger string.
+// checkFileMarks holds a file or secret-file parameter to where its
+// value goes: alone as a value of the body's mapping, one value to one
+// part or one leaf. Anywhere else there is nowhere to send it: no key
+// of its own in a list or as the whole body, and no bytes or secret to
+// put inside a larger string.
 func (r *reader) checkFileMarks(c *Call, root *yaml.Node, key string) {
 	// nested walks what is no value of the body's mapping: a file mark
 	// under it stands nowhere an upload carries.
@@ -1655,23 +1651,27 @@ func (r *reader) checkFileMarks(c *Call, root *yaml.Node, key string) {
 	}
 }
 
-// fileMark refuses a file parameter's mark where no upload carries it.
-// topValue says the mark stands alone as a value of the body's mapping;
-// what is no mark of a file parameter is r.body's to check.
+// fileMark refuses a file or secret-file parameter's mark where
+// nothing carries it. topValue says the mark stands alone as a value
+// of the body's mapping; what is no such mark is r.body's to check.
 func (r *reader) fileMark(c *Call, n *yaml.Node, key string, topValue bool) {
 	if n.Tag != "!!str" {
 		return
 	}
 	for _, m := range mark.FindAllStringSubmatch(n.Value, -1) {
 		p, declared := c.param(m[1])
-		if !declared || p.Type != "file" {
+		if !declared || (p.Type != "file" && p.Type != "secret-file") {
 			continue
 		}
 		switch {
-		case n.Value != m[0]:
+		case n.Value != m[0] && p.Type == "file":
 			r.errf(n, key, "%s is a file: it stands alone as a value, which is sent as one upload", m[0])
-		case !topValue:
+		case n.Value != m[0]:
+			r.errf(n, key, "%s is a secret-file: it stands alone as a value", m[0])
+		case !topValue && p.Type == "file":
 			r.errf(n, key, "%s is a file: it stands as a value of the body's mapping, which is sent as one upload", m[0])
+		case !topValue:
+			r.errf(n, key, "%s is a secret-file: it stands as a value of the body's mapping", m[0])
 		}
 	}
 }

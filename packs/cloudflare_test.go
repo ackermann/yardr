@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -25,10 +26,10 @@ const (
 	cfToken   = "cf-test-token"
 )
 
-// The cloudflare pack is one declared source of kind source with one
-// read preset: its declaration, parsed as the yard parses it, names
-// the token's variable and no update call, so nothing it grants can
-// write to Cloudflare.
+// The cloudflare pack is one declared source of kind source with a
+// read preset and a deploy preset: its declaration, parsed as the
+// yard parses it, names the token's variable and the four update
+// calls the deploy preset grants.
 func TestCloudflarePackDeclaresItsSource(t *testing.T) {
 	sub, err := fs.Sub(packs.FS, "cloudflare")
 	if err != nil {
@@ -41,12 +42,16 @@ func TestCloudflarePackDeclaresItsSource(t *testing.T) {
 	if p.Kind != "source" || len(p.Declared) != 1 || p.Declared[0].Name != "cloudflare" {
 		t.Fatalf("kind %q, declared %+v, want one source cloudflare", p.Kind, p.Declared)
 	}
-	if len(p.Presets) != 1 || p.Presets[0].Name != "read" {
-		t.Fatalf("presets %+v, want the one read preset", p.Presets)
+	if len(p.Presets) != 2 || p.Presets[0].Name != "read" || p.Presets[1].Name != "deploy" {
+		t.Fatalf("presets %+v, want the read and deploy presets", p.Presets)
 	}
 	if got := p.Presets[0].Grants; len(got) != 1 || got[0].Source != "cloudflare" ||
 		!reflect.DeepEqual(got[0].Calls, []string{store.GrantRead}) {
 		t.Fatalf("read preset grants %+v, want cloudflare [read]", got)
+	}
+	if got := p.Presets[1].Grants; len(got) != 1 || got[0].Source != "cloudflare" ||
+		!reflect.DeepEqual(got[0].Calls, []string{store.GrantRead, "worker_upload", "worker_secret", "email_rule", "email_rule_edit"}) {
+		t.Fatalf("deploy preset grants %+v, want cloudflare [read worker_upload worker_secret email_rule email_rule_edit]", got)
 	}
 	d := p.Declared[0].Declaration
 	if d.Base != "https://api.cloudflare.com/client/v4" {
@@ -59,14 +64,18 @@ func TestCloudflarePackDeclaresItsSource(t *testing.T) {
 	if d.Check != "verify" {
 		t.Errorf("check %q, want verify", d.Check)
 	}
+	updates := map[string]bool{"worker_upload": true, "worker_secret": true, "email_rule": true, "email_rule_edit": true}
 	var names []string
 	for _, c := range d.Calls {
 		names = append(names, c.Name)
-		if c.Kind != source.Read {
-			t.Errorf("call %s is %s: this pack reads and writes nothing", c.Name, c.Kind)
+		if updates[c.Name] && c.Kind != source.Update {
+			t.Errorf("call %s is %s, want update", c.Name, c.Kind)
+		}
+		if !updates[c.Name] && c.Kind != source.Read {
+			t.Errorf("call %s is %s, want read", c.Name, c.Kind)
 		}
 	}
-	want := []string{"verify", "token", "accounts", "zones", "workers", "email_rules", "email_addresses"}
+	want := []string{"verify", "token", "accounts", "zones", "workers", "email_rules", "email_addresses", "worker_upload", "worker_secret", "email_rule", "email_rule_edit"}
 	if !reflect.DeepEqual(names, want) {
 		t.Errorf("calls = %v, want %v", names, want)
 	}
@@ -107,13 +116,17 @@ type cloudflareStandin struct {
 	mu           sync.Mutex
 	last         string
 	auth         string
+	body         string
+	contentType  string
 	scopes       []string
 	failAccounts bool
 }
 
 func (s *cloudflareStandin) handler(w http.ResponseWriter, r *http.Request) {
+	raw, _ := io.ReadAll(r.Body)
 	s.mu.Lock()
 	s.last, s.auth = r.Method+" "+r.URL.Path, r.Header.Get("Authorization")
+	s.body, s.contentType = string(raw), r.Header.Get("Content-Type")
 	scopes := s.scopes
 	s.mu.Unlock()
 	if s.auth != "Bearer "+cfToken {
@@ -163,6 +176,14 @@ func (s *cloudflareStandin) handler(w http.ResponseWriter, r *http.Request) {
 	case "GET /accounts/" + cfAccount + "/email/routing/addresses":
 		io.WriteString(w, `{"success":true,"errors":[],"messages":[],"result":[{"id":"addr1","email":"ada@example.com","verified":"2026-10-29T00:00:00Z","created":"2026-10-29T00:00:00Z"}],`+
 			`"result_info":{"page":1,"per_page":20,"total_pages":1,"count":1,"total_count":1}}`)
+	case "PUT /accounts/" + cfAccount + "/workers/scripts/mail-worker":
+		io.WriteString(w, `{"success":true,"errors":[],"messages":[],"result":{"id":"mail-worker","etag":"e1"}}`)
+	case "PUT /accounts/" + cfAccount + "/workers/scripts/mail-worker/secrets":
+		io.WriteString(w, `{"success":true,"errors":[],"messages":[],"result":{"name":"MAIL_KEY","type":"secret_text"}}`)
+	case "POST /zones/" + cfZone + "/email/routing/rules":
+		io.WriteString(w, `{"success":true,"errors":[],"messages":[],"result":{"id":"rule2","name":"ada@example.com to mail-worker","enabled":true,"matchers":[{"type":"literal","field":"to","value":"ada@example.com"}],"actions":[{"type":"worker","value":["mail-worker"]}]}}`)
+	case "PUT /zones/" + cfZone + "/email/routing/rules/rule1":
+		io.WriteString(w, `{"success":true,"errors":[],"messages":[],"result":{"id":"rule1","name":"ada@example.com to mail-worker","enabled":true,"matchers":[{"type":"literal","field":"to","value":"ada@example.com"}],"actions":[{"type":"worker","value":["mail-worker"]}]}}`)
 	default:
 		s.t.Errorf("the stand-in has no answer for %s %s", r.Method, r.URL.Path)
 		http.Error(w, "no such recorded shape", 404)
@@ -173,6 +194,12 @@ func (s *cloudflareStandin) request() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.last
+}
+
+func (s *cloudflareStandin) sent() (body, contentType string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.body, s.contentType
 }
 
 func cloudflareDeclaration(t *testing.T, standin string) *source.Declaration {
@@ -258,5 +285,120 @@ func TestCloudflareCallsAgainstTheStandin(t *testing.T) {
 	}
 	if res.OK() || res.Status != http.StatusForbidden {
 		t.Errorf("accounts call the stand-in refuses: status %d, want a 403 refusal", res.Status)
+	}
+}
+
+// Every update call of the declaration, against the stand-in: the
+// upload sends the file's bytes as one part beside its metadata, the
+// secret sends the value its file holds and nothing names that value
+// but the request's body, and the rule calls send the address and the
+// Worker, the edit to the standing rule's own address.
+func TestCloudflareUpdateCallsAgainstTheStandin(t *testing.T) {
+	standin := &cloudflareStandin{t: t, scopes: []string{"API Tokens Read", "Workers Scripts Edit", "Email Routing Addresses Read", "Email Routing Rules Edit", "Zone Read"}}
+	srv := httptest.NewServer(http.HandlerFunc(standin.handler))
+	defer srv.Close()
+	d := cloudflareDeclaration(t, srv.URL)
+	dir := t.TempDir()
+	script := "export default { async fetch() { return new Response('mail') } }\n"
+	scriptFile := filepath.Join(dir, "worker.js")
+	if err := os.WriteFile(scriptFile, []byte(script), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := source.Do(context.Background(), d, "worker_upload", map[string]string{
+		"account": cfAccount, "name": "mail-worker", "script": scriptFile}, cfToken)
+	if err != nil || !res.OK() {
+		t.Fatalf("worker_upload: %v, %+v", err, res)
+	}
+	if got, want := standin.request(), "PUT /accounts/"+cfAccount+"/workers/scripts/mail-worker"; got != want {
+		t.Errorf("worker_upload sent %q, want %q", got, want)
+	}
+	body, contentType := standin.sent()
+	if !strings.HasPrefix(contentType, "multipart/form-data; boundary=") {
+		t.Errorf("worker_upload content type %q, want a multipart upload", contentType)
+	}
+	if !strings.Contains(body, `"main_module":"worker.js"`) || !strings.Contains(body, script) {
+		t.Errorf("worker_upload body lacks its metadata or the file's bytes: %q", body)
+	}
+	const secretValue = "mail-secret-value-123"
+	secretFile := filepath.Join(dir, "mail-key")
+	if err := os.WriteFile(secretFile, []byte(secretValue+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	res, err = source.Do(context.Background(), d, "worker_secret", map[string]string{
+		"account": cfAccount, "name": "mail-worker", "secret": "MAIL_KEY", "value": secretFile}, cfToken)
+	if err != nil || !res.OK() {
+		t.Fatalf("worker_secret: %v, %+v", err, res)
+	}
+	if got, want := standin.request(), "PUT /accounts/"+cfAccount+"/workers/scripts/mail-worker/secrets"; got != want {
+		t.Errorf("worker_secret sent %q, want %q", got, want)
+	}
+	body, _ = standin.sent()
+	if !strings.Contains(body, `"name":"MAIL_KEY"`) || !strings.Contains(body, `"text":"`+secretValue+`"`) || !strings.Contains(body, `"type":"secret_text"`) {
+		t.Errorf("worker_secret body %q lacks the secret's name, its file's value and its kind", body)
+	}
+	if strings.Contains(string(res.Answer), secretValue) {
+		t.Errorf("worker_secret answer repeats the secret's value")
+	}
+	call, _ := d.Call("worker_secret")
+	secretParams := map[string]string{"account": cfAccount, "name": "mail-worker", "secret": "MAIL_KEY", "value": secretFile}
+	inputs, err := call.ReadInputs(secretParams)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(secretFile, []byte("changed after the card\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	res, err = source.DoKeyedWithInputs(context.Background(), d, "worker_secret", secretParams, cfToken, "", inputs)
+	if err != nil || !res.OK() {
+		t.Fatalf("worker_secret with captured input: %v, %+v", err, res)
+	}
+	body, _ = standin.sent()
+	if !strings.Contains(body, `"text":"`+secretValue+`"`) || strings.Contains(body, "changed after the card") {
+		t.Errorf("worker_secret sent %q instead of the value captured for approval", body)
+	}
+	for _, tc := range []struct {
+		call   string
+		params map[string]string
+		path   string
+	}{
+		{"email_rule", map[string]string{"zone": cfZone, "address": "ada@example.com", "worker": "mail-worker"},
+			"POST /zones/" + cfZone + "/email/routing/rules"},
+		{"email_rule_edit", map[string]string{"zone": cfZone, "rule": "rule1", "address": "ada@example.com", "worker": "mail-worker"},
+			"PUT /zones/" + cfZone + "/email/routing/rules/rule1"},
+	} {
+		res, err := source.Do(context.Background(), d, tc.call, tc.params, cfToken)
+		if err != nil || !res.OK() {
+			t.Fatalf("%s: %v, %+v", tc.call, err, res)
+			continue
+		}
+		if got := standin.request(); got != tc.path {
+			t.Errorf("%s sent %q, want %q", tc.call, got, tc.path)
+		}
+		body, _ := standin.sent()
+		if !strings.Contains(body, `"value":"ada@example.com"`) || !strings.Contains(body, `"value":["mail-worker"]`) {
+			t.Errorf("%s body %q lacks the address or the Worker", tc.call, body)
+		}
+	}
+	tooLongAddress := strings.Repeat("a", 88) + "@x.y"
+	if _, err := source.Do(context.Background(), d, "email_rule", map[string]string{
+		"zone": cfZone, "address": tooLongAddress, "worker": "mail-worker"}, cfToken); err == nil ||
+		!strings.Contains(err.Error(), "at most 90") {
+		t.Errorf("email_rule with a long address: err %v, want the API's 90-character bound", err)
+	}
+	if _, err := source.Do(context.Background(), d, "email_rule_edit", map[string]string{
+		"zone": cfZone, "rule": strings.Repeat("a", 33), "address": "ada@example.com", "worker": "mail-worker"}, cfToken); err == nil ||
+		!strings.Contains(err.Error(), "at most 32") {
+		t.Errorf("email_rule_edit with a long rule id: err %v, want the API's 32-character bound", err)
+	}
+	// A secret file the yard may not read (its mode is not 0600) is
+	// refused before anything is sent, naming the parameter alone.
+	loose := filepath.Join(dir, "loose-key")
+	if err := os.WriteFile(loose, []byte(secretValue), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := source.Do(context.Background(), d, "worker_secret", map[string]string{
+		"account": cfAccount, "name": "mail-worker", "secret": "MAIL_KEY", "value": loose}, cfToken); err == nil ||
+		!strings.Contains(err.Error(), "parameter value") || strings.Contains(err.Error(), secretValue) || strings.Contains(err.Error(), loose) {
+		t.Errorf("worker_secret with a loose file: err %v, want a refusal naming the parameter alone", err)
 	}
 }

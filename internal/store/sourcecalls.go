@@ -594,6 +594,9 @@ type SourceCall struct {
 	// Note asks for the answer as a note on the caller's bead (yardr call
 	// --note): see noteBead for who has one to write on.
 	Note bool `json:"note,omitempty"`
+	// inputs are the file-backed values a run-ask card checked. They stay
+	// in memory so the request sends those bytes even if a path changes.
+	inputs map[string][]byte
 }
 
 // SourceAnswer is what a call that was made returned.
@@ -1194,7 +1197,7 @@ func (s *Store) CallSource(ctx context.Context, req SourceCall) (*SourceAnswer, 
 			// The parameters are held before the call is counted: a
 			// call refused for them is sent nowhere, and counts
 			// nowhere.
-			if verr := source.ValidateCallParams(d, req.Call, req.Params); verr != nil {
+			if verr := validateSourceCallParams(d, req.Call, req.Params, req.inputs); verr != nil {
 				why, status = verr.Error(), source.BadParam
 			}
 		}
@@ -1246,14 +1249,8 @@ func (s *Store) CallSource(ctx context.Context, req SourceCall) (*SourceAnswer, 
 	}
 	if err != nil {
 		err = fmt.Errorf("source %s, call %s: %w", d.Name, call.Name, err)
-	} else if len(call.Build) > 0 {
-		var body json.RawMessage
-		body, err = source.BuildBody(ctx, d, call.Name, req.Params, cred, s.home)
-		if err == nil {
-			res, err = source.DoKeyedBody(ctx, d, call.Name, req.Params, cred, sentWith, body)
-		}
 	} else {
-		res, err = source.DoKeyed(ctx, d, call.Name, req.Params, cred, sentWith)
+		res, err = s.sourceCallRequest(ctx, d, call, req.Params, cred, sentWith, req.inputs)
 	}
 	var status any = source.NoCredential
 	var failed *source.CallError

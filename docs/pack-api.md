@@ -364,6 +364,13 @@ and [what it gives agents](#what-a-pack-gives-agents), with `yardr call` among
 the commands. It is also the meaning of a pack that has no `api` key. Later
 numbers list only what they add.
 
+### API 2
+
+A call parameter of type `secret-file`: its value names a file the yard
+reads the secret from at call time, under the secret-file rule, and the
+secret stands as a leaf of the call's body alone, in no parameter, card
+or record.
+
 ## Left out
 
 These are not in the API, and each can join it by a rise of the number if a

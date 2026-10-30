@@ -831,7 +831,9 @@ commands the source names use that selected URL.
   [`contrib/github-mint`](../contrib/github-mint/README.md), set by the
   operator.
 - **What a file can say**: JSON requests and multipart file uploads over
-  HTTPS, and things that are no request:
+  HTTPS, a parameter of type `secret-file` whose value names a file the
+  yard reads a secret from at call time and puts as a leaf of the body
+  (in no parameter, card or record), and things that are no request:
   the command that says a subscription's limits
   ([above](#say-what-a-subscription-still-carries)), what the service
   sends in ([below](#what-the-service-sends-in)), and the commands by

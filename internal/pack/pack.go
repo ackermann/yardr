@@ -36,7 +36,7 @@ const File = "pack.yaml"
 // key is read, since an older yardr that read on would call a newer key
 // unknown instead of saying that it is too old. It rises by one in the
 // release that adds anything to what the page lists as stable.
-const API = 1
+const API = 2
 
 // Pack is a pack as written. Everything that has an order in the file
 // keeps it: flows, a flow's stages (the first is where a bead starts), a

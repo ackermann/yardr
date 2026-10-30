@@ -323,6 +323,22 @@ func updatesOf(d *source.Declaration, calls []string) []string {
 	return out
 }
 
+// programsOf are the update calls among calls that send a file, which a
+// card of the call weighs as code (sourceCallWeight). A grant of one is
+// that card's approval given for good: its holder makes the call with no
+// card, so a grant a device could approve would go around the card a
+// device may not.
+func programsOf(d *source.Declaration, calls []string) []string {
+	var out []string
+	for _, name := range updatesOf(d, calls) {
+		c, _ := d.Call(name)
+		if slices.ContainsFunc(c.Params, func(p source.Param) bool { return p.Type == "file" }) {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
 // anUpdate is how a weight's line names update calls after their names.
 func anUpdate(calls []string) string {
 	if len(calls) == 1 {
@@ -344,7 +360,7 @@ func (w *wtx) setupWeight(s AskSetup) ([]AskWeight, error) {
 		}
 		decls[c.Name] = d
 	}
-	var outside []string
+	var outside, programs []string
 	for _, p := range s.Presets {
 		for _, g := range p.Grants {
 			d := decls[g.Source]
@@ -354,10 +370,16 @@ func (w *wtx) setupWeight(s AskSetup) ([]AskWeight, error) {
 			if ups := updatesOf(d, g.Calls); len(ups) > 0 {
 				outside = append(outside, fmt.Sprintf("the preset %s lets %s call %s of %s (%s)", p.Name, granteesWord(s.To), andList(ups), g.Source, anUpdate(ups)))
 			}
+			if ups := programsOf(d, g.Calls); len(ups) > 0 {
+				programs = append(programs, fmt.Sprintf("the preset %s lets %s send a file to %s through %s with no card, a program it will run", p.Name, granteesWord(s.To), g.Source, andList(ups)))
+			}
 		}
 	}
 	if len(outside) > 0 {
 		out = append(out, weighs(WeightOutside, strings.Join(outside, "; ")))
+	}
+	if len(programs) > 0 {
+		out = append(out, weighs(WeightCode, strings.Join(programs, "; ")))
 	}
 	carried, err := w.carriedWeight(s.Carried)
 	if err != nil {
@@ -461,6 +483,9 @@ func grantWeight(w *wtx, run AskRun) ([]AskWeight, error) {
 	var out []AskWeight
 	if ups := updatesOf(d, calls); len(ups) > 0 {
 		out = append(out, weighs(WeightOutside, fmt.Sprintf("%s may call %s of %s (%s)", who, andList(ups), name, anUpdate(ups))))
+	}
+	if ups := programsOf(d, calls); len(ups) > 0 {
+		out = append(out, weighs(WeightCode, fmt.Sprintf("%s may send a file to %s through %s with no card, a program it will run", who, name, andList(ups))))
 	}
 	if as != "" {
 		out = append(out, weighs(WeightAsUser, fmt.Sprintf("%s calls %s as %s, with %s's credential", who, name, as, as)))

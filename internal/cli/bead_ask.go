@@ -156,25 +156,23 @@ registers it, from the group the leader was given, and a giving it refuses
 leaves the wait waiting. The yardmaster asks one per input need of a login
 it relays.
 
---secret-hook <hook> --source <source> asks the operator for the signing
-secret of the hook <hook> of the declared source <source>: the value the
-service signs its webhooks with, pasted from where the service shows it.
+--secret-hook <hook> --source <source> asks the operator for the signing secret
+of the hook <hook> of the declared source <source>: the value the service signs
+its webhooks with, pasted from where the service shows it.
 The yard's server writes it to the file it owns for the hook,
 <home>/hooks/<hook>.secret (mode 0600), which the hook then names; the
-value is in no note, event, mail, brief or pane, as for --secret. It is
-asked of the operator, takes no --env, no --for-user, no --for-crew and
+value is in no note, event, mail, brief or pane, as for --secret. It is asked of the operator, takes no --env, no --for-user, no --for-crew and
 no --as, and is refused for a source the yard does not declare, one whose
-declaration has no hook key, and a hook the yard has already. The hook
-itself is a second
-ask on the same bead (--run "hook add <hook> --source <source>"), asked
-after this one: the operator gives the secret first, then approves the
+declaration has no hook key, and a hook the yard has already. The hook itself
+is a second ask on the same bead (--run "hook add <hook> --source <source>"),
+asked after this one: the operator gives the secret first, then approves the
 hook, whose approval runs only with the secret standing in its file.
 
---run "<command>" proposes one yardr command that is the operator's to
-give, for the operator to approve: a crew member that needs it asks this
-way instead of mailing the person a line to paste into a terminal. The
-command is written as it is typed, with or without the leading yardr, and
-is one of the list the yard runs from a card:
+--run "<command>" proposes one yardr command that is the operator's to give,
+for the operator to approve: a crew member that needs it asks this way instead
+of mailing the person a line to paste into a terminal. The
+command is written as it is typed, with or without the leading yardr, and is
+one of the list the yard runs from a card:
 
   peer allow <peer> --send <kinds> | --receive <kinds> | --mail-limit <n>
       the link carries kinds each way (ask, bead, file, mail, ping,
@@ -221,6 +219,8 @@ is one of the list the yard runs from a card:
       one real test message to the user through the source, sent when
       the user or the operator approves; a check without --user needs
       no approval and is run directly
+  call <source> <call> [param=value ...] [--as <user>]
+      one call of a declared source, made when approved; a file is shown by its digest and a secret-file by its file alone
   pack apply <name>
       a pack yardr embeds, with no flag: of kind source, or of a depot
       kind re-applied to the one depot that holds it where its plan

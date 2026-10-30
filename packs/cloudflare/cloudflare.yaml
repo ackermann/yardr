@@ -2,9 +2,11 @@
 # own account, through the Cloudflare API v4: the token verified, the
 # token's own scopes, the accounts, the zones, the Workers scripts of
 # an account, and a zone's Email Routing rules with an account's
-# destination addresses. Every call reads; no call here writes to
-# Cloudflare (no script upload, no secret, no rule change), so the
-# pack carries no update call and grants none.
+# destination addresses; and what wrangler writes there: a Worker
+# script uploaded from a file, a Worker secret whose value the yard
+# reads from a secret file at call time, and an Email Routing rule
+# made or edited to send one address to a Worker. Each write is its
+# own update call, proposed and approved on its own card.
 #
 # Checked against developers.cloudflare.com/api on 29 October 2026:
 # the base is https://api.cloudflare.com/client/v4 and a token goes
@@ -40,7 +42,7 @@
 # with / is a file beside this one, which `yardr source add` copies
 # into the yard.
 name: cloudflare
-about: Cloudflare accounts, zones, Workers scripts and Email Routing rules and addresses, read as wrangler reads them; writes nothing.
+about: Cloudflare accounts, zones, Workers scripts and Email Routing rules and addresses, read as wrangler reads them; and Workers uploaded, their secrets put, and Email Routing rules made or edited, as wrangler writes them.
 
 # The name of the variable, never the value. A command gets it in its
 # environment under this name, and gets no other variable of the yard.
@@ -107,4 +109,54 @@ calls:
       method: GET
       path: /accounts/{account}/email/routing/addresses
     answer: { select: [success, result, result_info], max: 262144 }
+  worker_upload:
+    kind: update
+    about: Upload a Worker script from a file, as one module
+    params:
+      account: { type: string, pattern: "^[0-9a-f]{32}$", max: 32, log: true }
+      name: { type: string, pattern: "^[a-z0-9][a-z0-9_-]{0,63}$", max: 64, log: true }
+      script: { type: file, max: 10485760 }
+    request:
+      method: PUT
+      path: /accounts/{account}/workers/scripts/{name}
+      body: { "worker.js": "{script}", metadata: { main_module: "worker.js" } }
+    answer: { select: [success, result], max: 262144 }
+  worker_secret:
+    kind: update
+    about: Put one secret of a Worker, its value read from a secret file
+    params:
+      account: { type: string, pattern: "^[0-9a-f]{32}$", max: 32, log: true }
+      name: { type: string, pattern: "^[a-z0-9][a-z0-9_-]{0,63}$", max: 64, log: true }
+      secret: { type: string, pattern: "^[A-Za-z][A-Za-z0-9_]{0,63}$", max: 64, log: true }
+      value: { type: secret-file, max: 8192 }
+    request:
+      method: PUT
+      path: /accounts/{account}/workers/scripts/{name}/secrets
+      body: { name: "{secret}", text: "{value}", type: "secret_text" }
+    answer: { select: [success, result], max: 262144 }
+  email_rule:
+    kind: update
+    about: Make the Email Routing rule that sends one address to a Worker
+    params:
+      zone: { type: string, pattern: "^[0-9a-f]{32}$", max: 32, log: true }
+      address: { type: string, pattern: "^[^@[:space:]]+@[^@[:space:]]+$", max: 90, log: true }
+      worker: { type: string, pattern: "^[a-z0-9][a-z0-9_-]{0,63}$", max: 64, log: true }
+    request:
+      method: POST
+      path: /zones/{zone}/email/routing/rules
+      body: { name: "{address} to {worker}", enabled: true, matchers: [{ type: "literal", field: "to", value: "{address}" }], actions: [{ type: "worker", value: ["{worker}"] }] }
+    answer: { select: [success, result], max: 262144 }
+  email_rule_edit:
+    kind: update
+    about: Edit the standing Email Routing rule to send one address to a Worker
+    params:
+      zone: { type: string, pattern: "^[0-9a-f]{32}$", max: 32, log: true }
+      rule: { type: string, pattern: "^[A-Za-z0-9_-]{1,32}$", max: 32, log: true }
+      address: { type: string, pattern: "^[^@[:space:]]+@[^@[:space:]]+$", max: 90, log: true }
+      worker: { type: string, pattern: "^[a-z0-9][a-z0-9_-]{0,63}$", max: 64, log: true }
+    request:
+      method: PUT
+      path: /zones/{zone}/email/routing/rules/{rule}
+      body: { name: "{address} to {worker}", enabled: true, matchers: [{ type: "literal", field: "to", value: "{address}" }], actions: [{ type: "worker", value: ["{worker}"] }] }
+    answer: { select: [success, result], max: 262144 }
 check: verify
