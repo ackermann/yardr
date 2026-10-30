@@ -82,7 +82,9 @@ func (w *wtx) sourceReplaceCard(run AskRun, d *source.Declaration, carried AskSo
 // was written about: it is gone, its command copies moved, or its
 // declaration or a setting its card was held to was changed.
 func (w *wtx) sourceReplaceStale(seq uint64, name string, was, now AskRun) error {
-	if now.Seen["source "+name] == "" {
+	// Removing a source leaves its copies standing, which a free name's
+	// card inventories: gone is the record's absence, not an empty hold.
+	if w.Bucket(bSources).Get([]byte(name)) == nil {
 		return fmt.Errorf("ask %d was written when the source %s was in the yard: it was removed since. %s", seq, name, nothingRan)
 	}
 	var wasInv, nowInv []AskInventory

@@ -646,16 +646,10 @@ func (w *wtx) packSourceDoes(name string, reading *PackReading, carried []AskSou
 	return does, nil
 }
 
-// packOneSourceDoes is one declared source on a pack card: sourceDoes
-// without its adding line (the pack line says it), with a replacement's
-// changes after its credential line. A file the declaration still names
-// carries its change on its own command line; only a file the pack drops
-// keeps a line of its own, having no command line to carry it. Where
-// settleAccount the credential is no part of what stays owed after: the
-// card settles the account itself, as a setup card does. base is the
-// region base a setup ask chose for this source, "" for the declaration's
-// own.
-func (w *wtx) packOneSourceDoes(carried AskSource, d *source.Declaration, settleAccount bool, base string) ([]string, error) {
+// commandDiffs is each carried change to a command file the declaration
+// still names, by program: its change rides its own command line, never
+// a line of its own.
+func commandDiffs(d *source.Declaration, carried AskSource) map[string]AskFileDiff {
 	progs := map[string]bool{}
 	for _, c := range d.Commands() {
 		if c.Relative() {
@@ -668,6 +662,45 @@ func (w *wtx) packOneSourceDoes(carried AskSource, d *source.Declaration, settle
 			diffs[df.Program] = df
 		}
 	}
+	return diffs
+}
+
+// changedCopyLines is each leftover command copy a card says the copy
+// step would change or remove: a file the declaration dropped keeps a
+// line of its own, having no command line to carry it, and each entry
+// neither declaration names is named as removed.
+func changedCopyLines(carried AskSource, diffs map[string]AskFileDiff) []string {
+	var out []string
+	for _, df := range carried.Old {
+		if _, ok := diffs[df.Program]; ok {
+			continue
+		}
+		ins, del := Counts(df.Diff)
+		out = append(out, safeSourceCardLine(fmt.Sprintf("command file %s would change: sha256 %s -> sha256 %s (%d insertions, %d deletions).",
+			df.Program, or(df.OldSHA256, "(none)"), or(df.NewSHA256, "(none)"), ins, del)))
+	}
+	for _, rem := range carried.Removed {
+		kind := ""
+		if rem.Symlink {
+			kind = ", symbolic link"
+		}
+		out = append(out, safeSourceCardLine(fmt.Sprintf("the copy would remove %s, which neither declaration names: sha256 %s (mode %s%s, %d bytes).",
+			rem.Path, rem.SHA256, rem.Mode, kind, rem.Size)))
+	}
+	return out
+}
+
+// packOneSourceDoes is one declared source on a pack card: sourceDoes
+// without its adding line (the pack line says it), with a replacement's
+// changes after its credential line. A file the declaration still names
+// carries its change on its own command line; only a file the pack drops
+// keeps a line of its own, having no command line to carry it. Where
+// settleAccount the credential is no part of what stays owed after: the
+// card settles the account itself, as a setup card does. base is the
+// region base a setup ask chose for this source, "" for the declaration's
+// own.
+func (w *wtx) packOneSourceDoes(carried AskSource, d *source.Declaration, settleAccount bool, base string) ([]string, error) {
+	diffs := commandDiffs(d, carried)
 	full := sourceDoesChanged(d, carried, diffs, settleAccount, base)
 	lines := full[1:] // the pack line stands for the adding line
 	_, was, err := sourceIn(w.Tx, carried.Name)
@@ -675,23 +708,7 @@ func (w *wtx) packOneSourceDoes(carried AskSource, d *source.Declaration, settle
 		if len(carried.Inventory) == 0 {
 			return lines, nil
 		}
-		extra := []string{fmt.Sprintf("the source %s is not in the yard, but its command copy directory has entries this pack would replace or remove.", carried.Name)}
-		for _, df := range carried.Old {
-			if _, ok := diffs[df.Program]; ok {
-				continue
-			}
-			ins, del := Counts(df.Diff)
-			extra = append(extra, safeSourceCardLine(fmt.Sprintf("command file %s would change: sha256 %s -> sha256 %s (%d insertions, %d deletions).",
-				df.Program, or(df.OldSHA256, "(none)"), or(df.NewSHA256, "(none)"), ins, del)))
-		}
-		for _, rem := range carried.Removed {
-			kind := ""
-			if rem.Symlink {
-				kind = ", symbolic link"
-			}
-			extra = append(extra, safeSourceCardLine(fmt.Sprintf("the copy would remove %s, which neither declaration names: sha256 %s (mode %s%s, %d bytes).",
-				rem.Path, rem.SHA256, rem.Mode, kind, rem.Size)))
-		}
+		extra := append([]string{fmt.Sprintf("the source %s is not in the yard, but its command copy directory has entries this pack would replace or remove.", carried.Name)}, changedCopyLines(carried, diffs)...)
 		out := make([]string, 0, len(lines)+len(extra))
 		out = append(out, lines[0])
 		out = append(out, extra...)
@@ -717,22 +734,7 @@ func (w *wtx) packOneSourceDoes(carried AskSource, d *source.Declaration, settle
 			extra = append(extra, fmt.Sprintf("a standing grant of read of source %s widens to %s for %s.", carried.Name, strings.Join(calls, ", "), strings.Join(names, ", ")))
 		}
 	}
-	for _, df := range carried.Old {
-		if _, ok := diffs[df.Program]; ok {
-			continue
-		}
-		ins, del := Counts(df.Diff)
-		extra = append(extra, safeSourceCardLine(fmt.Sprintf("command file %s would change: sha256 %s -> sha256 %s (%d insertions, %d deletions).",
-			df.Program, or(df.OldSHA256, "(none)"), or(df.NewSHA256, "(none)"), ins, del)))
-	}
-	for _, rem := range carried.Removed {
-		kind := ""
-		if rem.Symlink {
-			kind = ", symbolic link"
-		}
-		extra = append(extra, safeSourceCardLine(fmt.Sprintf("the copy would remove %s, which neither declaration names: sha256 %s (mode %s%s, %d bytes).",
-			rem.Path, rem.SHA256, rem.Mode, kind, rem.Size)))
-	}
+	extra = append(extra, changedCopyLines(carried, diffs)...)
 	// After the credential line, which is the first of lines.
 	out := make([]string, 0, len(lines)+len(extra))
 	out = append(out, lines[0])

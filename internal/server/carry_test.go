@@ -380,6 +380,33 @@ func TestCarryLooseSourceWithCommands(t *testing.T) {
 	if data, err := os.ReadFile(thread); err != nil || string(data) != third {
 		t.Fatalf("the uncarded copy after the failed carry = %q, %v", data, err)
 	}
+
+	// An add over an orphaned copy directory holds those copies too: a
+	// hand that plants an entry after the approval fails the carrying
+	// out before anything the card did not name is removed.
+	st4, home4, bead4 := carryYard(t)
+	orphans := filepath.Join(home4, "sources", "loose")
+	if err := os.MkdirAll(orphans, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(orphans, "orphan.txt"), []byte("left by a removed source\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	seq6 := askApprove(t, st4, bead4, looseAsk())
+	planted := filepath.Join(orphans, "planted.txt")
+	if err := os.WriteFile(planted, []byte("a hand planted this after approval\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	drain(t, st4, home4, "boot-one")
+	if rec := carryState(t, st4, bead4, seq6); rec.State != store.CarryFailed {
+		t.Fatalf("an add over copies a hand planted into = %+v", rec)
+	}
+	if data, err := os.ReadFile(planted); err != nil || string(data) != "a hand planted this after approval\n" {
+		t.Fatalf("the uncarded copy after the failed carry = %q, %v", data, err)
+	}
+	if data, err := os.ReadFile(filepath.Join(orphans, "orphan.txt")); err != nil || string(data) != "left by a removed source\n" {
+		t.Fatalf("the orphan after the failed carry = %q, %v", data, err)
+	}
 }
 
 // A copy moved to a third text after the approval, and an entry

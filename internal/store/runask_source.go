@@ -135,21 +135,24 @@ func checkSourceAdd(ctx context.Context, w *wtx, run AskRun, actor string) error
 // (sourceReplaceCard) when the ask is written, and when an approval reads
 // the card again for an ask that was written as one; an ask written for
 // a free name is stale if the name was taken since, and is never turned
-// into a replacement.
+// into a replacement. Where a free name's copy directory holds orphaned
+// files from a removed source, the card inventories and names what the
+// add would replace or remove, as a pack card does, and holds the ask to
+// that inventory.
 func (w *wtx) sourceAddCard(run AskRun, asking bool) (AskRun, error) {
 	d, carried, absolute, exists, err := w.carriedSource(run)
 	if err != nil {
 		return AskRun{}, err
 	}
-	// What the yard's copies hold is the yard's own record, made for a
-	// replacement from the yard as it stands. The ask's, which an approval
-	// reads back from the stored card and a writer may have sent, is thrown
-	// away as its Does and Seen are.
+	// What the yard's copies hold is the yard's own record, made from the
+	// yard as it stands. The ask's, which an approval reads back from the
+	// stored card and a writer may have sent, is thrown away as its Does
+	// and Seen are.
 	carried.Old, carried.Removed, carried.Inventory = nil, nil, nil
 	switch {
 	case absolute:
 		return AskRun{}, fmt.Errorf("source %s: a command of its declaration names an absolute program, which is the operator's own to have installed: add it with yardr source add %s in a terminal", d.Name, run.Argv[2])
-	case exists && (asking || run.Seen["source "+d.Name] != ""):
+	case exists && (asking || storedReplacement(run, d.Name)):
 		return w.sourceReplaceCard(run, d, carried)
 	case exists:
 		// The name was taken since the card was written: say so in one
@@ -171,22 +174,69 @@ func (w *wtx) sourceAddCard(run AskRun, asking bool) (AskRun, error) {
 			Carried: []AskSource{carried},
 		}, nil
 	}
-	does := sourceDoes(d, carried)
+	file := run.Argv[2]
+	terminal := fmt.Sprintf("this is the operator's to type in a terminal (yardr source add %s)", file)
+	pay, err := w.packReplacement(&carried, d, terminal)
+	if err != nil {
+		return AskRun{}, err
+	}
+	for _, f := range carried.Files {
+		pay += len(f.Text)
+	}
+	if pay > MaxRunPackFiles {
+		return AskRun{}, fmt.Errorf("source %s: its carried file texts and diffs run to %d bytes: a card holds at most %d together, so %s", d.Name, pay, MaxRunPackFiles, terminal)
+	}
+	diffs := commandDiffs(d, carried)
+	does := sourceDoesChanged(d, carried, diffs, false, "")
+	seenMap := map[string]string{"source " + d.Name: ""}
+	if len(carried.Inventory) > 0 {
+		header := fmt.Sprintf("the source %s is not in the yard, but its command copy directory has entries it would replace or remove.", d.Name)
+		extra := append([]string{header}, changedCopyLines(carried, diffs)...)
+		// After the credential line, which is the second of does: the
+		// adding line stands for the pack line.
+		out := make([]string, 0, len(does)+len(extra))
+		out = append(out, does[:2]...)
+		out = append(out, extra...)
+		out = append(out, does[2:]...)
+		does = out
+		// A previous removal can leave command copies behind if the
+		// process stopped between deleting the source and its files.
+		// Adding this source removes that directory too, so hold the
+		// ask to what it contains even though no source record stands.
+		seenMap["source "+d.Name] = seen("no source", carried.Inventory)
+	}
 	if len(does) > MaxRunSourceCardLines {
-		return AskRun{}, cardTooLong(d.Name, len(does), run.Argv[2])
+		return AskRun{}, cardTooLong(d.Name, len(does), file)
 	}
 	return AskRun{
 		Argv:    run.Argv,
 		Does:    does,
 		Back:    runCommandLine([]string{"source", "rm", d.Name}),
 		BackBy:  "the operator",
-		Seen:    map[string]string{"source " + d.Name: ""},
+		Seen:    seenMap,
 		Carried: []AskSource{carried},
 	}, nil
 }
 
+// storedReplacement says the stored card run was written as a
+// replacement of the source name: its Seen holds a source fingerprint.
+// A card written for a free name holds none: "" where no copies stood,
+// the orphan inventory's where they did.
+func storedReplacement(run AskRun, name string) bool {
+	fingerprint := run.Seen["source "+name]
+	if fingerprint == "" {
+		return false
+	}
+	var inv []AskInventory
+	if len(run.Carried) > 0 {
+		inv = run.Carried[0].Inventory
+	}
+	return fingerprint != seen("no source", inv)
+}
+
 // sourceAddStale says why the ask seq for source add is approved no more:
-// the name was free when the card was written and is taken now, or the
+// the name was free when the card was written and is taken now, the
+// orphaned copies a free name's card was written about moved, or the
 // source a replacement's card was written about is another
 // (sourceReplaceStale).
 func (w *wtx) sourceAddStale(seq uint64, was, now AskRun) error {
@@ -194,13 +244,25 @@ func (w *wtx) sourceAddStale(seq uint64, was, now AskRun) error {
 		return staleCard(seq, was, now)
 	}
 	name := was.Carried[0].Name
-	if key := "source " + name; was.Seen[key] == now.Seen[key] {
+	key := "source " + name
+	if was.Seen[key] == now.Seen[key] {
 		return staleCard(seq, was, now)
-	} else if was.Seen[key] != "" {
+	}
+	if storedReplacement(was, name) {
 		return w.sourceReplaceStale(seq, name, was, now)
 	}
-	e := lastEvent(w.Tx, "source_added", naming("source", name))
-	return fmt.Errorf("ask %d was written when the source %s was not in the yard: it was added since%s. %s", seq, name, since(e), nothingRan)
+	if w.Bucket(bSources).Get([]byte(name)) != nil {
+		e := lastEvent(w.Tx, "source_added", naming("source", name))
+		return fmt.Errorf("ask %d was written when the source %s was not in the yard: it was added since%s. %s", seq, name, since(e), nothingRan)
+	}
+	var nowInv []AskInventory
+	if len(now.Carried) > 0 {
+		nowInv = now.Carried[0].Inventory
+	}
+	if moved := inventoryMoved(was.Carried[0].Inventory, nowInv); moved != "" {
+		return fmt.Errorf("ask %d was written when the source %s's copies stood as carded: %s since. %s", seq, name, moved, nothingRan)
+	}
+	return staleCard(seq, was, now)
 }
 
 // runSourceAdd adds or replaces the carried source as actor: a
@@ -214,7 +276,7 @@ func runSourceAdd(ctx context.Context, w *wtx, run AskRun, actor string, by *app
 	if err != nil {
 		return "", err
 	}
-	src, err := w.putCarriedSource(ctx, d, carried.Text, actor, run.Seen["source "+d.Name] != "", by)
+	src, err := w.putCarriedSource(ctx, d, carried.Text, actor, storedReplacement(run, d.Name), by)
 	if err != nil {
 		return "", err
 	}

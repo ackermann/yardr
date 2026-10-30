@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -597,6 +598,133 @@ func TestSourceAddApproveStale(t *testing.T) {
 		if r := y.asked(t, seq); r.State != AskOpen {
 			t.Errorf("%s: the ask is %s after a refused approval", c.name, r.State)
 		}
+	}
+
+	// An add written for a free name with orphaned copies is held to
+	// them: a file added to the directory after the ask makes it stale,
+	// and nothing runs.
+	y, _ = runYard(t)
+	orphanDir := filepath.Join(y.Store.home, "sources", "wired")
+	if err := os.MkdirAll(orphanDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(orphanDir, "orphan.txt"), []byte("left by hand\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	free = sourceAddAsk(carriedOf(t, wiredDecl, wiredFiles))
+	free.Run.Argv = []string{"source add wired.yaml"}
+	seq = y.ask(t, free, "yardmaster")
+	if err := os.WriteFile(filepath.Join(orphanDir, "added.txt"), []byte("by hand after the ask\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true, nil)
+	if want := "the source wired's copies stood as carded: the command copy added.txt was added since"; err == nil || !strings.Contains(err.Error(), want) || !strings.HasSuffix(err.Error(), nothingRan) {
+		t.Fatalf("an orphan copy added after the ask: ApproveAsk = %v, want %q and then %q", err, want, nothingRan)
+	}
+	if _, err := y.GetSource(y.ctx, "wired"); err == nil {
+		t.Fatalf("the stale approval added the source")
+	}
+	if r := y.asked(t, seq); r.State != AskOpen {
+		t.Fatalf("the ask is %s after a refused approval", r.State)
+	}
+}
+
+// A previous source removal may leave its command-copy directory behind.
+// An add for that free name cards the orphaned copies as a pack card
+// does: each file the add would replace or remove is named, the approval
+// leaves the add to the server's carrying out, and writing the carried
+// bytes removes the orphan and nothing the card did not name.
+func TestSourceAddCardsOrphanCopyDirectory(t *testing.T) {
+	y, _ := runYard(t)
+	dir := filepath.Join(y.Store.home, "sources", "wired")
+	if err := os.MkdirAll(filepath.Join(dir, "wired"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "wired", "thread"), []byte("#!/bin/sh\n# left by a removed source\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "orphan.txt"), []byte("left by hand\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ask := sourceAddAsk(carriedOf(t, wiredDecl, wiredFiles))
+	ask.Run.Argv = []string{"source add wired.yaml"}
+	seq := y.ask(t, ask, "yardmaster")
+	got := y.asked(t, seq)
+	carried := got.Ask.Run.Carried[0]
+	if len(carried.Inventory) != 2 || len(carried.Old) != 1 || len(carried.Removed) != 1 {
+		t.Fatalf("the orphan copy inventory = %+v, old %+v, removed %+v", carried.Inventory, carried.Old, carried.Removed)
+	}
+	if fp := got.Ask.Run.Seen["source wired"]; fp == "" || fp != seen("no source", carried.Inventory) {
+		t.Fatalf("the card holds the orphaned copies by %q", fp)
+	}
+	joined := strings.Join(got.Ask.Run.Does, "\n")
+	for _, want := range []string{
+		"the source wired is not in the yard, but its command copy directory has entries it would replace or remove.",
+		"command file wired/thread: [wired/thread, reply] (thread.reply, handed the credential): sha256 ",
+		" -> sha256 ",
+		"the copy would remove orphan.txt, which neither declaration names: sha256 ",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("the card lacks %q:\n%s", want, joined)
+		}
+	}
+	if !strings.Contains(strings.Join(got.Lines(), "\n"), "left by hand") {
+		t.Fatalf("the terminal card omits the orphan file's text:\n%s", strings.Join(got.Lines(), "\n"))
+	}
+	if _, err := y.GetSource(y.ctx, "wired"); err == nil {
+		t.Fatal("the orphan directory had a source record")
+	}
+
+	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if done.Result != CarryPending {
+		t.Fatalf("the approval recorded %q", done.Result)
+	}
+	rec, err := y.CarryOf(y.ctx, y.bead, seq)
+	if err != nil || rec == nil || rec.State != CarryApproved {
+		t.Fatalf("the carrying record = %+v, %v", rec, err)
+	}
+	state, err := y.CheckCarrySource(y.ctx, carried, got.Ask.Run.Seen["source wired"], rec.Sources[0])
+	if err != nil || state != CarryStored {
+		t.Fatalf("the hold on the carried-out add = %s, %v", state, err)
+	}
+	// The server's write step, with the carried bytes.
+	var copies []source.FileCopy
+	want := map[string]string{}
+	for _, f := range carried.Files {
+		copies = append(copies, source.FileCopy{Program: f.Program, Data: []byte(f.Text)})
+		want[f.Program] = f.SHA256
+	}
+	if err := source.WriteCopies(y.Store.home, "wired", copies); err != nil {
+		t.Fatal(err)
+	}
+	if err := source.VerifyCopies(y.Store.home, "wired", want); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "orphan.txt")); !os.IsNotExist(err) {
+		t.Errorf("orphan.txt stands after the carrying out: %v", err)
+	}
+	var stood []string
+	if err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if !d.IsDir() {
+			rel, err := filepath.Rel(dir, path)
+			if err != nil {
+				return err
+			}
+			stood = append(stood, filepath.ToSlash(rel))
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	slices.Sort(stood)
+	if wantStood := []string{"wired/events", "wired/limits", "wired/normalize", "wired/thread"}; !slices.Equal(stood, wantStood) {
+		t.Errorf("the copies after the carrying out = %v, want %v", stood, wantStood)
 	}
 }
 

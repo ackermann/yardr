@@ -140,19 +140,19 @@ type AskSource struct {
 	Name  string    `json:"name"`
 	Text  string    `json:"text"`
 	Files []AskFile `json:"files,omitempty"`
-	// Old, Removed and Inventory are a pack ask's record of what the
-	// yard's copies of a source it would replace hold as the card was
-	// written: each command file's change, each entry neither
-	// declaration names that the copy would remove, and the whole
-	// destination inventory. A source add keeps them for a replacement
-	// and none for a new source.
+	// Old, Removed and Inventory record the copy directory as the card
+	// found it: each command file's change, each entry neither declaration
+	// names that the copy step would remove, and the whole inventory.
+	// Source adds use them for replacements and for free names with
+	// orphaned copies; pack asks use them for sources they replace or add
+	// over orphaned copies.
 	Old       []AskFileDiff  `json:"old,omitempty"`
 	Removed   []AskRemoved   `json:"removed,omitempty"`
 	Inventory []AskInventory `json:"inventory,omitempty"`
 }
 
-// AskFileDiff is one command file a pack ask would change: its program,
-// the SHA-256 of the copy that stands and of the pack's file, whole,
+// AskFileDiff is one command file a pack or source-add ask would change:
+// its program, the SHA-256 of the copy that stands and of the carried file, whole,
 // and the unified diff old against new. The old bytes are not carried:
 // the diff is the showing, and the two hashes are what the approval is
 // held to.
@@ -164,8 +164,8 @@ type AskFileDiff struct {
 }
 
 // AskRemoved is one entry under a source's copies that neither the
-// standing declaration nor the pack's names: applying the pack removes
-// the whole destination, so the card names it with its hash. Text
+// standing nor carried declaration names: copying removes the whole
+// destination, so the card names it with its hash. Text
 // stands behind the tap where it is text within the bound.
 type AskRemoved struct {
 	Path    string `json:"path"`
