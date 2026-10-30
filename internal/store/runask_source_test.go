@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -814,6 +815,107 @@ func TestSourceAddReplacementCard(t *testing.T) {
 	}
 	if body, err := os.ReadFile(filepath.Join(dir, "wired", "thread")); err != nil || string(body) != wiredFiles["wired/thread"] {
 		t.Fatalf("asking changed the copy: %q, %v", body, err)
+	}
+	checkReplacementCardChangedCallGrants(t, "source add")
+}
+
+// checkReplacementCardChangedCallGrants checks one of the existing
+// replacement-card paths. A call that does not change, and a changed call
+// held through read alone, have no by-name line; an approval is stale once a
+// grant by name is given after the card.
+func checkReplacementCardChangedCallGrants(t *testing.T, row string) {
+	t.Helper()
+	y := listYard(t)
+	for _, g := range []struct {
+		to   Grantee
+		what string
+		as   string
+	}{
+		{Grantee{Crew: "yardmaster"}, "note", "mckean"},
+		{Grantee{Group: "builders"}, "note", ""},
+		{Grantee{Group: "reviewers"}, GrantRead, ""},
+		{Grantee{Group: "reviewers"}, "find", ""},
+	} {
+		if _, err := y.GrantSource(y.ctx, "crm", g.what, g.to, g.as, "mckean"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// runCRM with the path of each call named moved, so that it is changed.
+	edit := func(calls ...string) string {
+		t.Helper()
+		moved := map[string][2]string{
+			"find": {"{ method: GET, path: /contacts }", "{ method: GET, path: /people }"},
+			"get":  {`path: "/contacts/{id}" }`, `path: "/people/{id}" }`},
+			"note": {`path: "/contacts/{id}/notes"`, `path: "/contacts/{id}/remarks"`},
+		}
+		text := runCRM
+		for _, c := range calls {
+			if !strings.Contains(text, moved[c][0]) {
+				t.Fatalf("runCRM has no %q to move", moved[c][0])
+			}
+			text = strings.Replace(text, moved[c][0], moved[c][1], 1)
+		}
+		return text
+	}
+	cardOf := func(next string) (uint64, []string) {
+		t.Helper()
+		var seq uint64
+		if row == "source add" {
+			ask := sourceAddAsk(carriedOf(t, next, nil))
+			ask.Run.Argv = []string{"source add crm.yaml"}
+			seq = y.ask(t, ask, "yardmaster")
+		} else {
+			y.Store.SetPackReader(func(context.Context, string, string, Mappings, API) (*PackReading, error) {
+				return &PackReading{Name: "crm", Kind: "source", Label: "embedded in yardr test1",
+					Sources: []AskSource{{Name: "crm", Text: next}}}, nil
+			})
+			seq = y.ask(t, Ask{Question: "Update the crm source from its pack?", To: "mckean",
+				Context: []string{"the pack's crm moves a call the yard has"}, Run: &AskRun{Argv: []string{"pack apply crm"}}}, "yardmaster")
+		}
+		return seq, y.asked(t, seq).Ask.Run.Does
+	}
+	reach := func(call string) string {
+		return "a standing grant of read of source crm widens to " + call + " for group reviewers."
+	}
+	holds := func(call, kind, who string) string {
+		return "the changed call " + call + " (" + kind + ") is still granted by its name to " + who + " (yardr source revoke crm " + call + " takes it back)."
+	}
+	for _, c := range []struct {
+		name string
+		next string
+		want []string // the card's lines about a standing grant, in order
+	}{
+		{"an update held by name, a read call held through read", edit("note", "get"), []string{
+			reach("get"), holds("note", "update", "crew member yardmaster as mckean, group builders")}},
+		{"a read call held by its own name", edit("find"), []string{
+			reach("find"), holds("find", "read", "group reviewers")}},
+		{"a changed call nobody holds by name", edit("get"), []string{reach("get")}},
+		{"calls that do not change", strings.Replace(runCRM, "https://crm.example.com/v1", "https://crm.example.org/v2", 1), nil},
+	} {
+		_, does := cardOf(c.next)
+		var got []string
+		for _, line := range does {
+			if strings.Contains(line, "a standing grant of read") || strings.Contains(line, "is still granted by its name") {
+				got = append(got, line)
+			}
+		}
+		if !slices.Equal(got, c.want) {
+			t.Errorf("%s, %s: the card's lines about a standing grant are %q, want %q:\n%s", c.name, row, got, c.want, strings.Join(does, "\n"))
+		}
+	}
+
+	// The approver read who holds the call: a grant by name given since
+	// makes the card another.
+	seq, _ := cardOf(edit("note"))
+	if _, err := y.GrantSource(y.ctx, "crm", "note", Grantee{Group: "reviewers"}, "", "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	_, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true, nil)
+	if err == nil || !strings.Contains(err.Error(), "the card is from before that changed") || !strings.Contains(err.Error(), "group reviewers") {
+		t.Errorf("%s: approving after a grant by name given since = %v, want it stale, the card's new holder named", row, err)
+	}
+	if _, err := y.RevokeSource(y.ctx, "crm", "note", Grantee{Group: "reviewers"}, "", "mckean"); err != nil {
+		t.Fatal(err)
 	}
 }
 

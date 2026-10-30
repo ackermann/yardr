@@ -684,6 +684,7 @@ func (w *wtx) packOneSourceDoes(carried AskSource, d *source.Declaration, settle
 			}
 			extra = append(extra, fmt.Sprintf("a standing grant of read of source %s widens to %s for %s.", carried.Name, strings.Join(calls, ", "), strings.Join(names, ", ")))
 		}
+		extra = append(extra, stillGrantedLines(was, d, grants)...)
 	}
 	extra = append(extra, changedCopyLines(carried, diffs)...)
 	// After the credential line, which is the first of lines.

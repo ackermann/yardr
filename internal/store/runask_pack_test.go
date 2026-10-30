@@ -339,6 +339,7 @@ func TestPackApplyReplacementCard(t *testing.T) {
 	if !strings.Contains(lines, "-# thread, as the yard has it") {
 		t.Errorf("the terminal card lacks the diff whole:\n%s", lines)
 	}
+	checkReplacementCardChangedCallGrants(t, "pack apply")
 }
 
 // A file the pack's declaration drops has no command line to carry its
