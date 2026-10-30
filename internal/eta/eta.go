@@ -248,7 +248,7 @@ func Estimate(b Bead, flow *Flow, routes []Route, groups []Group, cells Cells, q
 	primaryOf := func(stage string) (Group, bool) {
 		return primary(stage, b.Type, b.Depot, b.Labels, b.Priority, b.Originator)
 	}
-	label := difficulty(b.Labels)
+	label := store.DifficultyLabel(b.Labels)
 	legs, stop := walkPath(b, flow, primaryOf)
 
 	var minN int
@@ -482,7 +482,7 @@ func simulateQueue(b Bead, g Group, cells Cells, q Queue, now time.Time, primary
 		if s.Group != g.Name {
 			continue
 		}
-		c := cells(g.Name, difficulty(s.Labels), s.Stage)
+		c := cells(g.Name, store.DifficultyLabel(s.Labels), s.Stage)
 		out.ns = append(out.ns, c.ClaimN)
 		if c.ClaimN < SampleFloor {
 			out.clocked = false
@@ -502,7 +502,7 @@ func simulateQueue(b Bead, g Group, cells Cells, q Queue, now time.Time, primary
 	}
 	out.ahead = len(aheads)
 	for _, qb := range aheads {
-		c := cells(g.Name, difficulty(qb.Labels), qb.Stage)
+		c := cells(g.Name, store.DifficultyLabel(qb.Labels), qb.Stage)
 		out.ns = append(out.ns, c.ClaimN)
 		if c.ClaimN < SampleFloor {
 			out.part = "behind " + beads(out.ahead) + ", too new to time"
@@ -585,18 +585,6 @@ func lateMark(b Bead, label string, primary func(stage string) (Group, bool), ce
 func viewRoute(r Route) store.RouteMatch {
 	return store.RouteMatch{Stage: r.Stage, Type: r.Type, Depot: r.Depot, Labels: r.Labels,
 		BeadPriority: r.BeadPriority, Originator: r.Originator}
-}
-
-// difficulty is the bead's estimate label for its cells: its difficulty:
-// label, else the "-" row. It must equal store.DifficultyLabel, which
-// this package cannot import; eta_test pins the two equal.
-func difficulty(labels []string) string {
-	for _, l := range labels {
-		if strings.HasPrefix(l, "difficulty:") {
-			return l
-		}
-	}
-	return "-"
 }
 
 // machineRunner says whether the runner works machine stages: herdr and
