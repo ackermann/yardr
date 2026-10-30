@@ -1704,13 +1704,35 @@ the form that sends it mail as them. `?with=` names either; without it
 the page opens on the yardmaster, else on the first member. The crew and
 the other users stand
 above the letters, each linking to its conversation, with a dot where the
-user has unread mail from it. Beside the member in conversation is its
-state, in the words footplate lists crew members with; a person shows
-none. Each letter reads as a
-note does: the sender
-with its device, the time, the words with their lines kept, the files it
-carries, and `read` under the user's own where the other party
-acknowledged it.
+user has unread mail from it. The conversation opens with its head, under
+that row: the party's name and, beside a crew member's, its state in the
+words footplate lists crew members with. A person shows none.
+
+The mail stands in a reading column: as wide as the centre up to 880
+pixels, centred past that. Each letter has its time in a gutter at the
+left, then its words with their lines kept, the files it carries, and
+`read` under the user's own where the other party acknowledged it.
+
+Letters are grouped as footplate groups them. The day stands centred
+between two hairlines above the first letter of a day (Today, Yesterday, or
+the weekday with the date) and above the first letter of a page. A letter
+reads under the head above it, with no head of its own, when it has the
+same sender as that letter, comes within five minutes of it and falls on
+the same day. Every other letter stands under a head: its time and the
+sender's name, dimmed for the user's own. Only the letter's `from` is the
+sender. The device it came through, the name it speaks as and its
+addressee are part of the line the page names it by, but they start no
+head; a letter whose line differs from the letter above says it, quietly,
+above its words.
+
+Days and times are the reader's. Each time is a `<time datetime>`; `yard.js`
+shows it in the browser's zone and groups the whole pane by the browser's
+days, across the newest letters and any older pages loaded above them.
+Without scripts the page stands as the server grouped it, by the server's
+zone, which is the reader's where the view runs on the reader's own
+machine. An older page read on its own (`?before=`) groups only its own
+letters, and its first opens the day.
+
 A page the mail carries is named without a link, never drawn as an image:
 no link here opens one. A file downloads from its link, `file <name>`.
 A file the yard no longer holds is a line saying so, never a broken image.
@@ -1748,7 +1770,8 @@ As JSON:
   ],
   "letters": [
     {"seq": 13, "at": "2026-10-08T09:30:00Z", "from": "mckean", "to": "yardmaster",
-     "text": "Paint the shed.", "read": true, "own": true, "sender": "mckean"},
+     "text": "Paint the shed.", "read": true, "own": true, "sender": "mckean",
+     "day": "Thursday 8 Oct"},
     {"seq": 35, "at": "2026-10-08T09:30:00Z", "from": "yardmaster", "to": "mckean",
      "text": "It is painted.", "read": false, "own": false, "sender": "yardmaster"}
   ],
@@ -1759,7 +1782,10 @@ As JSON:
 
 `letters` are the socket's [`Conversation`](api.md#conversation) newest
 page, each with `own` (whether the view's user wrote it) and `sender` (who
-the page names for it) beside them, and `more` beside them where older mail
+the page names for it) beside them, and `grouped` (it reads under the head
+above it), `day` (the words of the day it opens) and `differs` (a grouped
+letter's `sender` differs from the one above it) where they hold, by the
+server's zone; and `more` beside them where older mail
 was left out. `error` and `draft` stand only on a POST that sent nothing:
 why, and the words back in the form. `max_mail` is how many bytes the form
 takes. `needs_token` stands, true, where `as` is empty because the view acts
@@ -2066,8 +2092,9 @@ of it, with `.entry-head`, `.entry-what`, `.entry-title`, `.entry-note`),
 `.parked`), `.card` (one bead in a list, the `card`
 template, with `.card-head`, `.card-title`, and `.arrived` for one the
 stream brought), `.cards` (a list of them), `.column` and `.stage` (a flow
-and one stage of it), `.peers` (the crew to talk to), `.letter` (one mail
-of the talk page, as a `.note` reads), `.error` (why a mail was not sent),
+and one stage of it), `.peers` (the crew to talk to), `.talk-head` (the conversation's head), `.letter` (one mail
+of the talk page, with `.head`, `.day`, `.differs` and `.own` for how it reads, and
+`.day-break`, `.at`, `.who` and `.body` inside), `.error` (why a mail was not sent),
 `.filters`, `.facts` (name and value rows), `.routes` (one row per route, as `/routes` shows them on a wide window), `.text`
 (what someone wrote, lines kept), `.note`, `.outcomes`, `.bead` (a bead's
 id), `.state` (a status dot and its word),

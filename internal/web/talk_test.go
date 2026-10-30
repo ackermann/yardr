@@ -10,6 +10,8 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -147,6 +149,19 @@ func TestTalk(t *testing.T) {
 			t.Errorf("the page lacks %q:\n%s", want, r.body)
 		}
 	}
+	// The conversation opens with its head, the party's name in the section
+	// face, above the letters that scroll under it; each letter carries the
+	// sender and the time yard.js reads again in the browser's zone.
+	body := squash(r.body)
+	head := strings.Index(body, `<header class="talk-head"><h2 class="section-head">yardmaster</h2>`)
+	if letters := strings.Index(body, `<div id="letters">`); head < 0 || letters < head {
+		t.Errorf("the head stands at %d and the letters at %d, want the head first:\n%s", head, letters, r.body)
+	}
+	for _, want := range []string{`data-from="jo"`, `data-from="yardmaster"`, `<time class="at" datetime="`} {
+		if !strings.Contains(r.body, want) {
+			t.Errorf("the letters lack %q:\n%s", want, r.body)
+		}
+	}
 	if csp := r.header.Get("Content-Security-Policy"); !strings.Contains(csp, "form-action 'self'") {
 		t.Errorf("Content-Security-Policy %q, want form-action 'self': the form posts to the view", csp)
 	}
@@ -240,6 +255,38 @@ func TestTalk(t *testing.T) {
 	if got := defaultPartner(); got != "aaron" {
 		t.Errorf("/talk with the yardmaster setting unset opens on %q, want the first crew member", got)
 	}
+	t.Run("grouped letters", func(t *testing.T) {
+		f, _ := talkFixture(t, "jo")
+		talkYard(t, f) // jo: paint the shed; the yardmaster: it is painted
+		ctx := context.Background()
+		must(t, f.st.Mail(ctx, "jo", "and the fence", "yardmaster"))
+		must(t, f.st.Mail(ctx, "yardmaster", "thanks", "jo"))
+
+		var got web.Talk
+		f.getJSON("/talk?with=yardmaster", &got)
+		if len(got.Letters) != 4 {
+			t.Fatalf("%d letters, want 4: %+v", len(got.Letters), got.Letters)
+		}
+		for i, want := range []struct {
+			grouped bool
+			day     bool
+		}{{false, true}, {false, false}, {true, false}, {false, false}} {
+			if l := got.Letters[i]; l.Grouped != want.grouped || (l.Day != "") != want.day {
+				t.Errorf("letter %d (%q): grouped %v, day %q, want grouped %v and a day %v", i+1, l.Text, l.Grouped, l.Day, want.grouped, want.day)
+			}
+		}
+
+		var classes, from []string
+		for _, m := range regexp.MustCompile(`<article class="([^"]*)" data-seq="\d+" data-from="([^"]*)"`).FindAllStringSubmatch(f.get("/talk?with=yardmaster").body, -1) {
+			classes, from = append(classes, m[1]), append(from, m[2])
+		}
+		if want := []string{"letter head day own", "letter head", "letter", "letter head own"}; !reflect.DeepEqual(classes, want) {
+			t.Errorf("the letters' classes %q, want %q", classes, want)
+		}
+		if want := []string{"jo", "yardmaster", "yardmaster", "jo"}; !reflect.DeepEqual(from, want) {
+			t.Errorf("the letters' senders %q, want %q", from, want)
+		}
+	})
 }
 
 // The conversation as JSON: the user, the member, the letters oldest
@@ -595,7 +642,9 @@ func TestTalkStatus(t *testing.T) {
 		if r.status != 200 {
 			t.Fatalf("/talk?with=%s: status %d", c.with, r.status)
 		}
-		if want := `</a><span class="state">` + c.status + `</span>`; !strings.Contains(r.body, want) {
+		// The state stands in the conversation's head, after the name, and
+		// not again in the row of parties.
+		if want := `<h2 class="section-head">` + c.with + `</h2><span class="state">· ` + c.status + `</span>`; !strings.Contains(squash(r.body), want) {
 			t.Errorf("/talk?with=%s lacks %q", c.with, want)
 		}
 		if n := strings.Count(r.body, `<span class="state">`); n != 1 {

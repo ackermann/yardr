@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"yardr.dev/yardr/internal/chat"
 	"yardr.dev/yardr/internal/store"
@@ -75,6 +76,20 @@ type TalkLetter struct {
 	// Sender is who the page names for it: the sender, with the device
 	// and, on mail to another name, the addressee.
 	Sender string `json:"sender"`
+	// Grouped is whether the letter reads under the head of the letter above
+	// it, the sender's name and time: the same sender, within five minutes of
+	// it, on the same day (grouped). Every other letter stands under a head
+	// of its own. The day is the server's here; yard.js reads it again in the
+	// browser's zone.
+	Grouped bool `json:"grouped,omitempty"`
+	// Day is the words of the day's separator standing above the letter, ""
+	// where none does: the first letter of the page and the first of each day.
+	Day string `json:"day,omitempty"`
+	// Differs is whether a grouped letter's Sender differs from the letter
+	// above it. Grouping goes by From alone, so the device, the name it
+	// speaks as or the addressee that differs is said above its words, as a
+	// head would say it.
+	Differs bool `json:"differs,omitempty"`
 	// Missing are the hashes of the letter's files the yard no longer
 	// holds: the page draws those as a line saying so, never a broken
 	// image. HTML-only: the JSON names the files as the letter has them.
@@ -167,7 +182,9 @@ func (s *Server) handleTalk(w http.ResponseWriter, r *http.Request) {
 // each with whether the user wrote it and who the page names for it, and
 // with the files the yard no longer holds marked missing, as the bead
 // page marks its notes'. A file the view would serve is not missing: the
-// mail's own, or one a note names too.
+// mail's own, or one a note names too. They are grouped by this machine's
+// days and clock, which is the reader's where the view is served on
+// loopback; yard.js reads the grouping again in the browser's zone.
 func (s *Server) talkLetters(ctx context.Context, as, with string, letters []store.Letter) ([]TalkLetter, error) {
 	shown := make([]TalkLetter, 0, len(letters))
 	for _, l := range letters {
@@ -195,6 +212,7 @@ func (s *Server) talkLetters(ctx context.Context, as, with string, letters []sto
 		}
 		shown = append(shown, t)
 	}
+	groupTalk(shown, time.Local, time.Now())
 	return shown, nil
 }
 
@@ -205,6 +223,68 @@ func yardmasterName(all map[string]string) string {
 		return ym
 	}
 	return "yardmaster"
+}
+
+// groupWindow is how many seconds after the letter above one still reads
+// under its head, as footplate groups its mail.
+const groupWindow = 5 * 60
+
+// grouped reports whether after reads under before's head: from the same
+// sender, within five minutes of it, on the same day in zone. The sender is
+// the letter's From, not the line the page names for it (Sender), which
+// folds in the device, the name it speaks as and the addressee. The gap is
+// in whole seconds, as the page's <time datetime> says them, so yard.js
+// judges the same two letters the same way.
+func grouped(before, after TalkLetter, zone *time.Location) bool {
+	gap := after.At.Unix() - before.At.Unix()
+	return before.From == after.From && -groupWindow <= gap && gap <= groupWindow &&
+		sameDay(before.At, after.At, zone)
+}
+
+// sameDay reports whether a and b fall on one calendar day in zone.
+func sameDay(a, b time.Time, zone *time.Location) bool {
+	ay, am, ad := a.In(zone).Date()
+	by, bm, bd := b.In(zone).Date()
+	return ay == by && am == bm && ad == bd
+}
+
+// groupTalk marks how the letters, oldest first, read in zone: whether each
+// is grouped under the head above it, the day it opens where it is the first
+// of the page or the first of a day, and whether a grouped letter says
+// something the letter above it does not. now is when the page is read, for
+// the day's words.
+func groupTalk(letters []TalkLetter, zone *time.Location, now time.Time) {
+	for i := range letters {
+		l := &letters[i]
+		l.Grouped, l.Day, l.Differs = false, "", false
+		if i == 0 {
+			l.Day = dayWords(l.At, now, zone)
+			continue
+		}
+		before := letters[i-1]
+		l.Grouped = grouped(before, *l, zone)
+		if !sameDay(before.At, l.At, zone) {
+			l.Day = dayWords(l.At, now, zone)
+		}
+		l.Differs = l.Grouped && l.Sender != before.Sender
+	}
+}
+
+// clockTime is a time as the time of day alone, for a time that stands under
+// a day the page names already: a letter under its day's separator. It is
+// this machine's time; yard.js shows the browser's.
+func clockTime(t time.Time) string { return t.Local().Format("15:04") }
+
+// dayWords is the day's separator: Today, Yesterday, or the weekday with the
+// day and the month (Saturday 17 Oct), as footplate words it.
+func dayWords(day, now time.Time, zone *time.Location) string {
+	switch {
+	case sameDay(day, now, zone):
+		return "Today"
+	case sameDay(day, now.In(zone).AddDate(0, 0, -1), zone):
+		return "Yesterday"
+	}
+	return day.In(zone).Format("Monday 2 Jan")
 }
 
 // defaultTalkPeer is the partner the talk page opens on: the yardmaster

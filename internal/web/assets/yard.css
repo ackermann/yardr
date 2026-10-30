@@ -64,6 +64,12 @@
   --column-width: 200px;
   --centre-width: 600px;
   --right-width: 300px;
+
+  /* the talk page's mail: footplate's reading width, which the centre
+     takes instead of --centre-width on that page, and the gutter its
+     clock sets at the left of a letter */
+  --reading-width: 880px;
+  --letter-gutter: 3.5rem;
 }
 
 * { box-sizing: border-box; border-radius: 0; }
@@ -405,29 +411,51 @@ ul, ol { list-style: none; }
 .note .text, .note p { margin-top: 4px; }
 /* A note's pictures, each below its words, never wider than the column. */
 .note img { display: block; max-width: 100%; height: auto; margin-top: 8px; }
-/* The talk page: the crew to talk to, one letter per mail, the form that
-   sends. A letter reads as a note does; the sender's line is the note's
-   head. The centre fills the viewport, the crew stays above the letters
-   and the form below, and the letters scroll between them. The pane runs
-   bottom-up, so the newest letter is in view on open with the form under
-   it; each block inside keeps the letters oldest first. */
+/* The talk page: the crew to talk to, the conversation's head, the mail in
+   a reading column, the form that sends. The centre fills the viewport, the
+   crew and the head stay above the letters and the form below, and the
+   letters scroll between them. The pane runs bottom-up, so the newest
+   letter is in view on open with the form under it; each block inside
+   keeps the letters oldest first. */
 .centre:has(#talk) { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
 #talk { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 #letters { display: flex; flex-direction: column-reverse; flex: 1; min-height: 0; overflow-y: auto; }
 #letters > * { flex: none; }
+/* The mail stands in the reading column: as wide as the centre, to
+   footplate's measure, and centred past it. */
+#live, #earlier { width: 100%; max-width: var(--reading-width); margin-inline: auto; }
 .peers { padding: 12px var(--gap); border-bottom: 1px solid var(--hairline); }
 .peers ul { display: flex; flex-wrap: wrap; gap: 4px 16px; }
 .peers a { display: block; padding: 4px 0; color: var(--dim); font-size: var(--small); letter-spacing: var(--label-spacing); text-transform: uppercase; }
 .peers a:hover { color: var(--accent-hover); }
 .peers li a[aria-current="page"] { color: var(--ink); }
-/* The member in conversation keeps its state beside its name, small as
-   the names are; the words stay lowercase, as footplate lists them. */
-.peers li { display: flex; align-items: baseline; gap: 8px; }
-.peers .state { font-size: var(--small); }
 .peers p { margin-top: 8px; }
 .dot.unread { background: var(--accent); }
-.letter { padding: var(--gap); border-bottom: 1px solid var(--hairline); }
-.letter .text { margin-top: 4px; }
+/* The conversation's head: the party's name in the section face, a crew
+   member's state beside it, quiet. */
+.talk-head { display: flex; align-items: baseline; gap: 8px; padding: 12px var(--gap); border-bottom: 1px solid var(--hairline); }
+.talk-head .state { color: var(--faint); font-family: var(--sans); font-size: 13px; }
+/* One letter: the gutter at the left holds the time, and the body stands
+   in from it. A letter that heads its group puts the sender beside the
+   time and its body under it; one that reads under the head above it puts
+   its time in the gutter beside its body, and its sender stays with a
+   screen reader unless its line differs from the letter above, when it is
+   said quietly above the words. A letter that opens a day has the day's
+   separator above it, centred between two hairlines. */
+.letter { position: relative; display: grid; grid-template-columns: var(--letter-gutter) minmax(0, 1fr); align-items: start; padding: 2px var(--gap); }
+.letter.head { padding-top: 14px; }
+.letter .day-break { display: none; grid-column: 1 / -1; grid-row: 1; }
+.letter.day { padding-top: var(--gap); }
+.letter.day .day-break { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; color: var(--faint); font-family: var(--sans); font-size: var(--small); }
+.letter .day-break::before, .letter .day-break::after { content: ""; flex: 1; border-top: 1px solid var(--hairline); }
+.letter .at { grid-column: 1; grid-row: 2; color: var(--faint); font-family: var(--sans); font-variant-numeric: tabular-nums; }
+.letter .who { grid-column: 2; grid-row: 2; font-family: var(--sans); font-weight: 600; overflow-wrap: anywhere; }
+.letter.own .who { color: var(--faint); }
+.letter:not(.head):not(.differs) .who { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.letter.differs:not(.head) .who { font-size: var(--small); font-weight: 400; color: var(--faint); }
+.letter .body { grid-column: 2; grid-row: 2; min-width: 0; }
+.letter.head .body, .letter.differs .body { grid-row: 3; }
+.letter .text { font-family: var(--sans); }
 .letter img { display: block; max-width: 100%; height: auto; margin-top: 8px; }
 .letter .label { margin-top: 4px; }
 /* The form stands outside the live part, so what is typed survives what
@@ -543,6 +571,8 @@ code { font: inherit; color: var(--dim); overflow-wrap: anywhere; }
   .shell { grid-template-columns: var(--rail-width) var(--column-width) minmax(0, var(--centre-width)); justify-content: center; }
   .shell:not(:has(nav.rail-column)) { grid-template-columns: var(--rail-width) minmax(0, var(--centre-width)); justify-content: center; }
   .right { display: none; }
+  /* The talk page's centre gives way to the reading width. */
+  .shell:has(#talk) { grid-template-columns: var(--rail-width) var(--column-width) minmax(0, var(--reading-width)); }
 }
 
 /* A phone: the centre column alone, the rail a bar at the bottom in its

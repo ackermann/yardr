@@ -464,18 +464,30 @@ func TestTalkLayout(t *testing.T) {
 	if !strings.Contains(blocks, "flex: none;") {
 		t.Errorf("#letters > * lacks flex: none;: %s", blocks)
 	}
-	peers := cssRule(t, ".peers li")
-	for _, want := range []string{"display: flex;", "align-items: baseline;"} {
-		if !strings.Contains(peers, want) {
-			t.Errorf(".peers li lacks %s: %s", want, peers)
+	// The mail stands in the reading column, footplate's 880 pixels,
+	// centred; the conversation's head carries the member's state quietly.
+	column := cssRule(t, "#live, #earlier")
+	for _, want := range []string{"max-width: var(--reading-width);", "margin-inline: auto;"} {
+		if !strings.Contains(column, want) {
+			t.Errorf("#live, #earlier lacks %s: %s", want, column)
 		}
 	}
-	state := cssRule(t, ".peers .state")
-	if !strings.Contains(state, "font-size: var(--small);") {
-		t.Errorf(".peers .state lacks font-size: var(--small);: %s", state)
+	if root := cssRule(t, ":root"); !strings.Contains(root, "--reading-width: 880px;") {
+		t.Errorf(":root lacks footplate's reading width: %s", root)
+	}
+	head := cssRule(t, ".talk-head .state")
+	if !strings.Contains(head, "color: var(--faint);") {
+		t.Errorf(".talk-head .state lacks color: var(--faint);: %s", head)
 	}
 	css, err := os.ReadFile("assets/yard.css")
 	must(t, err)
+	// Where the window has no room for the right column, every page's
+	// centre is capped at --centre-width but the talk page's, which takes
+	// the reading width.
+	narrow := mediaCSS(t, string(css), "max-width: 1099px")
+	if want := ".shell:has(#talk) { grid-template-columns: var(--rail-width) var(--column-width) minmax(0, var(--reading-width)); }"; !strings.Contains(narrow, want) {
+		t.Errorf("the rules below 1100 px lack %s", want)
+	}
 	phone := mediaCSS(t, string(css), "max-width: 699px")
 	for _, want := range []string{
 		".shell:has(#talk) { height: 100vh; height: 100dvh; }",

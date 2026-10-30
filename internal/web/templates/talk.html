@@ -1,6 +1,18 @@
 {{define "letter"}}
-  <article class="letter">
-    <header class="entry-head"><span class="label">{{.Sender}}</span><time class="label" datetime="{{.At.UTC.Format "2006-01-02T15:04:05Z"}}">{{clock .At}}</time></header>
+  {{- /* One letter of the column. A letter that heads its group shows the
+         sender's name beside its time; one that reads under the head above
+         it shows its time alone, in the gutter at the left, and says who
+         wrote it only to a screen reader, unless its device, the name it
+         speaks as or its addressee differs from the letter above. A letter
+         that opens a day carries the day's separator above all of it. The
+         classes say which of these stand, as the server's zone reads the
+         letters; yard.js sets them again in the browser's, from the times
+         and the senders here. */}}
+  <article class="letter{{if not .Grouped}} head{{end}}{{if .Day}} day{{end}}{{if .Differs}} differs{{end}}{{if .Own}} own{{end}}" data-seq="{{.Seq}}" data-from="{{.From}}">
+    <p class="day-break">{{.Day}}</p>
+    <time class="at" datetime="{{.At.UTC.Format "2006-01-02T15:04:05Z"}}">{{clockTime .At}}</time>
+    <p class="who">{{.Sender}}</p>
+    <div class="body">
     {{- if .Text}}
     <pre class="text">{{.Text}}</pre>
     {{- end}}
@@ -25,6 +37,7 @@
     {{- if and .Own .Read}}
     <p class="label faint">read</p>
     {{- end}}
+    </div>
   </article>
 {{end}}
 {{define "content"}}
@@ -44,7 +57,7 @@
   <nav class="peers" aria-label="Crew and people">
     <ul>
       {{- range .Data.Crew}}
-      <li><a href="/talk?with={{.Name}}"{{if eq .Name $.Data.With}} aria-current="page"{{end}}>{{if .Unread}}<span class="dot unread" aria-label="unread mail"></span>{{end}}{{.Name}}</a>{{if and (eq .Name $.Data.With) $.Data.WithStatus}}<span class="state">{{$.Data.WithStatus}}</span>{{end}}</li>
+      <li><a href="/talk?with={{.Name}}"{{if eq .Name $.Data.With}} aria-current="page"{{end}}>{{if .Unread}}<span class="dot unread" aria-label="unread mail"></span>{{end}}{{.Name}}</a></li>
       {{- end}}
       {{- range .Data.People}}
       <li><a href="/talk?with={{.Name}}"{{if eq .Name $.Data.With}} aria-current="page"{{end}}>{{if .Unread}}<span class="dot unread" aria-label="unread mail"></span>{{end}}{{.Name}}</a></li>
@@ -54,9 +67,19 @@
     <p><a href="/talk?with={{.Data.With}}">Newest</a></p>
     {{- end}}
   </nav>
+  {{- /* The conversation's head: the party's name in the section face, with
+         the state of a crew member beside it in footplate's words. It
+         stands above the letters while they scroll. */}}
+  <header class="talk-head">
+    <h2 class="section-head">{{.Data.With}}</h2>
+    {{- if .Data.WithStatus}}
+    <span class="state">· {{.Data.WithStatus}}</span>
+    {{- end}}
+  </header>
   {{- /* The letters, oldest first, scrolling between the crew and the form.
          The pane runs bottom-up, so the newest letter is in view on open
-         with the form under it; each block inside keeps its own order. */}}
+         with the form under it; each block inside keeps its own order. The
+         blocks stand in the reading column. */}}
   <div id="letters">
     {{- /* Every event of the stream reads the newest page again and puts the
            letters in place: mail sent and mail read arrive with an event.
