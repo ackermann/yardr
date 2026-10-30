@@ -28,11 +28,11 @@ import (
 // counted so that a new site fails until it is listed) and the kinds
 // LogDispatch accepts (store.DispatchKinds).
 //
-// The gate runs this test when the store changes, as rpc imports it, which is
-// where a kind of LogDispatch is added (DispatchKinds) and where nearly every
-// other event is written, and when anything under internal/server changes,
-// which writes events with LogEvent and is no importer of rpc (the reads table
-// of .yardr/test has the row).
+// The gate runs this test on any change under internal/: the reads table of
+// .yardr/test has the row (internal/ -> internal/rpc). It must, since rpc
+// imports only the store: a change to a writer in another package (dispatch,
+// server, cli) selects that package and its importers, none of which is rpc,
+// and the kinds it writes would land with no row decided.
 func TestEveryKindIsDecided(t *testing.T) {
 	written, variable := writtenKinds(t)
 	for _, kind := range store.DispatchKinds {

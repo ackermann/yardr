@@ -828,8 +828,15 @@ func TestYardTestSelects(t *testing.T) {
 		{"a deleted file under a pattern the rule cannot read", []string{"-qemb/other.txt"}, []string{
 			pre + "qemb/other.txt is read by no known package: testing everything"}},
 		{"another package's testdata", []string{"internal/hooks/testdata/github/ping.json"}, []string{
+			pre + "internal/hooks/testdata/github/ping.json changed: read by the tests of internal/rpc",
 			pre + "internal/hooks/testdata/github/ping.json changed: read by the tests of internal/hooks internal/dispatch",
-			testedNoRace + " m.test/m/internal/dispatch m.test/m/internal/hooks"}},
+			testedNoRace + " m.test/m/internal/dispatch m.test/m/internal/hooks m.test/m/internal/rpc"}},
+		// TestEveryKindIsDecided scans internal/ for event writers, and rpc
+		// imports only the store: the reads row runs it on any change under
+		// internal/, here a package nothing imports.
+		{"a go file under internal/", []string{"internal/dispatch/p.go"}, []string{
+			pre + "internal/dispatch/p.go changed: read by the tests of internal/rpc",
+			testedNoRace + " m.test/m/internal/dispatch m.test/m/internal/rpc"}},
 		{"a file no row knows", []string{"contrib/x.txt", "docs/web.md"}, []string{
 			pre + "contrib/x.txt is read by no known package: testing everything"}},
 		{"three files no row knows", []string{"contrib/x.txt", "alone/y.txt", "z"}, []string{
@@ -976,15 +983,18 @@ func TestYardTestSelects(t *testing.T) {
 		{"a landing touching internal/cli skips the socket suites", []string{"internal/cli/p.go"},
 			landing + "internal/cli/p.go changed" + sincePH + selectionSuffix, []string{
 				skipSocket,
-				tested + " m.test/m/contrib/assembly m.test/m/contrib/deploy m.test/m/contrib/isolated-yard m.test/m/contrib/peer m.test/m/contrib/release m.test/m/contrib/server-yard m.test/m/internal/cli"}},
+				pre + "internal/cli/p.go changed: read by the tests of internal/rpc",
+				tested + " m.test/m/contrib/assembly m.test/m/contrib/deploy m.test/m/contrib/isolated-yard m.test/m/contrib/peer m.test/m/contrib/release m.test/m/contrib/server-yard m.test/m/internal/cli m.test/m/internal/rpc"}},
 		{"a landing touching internal/rpc runs the socket suites", []string{"internal/rpc/p.go"},
 			landing + "internal/rpc/p.go changed" + sincePH + selectionSuffix, []string{
 				runSocketStore,
+				pre + "internal/rpc/p.go changed: read by the tests of internal/rpc",
 				tested + " m.test/m/contrib/assembly m.test/m/contrib/deploy m.test/m/contrib/isolated-yard m.test/m/contrib/peer m.test/m/contrib/release m.test/m/contrib/server-yard m.test/m/internal/rpc m.test/m/internal/store"}},
 		{"a landing touching internal/web runs the socket suites", []string{"internal/web/p.go"},
 			landing + "internal/web/p.go changed" + sincePH + selectionSuffix, []string{
 				runSocketWeb,
-				tested + " m.test/m/contrib/assembly m.test/m/contrib/deploy m.test/m/contrib/isolated-yard m.test/m/contrib/peer m.test/m/contrib/release m.test/m/contrib/server-yard m.test/m/internal/web"}},
+				pre + "internal/web/p.go changed: read by the tests of internal/rpc",
+				tested + " m.test/m/contrib/assembly m.test/m/contrib/deploy m.test/m/contrib/isolated-yard m.test/m/contrib/peer m.test/m/contrib/release m.test/m/contrib/server-yard m.test/m/internal/rpc m.test/m/internal/web"}},
 		{"a landing of an unknown file runs the socket suites", []string{"contrib/x.txt"},
 			landing + "contrib/x.txt, which is read by no known package, changed" + sincePH + wholeSuffix, []string{runSocketAll}},
 	} {
@@ -1084,9 +1094,9 @@ func TestYardTestSelects(t *testing.T) {
 	// starts it. A landing over an unknown file is still the whole
 	// suite. The go it runs is the real one for the list of packages
 	// and writes down every other call.
-	const selCLI = "m.test/m/contrib/assembly m.test/m/contrib/deploy m.test/m/contrib/isolated-yard m.test/m/contrib/peer m.test/m/contrib/release m.test/m/contrib/server-yard m.test/m/internal/cli"
+	const selCLI = "m.test/m/contrib/assembly m.test/m/contrib/deploy m.test/m/contrib/isolated-yard m.test/m/contrib/peer m.test/m/contrib/release m.test/m/contrib/server-yard m.test/m/internal/cli m.test/m/internal/rpc"
 	const selRPC = "m.test/m/contrib/assembly m.test/m/contrib/deploy m.test/m/contrib/isolated-yard m.test/m/contrib/peer m.test/m/contrib/release m.test/m/contrib/server-yard m.test/m/internal/rpc m.test/m/internal/store"
-	const selWEB = "m.test/m/contrib/assembly m.test/m/contrib/deploy m.test/m/contrib/isolated-yard m.test/m/contrib/peer m.test/m/contrib/release m.test/m/contrib/server-yard m.test/m/internal/web"
+	const selWEB = "m.test/m/contrib/assembly m.test/m/contrib/deploy m.test/m/contrib/isolated-yard m.test/m/contrib/peer m.test/m/contrib/release m.test/m/contrib/server-yard m.test/m/internal/rpc m.test/m/internal/web"
 	for _, c := range []struct {
 		name    string
 		changed string

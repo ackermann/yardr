@@ -2162,7 +2162,7 @@ packs/website/                 internal/pack
 .yardr/flows/                  internal/cli internal/dispatch internal/store internal/flowdraw contrib/assembly
 .yardr/security_paths          internal/store
 .yardr/test                    .
-internal/server/               internal/rpc
+internal/                       internal/rpc
 internal/hooks/testdata/       internal/hooks internal/dispatch
 internal/cli/testdata/         internal/cli
 internal/pack/testdata/        internal/pack
@@ -2175,6 +2175,7 @@ contrib/assembly/pr-merge      internal/cli
 contrib/assembly/merge-pr      internal/cli
 contrib/assembly/pr-ci         internal/cli
 contrib/assembly/              contrib/assembly .
+contrib/bench/                 contrib/bench .
 contrib/burn/                  contrib/burn .
 contrib/testprune/             contrib/testprune .
 contrib/shot/shot              internal/pack
