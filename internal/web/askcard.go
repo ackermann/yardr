@@ -65,7 +65,11 @@ type AskCard struct {
 	// Form is whether the answer form stands: the view acts. Rev is the
 	// bead's revision the form carries; Action where it posts. Picks is
 	// whether the option buttons stand, Words the words field, Answer the
-	// words-alone button.
+	// words-alone button. The words field stands on every card but a
+	// secret's, a run or setup card's included: the yard refuses a decline
+	// without its reason, so the reason needs a field wherever Decline
+	// stands, though those cards take no words as an answer and offer no
+	// Answer.
 	Form   bool
 	Rev    string
 	Action string
@@ -188,9 +192,9 @@ func (p BeadPage) Card(a store.BeadAsk) AskCard {
 		Mapping: a.Identity != nil, About: a.About, Held: p.HeldPayloads[a.Ask], User: a.To,
 		Form: true, Rev: p.Bead.Revision, Action: p.Self(),
 		Picks: a.Setup == nil && (len(a.Weight) == 0 || a.Identity == nil),
-		Words: a.Secret == nil && a.Run == nil && a.Setup == nil,
+		Words: a.Secret == nil,
 	}
-	out.Answer = out.Words && len(a.Options) == 0
+	out.Answer = out.Words && len(a.Options) == 0 && a.Run == nil
 	out.Says = a.Run != nil || a.Setup != nil
 	out.Approve = (a.Run != nil || a.Setup != nil) && approvable(a.Weight, true, p.site.Gate)
 	if a.Secret != nil {

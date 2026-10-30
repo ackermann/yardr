@@ -1466,12 +1466,15 @@ setup card shows no approval, and each names the terminal command
 instead, where the card is given, picked or approved. Each answers under
 itself, with its options as buttons where the card offers any, with Later
 and Decline; a run or setup card still names the terminal command beside
-its approval. A giving, a writing pick or an approval posted straight at
-the handler is still the yard's to refuse, in its own words, with nothing
-written. Where the bead waits
-for the user in a stage a manual group works, the outcomes send it on as
-`yardr review` offers them, with a note. Each write carries the revision
-the page was drawn from ([Acting as a user](#acting-as-a-user)).
+its approval. Every card but a secret's has a words field beside them, in
+which a decline gives its reason: the yard refuses a decline without one.
+A run or setup card takes no words as an answer, so its field serves a
+decline alone and the card has no button to answer with words. A giving, a
+writing pick or an approval posted straight at the handler is still the
+yard's to refuse, in its own words, with nothing written. Where the bead
+waits for the user in a stage a manual group works, the outcomes send it
+on as `yardr review` offers them, with a note. Each write carries the
+revision the page was drawn from ([Acting as a user](#acting-as-a-user)).
 
 On a hosted yard, a strong card — trust or code in its weight — approves
 on the page under a fresh sign-in ([Behind an auth

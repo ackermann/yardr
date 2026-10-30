@@ -202,6 +202,10 @@ const (
 	// noGateLine is what a weighty card says where its window holds no gate
 	// for it.
 	noGateLine = "This card is weighty and this window has no gate."
+	// wordsField is the field a card's words ride in, a decline's reason
+	// among them, and declineButton the button that sends the decline.
+	wordsField    = `<input type="text" name="words" placeholder="Words with the answer, or why not" aria-label="Words">`
+	declineButton = `<button type="submit" name="action" value="decline" title="Say no to all options. The asker finds another way.">Decline</button>`
 )
 
 // surfaceBody is the page at path as the token's user reads it.
@@ -896,5 +900,78 @@ func TestWebApprovesAStrongSetupCard(t *testing.T) {
 	}
 	if w := y.witness(); w != store.WitnessFreshSignIn {
 		t.Fatalf("the setup approval is witnessed %q, want a fresh sign-in", w)
+	}
+}
+
+// answerForm is the card's answer form in body, from its tag to its end:
+// what a person has in front of them to answer with.
+func answerForm(t *testing.T, body string) string {
+	t.Helper()
+	_, rest, ok := strings.Cut(body, `<form class="need-answer"`)
+	if !ok {
+		t.Fatalf("the page has no answer form:\n%s", body)
+	}
+	form, _, _ := strings.Cut(rest, `</form>`)
+	return form
+}
+
+// A run or setup card declines from its bead's page as it does from Home
+// and the line. The yard refuses a decline without its reason, so the
+// words field stands beside Decline on all three, though the card takes no
+// words as an answer and offers no button for one. A decline posted
+// without words is still refused, with the ask open; with them it ends the
+// ask and keeps the reason.
+func TestWebDeclinesARunOrSetupCard(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name string
+		ask  func(y *approveYard, bead string) uint64
+	}{
+		{"run", func(y *approveYard, bead string) uint64 {
+			return y.askRun(bead, "jo", "user", "add", "bob")
+		}},
+		{"setup", func(y *approveYard, bead string) uint64 {
+			servesSetupmail(y.own)
+			return y.askSetup(bead)
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			y := newApproveYard(t, true)
+			b := y.bead("decline a " + c.name + " card")
+			seq := c.ask(y, b.ID)
+			ask := strconv.FormatUint(seq, 10)
+			tok := y.token("jo@example.net")
+			for _, s := range approveSurfaces {
+				form := answerForm(t, y.surfaceBody(s.path(b.ID), tok))
+				if !strings.Contains(form, wordsField) || !strings.Contains(form, declineButton) {
+					t.Errorf("%s: the card's form lacks the words field or Decline:\n%s", s.name, form)
+				}
+				// Neither card takes words as its answer or as a note.
+				for _, foreign := range []string{`name="action" value="answer"`, `name="action" value="send"`} {
+					if strings.Contains(form, foreign) {
+						t.Errorf("%s: the card's form offers %q:\n%s", s.name, foreign, form)
+					}
+				}
+			}
+			form := url.Values{"rev": {y.revision(b.ID)}, "ask": {ask}, "action": {"decline"}}
+			r := y.post("/beads/"+b.ID, tok, form)
+			if want := "declining ask " + ask + " needs words"; r.status != http.StatusOK || !strings.Contains(r.body, want) {
+				t.Fatalf("POST the decline without words: %d, want the page redrawn with %q:\n%s", r.status, want, r.body)
+			}
+			if got := y.askedState(b.ID, seq, "jo"); got != "open" {
+				t.Fatalf("the ask is %s after the refused decline, want it open", got)
+			}
+			form.Set("words", "not this one")
+			r = y.post("/beads/"+b.ID, tok, form)
+			if r.status != http.StatusSeeOther || r.header.Get("Location") != "/beads/"+b.ID {
+				t.Fatalf("POST the decline with words: %d %q: %s", r.status, r.header.Get("Location"), r.body)
+			}
+			v, err := y.st.Bead(context.Background(), b.ID, "jo")
+			must(t, err)
+			if len(v.Asks) != 1 || v.Asks[0].State != "declined" || v.Asks[0].Words != "not this one" {
+				t.Fatalf("the ask: %+v, want it declined with the words", v.Asks)
+			}
+		})
 	}
 }
