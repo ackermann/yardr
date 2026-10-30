@@ -251,6 +251,52 @@ func TestTheTableTellsWhatTheStreamPromises(t *testing.T) {
 	}
 }
 
+// Every kind the approval paragraph names tells approved. The paragraph is
+// hand-written prose (docs/api.md, what an approval through a device
+// writes), not one of the generated event tables above, so it is parsed
+// where it stands: the parenthesised list before the words that say the
+// change's event carries approved with the bead and the ask. One direction
+// only: pack_applied and pack_unchanged tell approved without standing in
+// the paragraph, on purpose, since the server's carrying-out writes them
+// after the call and not in the approval's own write.
+func TestApprovalParagraphKindsTellApproved(t *testing.T) {
+	const file = "../../docs/api.md"
+	body, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(body)
+	const marker = "which also carries `approved` with"
+	if n := strings.Count(text, marker); n != 1 {
+		t.Fatalf("%s says the change's event carries approved %d times, want once: the paragraph moved", file, n)
+	}
+	at := strings.Index(text, marker)
+	open := strings.LastIndex(text[:at], "(")
+	if open < 0 {
+		t.Fatalf("%s has no list before %q: the paragraph moved", file, marker)
+	}
+	rest := text[open:at]
+	close := strings.Index(rest, ")")
+	if close < 0 {
+		t.Fatalf("%s has no list before %q: the paragraph moved", file, marker)
+	}
+	kinds := regexp.MustCompile("`([a-z][a-z0-9_]*)`").FindAllStringSubmatch(rest[1:close], -1)
+	if len(kinds) == 0 {
+		t.Fatalf("%s names no event before %q: the paragraph moved", file, marker)
+	}
+	for _, m := range kinds {
+		kind := m[1]
+		keys, ok := store.EventDataTold(kind)
+		if !ok {
+			t.Errorf("%s: the approval paragraph names it, and it has no row", kind)
+			continue
+		}
+		if !slices.Contains(keys, "approved") {
+			t.Errorf("%s: the approval paragraph names it, and its row does not tell approved", kind)
+		}
+	}
+}
+
 // No row tells a key whose value is a path, a command, the handle of a
 // session or the screen of a pane, or a URL: those are the operator's
 // configuration, and the words of an error that names one are held with them.

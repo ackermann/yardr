@@ -197,7 +197,7 @@ var eventDataTold = map[string][]string{
 	// The yard's own arrangement: depots, flows, groups and routes. A depot's
 	// path and test command, a route's note and the conditions of its groups
 	// are held.
-	"depot_updated":        {"depot", "kind", "base"},
+	"depot_updated":        {"depot", "kind", "base", "approved"},
 	"depot_removed":        {"depot", "flow_pointers", "routes"},
 	"flow_set":             {"flow"},
 	"flow_removed":         {"flow"},
@@ -212,11 +212,11 @@ var eventDataTold = map[string][]string{
 
 	// Peers: the yards this one is linked with. A link's URL, the git remote
 	// a bead's branch travels by and the words of an error are held.
-	"peer_added":            {"peer", "key"},
+	"peer_added":            {"approved", "peer", "key"},
 	"peer_allowed":          {"approved", "beads_away", "expose", "mail_limit", "peer", "reach", "receive", "send", "trust"},
-	"peer_removed":          {"asks", "beads", "beads_away", "crew", "messages_dropped", "peer"},
+	"peer_removed":          {"approved", "asks", "beads", "beads_away", "crew", "messages_dropped", "peer"},
 	"peer_renamed":          {"approved", "crew", "from", "groups", "hooks", "messages", "peer", "subscriptions", "to"},
-	"peer_url_set":          {"peer"},
+	"peer_url_set":          {"approved", "peer"},
 	"peer_paired":           {"key", "pairing", "peer", "role"},
 	"peer_pair_opened":      {"expires", "pairing", "role"},
 	"peer_pair_refused":     {"key", "pairing", "peer", "reason", "role", "wrong_codes"},

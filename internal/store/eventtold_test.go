@@ -20,6 +20,7 @@ func TestEventWithoutHeld(t *testing.T) {
 	crew := map[string]any{"crew": "yardmaster", "user": "sam", "via": "phone", "handle": map[string]any{"dir": "/home/jo/crew"}, "reason": "gone"}
 	login := store.UserLogin{Groups: []string{"ada-builders"}, EnvFiles: []string{"/home/jo/ada.env"}, Routes: []string{"r1"}, Crew: []string{"ada-chat"}}
 	told := map[string]any{"groups": []any{"ada-builders"}, "routes": []any{"r1"}, "crew": []any{"ada-chat"}}
+	approved := map[string]any{"bead": "yd-4x1k", "ask": uint64(3)}
 	for _, c := range []struct {
 		name string
 		e    store.Event
@@ -33,6 +34,19 @@ func TestEventWithoutHeld(t *testing.T) {
 		{"a pack event tells the credential's name and holds the URL", store.Event{Kind: "pack_applied",
 			Data: map[string]any{"pack": "starter", "depot": "web", "source": "https://packs.example.com/starter/", "auth": "ci-red"}},
 			map[string]any{"pack": "starter", "depot": "web", "auth": "ci-red"}, true},
+		{"a depot update tells what approved it and holds the path", store.Event{Kind: "depot_updated",
+			Data: map[string]any{"depot": "yardr", "kind": "git", "base": "main",
+				"path": "/home/jo/projects/yardr", "test": "sh .yardr/test", "approved": approved}},
+			map[string]any{"depot": "yardr", "kind": "git", "base": "main", "approved": approved}, true},
+		{"a peer add tells what approved it and holds the URL", store.Event{Kind: "peer_added",
+			Data: map[string]any{"peer": "north", "key": "k1", "url": "https://north.example.com", "approved": approved}},
+			map[string]any{"peer": "north", "key": "k1", "approved": approved}, true},
+		{"a peer url set tells what approved it and holds the addresses", store.Event{Kind: "peer_url_set",
+			Data: map[string]any{"peer": "north", "url": "https://north.example.com", "was": "https://old.example.com", "approved": approved}},
+			map[string]any{"peer": "north", "approved": approved}, true},
+		{"a peer removal tells what approved it and holds the identities", store.Event{Kind: "peer_removed",
+			Data: map[string]any{"peer": "north", "asks": 2, "identities": []any{"crm:ada"}, "approved": approved}},
+			map[string]any{"peer": "north", "asks": 2, "approved": approved}, true},
 		{"data that is all told", store.Event{Kind: "crew_enabled", Data: map[string]any{"crew": "yardmaster"}},
 			map[string]any{"crew": "yardmaster"}, false},
 		{"a kind told whole", store.Event{Kind: "mail", Data: map[string]any{"to": "jo", "text": "see /home/jo/notes"}},
