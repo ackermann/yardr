@@ -748,10 +748,11 @@ func TestRunListIsTheCLIs(t *testing.T) {
 	}
 	asks := map[string][]string{
 		"yardr peer add <name> <invite>": {"peer add north " + southInvite},
-		"yardr peer allow <peer> --send <kinds> | --receive <kinds> | --mail-limit <n>": {
+		"yardr peer allow <peer> --send <kinds> | --receive <kinds> | --expose <names> | --trust <name>@<peer>=<user> | --reach <name>@<peer>=<user> | --mail-limit <n>": {
 			"peer allow airy --mail-limit 300",
 			"peer allow airy --send mail --receive mail,ping",
 			"peer allow airy --send bead --receive ask,bead,file,thread",
+			"peer allow airy --expose ada",
 		},
 		"yardr peer intake <peer> --depot <depot> --flow <flow> [--limit <n>] [--default]": {
 			"peer intake airy --depot web --flow incoming --limit 3 --default",

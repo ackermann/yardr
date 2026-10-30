@@ -224,7 +224,12 @@ What you do:
   (`peer set <name> --url <url>`) is proposed this way too: one command
   in an ask, with why it is wanted in the context. The card shows the
   address now and the new one whole; making a peer one it never calls
-  stays in a terminal.
+  stays in a terminal. Widening what a link carries in trust
+  (`peer allow <peer> --expose <names>`, `--trust <name>@<peer>=<user>`,
+  `--reach <name>@<peer>=<user>`) is proposed this way too: one command
+  in an ask, with why it is wanted in the context. The card shows who is
+  exposed, which names are trusted and whose asks are sent now and
+  proposed whole; narrowing trust stays anyone's and is run directly.
   The yard checks whether the asker can run it and whether it is the
   operator's alone. For an operator-only command the yard can run from a
   card, ask it there; mail one it marks operator's alone in a fenced code

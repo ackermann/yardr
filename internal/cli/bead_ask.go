@@ -177,13 +177,14 @@ one of the list the yard runs from a card:
       the yard of the invite is linked as the peer: the card names the
       yard, its key and where this yard calls it, or that this yard never
       calls it; the link carries nothing until peer allow says what
-  peer allow <peer> --send <kinds> | --receive <kinds> | --mail-limit <n>
+  peer allow <peer> --send <kinds> | --receive <kinds> | --expose <names> | --trust <name>@<peer>=<user> | --reach <name>@<peer>=<user> | --mail-limit <n>
       the link carries kinds each way (ask, bead, file, mail, ping,
       thread), and the card names what it carries in and out after and
-      before; or it takes more mail in an hour; --no-send and --no-receive
-      ride along with a kind that is added, and a command that only stops
-      one needs no approval; who a peer sees and is trusted and reached as
-      stay in a terminal
+      before; or who it exposes, whose mail it trusts and whose asks it
+      sends on, each whole now and proposed; or it takes more mail in an
+      hour; --no-send and --no-receive ride along with a kind that is
+      added, and a command that only stops one needs no approval, as one
+      that only narrows trust does
   peer intake <peer> --depot <depot> --flow <flow> [--limit <n>] [--default]
       the beads the peer sends become beads of the depot, pinned to the
       flow, and the card names the depot, the flow, the stage they arrive
@@ -313,8 +314,7 @@ one of the list the yard runs from a card:
 Whether each is the operator's is the command's own check: when the asker
 may run the command themselves the ask is refused with that. What is the
 operator's alone is refused as a run ask: what defines what the yard runs
-or whom it trusts (a command of a group or a source, who a peer sees and
-is trusted and reached as, a device, another yard paired or
+(a command of a group or a source, a device, another yard paired or
 called elsewhere), what takes a file path, and what reaches another yard.
 Such a command is typed in a terminal. A link card (peer add, peer allow,
 peer intake, peer identity, peer rm, peer set) can be approved from this

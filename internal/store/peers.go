@@ -658,20 +658,20 @@ type peerAllowPermission struct {
 // ask uses this same check for the asker's and operator's legs, so the
 // class of a mixed change cannot differ between the row and the command.
 func (w *wtx) checkAllowPeer(ctx context.Context, name string, check peerAllowPermission, actor string) (*Peer, error) {
-	// The parts that expose or trust names stay alone even when this same
-	// command also widens a mail or ping kind.
-	switch {
-	case check.expose:
-		if err := w.may(ctx, actor, ActExposeToPeer, Object{Kind: KindPeer, Name: name}); err != nil {
-			return nil, err
-		}
-	case check.trust:
-		if err := w.may(ctx, actor, ActTrustPeerName, Object{Kind: KindPeer, Name: name}); err != nil {
-			return nil, err
-		}
-	case check.reach:
-		if err := w.may(ctx, actor, ActSendAsksToPeer, Object{Kind: KindPeer, Name: name}); err != nil {
-			return nil, err
+	// Askable: the card shows trust before and after; check every policy
+	// action, and approveAsk blocks approval through the peer's own reach.
+	for _, gate := range []struct {
+		widen bool
+		act   Action
+	}{
+		{check.expose, ActExposeToPeer},
+		{check.trust, ActTrustPeerName},
+		{check.reach, ActSendAsksToPeer},
+	} {
+		if gate.widen {
+			if err := w.may(ctx, actor, gate.act, Object{Kind: KindPeer, Name: name, Ask: Askable}); err != nil {
+				return nil, err
+			}
 		}
 	}
 	if len(check.send)+len(check.receive) > 0 {

@@ -380,7 +380,7 @@ var runList = []runCommand{{
 	commas:      true,
 }, {
 	words:       []string{"peer", "allow"},
-	use:         "yardr peer allow <peer> --send <kinds> | --receive <kinds> | --mail-limit <n>",
+	use:         "yardr peer allow <peer> --send <kinds> | --receive <kinds> | --expose <names> | --trust <name>@<peer>=<user> | --reach <name>@<peer>=<user> | --mail-limit <n>",
 	description: "Set which messages a peer link carries and its mail limit",
 	parse:       parsePeerAllow,
 	check:       checkPeerAllow,

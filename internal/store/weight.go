@@ -13,6 +13,7 @@ package store
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -449,8 +450,9 @@ func (w *wtx) setupWeight(s AskSetup) ([]AskWeight, error) {
 }
 
 // peerAllowWeight weighs a peer allow: trust where it adds a kind the link
-// carries either way, or raises the mail the link takes. Stopping a kind
-// is routine.
+// carries either way, exposes someone new, trusts a name new or as another
+// user, sends asks on new or to another user, or raises the mail the link
+// takes. Stopping a kind, and narrowing trust, is routine.
 func peerAllowWeight(w *wtx, run AskRun) ([]AskWeight, error) {
 	al := peerAllowOf(run.Argv)
 	p, err := loadPeer(w.Tx, al.name)
@@ -469,6 +471,34 @@ func peerAllowWeight(w *wtx, run AskRun) ([]AskWeight, error) {
 	}
 	if kinds := added(p.Receive, al.receive, al.noreceive); len(kinds) > 0 {
 		says = append(says, fmt.Sprintf("the link with %s takes %s from it", al.name, andList(kinds)))
+	}
+	if names := added(p.Expose, al.expose, nil); len(names) > 0 {
+		says = append(says, fmt.Sprintf("the link with %s exposes %s to it", al.name, andList(names)))
+	}
+	trust, err := runAllowTrust(al.name, "trust", al.trust)
+	if err != nil {
+		return nil, err
+	}
+	reach, err := runAllowTrust(al.name, "reach", al.reach)
+	if err != nil {
+		return nil, err
+	}
+	var trusted, reached []string
+	for _, name := range slices.Sorted(maps.Keys(trust)) {
+		if p.Trust[name] != trust[name] {
+			trusted = append(trusted, name+"@"+al.name+" as "+trust[name])
+		}
+	}
+	for _, name := range slices.Sorted(maps.Keys(reach)) {
+		if p.Reach[name] != reach[name] {
+			reached = append(reached, name+"@"+al.name+" for "+reach[name])
+		}
+	}
+	if len(trusted) > 0 {
+		says = append(says, fmt.Sprintf("the link with %s trusts %s", al.name, andList(trusted)))
+	}
+	if len(reached) > 0 {
+		says = append(says, fmt.Sprintf("the link with %s sends asks to %s", al.name, andList(reached)))
 	}
 	if len(says) == 0 {
 		return nil, nil

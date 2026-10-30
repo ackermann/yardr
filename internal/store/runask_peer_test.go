@@ -153,10 +153,8 @@ func TestRunAskPeerAllowAnyKind(t *testing.T) {
 
 	// Stopping alone needs no approval, and the rest is no card either.
 	for command, want := range map[string]string{
-		"peer allow airy --no-send bead":                "needs no approval: run it yourself",
-		"peer allow airy --send bead":                   "the link carries bead to it and takes ask, bead from it already, so the command would change nothing",
-		"peer allow airy --send thread --expose ada":    "it is the operator's alone, typed in a terminal and never proposed as a run ask",
-		"peer allow airy --send thread --trust ada=ada": "it is the operator's alone, typed in a terminal and never proposed as a run ask",
+		"peer allow airy --no-send bead": "needs no approval: run it yourself",
+		"peer allow airy --send bead":    "the link carries bead to it and takes ask, bead from it already, so the command would change nothing",
 	} {
 		if _, err := y.AddAsk(y.ctx, y.bead, runAsk(command), "yardmaster"); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("--run %q = %v, want %q", command, err, want)
@@ -189,6 +187,198 @@ func TestRunAskPeerAllowCardsTheResultOfConflictingKinds(t *testing.T) {
 	}
 	if p := y.peerOf(t, "airy"); len(p.Send) != 0 {
 		t.Fatalf("the link carries %v after stop wins", p.Send)
+	}
+}
+
+// A crew member proposes widening what a link carries in trust: the card
+// shows who is exposed, which names are trusted and whose asks are sent
+// now and proposed whole, weighed trust, and the operator's approval
+// widens exactly as the terminal command does. Approving unweighed is
+// refused, a trust change between ask and approval makes it stale, and an
+// approval over the peer's own reach is refused. Widening directly stays
+// the operator's, and narrowing stays anyone's run directly.
+func TestRunAskPeerAllowTrust(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y := peerRuleYard(t)
+	key := y.peerOf(t, "airy").Key
+	says := Says("v1")
+	says.Roster = []PeerRosterEntry{{Name: "mckean", Kind: RosterUser, Role: "user", Mail: true}}
+	if err := y.PeerHeard(y.ctx, "airy", key, says); err != nil {
+		t.Fatal(err)
+	}
+	as := "the link with airy (it calls itself yardr, key " + key[:8] + "…)"
+	p := y.peerOf(t, "airy")
+
+	// Exposing: the card, the weight, and the approval.
+	seq := y.ask(t, runAsk("peer allow airy --expose ada"), "yardmaster")
+	r := y.asked(t, seq)
+	run := *r.Ask.Run
+	want := AskRun{
+		Argv:        []string{"peer", "allow", "airy", "--expose", "ada"},
+		Description: "Set which messages a peer link carries and its mail limit",
+		Does: []string{
+			as + " will expose ada. It exposes nobody now.",
+			as + " will trust nobody. It trusts nobody now.",
+			as + " will send asks to nobody. It sends asks to nobody now.",
+		},
+		Back: "yardr peer allow airy --no-expose ada",
+		Seen: map[string]string{"peer airy": key,
+			"peer airy exposes": seen(p.Expose), "peer airy trusts": seen(p.Trust), "peer airy reaches": seen(p.Reach)},
+	}
+	if !slices.Equal(run.Argv, want.Argv) || run.Description != want.Description || !slices.Equal(run.Does, want.Does) ||
+		run.Back != want.Back || run.BackBy != "" || !sameMap(run.Seen, want.Seen) {
+		t.Fatalf("the ask stores\n%+v\nwant\n%+v", run, want)
+	}
+	const exposeWeight = "widens who the yard listens to: the link with airy exposes ada to it"
+	if want := []AskWeight{{Class: WeightTrust, Line: exposeWeight}}; !slices.Equal(r.Ask.Weight, want) {
+		t.Fatalf("the ask weighs %v, want %v", r.Ask.Weight, want)
+	}
+	card := r.Lines()
+	for _, line := range []string{
+		"  the yard says: " + want.Does[0],
+		"  WEIGHTY · trust: " + exposeWeight,
+		"  anyone can take it back: yardr peer allow airy --no-expose ada",
+	} {
+		if !slices.Contains(card, line) {
+			t.Errorf("the card lacks %q:\n%s", line, strings.Join(card, "\n"))
+		}
+	}
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false, nil); err == nil ||
+		!strings.Contains(err.Error(), "ask 1 is weighty (trust): approve it where its weight is shown") {
+		t.Fatalf("approving unweighed = %v", err)
+	}
+	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := "peer airy: send nothing; receive nothing; expose ada"; done.Result != got {
+		t.Fatalf("the approval printed %q, want %q", done.Result, got)
+	}
+	if p := y.peerOf(t, "airy"); !slices.Equal(p.Expose, []string{"ada"}) {
+		t.Fatalf("the link exposes %v, want ada", p.Expose)
+	}
+
+	// Trusting: the card names the grant whole, now and proposed.
+	seq = y.ask(t, runAsk("peer allow airy --trust mckean@airy=ada"), "yardmaster")
+	r = y.asked(t, seq)
+	run = *r.Ask.Run
+	if wantDoes := []string{
+		as + " will expose ada. It exposes ada now.",
+		as + " will trust mckean@airy -> ada. It trusts nobody now.",
+		as + " will send asks to nobody. It sends asks to nobody now.",
+	}; !slices.Equal(run.Does, wantDoes) || run.Back != "yardr peer allow airy --no-trust mckean@airy" || run.BackBy != "" {
+		t.Fatalf("the trust ask stores %q, %q by %q", run.Does, run.Back, run.BackBy)
+	}
+	const trustWeight = "widens who the yard listens to: the link with airy trusts mckean@airy as ada"
+	if want := []AskWeight{{Class: WeightTrust, Line: trustWeight}}; !slices.Equal(r.Ask.Weight, want) {
+		t.Fatalf("the trust ask weighs %v, want %v", r.Ask.Weight, want)
+	}
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true, nil); err != nil {
+		t.Fatal(err)
+	}
+	if p := y.peerOf(t, "airy"); p.Trust["mckean"] != "ada" {
+		t.Fatalf("the link trusts %+v, want mckean as ada", p.Trust)
+	}
+
+	// Reach beside trust: one command may give both, and the card shows
+	// whose asks are sent.
+	if _, err := y.AllowPeer(y.ctx, "airy", PeerAllow{NoTrust: []string{"mckean"}}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	seq = y.ask(t, runAsk("peer allow airy --trust mckean@airy=ada --reach mckean@airy=ada"), "yardmaster")
+	r = y.asked(t, seq)
+	if wantDoes := []string{
+		as + " will expose ada. It exposes ada now.",
+		as + " will trust mckean@airy -> ada. It trusts nobody now.",
+		as + " will send asks to mckean@airy -> ada. It sends asks to nobody now.",
+	}; !slices.Equal(r.Ask.Run.Does, wantDoes) {
+		t.Fatalf("the trust-and-reach ask stores %q", r.Ask.Run.Does)
+	}
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true, nil); err != nil {
+		t.Fatal(err)
+	}
+	if p := y.peerOf(t, "airy"); p.Reach["mckean"] != "ada" {
+		t.Fatalf("the link reaches %+v, want mckean for ada", p.Reach)
+	}
+
+	// A trust change between ask and approval makes it stale, and nothing
+	// runs.
+	seq = y.ask(t, runAsk("peer allow airy --expose yardmaster"), "yardmaster")
+	if _, err := y.AllowPeer(y.ctx, "airy", PeerAllow{Expose: []string{"yardmaster"}}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	y.refusedStale(t, seq, "the card is from before that changed")
+	if p := y.peerOf(t, "airy"); !slices.Equal(p.Expose, []string{"ada", "yardmaster"}) {
+		t.Fatalf("the refused approval left the link exposing %v", p.Expose)
+	}
+
+	// An approval over the peer's own reach is refused, and the ask stays
+	// open.
+	seq = y.ask(t, runAsk("peer allow airy --expose mckean"), "yardmaster")
+	if _, err := y.ApproveAsk(WithReach(y.ctx, "airy"), y.bead, seq, "mckean", true, nil); err == nil ||
+		!strings.Contains(err.Error(), "a peer must not widen its own link") {
+		t.Fatalf("approving over the peer's own reach = %v", err)
+	}
+	if r := y.asked(t, seq); r.State != AskOpen {
+		t.Fatalf("the ask is %s after a refused approval", r.State)
+	}
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true, nil); err != nil {
+		t.Fatalf("the approval from this yard = %v", err)
+	}
+
+	// Widening directly stays the operator's; narrowing runs directly.
+	if _, err := y.AllowPeer(y.ctx, "airy", PeerAllow{Expose: []string{"eve"}}, "yardmaster"); err == nil ||
+		!strings.Contains(err.Error(), "only the operator (mckean) may expose someone of the yard to a peer") {
+		t.Errorf("exposing directly as yardmaster = %v", err)
+	}
+	if _, err := y.AllowPeer(y.ctx, "airy", PeerAllow{Trust: map[string]string{"mckean": "mckean"}}, "yardmaster"); err == nil ||
+		!strings.Contains(err.Error(), "only the operator (mckean) may trust a name of a peer as a user of the yard") {
+		t.Errorf("trusting directly as yardmaster = %v", err)
+	}
+	if _, err := y.AllowPeer(y.ctx, "airy", PeerAllow{Reach: map[string]string{"mckean": "ada"}}, "yardmaster"); err == nil ||
+		!strings.Contains(err.Error(), "only the operator (mckean) may send a user's asks to a name of a peer") {
+		t.Errorf("giving reach directly as yardmaster = %v", err)
+	}
+	if _, err := y.AllowPeer(y.ctx, "airy", PeerAllow{NoExpose: []string{"mckean"}}, "yardmaster"); err != nil {
+		t.Errorf("narrowing expose directly as yardmaster = %v", err)
+	}
+	if _, err := y.AllowPeer(y.ctx, "airy", PeerAllow{NoTrust: []string{"mckean"}}, "yardmaster"); err != nil {
+		t.Errorf("narrowing trust directly as yardmaster = %v", err)
+	}
+
+	// What is no card: the shape, the roster, the user, nothing to change,
+	// and the limit apart.
+	for command, want := range map[string]string{
+		"peer allow airy --trust mckean=ada":            "--trust mckean=ada: name the sender as mail does, <name>@airy",
+		"peer allow airy --trust mckean@north=ada":      "--trust mckean@north=ada: that is a name of north, and this changes the link with airy",
+		"peer allow airy --trust nobody@airy=ada":       `it exposes nobody called "nobody" to this yard`,
+		"peer allow airy --trust mckean@airy=eve":       `"eve" is no user of this yard`,
+		"peer allow airy --reach mckean@airy=ada":       "the link does not trust mckean@airy as ada",
+		"peer allow airy --expose ada":                  "the link exposes ada, yardmaster, trusts nobody and sends asks to nobody already",
+		"peer allow airy --mail-limit 300 --expose ada": "is two asks: propose the limit and the rest apart",
+		"peer allow airy --no-expose ada":               "--no-expose narrows one, and is run directly",
+		"peer allow airy --no-trust mckean@airy":        "--no-trust narrows one, and is run directly",
+		"peer allow airy --no-reach mckean@airy":        "--no-reach narrows one, and is run directly",
+		"peer allow airy --expose nobody":               `"nobody" is neither a crew member nor a user of this yard`,
+	} {
+		if _, err := y.AddAsk(y.ctx, y.bead, runAsk(command), "yardmaster"); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("--run %q = %v, want %q", command, err, want)
+		}
+	}
+
+	// Repeated grants for one name keep the terminal command's last value
+	// when the stored card is normalized.
+	seq = y.ask(t, runAsk("peer allow airy --trust mckean@airy=mckean,mckean@airy=ada --reach mckean@airy=mckean,mckean@airy=ada"), "yardmaster")
+	r = y.asked(t, seq)
+	if !strings.Contains(r.Ask.Run.Does[1], "will trust mckean@airy -> ada") ||
+		!strings.Contains(r.Ask.Run.Does[2], "will send asks to mckean@airy -> ada") {
+		t.Fatalf("the repeated grants card says %q", r.Ask.Run.Does)
+	}
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true, nil); err != nil {
+		t.Fatal(err)
+	}
+	if p := y.peerOf(t, "airy"); p.Trust["mckean"] != "ada" || p.Reach["mckean"] != "ada" {
+		t.Fatalf("the repeated grants were trust=%v reach=%v, want ada for both", p.Trust, p.Reach)
 	}
 }
 

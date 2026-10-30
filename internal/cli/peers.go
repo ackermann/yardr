@@ -449,12 +449,12 @@ the peer has already.`,
 it. Nothing is allowed until this says so, and only the operator may allow.
 --no-send and --no-receive stop a kind again, which anyone may.
 
-A crew member that needs a kind allowed proposes the command with a run ask
-(yardr bead ask --help), whichever the kind: the card says what the link
-carries in and out after the command and before it. The operator approves it
-from this yard, and an approval that arrives through the reach of the peer it
-is about is refused, since a peer must not widen its own link. --expose,
---trust and --reach stay in a terminal.
+A crew member that needs a kind allowed or trust widened proposes it with
+a run ask (yardr bead ask --help): the card says what the link carries in
+and out after and before, or who it exposes, trusts and sends asks to,
+each whole now and proposed. The operator approves it from this yard, and
+an approval through the reach of the peer it is about is refused, since a
+peer must not widen its own link. Narrowing trust is anyone's, run directly.
 
 Each yard tells the other which kinds its yardr understands (yardr peer show).
 --send for a kind the peer has said it does not understand, or for a peer

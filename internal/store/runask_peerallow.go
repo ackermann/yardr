@@ -1,5 +1,6 @@
 // The peer allow row of the run-ask list (runList): what a peer may send
-// and receive, who it shows itself to, and the mail it takes. It has what
+// and receive, who it shows itself to, whose mail it trusts and whose asks
+// it sends on, and the mail it takes. It has what
 // a row has: how its words are read into one stored form, the command's
 // own check as the asker, the card the yard writes from its records, why
 // an approval of an older card is refused, and the store function that
@@ -9,6 +10,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -59,15 +61,41 @@ func peerAllowOf(argv []string) peerAllowChange {
 	return al
 }
 
+// runAllowTrust reads what --trust or --reach was given for peer: each a
+// <name>@<peer>=<user>, as mail names its sender. The address is written
+// whole, so one meant for another link is caught here, in the terminal
+// command's words.
+func runAllowTrust(peer, flag string, vs []string) (map[string]string, error) {
+	var out map[string]string
+	for _, v := range vs {
+		addr, user, ok := strings.Cut(v, "=")
+		if !ok || user == "" {
+			what := map[string]string{"trust": "say whom the name is trusted as", "reach": "say whose asks are sent to the name"}[flag]
+			return nil, fmt.Errorf("--%s %s: %s, <name>@%s=<user of this yard>", flag, v, what, peer)
+		}
+		n, at, ok := strings.Cut(addr, "@")
+		switch {
+		case !ok || n == "" || at == "":
+			return nil, fmt.Errorf("--%s %s: name the sender as mail does, <name>@%s", flag, v, peer)
+		case at != peer:
+			return nil, fmt.Errorf("--%s %s: that is a name of %s, and this changes the link with %s", flag, v, at, peer)
+		}
+		if out == nil {
+			out = map[string]string{}
+		}
+		out[n] = user
+	}
+	return out, nil
+}
+
 // peerAllowUse is how a refusal names the peer allow a run ask takes.
-const peerAllowUse = "--run takes yardr peer allow <peer> --send <kinds> | --receive <kinds> | --mail-limit <n>"
+const peerAllowUse = "--run takes yardr peer allow <peer> --send <kinds> | --receive <kinds> | --expose <names> | --trust <name>@<peer>=<user> | --reach <name>@<peer>=<user> | --mail-limit <n>"
 
 // parsePeerAllow reads the words of peer allow <peer> with the flags a
-// run ask takes: the kinds it carries each way and stops, and the limit.
-// Who the peer sees and is trusted and reached as is read too, and
-// refused as the operator's alone by the check, not here. Narrowing one
-// of those is anyone's, and is run directly. The limit and the kinds are
-// two asks: what each changes is carded apart.
+// run ask takes: the kinds it carries each way and stops, who it exposes,
+// whose mail it trusts and whose asks it sends on, and the limit.
+// Narrowing any of those is anyone's, and is run directly. The limit and
+// the rest are two asks: what each changes is carded apart.
 func parsePeerAllow(rest []string) ([]string, error) {
 	args, values, err := runWords(peerAllowUse, "peer allow", "the operator's", rest, map[string]bool{
 		"--send": true, "--receive": true, "--no-send": true, "--no-receive": true,
@@ -131,13 +159,40 @@ func parsePeerAllow(rest []string) ([]string, error) {
 	if err := checkKinds(send, receive, nosend, noreceive); err != nil {
 		return nil, err
 	}
+	expose := split(values["--expose"])
+	splitInOrder := func(vs []string) []string {
+		var out []string
+		for _, v := range vs {
+			out = append(out, strings.Split(v, ",")...)
+		}
+		return out
+	}
+	grantWords := func(flag string) ([]string, error) {
+		grant, err := runAllowTrust(args[0], flag, splitInOrder(values["--"+flag]))
+		if err != nil {
+			return nil, err
+		}
+		var words []string
+		for _, name := range slices.Sorted(maps.Keys(grant)) {
+			words = append(words, name+"@"+args[0]+"="+grant[name])
+		}
+		return words, nil
+	}
+	trustWords, err := grantWords("trust")
+	if err != nil {
+		return nil, err
+	}
+	reachWords, err := grantWords("reach")
+	if err != nil {
+		return nil, err
+	}
 	out := []string{args[0]}
 	for _, fv := range []struct {
 		flag string
 		vs   []string
 	}{
 		{"--send", send}, {"--receive", receive}, {"--no-send", nosend}, {"--no-receive", noreceive},
-		{"--expose", split(values["--expose"])}, {"--trust", split(values["--trust"])}, {"--reach", split(values["--reach"])},
+		{"--expose", expose}, {"--trust", trustWords}, {"--reach", reachWords},
 	} {
 		for _, v := range fv.vs {
 			out = append(out, fv.flag, v)
@@ -176,20 +231,78 @@ func peerAs(p *Peer) string {
 // "nothing" for none.
 func kindsSay(kinds []string) string { return or(strings.Join(kinds, ", "), "nothing") }
 
-// peerAllowCard is the card of peer allow: the limit it sets, and the
-// kinds it carries each way and stops, with what the link carries in and
-// out after the command beside what it carries now. The peer is named with
-// what it calls itself and the start of its key, and the approval is held
-// to the key whole and to what the link carries (Seen). Asking refuses a
+// exposeSay is who of this yard a link exposes as a card names them:
+// "nobody" for none.
+func exposeSay(expose []string) string { return or(strings.Join(expose, ", "), "nobody") }
+
+// trustSay is whose mail a link trusts as whose as a card names them,
+// each whole: "nobody" for none.
+func trustSay(trust map[string]string, peer string) string {
+	if len(trust) == 0 {
+		return "nobody"
+	}
+	var out []string
+	for _, name := range slices.Sorted(maps.Keys(trust)) {
+		out = append(out, name+"@"+peer+" -> "+trust[name])
+	}
+	return strings.Join(out, ", ")
+}
+
+// reachSay is whose asks a link sends on as a card names them, each
+// whole: "nobody" for none.
+func reachSay(reach map[string]string, peer string) string {
+	if len(reach) == 0 {
+		return "nobody"
+	}
+	var out []string
+	for _, name := range slices.Sorted(maps.Keys(reach)) {
+		out = append(out, name+"@"+peer+" -> "+reach[name])
+	}
+	return strings.Join(out, ", ")
+}
+
+// peerAllowCard is the card of peer allow: the limit it sets, the kinds
+// it carries each way and stops, and who it exposes, whose mail it trusts
+// and whose asks it sends on, each with what the link holds after the
+// command beside what it holds now. The peer is named with what it calls
+// itself and the start of its key, and the approval is held to the key
+// whole and to what the link carries and trusts (Seen). Asking refuses a
 // limit the link has already, and one below it: to take less mail is
-// anyone's, and needs no approval. It refuses kinds that change nothing the
-// same way.
+// anyone's, and needs no approval. It refuses kinds and trust that change
+// nothing the same way.
 func (w *wtx) peerAllowCard(argv []string, asking bool) (AskRun, error) {
 	al := peerAllowOf(argv)
 	p, err := loadPeer(w.Tx, al.name)
 	if err != nil {
 		return AskRun{}, err
 	}
+	trust, err := runAllowTrust(al.name, "trust", al.trust)
+	if err != nil {
+		return AskRun{}, err
+	}
+	reach, err := runAllowTrust(al.name, "reach", al.reach)
+	if err != nil {
+		return AskRun{}, err
+	}
+	for _, who := range al.expose {
+		if err := exposable(w.Tx, who); err != nil {
+			return AskRun{}, err
+		}
+	}
+	// What the link trusts after the command, as the write stores it:
+	// trust first, so one command may give both, and reach stands on it.
+	// The grants are copied first, since giving changes the link.
+	after := *p
+	after.Trust = maps.Clone(p.Trust)
+	after.Reach = maps.Clone(p.Reach)
+	after.Spoke = slices.Clone(p.Spoke)
+	if err := after.trust(w.Tx, trust, nil); err != nil {
+		return AskRun{}, err
+	}
+	if err := after.reach(reach, nil); err != nil {
+		return AskRun{}, err
+	}
+	afterExpose := changeList(p.Expose, al.expose, nil)
 	var does []string
 	back := []string{"peer", "allow", al.name}
 	backBy := ""
@@ -212,8 +325,15 @@ func (w *wtx) peerAllowCard(argv []string, asking bool) (AskRun, error) {
 	removedSend := slices.DeleteFunc(slices.Clone(p.Send), func(k string) bool { return slices.Contains(afterSend, k) })
 	removedReceive := slices.DeleteFunc(slices.Clone(p.Receive), func(k string) bool { return slices.Contains(afterReceive, k) })
 	kinds := len(al.send)+len(al.receive)+len(al.nosend)+len(al.noreceive) > 0
-	if asking && kinds && len(addedSend)+len(addedReceive)+len(removedSend)+len(removedReceive) == 0 {
-		return AskRun{}, fmt.Errorf("peer %s: the link carries %s to it and takes %s from it already, so the command would change nothing", al.name, or(strings.Join(p.Send, ", "), "nothing"), or(strings.Join(p.Receive, ", "), "nothing"))
+	kindsChange := len(addedSend)+len(addedReceive)+len(removedSend)+len(removedReceive) > 0
+	trusts := len(al.expose)+len(al.trust)+len(al.reach) > 0
+	addedExpose := slices.DeleteFunc(slices.Clone(afterExpose), func(n string) bool { return slices.Contains(p.Expose, n) })
+	trustChange := len(addedExpose) > 0 || !sameMap(after.Trust, p.Trust) || !sameMap(after.Reach, p.Reach)
+	if asking && (kinds || trusts) && !kindsChange && !trustChange && !al.hasLimit {
+		if kinds {
+			return AskRun{}, fmt.Errorf("peer %s: the link carries %s to it and takes %s from it already, so the command would change nothing", al.name, or(strings.Join(p.Send, ", "), "nothing"), or(strings.Join(p.Receive, ", "), "nothing"))
+		}
+		return AskRun{}, fmt.Errorf("peer %s: the link exposes %s, trusts %s and sends asks to %s already, so the command would change nothing", al.name, exposeSay(p.Expose), trustSay(p.Trust, al.name), reachSay(p.Reach, al.name))
 	}
 	if kinds {
 		// What the link carries each way after the command and before it,
@@ -242,6 +362,17 @@ func (w *wtx) peerAllowCard(argv []string, asking bool) (AskRun, error) {
 			does = append(does, "That "+andList(delta)+".")
 		}
 	}
+	if trusts {
+		// Who the link exposes, whose mail it trusts and whose asks it
+		// sends on after the command and before it, each whole, so the
+		// person reads the trust as it will be beside the trust as it is.
+		does = append(does, fmt.Sprintf("the link with %s (%s) will expose %s. It exposes %s now.",
+			al.name, peerAs(p), exposeSay(afterExpose), exposeSay(p.Expose)))
+		does = append(does, fmt.Sprintf("the link with %s (%s) will trust %s. It trusts %s now.",
+			al.name, peerAs(p), trustSay(after.Trust, al.name), trustSay(p.Trust, al.name)))
+		does = append(does, fmt.Sprintf("the link with %s (%s) will send asks to %s. It sends asks to %s now.",
+			al.name, peerAs(p), reachSay(after.Reach, al.name), reachSay(p.Reach, al.name)))
+	}
 	for _, k := range addedSend {
 		back = append(back, "--no-send", k)
 	}
@@ -256,9 +387,33 @@ func (w *wtx) peerAllowCard(argv []string, asking bool) (AskRun, error) {
 		back = append(back, "--receive", k)
 		backBy = "only the operator"
 	}
+	for _, n := range addedExpose {
+		back = append(back, "--no-expose", n)
+	}
+	for _, name := range slices.Sorted(maps.Keys(trust)) {
+		if _, ok := p.Trust[name]; !ok {
+			back = append(back, "--no-trust", name+"@"+al.name)
+		} else if p.Trust[name] != trust[name] {
+			back = append(back, "--trust", name+"@"+al.name+"="+p.Trust[name])
+			backBy = "only the operator"
+		}
+	}
+	for _, name := range slices.Sorted(maps.Keys(reach)) {
+		if _, ok := p.Reach[name]; !ok {
+			back = append(back, "--no-reach", name+"@"+al.name)
+		} else if p.Reach[name] != reach[name] {
+			back = append(back, "--reach", name+"@"+al.name+"="+p.Reach[name])
+			backBy = "only the operator"
+		}
+	}
 	finger := map[string]string{"peer " + al.name: p.Key}
 	if kinds {
 		finger["peer "+al.name+" carries"] = seen(p.Send, p.Receive)
+	}
+	if trusts {
+		finger["peer "+al.name+" exposes"] = seen(p.Expose)
+		finger["peer "+al.name+" trusts"] = seen(p.Trust)
+		finger["peer "+al.name+" reaches"] = seen(p.Reach)
 	}
 	return AskRun{
 		Argv:   argv,
@@ -319,7 +474,7 @@ func (w *wtx) mailLimitStale(seq uint64, was, now AskRun) error {
 
 // peerAllowStale says why the ask seq for peer allow is approved no more:
 // the limit's own reasons when it sets one, and the key and the sentences
-// when it carries kinds.
+// when it carries kinds or trust.
 func (w *wtx) peerAllowStale(seq uint64, was, now AskRun) error {
 	al := peerAllowOf(was.Argv)
 	if al.hasLimit {
@@ -335,7 +490,16 @@ func (w *wtx) peerAllowStale(seq uint64, was, now AskRun) error {
 // what the command prints at a terminal.
 func runPeerAllow(ctx context.Context, w *wtx, argv []string, actor string, by *approvedOn) (string, error) {
 	al := peerAllowOf(argv)
-	ch := PeerAllow{Send: al.send, Receive: al.receive, NoSend: al.nosend, NoReceive: al.noreceive}
+	trust, err := runAllowTrust(al.name, "trust", al.trust)
+	if err != nil {
+		return "", err
+	}
+	reach, err := runAllowTrust(al.name, "reach", al.reach)
+	if err != nil {
+		return "", err
+	}
+	ch := PeerAllow{Send: al.send, Receive: al.receive, NoSend: al.nosend, NoReceive: al.noreceive,
+		Expose: al.expose, Trust: trust, Reach: reach}
 	if al.hasLimit {
 		ch.MailLimit = al.limit
 	}

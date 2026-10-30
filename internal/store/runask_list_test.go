@@ -664,12 +664,10 @@ func TestRunAskListRefusals(t *testing.T) {
 		{"source add /tmp/crm,backup.yaml", "',' is none of their characters"},
 		{"source key crm", alone},
 		{"source rm crm", alone},
-		{"peer allow airy --trust mckean=mckean", alone},
-		{"peer allow airy --trust mckean@airy=mckean", alone},
-		{"peer allow airy --reach mckean=mckean", alone},
-		{"peer allow airy --reach mckean@airy=mckean", alone},
-		{"peer allow airy --send bead --expose mckean", alone},
-		{"peer allow airy --expose mckean", alone},
+		{"peer allow airy --trust mckean=mckean", "--trust mckean=mckean: name the sender as mail does, <name>@airy"},
+		{"peer allow airy --trust mckean@airy=mckean", `it exposes nobody called "mckean" to this yard`},
+		{"peer allow airy --reach mckean=mckean", "--reach mckean=mckean: name the sender as mail does, <name>@airy"},
+		{"peer allow airy --reach mckean@airy=mckean", "the link does not trust mckean@airy as mckean"},
 		{"peer add north abc", `"abc" is no invite: want the line yardr peer invite prints (yardr-peer-1,<name>,<key>[,<url>])`},
 		{"peer add north abc\n", `'\n' is none of their characters`},
 		{"peer add north", "--run takes yardr peer add <name> <invite>: one peer and one invite, not 1 words"},
@@ -1461,7 +1459,7 @@ func TestRunAskSourceSetUsesItsStoreCheck(t *testing.T) {
 	}
 }
 
-// A peer allow that widens mail and exposes a name is alone as a whole.
+// A peer allow that widens mail and exposes a name is askable as a whole.
 // The direct command and its run row share the same permission check.
 func TestRunAskPeerAllowUsesItsStoreCheck(t *testing.T) {
 	// Sequential: the package's fake clock (via newAskYard).
@@ -1481,8 +1479,39 @@ func TestRunAskPeerAllowUsesItsStoreCheck(t *testing.T) {
 	if rowErr == nil || directErr == nil || rowErr.Error() != directErr.Error() {
 		t.Fatalf("run row check = %v, direct peer allow = %v", rowErr, directErr)
 	}
-	if class, ok := IsOperatorOnly(rowErr); !ok || class != Alone {
+	if class, ok := IsOperatorOnly(rowErr); !ok || class != Askable {
 		t.Fatalf("peer allow refusal = %v; operator-only class is %v, %v", rowErr, class, ok)
+	}
+
+	// Each trust action is its own policy gate, including when one command
+	// widens more than one part of the link.
+	all, allArgv, err := parseRun([]string{"peer allow airy --expose ada --trust mckean@airy=ada --reach mckean@airy=ada"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var actions []Action
+	y.SetPolicy(storePolicyFunc(func(_ context.Context, _ *bolt.Tx, _ string, act Action, obj Object) error {
+		actions = append(actions, act)
+		if obj.Ask != Askable {
+			t.Errorf("peer allow gate %s has ask class %v, want Askable", act, obj.Ask)
+		}
+		return nil
+	}))
+	if err := y.write(func(w *wtx) error { return all.check(y.ctx, w, allArgv, "mckean") }); err != nil {
+		t.Fatal(err)
+	}
+	if want := []Action{ActExposeToPeer, ActTrustPeerName, ActSendAsksToPeer}; !slices.Equal(actions, want) {
+		t.Fatalf("peer allow checked policy actions %v, want %v", actions, want)
+	}
+	denied := errors.New("trust action denied by policy")
+	y.SetPolicy(storePolicyFunc(func(_ context.Context, _ *bolt.Tx, _ string, act Action, _ Object) error {
+		if act == ActTrustPeerName {
+			return denied
+		}
+		return nil
+	}))
+	if err := y.write(func(w *wtx) error { return all.check(y.ctx, w, allArgv, "mckean") }); !errors.Is(err, denied) {
+		t.Fatalf("peer allow check with trust denied = %v, want the policy refusal", err)
 	}
 }
 
