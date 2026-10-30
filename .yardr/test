@@ -1903,11 +1903,10 @@ blackbox='contrib/assembly contrib/peer contrib/deploy contrib/server-yard contr
 # the import path of each directory, from the list pick already made, so
 # the run holds each once however the selection named it. A suite that
 # is no package here fails the run: silently skipping it would reopen
-# the hole the six close.
+# the hole the six close. The directories are cut at pick's toplevel.
 addblackbox() {
-  root=$(git rev-parse --show-toplevel)
   for d in $blackbox; do
-    p=$(awk -F'|' -v root="$root" -v want="$d" '
+    p=$(awk -F'|' -v root="$toplevel" -v want="$d" '
       {
         dir = substr($2, length(root) + 2); if (dir == "") dir = "."
         if (dir == want) { p = $1; sub(/ \[.*/, "", p); sub(/\.test$/, "", p); sub(/_test$/, "", p); print p; exit }
@@ -2302,14 +2301,23 @@ awk -v ok="$base_ok" '
     print
   }
 ' "$tmp/basepaths" "$tmp/tracked" "$tmp/dirs" >"$tmp/deldirs"
+# The work tree's physical path, once: the awk below and addblackbox cut it off
+# the front of each package's directory. git prints it so, and cd with pwd -P
+# makes sure (not every BSD has realpath). go list, though, names a directory
+# from $PWD when that names the working directory, so a run started through a
+# symlink (/tmp for /private/tmp on a Mac) lists the link's path instead, no
+# directory starts with the root, and every row names "no package here"
+# (yardr-w6mw). go list gets the root as its PWD, so both sides are one string.
+# From another directory it ignores that PWD and lists the physical path.
+toplevel=$(cd "$(git rev-parse --show-toplevel)" && pwd -P)
 t0=$(date +%s)
-go list -test -f '{{.ImportPath}}|{{.Dir}}|{{join .Deps ","}}|{{join .EmbedFiles ","}},{{join .TestEmbedFiles ","}},{{join .XTestEmbedFiles ","}}|{{join .EmbedPatterns ","}},{{join .TestEmbedPatterns ","}},{{join .XTestEmbedPatterns ","}}' ./... >"$tmp/pkgs"
+PWD=$toplevel go list -test -f '{{.ImportPath}}|{{.Dir}}|{{join .Deps ","}}|{{join .EmbedFiles ","}},{{join .TestEmbedFiles ","}},{{join .XTestEmbedFiles ","}}|{{join .EmbedPatterns ","}},{{join .TestEmbedPatterns ","}},{{join .XTestEmbedPatterns ","}}' ./... >"$tmp/pkgs"
 # Said by listed, after the run's first line, which a landing prints only
 # once it has this list. A plan says what would be tested, and no more.
 [ -n "$YARDR_TEST_PLAN" ] || listing=$(took "$t0" "go list -test ./...")
 # Not in a pipe or a $(...): a go list or awk that fails must fail the run,
 # not read as an empty list.
-awk -F'|' -v root="$(git rev-parse --show-toplevel)" -v rows="$tmp/rows" -v stray="$tmp/stray" -v embedded="$tmp/embedded" '
+awk -F'|' -v root="$toplevel" -v rows="$tmp/rows" -v stray="$tmp/stray" -v embedded="$tmp/embedded" '
   # "p [p.test]", "p_test [p.test]" and "p.test" are all package p.
   function base(p) { sub(/ \[.*/, "", p); sub(/\.test$/, "", p); sub(/_test$/, "", p); return p }
   # A go:embed pattern as a regexp over the paths below the package directory

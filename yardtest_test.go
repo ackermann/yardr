@@ -1233,6 +1233,45 @@ func TestYardTestSelects(t *testing.T) {
 			t.Errorf("err %v, output:\n%s\n%s\nwant:\n%s", err, first, rest, want)
 		}
 	})
+	// A clone reached through a symlink (/tmp for /private/tmp on a Mac) plans
+	// as it does by its resolved path (yardr-w6mw). git prints the work tree's
+	// physical path, and go list names a package's directory from $PWD when that
+	// names the working directory, so a shell that went in through the link
+	// starts the script with PWD at the link, and no directory then starts with
+	// the root: every row names a package that is no package here. planned's
+	// variables come last, so the PWD here is the script's. The link stands for a
+	// symlinked parent and adds a path component, so the two spellings differ in
+	// length and a cut at the root's length cannot come out right by chance. The
+	// landing is the other reader of those directories: it finds the six
+	// black-box suites by them.
+	t.Run("a clone reached through a symlink", func(t *testing.T) {
+		t.Parallel()
+		fx := rowFixture(t)
+		via := filepath.Join(t.TempDir(), "via")
+		if err := os.Symlink(filepath.Dir(fx.dir), via); err != nil {
+			t.Fatal(err)
+		}
+		through := "PWD=" + filepath.Join(via, filepath.Base(fx.dir))
+		first, rest, err := planned(t, &fx, script, []string{through}, "alone/p.go", "docs/web.md")
+		firstWant := "test: what changed" + fx.since + plainWhy
+		want := strings.Join([]string{
+			pre + "docs/web.md changed: read by the tests of .",
+			testedNoRace + " m.test/m m.test/m/alone",
+		}, "\n")
+		if err != nil || first != firstWant || rest != want {
+			t.Errorf("err %v, output:\n%s\n%s\nwant:\n%s\n%s", err, first, rest, firstWant, want)
+		}
+		first, rest, err = planned(t, &fx, script, []string{"YARDR_LANDING=1", through}, "alone/p.go", "docs/web.md")
+		firstWant = landing + "alone/p.go changed" + fx.since + selectionSuffix
+		want = strings.Join([]string{
+			skipSocket,
+			pre + "docs/web.md changed: read by the tests of .",
+			tested + " m.test/m m.test/m/alone m.test/m/contrib/assembly m.test/m/contrib/deploy m.test/m/contrib/isolated-yard m.test/m/contrib/peer m.test/m/contrib/release m.test/m/contrib/server-yard",
+		}, "\n")
+		if err != nil || first != firstWant || rest != want {
+			t.Errorf("a landing: err %v, output:\n%s\n%s\nwant:\n%s\n%s", err, first, rest, firstWant, want)
+		}
+	})
 }
 
 // What go vet said on 7 Oct 2026, when a file of the shared build cache was
