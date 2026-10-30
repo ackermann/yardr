@@ -840,6 +840,7 @@ agent's help, until `yardr user device rm`. Row by row:
 | `user identity <user> --source <source> [--id <id>] [--key <key>]`: who a user is in a source | Threads opened there for them are assigned to the id or key, and where the source hears by identity a delivery from them is heard as theirs; an ignored id or key is cleared in the same write. The user or the operator sets it back |
 | `settings set <key> <value>`: a setting changed | The yard runs under another number or name. The `operator` setting and the settings of where the yard reads and serves from are no run ask's; `hook_public_url` is one, so a holder that has it approved points later hook registrations at an address of their own |
 | `peer rename <old> <new>`: a link renamed | A linked yard's name here changed: its key, address and what it carries stay, and what waited for it moves with it. Mail to the old name reaches nothing |
+| `peer rm <name>`: a link removed | That link is gone on this side, with its intakes, identities and queued mail; the beads of this yard that were there end as undelivered, and the beads it sent stay and say their link is removed. The other yard stands, and still has this one as a peer until its operator removes it there; its requests are refused here from now on. Only the operator adds it back, from a fresh invite |
 | `bead update <bead> --originator <user>`: a bead's originator changed | A bead is for another user. Whose work it counts as changes; the work stands |
 | `timer rm <id>`: a timer removed | What the timer would have told is not told |
 | `up`: the yard started | Herdr's server, the yard's server and the daemon start where they are not running, with the web view and the BDP server where their addresses are set, and what runs already is left alone. Taken back by `down` |
@@ -856,7 +857,7 @@ is, by mail to the yardmaster.
 
 What it still cannot have run, because no run ask may hold it: adding a
 device or pairing one, adding a link or trusting a name of another yard,
-moving or removing one, giving one reach or exposing one, taking a peer's
+moving one, giving one reach or exposing one, taking a peer's
 identity back, changing the operator, changing through
 which source a user is told or where their address is read from, replacing
 a source from a file or removing one, replacing a hook or removing one,

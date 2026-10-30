@@ -672,7 +672,6 @@ func TestRunAskListRefusals(t *testing.T) {
 		{"peer allow airy --expose mckean", alone},
 		{"peer add north abc", alone},
 		{"peer set airy --url http://airy.example:8790", alone},
-		{"peer rm airy", alone},
 		{"peer identity airy mayor --source linear --rm", "peer identity with --rm is the operator's to type in a terminal"},
 		{"peer allow airy --mail-limit 300 --expose mckean", "is two asks: propose the limit and the rest apart"},
 		{"peer allow airy --mail-limit 300 --reach mckean=mckean", "is two asks: propose the limit and the rest apart"},
@@ -1558,6 +1557,9 @@ func TestRunAskNewRowsRefusals(t *testing.T) {
 		{"settings set operator eve", "may change a setting; this is yardmaster; it is the operator's alone"},
 		{"peer rename airy airy", "has that name already"},
 		{"peer rename eve north", "peer eve: not found"},
+		{"peer rm", "one peer, not 0 words"},
+		{"peer rm airy north", "one peer, not 2 words"},
+		{"peer rm eve", "peer eve: not found"},
 		{"bead update " + y.bead, "it names no --originator"},
 		{"bead update " + y.bead + " --originator eve", "--originator: user eve"},
 		{"timer rm", "one timer, not 0 words"},
@@ -1705,6 +1707,63 @@ func TestRunAskNewRowsAreHeldToTheirCards(t *testing.T) {
 					t.Fatal(err)
 				}
 			}, "peer airy: not found"},
+		{"a peer's address set since", nil,
+			func(y *askYard) string { return "peer rm airy" },
+			func(t *testing.T, y *askYard) {
+				if _, err := y.SetPeerURL(y.ctx, "airy", "https://airy.example.com", "mckean"); err != nil {
+					t.Fatal(err)
+				}
+			}, "was written when the link with airy was called at another address: it was set since (peer_url_set"},
+		{"a peer's intakes changed since",
+			func(t *testing.T, y *askYard) {
+				if err := y.PutDepot(y.ctx, Depot{Name: "web", Base: "origin/main"}, "mckean"); err != nil {
+					t.Fatal(err)
+				}
+				f, err := ParseFlow(arrivalFlow)
+				if err != nil {
+					t.Fatal(err)
+				}
+				f.Name = "incoming"
+				if _, err := y.PutFlow(y.ctx, *f, "mckean"); err != nil {
+					t.Fatal(err)
+				}
+				if err := y.PutGroup(y.ctx, Group{Name: "builders", Runner: "exec", Config: map[string]any{"cmd": "make build"}}, "mckean"); err != nil {
+					t.Fatal(err)
+				}
+			},
+			func(y *askYard) string { return "peer rm airy" },
+			func(t *testing.T, y *askYard) {
+				if _, err := y.SetPeerIntake(y.ctx, "airy", &PeerIntake{Depot: "web", Flow: "incoming"}, "mckean"); err != nil {
+					t.Fatal(err)
+				}
+			}, "was written when the link with airy held other intakes: they were changed since (peer_intake"},
+		{"a peer's identities changed since",
+			func(t *testing.T, y *askYard) {
+				if _, err := y.PutSource(y.ctx, "talk.yaml", talkFile, "mckean"); err != nil {
+					t.Fatal(err)
+				}
+			},
+			func(y *askYard) string { return "peer rm airy" },
+			func(t *testing.T, y *askYard) {
+				if _, err := y.SetPeerIdentity(y.ctx, "airy", PeerIdentity{Source: "talk", ID: "U1", Crew: "mayor"}, "mckean"); err != nil {
+					t.Fatal(err)
+				}
+			}, "was written when the link with airy held other identities: one was set since (peer_identity_set"},
+		{"a peer's identity removed since",
+			func(t *testing.T, y *askYard) {
+				if _, err := y.PutSource(y.ctx, "talk.yaml", talkFile, "mckean"); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := y.SetPeerIdentity(y.ctx, "airy", PeerIdentity{Source: "talk", ID: "U1", Crew: "mayor"}, "mckean"); err != nil {
+					t.Fatal(err)
+				}
+			},
+			func(y *askYard) string { return "peer rm airy" },
+			func(t *testing.T, y *askYard) {
+				if _, err := y.RemovePeerIdentity(y.ctx, "airy", "mayor", "talk", "mckean"); err != nil {
+					t.Fatal(err)
+				}
+			}, "was written when the link with airy held other identities: one was removed since (peer_identity_removed"},
 		{"an originator changed since", nil,
 			func(y *askYard) string { return "bead update " + y.bead + " --originator ada" },
 			originator("mckean"), "is for no one now, and it is for mckean"},

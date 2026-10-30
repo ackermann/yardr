@@ -121,71 +121,6 @@ type AskRun struct {
 	Test string `json:"test,omitempty"`
 }
 
-// AskPack is a pack apply ask's pack as the yard's server read it: its
-// name, its kind, the depot a depot kind would be re-applied to, and
-// the build label the pack is embedded in. A depot kind carries the
-// plan the server built inside the write that stored the ask.
-type AskPack struct {
-	Name  string   `json:"name"`
-	Kind  string   `json:"kind,omitempty"`
-	Depot string   `json:"depot,omitempty"`
-	Label string   `json:"label"`
-	Plan  *AskPlan `json:"plan,omitempty"`
-}
-
-// AskPlan is a depot pack's plan as a card holds it: every object with
-// its action and changes, the governs, and what the plan still asks or
-// refuses, in the store's own words so no view needs internal/pack.
-type AskPlan struct {
-	Objects []AskPlanObject `json:"objects,omitempty"`
-	Governs []AskGovern     `json:"governs,omitempty"`
-	// Missing, Asks, Refused and Edited name what keeps the plan from
-	// asking nothing, each a line the refusal reads back.
-	Missing []string `json:"missing,omitempty"`
-	Asks    []string `json:"asks,omitempty"`
-	Refused []string `json:"refused,omitempty"`
-	Edited  []string `json:"edited,omitempty"`
-	// NonText names a changed file whose old or new bytes are not
-	// text: a card carries text only, so the row refuses it.
-	NonText []string `json:"nontext,omitempty"`
-}
-
-// AskPlanObject is one object of a depot plan.
-type AskPlanObject struct {
-	Kind    string      `json:"kind"`
-	Name    string      `json:"name"`
-	Action  string      `json:"action"`
-	Changes []AskChange `json:"changes,omitempty"`
-	Keeps   []string    `json:"keeps,omitempty"`
-	Shadows []string    `json:"shadows,omitempty"`
-	// Env are the assignments a script group the import creates has
-	// before its script in its cmd, from the pack's env: part of what the
-	// approval has the yard write, so the card shows them and the carrying
-	// out is held to them.
-	Env []string `json:"env,omitempty"`
-	// Of a file: its hashes whole, old and new, and for a create or
-	// change its new text and the unified diff old against new, whole,
-	// for the tap and a terminal.
-	FileOldSHA string `json:"file_old_sha256,omitempty"`
-	FileNewSHA string `json:"file_new_sha256,omitempty"`
-	Text       string `json:"text,omitempty"`
-	Diff       string `json:"diff,omitempty"`
-}
-
-// AskChange is one change of a plan object, as printPlan prints it.
-type AskChange struct {
-	Field string `json:"field"`
-	Old   string `json:"old"`
-	New   string `json:"new"`
-}
-
-// AskGovern is the flow a depot's beads would follow after the plan.
-type AskGovern struct {
-	Type string `json:"type,omitempty"`
-	Flow string `json:"flow"`
-	Now  string `json:"now,omitempty"`
-}
-
 // AskFile is one command file a run ask that adds a source carries: the
 // program as the declaration names it, its whole text, and the SHA-256 of
 // that text. The card renders the text's hash and the approval installs
@@ -464,6 +399,16 @@ var runList = []runCommand{{
 	stale:       (*wtx).peerIdentityStale,
 	run:         runPeerIdentity,
 	link:        func(argv []string) ([]string, string) { return []string{argv[2]}, "say who its own crew is here" },
+}, {
+	words:       []string{"peer", "rm"},
+	use:         "yardr peer rm <name>",
+	description: "Remove a peer: nothing more is taken from it or sent to it",
+	parse:       parsePeerRm,
+	check:       checkPeerRm,
+	card:        (*wtx).peerRmCard,
+	stale:       (*wtx).peerRmStale,
+	run:         runPeerRm,
+	link:        func(argv []string) ([]string, string) { return []string{argv[2]}, "remove its own link" },
 }, {
 	words:       []string{"source", "set"},
 	use:         "yardr source set <source> calls_per_hour=<n>|updates_per_hour=<n>",

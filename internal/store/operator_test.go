@@ -747,10 +747,10 @@ func TestYardShapingIsTheOperatorsAndYardmasters(t *testing.T) {
 	})
 }
 
-// Removing a peer is the operator's alone, as adding one is: a crew
-// member is refused with the alone mark and the link stays, and the
-// operator removes.
-func TestPeerRemoveIsTheOperatorsAlone(t *testing.T) {
+// Removing a peer is the operator's to give, as adding one is alone: a
+// crew member is refused with the askable mark and the link stays, and
+// the operator removes, directly or by approving a run ask.
+func TestPeerRemoveIsTheOperators(t *testing.T) {
 	t.Parallel()
 	api, own := operatorYard(t)
 	ctx := context.Background()
@@ -758,8 +758,8 @@ func TestPeerRemoveIsTheOperatorsAlone(t *testing.T) {
 	// but not its mark, as for every operator-only check, so it is asked
 	// of the store behind the API.
 	err := own.DeletePeer(ctx, "north", "yardmaster")
-	if ask, ok := store.IsOperatorOnly(err); !ok || ask != store.Alone {
-		t.Fatalf("DeletePeer as yardmaster = %v (mark %v, %v), want an operator-only refusal marked alone", err, ask, ok)
+	if ask, ok := store.IsOperatorOnly(err); !ok || ask != store.Askable {
+		t.Fatalf("DeletePeer as yardmaster = %v (mark %v, %v), want an operator-only refusal marked askable", err, ask, ok)
 	}
 	const want = "only the operator (jo) may remove a peer; this is yardmaster"
 	if err := api.DeletePeer(ctx, "north", "yardmaster"); err == nil || err.Error() != want {

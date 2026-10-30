@@ -140,7 +140,7 @@ func TestRunAskIsStoredInTheYardsForm(t *testing.T) {
 func TestRunAskRefusals(t *testing.T) {
 	// Sequential: the package's fake clock (via newAskYard).
 	y, _ := runYard(t)
-	const list = "--run takes a command of the list (" + "yardr peer allow <peer> --send <kinds> | --receive <kinds> | --mail-limit <n>, yardr peer intake <peer> --depot <depot> --flow <flow> [--limit <n>] [--default], yardr peer identity <peer> <crew> --source <source> --id <id>, yardr source set <source> calls_per_hour=<n>|updates_per_hour=<n>, yardr source grant <source> read|<call>|--preset <preset> --group <group>|--crew <crew member> [--as <user>], yardr source add <file>, yardr source ignore <source> --rm <id>, yardr source check <source> --user <user>, yardr pack apply <name>, yardr hook add <name> --source <declared source> [--unknown unknown|allow|ignore], yardr subscribe <user> yardr [--done] [--where <key>=<value>], yardr user set <user> tell=<parts>, yardr user key <user> <source>, yardr user add <name>, yardr user rm <name>, yardr user invite <name> --email <address> [--role operator], yardr user uninvite <name>, yardr crew set <name> open_threads=<sources> | set_state=<sources> | peers=<peers>, yardr crew identity <name> --source <source> [--id <id>] [--key <key>], yardr user identity <user> --source <source> [--id <id>] [--key <key>], yardr settings set <key> <value>, yardr peer rename <old> <new>, yardr bead update <bead> --originator <user>, yardr timer rm <id>, yardr up, yardr crew restart <name> [--for <user>], yardr depot test <depot>, yardr depot base <depot> <base>" + "): anything else is run directly, or typed by the operator in a terminal"
+	const list = "--run takes a command of the list (" + "yardr peer allow <peer> --send <kinds> | --receive <kinds> | --mail-limit <n>, yardr peer intake <peer> --depot <depot> --flow <flow> [--limit <n>] [--default], yardr peer identity <peer> <crew> --source <source> --id <id>, yardr peer rm <name>, yardr source set <source> calls_per_hour=<n>|updates_per_hour=<n>, yardr source grant <source> read|<call>|--preset <preset> --group <group>|--crew <crew member> [--as <user>], yardr source add <file>, yardr source ignore <source> --rm <id>, yardr source check <source> --user <user>, yardr pack apply <name>, yardr hook add <name> --source <declared source> [--unknown unknown|allow|ignore], yardr subscribe <user> yardr [--done] [--where <key>=<value>], yardr user set <user> tell=<parts>, yardr user key <user> <source>, yardr user add <name>, yardr user rm <name>, yardr user invite <name> --email <address> [--role operator], yardr user uninvite <name>, yardr crew set <name> open_threads=<sources> | set_state=<sources> | peers=<peers>, yardr crew identity <name> --source <source> [--id <id>] [--key <key>], yardr user identity <user> --source <source> [--id <id>] [--key <key>], yardr settings set <key> <value>, yardr peer rename <old> <new>, yardr bead update <bead> --originator <user>, yardr timer rm <id>, yardr up, yardr crew restart <name> [--for <user>], yardr depot test <depot>, yardr depot base <depot> <base>" + "): anything else is run directly, or typed by the operator in a terminal"
 	for _, c := range []struct {
 		name  string
 		ask   func(a *Ask)
@@ -1083,6 +1083,142 @@ func TestDepotBaseApproveStale(t *testing.T) {
 		!strings.Contains(err.Error(), "proposes origin/other as the base of the depot web, and it is set already: nothing is left to change") {
 		t.Fatalf("approving applied = %v", err)
 	}
+}
+
+// Removing a link is a routine card: it names the link with its intakes,
+// its identities and what is queued for it, each with its count, and the
+// operator's approval unlinks exactly as the terminal command does. An
+// approval through the peer's own reach is refused, and a link that
+// changed under its name since makes the card stale.
+func TestRunAskPeerRm(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y := intakeYard(t)
+	key := y.peerOf(t, "airy").Key
+	as := "the link with airy (it calls itself yardr, key " + key[:8] + "…)"
+	if _, err := y.SetPeerIntake(y.ctx, "airy", &PeerIntake{Depot: "web", Flow: "incoming", Limit: 3}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.SetPeerIdentity(y.ctx, "airy", PeerIdentity{Source: "talk", ID: "U1", Crew: "mayor"}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.AllowPeer(y.ctx, "airy", PeerAllow{Send: []string{PeerMail}}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	for _, text := range []string{"hello", "again"} {
+		if _, err := y.MailPeer(y.ctx, "scout", "airy", text, "mckean"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	seq := y.ask(t, runAsk("peer rm airy"), "yardmaster")
+	r := y.asked(t, seq)
+	run := *r.Ask.Run
+	want := AskRun{
+		Argv:        []string{"peer", "rm", "airy"},
+		Description: "Remove a peer: nothing more is taken from it or sent to it",
+		Does: []string{
+			"removes " + as + ": its 1 intake, its 1 identity and 2 messages queued for it go.",
+			"Adding it again starts a new link, from a fresh invite the other yard makes: with no intakes, no identities and nothing queued.",
+		},
+		Back:   "yardr peer add airy <invite>",
+		BackBy: "only the operator",
+		Seen: map[string]string{
+			"peer airy":            key,
+			"peer airy address":    seen(""),
+			"peer airy intakes":    seen([]PeerIntake{{Depot: "web", Flow: "incoming", Limit: 3, Default: true}}),
+			"peer airy identities": seen([]PeerIdentity{{Source: "talk", ID: "U1", Crew: "mayor"}}),
+		},
+	}
+	if !slices.Equal(run.Argv, want.Argv) || run.Description != want.Description || !slices.Equal(run.Does, want.Does) ||
+		run.Back != want.Back || run.BackBy != want.BackBy || !sameMap(run.Seen, want.Seen) {
+		t.Fatalf("the ask stores\n%+v\nwant\n%+v", run, want)
+	}
+	if len(r.Ask.Weight) != 0 {
+		t.Fatalf("the ask weighs %v, want a routine card", r.Ask.Weight)
+	}
+	card := r.Lines()
+	for _, line := range []string{
+		"      yardr peer rm airy",
+		"  what the command does: Remove a peer: nothing more is taken from it or sent to it",
+		"  only the operator can take it back: yardr peer add airy <invite>",
+	} {
+		if !slices.Contains(card, line) {
+			t.Errorf("the card lacks %q:\n%s", line, strings.Join(card, "\n"))
+		}
+	}
+
+	// A peer must not remove its own link: an approval of the card
+	// through that peer's reach is refused, and the ask stays open.
+	rm := y.ask(t, runAsk("peer rm north"), "yardmaster")
+	y.refusedOpen(t, WithReach(y.ctx, "north"), rm, "ask 2: this approval arrived through the reach of north (a name of north taken as mckean), and a peer must not remove its own link. Approve it from this yard, in a terminal here or in footplate paired with this yard directly. Nothing ran, and the ask stays open")
+
+	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if done.Result != "airy: removed" {
+		t.Fatalf("the approval printed %q, want %q", done.Result, "airy: removed")
+	}
+	if _, err := y.GetPeer(y.ctx, "airy"); err == nil {
+		t.Fatal("the link is still there after the approval")
+	}
+	evs, err := y.EventsOfKind(y.ctx, "peer_removed", 10)
+	if err != nil || len(evs) != 1 {
+		t.Fatalf("peer_removed events = %d, %v", len(evs), err)
+	}
+	if evs[0].Data["messages_dropped"] != float64(2) {
+		t.Fatalf("peer_removed says %+v, want 2 messages dropped", evs[0].Data)
+	}
+	y.approved(t, evs[0], seq)
+
+	// From this yard the refused card runs.
+	if _, err := y.ApproveAsk(y.ctx, y.bead, rm, "mckean", false, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.GetPeer(y.ctx, "north"); err == nil {
+		t.Fatal("the link with north is still there after the approval from this yard")
+	}
+
+	// The crew that may mail its crew stands on the card too.
+	z := intakeYard(t)
+	sets, err := ParseSets([]string{"peers=airy"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := MergeConfig("yardmaster", map[string]any{}, sets, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := z.PutCrew(z.ctx, CrewMember{Name: "yardmaster", Runner: "herdr", Config: config}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	run = *z.asked(t, z.ask(t, runAsk("peer rm airy"), "yardmaster")).Ask.Run
+	if !slices.Contains(run.Does, "yardmaster may mail its crew now, and can no longer.") {
+		t.Fatalf("the card with a crew member that may mail it says %q", run.Does)
+	}
+
+	// The link is another one under its name.
+	y = intakeYard(t)
+	seq = y.ask(t, runAsk("peer rm airy"), "yardmaster")
+	if err := y.DeletePeer(y.ctx, "airy", "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	k, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "airy-again.key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.AddPeer(y.ctx, Peer{Name: "airy", Key: yardkey.Public(k), Calls: "yardr"}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	y.refusedStale(t, seq, "was written when the link with airy was another: it was removed and made again since")
+
+	// The link is gone.
+	y = intakeYard(t)
+	seq = y.ask(t, runAsk("peer rm airy"), "yardmaster")
+	if err := y.DeletePeer(y.ctx, "airy", "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	y.refusedStale(t, seq, "peer airy: not found")
 }
 
 // A depot test and a depot base use the same permission check as PutDepot

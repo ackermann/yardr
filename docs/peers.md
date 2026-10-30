@@ -478,11 +478,12 @@ narrow, and anyone may.
 Like that check it is a line, not a wall.
 
 **A crew member proposes some of them, and the operator approves.** What a
-link that is made carries, where the beads a peer sends go and who a peer's
-crew member is in a source go on a run ask ([chat.md](chat.md#questions-for-you)),
+link that is made carries, where the beads a peer sends go, who a peer's
+crew member is in a source and removing the link go on a run ask ([chat.md](chat.md#questions-for-you)),
 as `peer rename` does: `peer allow <peer> --send <kinds>` and `--receive
 <kinds>` of any kind (and `--mail-limit`), `peer intake <peer> --depot <depot>
---flow <flow>` and `peer identity <peer> <crew> --source <source> --id <id>`.
+--flow <flow>`, `peer identity <peer> <crew> --source <source> --id <id>` and
+`peer rm <name>`.
 The operator approves the card from this yard, in a terminal or in footplate
 paired with it, and the yard runs the command as the operator, under the
 command's own check. The card says what the command does to the link:
@@ -501,9 +502,13 @@ command's own check. The card says what the command does to the link:
 - `peer identity` says whose word a delivery from the id is then taken as,
   `<crew>@<peer>` and no user of this yard, and what the crew member has in the
   source now.
+- `peer rm` says the link goes with its intakes, its identities and what is
+  queued for it, each with its count, and that adding it again starts a new
+  link from a fresh invite.
 
 **Never through the peer's own reach.** A peer does not widen its own link,
-say where its own beads go or say who its own crew is on its own word. So an
+say where its own beads go, say who its own crew is or remove its own link
+on its own word. So an
 approval of a card about the link with a peer that arrives through that
 peer's reach (`mckean@airy` taken as `mckean`, [reach](#reach-a-users-asks-are-also-sent-to-the-name))
 is refused, whoever it is taken to be, and the ask stays open for the
@@ -522,7 +527,7 @@ and an answer from a peer link cannot approve a run ask. The refusal keeps a
 peer from approving a change to the link it came through.
 
 Still typed in a terminal and refused as a card: `peer add`, a pairing, `peer
-set --url`, `peer rm`, `--expose`, `--trust` and `--reach` (alone or beside a
+set --url`, `--expose`, `--trust` and `--reach` (alone or beside a
 kind), and taking an id back (`peer identity --rm`). A command that only
 narrows (`--no-send`, `--no-receive`, `peer intake --none`) needs no approval,
 and is refused as a card for that.
@@ -1203,11 +1208,11 @@ mail: takes 100 mails and asks an hour, and 800 files
   the limit: the kinds and the limit are two asks. A kind of any sort is
   askable, each way ([who may do what](#who-may-do-what)); `peer allow`
   with `--trust`, `--reach` or `--expose`, alone or beside either, is
-  refused as the operator's alone. So are `peer add`, a pairing, `peer
-  set --url` and `peer rm`: who speaks and answers as a person of this
+  refused as the operator's alone. So are `peer add`, a pairing and `peer
+  set --url`: who speaks and answers as a person of this
   yard, and where another yard is, are the operator's to type in a
   terminal. Renaming the link is proposed the same way (`peer rename
-  <old> <new>`).
+  <old> <new>`), as removing it is (`peer rm <name>`).
 - **One limit for the link, whoever writes.** Mail from [a name trusted as
   a user of this yard](#trusting-a-name-as-a-person-of-this-yard) counts as
   any other mail of that peer, against the same number. The name is the

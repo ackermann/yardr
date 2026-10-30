@@ -5,7 +5,8 @@
 // through a link that is made already is not: what the link carries, where
 // its beads go and who its crew is here are the rows of runList, and the
 // approval of one that came through that peer's own reach is refused
-// (runCommand.link). A link itself, its address and its removal are alone.
+// (runCommand.link). A link itself and its address are alone; removing
+// one is a row of runList.
 package store
 
 import (
@@ -80,12 +81,6 @@ var aloneList = []aloneCommand{{
 	parse: aloneArgs("yardr peer set <name> --url <url>", 0, -1),
 	check: func(ctx context.Context, w *wtx, argv []string, actor string) error {
 		return w.may(ctx, actor, ActChangePeerAddress, Object{Kind: KindPeer, Name: argv[2]})
-	},
-}, {
-	words: []string{"peer", "rm"},
-	parse: aloneArgs("yardr peer rm <name>", 1, 1),
-	check: func(ctx context.Context, w *wtx, argv []string, actor string) error {
-		return w.may(ctx, actor, ActRemovePeer, Object{Kind: KindPeer, Name: argv[2]})
 	},
 }, {
 	words: []string{"user", "device", "add"},

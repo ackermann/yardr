@@ -391,7 +391,6 @@ func TestBeadAskRunPeerIntakeAndIdentity(t *testing.T) {
 		{"peer identity airy mayor --source talk --rm", "peer identity with --rm is the operator's to type in a terminal"},
 		{"peer add north abc", "it is the operator's alone, typed in a terminal and never proposed as a run ask"},
 		{"peer set airy --url http://airy.example:8790", "it is the operator's alone, typed in a terminal and never proposed as a run ask"},
-		{"peer rm airy", "it is the operator's alone, typed in a terminal and never proposed as a run ask"},
 	} {
 		if _, err := y.as(t, "yardmaster", "ask", b.ID, "May I?", "--context", "why", "--run", c.command); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("--run %q = %v, want %q", c.command, err, c.want)
@@ -440,6 +439,100 @@ func TestBeadAskRunPeerIntakeAndIdentity(t *testing.T) {
 	}
 }
 
+// A crew member proposes removing a link as a run ask: prime shows the
+// card with what goes with it, a crew member running peer rm directly is
+// still refused, a link that changed since makes it stale, and the
+// operator's approval from this yard unlinks.
+func TestBeadAskRunPeerRm(t *testing.T) {
+	t.Parallel()
+	key := airyKey(t)
+	y, b := runYardCLI(t, "mac", key)
+	seedIntake(t, y)
+	ctx := context.Background()
+	if _, err := y.st.PutSource(ctx, "talk.yaml", runTalk, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.st.SetPeerIntake(ctx, "airy", &store.PeerIntake{Depot: "web", Flow: "incoming"}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.st.SetPeerIdentity(ctx, "airy", store.PeerIdentity{Source: "talk", ID: "U1", Crew: "mayor"}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.st.AllowPeer(ctx, "airy", store.PeerAllow{Send: []string{store.PeerMail}}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.st.MailPeer(ctx, "scout", "airy", "hello", "jo"); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := y.as(t, "yardmaster", "ask", b.ID, "Unlink airy?",
+		"--context", "its yard was decommissioned", "--run", "peer rm airy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "ask 1 on " + b.ID + " for jo: to approve, yardr peer rm airy\n"; out != want {
+		t.Fatalf("bead ask --run peer rm printed %q, want %q", out, want)
+	}
+	shown, err := run(t, y.a.primeCmd(), "--bead", b.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"      yardr peer rm airy",
+		"  what the command does: Remove a peer: nothing more is taken from it or sent to it",
+		"  the yard says: removes the link with airy (it calls itself yardr, key " + key[:8] + "…): its 1 intake, its 1 identity and 1 message queued for it go.",
+		"  only the operator can take it back: yardr peer add airy <invite>",
+	} {
+		if !strings.Contains(shown, want+"\n") {
+			t.Errorf("prime lacks %q:\n%s", want, shown)
+		}
+	}
+
+	// A crew member running peer rm directly is still refused.
+	y.a.actor = "yardmaster"
+	defer func() { y.a.actor = "jo" }()
+	if _, err := run(t, y.a.peerCmd(), "rm", "airy"); err == nil ||
+		!strings.Contains(err.Error(), "only the operator (jo) may remove a peer; this is yardmaster") {
+		t.Fatalf("peer rm as yardmaster = %v", err)
+	}
+	if _, err := y.st.GetPeer(ctx, "airy"); err != nil {
+		t.Fatalf("the refused removal removed: %v", err)
+	}
+
+	// A link that changed since makes it stale; nothing runs.
+	if _, err := y.st.SetPeerURL(ctx, "airy", "https://airy.example.com", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.as(t, "jo", "answer", b.ID, "1", "--approve"); err == nil ||
+		!strings.Contains(err.Error(), "was written when the link with airy was called at another address") {
+		t.Fatalf("approving stale = %v", err)
+	}
+	if _, err := y.st.GetPeer(ctx, "airy"); err != nil {
+		t.Fatalf("the refused approval removed: %v", err)
+	}
+
+	// Asked again from the link as it stands, the approval unlinks.
+	if _, err := y.as(t, "yardmaster", "ask", b.ID, "Unlink airy?",
+		"--context", "its yard was decommissioned", "--run", "peer rm airy"); err != nil {
+		t.Fatal(err)
+	}
+	out, err = y.as(t, "jo", "answer", b.ID, "2", "--approve")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"jo approved it, and the yard ran it:\n",
+		"airy: removed\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the approval printed %q, which lacks %q", out, want)
+		}
+	}
+	if _, err := y.st.GetPeer(ctx, "airy"); err == nil {
+		t.Fatal("the link is still there after the approval")
+	}
+}
+
 // runCLI are the commands of internal/cli that the rows of the store's
 // list stand for, by the word a stored command begins with.
 func runCLI(a *app) map[string]*cobra.Command {
@@ -472,6 +565,7 @@ func TestRunListIsTheCLIs(t *testing.T) {
 		"yardr peer identity <peer> <crew> --source <source> --id <id>": {
 			"peer identity airy mayor --source talk --id U1",
 		},
+		"yardr peer rm <name>": {"peer rm airy"},
 		"yardr source set <source> calls_per_hour=<n>|updates_per_hour=<n>":                                            {"source set crm updates_per_hour=3"},
 		"yardr source grant <source> read|<call>|--preset <preset> --group <group>|--crew <crew member> [--as <user>]": {"source grant crm note --crew yardmaster --group builders"},
 		"yardr source add <file>": {"source add " + addedFile},
@@ -981,7 +1075,7 @@ func TestRunListIsTheCLIs(t *testing.T) {
 				}
 				var changes []map[string]any
 				for _, kind := range []string{"peer_allowed", "source_set", "source_granted", "subscribed", "user_set",
-					"peer_renamed", "user_added", "user_removed", "crew_defined", "crew_restart_requested", "setting_changed", "timer_removed", "originator_changed", "source_added", "hook_added", "identity_set", "identity_removed", "sender_unignored", "peer_intake", "peer_identity_set"} {
+					"peer_renamed", "peer_removed", "user_added", "user_removed", "crew_defined", "crew_restart_requested", "setting_changed", "timer_removed", "originator_changed", "source_added", "hook_added", "identity_set", "identity_removed", "sender_unignored", "peer_intake", "peer_identity_set"} {
 					evs, err := y.st.EventsOfKind(ctx, kind, 10)
 					if err != nil {
 						t.Fatal(err)
