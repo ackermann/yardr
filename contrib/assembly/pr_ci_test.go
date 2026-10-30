@@ -9,9 +9,10 @@ package assembly
 // commit is made in a clone of that remote, so the depot has it only once
 // pr-ci has fetched it.
 //
-// A yard costs more than a run of the script, so each test has one yard and a
-// bead for each run. A bead in ciwait carries reviewed_head, the commit its
-// reviewer recorded before it reported done, as the pr flow's bead does.
+// Each case has a yard of its own (a copy of the template yard, which is
+// cheaper than a run of the script), so the cases run beside one another. A
+// bead in ciwait carries reviewed_head, the commit its reviewer recorded
+// before it reported done, as the pr flow's bead does.
 
 import (
 	"context"
@@ -212,10 +213,7 @@ func (c *ciYard) checkoutGone(id, what string) {
 // base runs as a command, in the same environment: the landing's switch is set
 // over whatever the group's cmd left in it.
 func TestPRCIJudgesTheHead(t *testing.T) {
-	c := newCIYard(t)
-	depot := c.git(c.repo, "status", "--porcelain") + c.git(c.repo, "rev-parse", "HEAD")
-	refs := c.git(c.repo, "for-each-ref")
-	for i, tc := range []struct {
+	for _, tc := range []struct {
 		what     string
 		files    map[string]string // the pull request's, on top of main
 		stand    map[string]string // the stand-in's, besides the head; {sha} is the pull request's commit
@@ -256,119 +254,124 @@ func TestPRCIJudgesTheHead(t *testing.T) {
 			wants: []string{"the PR changed while CI ran: the tests passed on {short} (the base's copy of ci.sh), but the head is 9b8a7c6 now", "Nothing was recorded"}},
 		{what: "the script stopped while its tests run", stand: map[string]string{"signal-parent": ""}, signal: true},
 	} {
-		id, num := fmt.Sprintf("r-j%d", i), 20+i
-		sha := c.pull(num, tc.files)
-		fill := strings.NewReplacer("{url}", prURLn(num), "{sha}", sha, "{short}", sha[:7], "{SHA}", strings.ToUpper(sha))
-		c.prBeadIn(id, prURLn(num), "ciwait", false)
-		c.reviewed(id, fill.Replace(or(tc.reviewed, or(tc.head, sha))))
-		c.tests(or(tc.tests, "ci.sh"))
-		opts := c.opts
-		if tc.opts != "" {
-			c.opts += " " + tc.opts
-		}
-		stand := map[string]string{}
-		for name, text := range tc.stand {
-			stand[name] = fill.Replace(text)
-		}
-		if tc.signal {
-			c.ciGroup(id, "pr-ci-signal", mergeOpts{head: or(tc.head, sha)}, stand)
-		} else {
-			c.ci(id, mergeOpts{head: or(tc.head, sha)}, stand)
-		}
-		c.opts = opts
-		if tc.signal {
-			if b := c.beadOf(id); b.Stage != "ciwait" || b.Hold {
-				t.Errorf("a stopped script moved the bead: %+v", b)
+		t.Run(tc.what, func(t *testing.T) {
+			c := newCIYard(t)
+			depot := c.git(c.repo, "status", "--porcelain") + c.git(c.repo, "rev-parse", "HEAD")
+			refs := c.git(c.repo, "for-each-ref")
+			id, num := "r-j", 20
+			sha := c.pull(num, tc.files)
+			fill := strings.NewReplacer("{url}", prURLn(num), "{sha}", sha, "{short}", sha[:7], "{SHA}", strings.ToUpper(sha))
+			c.prBeadIn(id, prURLn(num), "ciwait", false)
+			c.reviewed(id, fill.Replace(or(tc.reviewed, or(tc.head, sha))))
+			c.tests(or(tc.tests, "ci.sh"))
+			opts := c.opts
+			if tc.opts != "" {
+				c.opts += " " + tc.opts
 			}
-			c.checkoutGone(id, tc.what)
-			rawPID, err := os.ReadFile(filepath.Join(c.gh, "sleep-pid"))
-			if err != nil {
-				t.Fatalf("the test command did not start its child before stopping the script: %v", err)
+			stand := map[string]string{}
+			for name, text := range tc.stand {
+				stand[name] = fill.Replace(text)
 			}
-			pid, err := strconv.Atoi(strings.TrimSpace(string(rawPID)))
-			if err != nil {
-				t.Fatalf("the test command's child pid %q: %v", rawPID, err)
+			if tc.signal {
+				c.ciGroup(id, "pr-ci-signal", mergeOpts{head: or(tc.head, sha)}, stand)
+			} else {
+				c.ci(id, mergeOpts{head: or(tc.head, sha)}, stand)
 			}
-			deadline := time.Now().Add(testload.Scale(500 * time.Millisecond))
-			for syscall.Kill(pid, 0) == nil && time.Now().Before(deadline) {
-				time.Sleep(20 * time.Millisecond)
-			}
-			if syscall.Kill(pid, 0) == nil {
-				_ = syscall.Kill(pid, syscall.SIGKILL)
-				t.Errorf("the test command's child process %d outlived the stopped script", pid)
-			}
-			continue
-		}
-
-		b := c.has(id, tc.what, tc.stage, tc.hold)
-		if tc.norun && strings.Contains(c.log, "ci.sh of the base") {
-			t.Errorf("%s: the tests ran:\n%s", tc.what, c.log)
-		}
-		for _, want := range tc.wants {
-			c.noted(id, tc.what, fill.Replace(want))
-		}
-		for _, not := range tc.not {
-			if notes := c.notesOf(id); strings.Contains(notes, not) {
-				t.Errorf("%s: a note has %q:\n%s", tc.what, not, notes)
-			}
-		}
-		c.clean(id, tc.what)
-		// Done records the head it passed on, and nothing else does.
-		if got, _ := b.Metadata["ci_head"].(string); (tc.stage == "approved" && got != sha) || (tc.stage != "approved" && b.Metadata["ci_head"] != nil) {
-			t.Errorf("%s: ci_head = %v, want %s only for a bead that passed", tc.what, b.Metadata["ci_head"], sha)
-		}
-		for _, call := range ghCalls(t, c.gh) {
-			if call != "" && !strings.HasPrefix(call, "pr view ") {
-				t.Errorf("%s: gh was asked more than to read the pull request: %q", tc.what, call)
-			}
-		}
-		switch tc.what {
-		case "green":
-			// The depot has the commit now, and the test ran on it, in a
-			// checkout of its own, with the landing's switch set and the App's
-			// inputs left out of its environment. TestMain leaves no YARDR_
-			// variable in this process, so the switch is pr-ci's own.
-			c.git(c.repo, "cat-file", "-e", sha+"^{commit}")
-			if want := "ci.sh of the base: in " + filepath.Join(c.home, "worktrees", "r", id+"-ci") + ", at " + sha + ", landing=1, app=unset"; !strings.Contains(c.log, want) {
-				t.Errorf("green: the log lacks %q:\n%s", want, c.log)
-			}
-			if n := countCalls(t, c.gh, "pr view "); n != 2 {
-				t.Errorf("green: the pull request was read %d times, want twice (before the run, and after it):\n%v", n, ghCalls(t, c.gh))
-			}
-			for what, text := range map[string]string{"the log": c.log, "the notes": c.notesOf(id), "gh's calls": readFile(t, filepath.Join(c.gh, "calls"))} {
-				if strings.Contains(text, mintToken) {
-					t.Errorf("green: %s hold the token", what)
+			c.opts = opts
+			if tc.signal {
+				if b := c.beadOf(id); b.Stage != "ciwait" || b.Hold {
+					t.Errorf("a stopped script moved the bead: %+v", b)
 				}
-			}
-		case "a test command that is no file of the base":
-			// It ran as a command with the same environment: the switch set over
-			// the empty one the group gave it, and the App's inputs gone.
-			if want := "the command: landing=1, app=unset"; !strings.Contains(c.log, want) {
-				t.Errorf("%s: the log lacks %q:\n%s", tc.what, want, c.log)
-			}
-		case "past the deadline":
-			// What the run started is killed with it.
-			raw, err := os.ReadFile(filepath.Join(c.gh, "sleep-pid"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			pid, err := strconv.Atoi(strings.TrimSpace(string(raw)))
-			if err != nil {
-				t.Fatal(err)
-			}
-			for deadline := time.Now().Add(testload.Scale(5 * time.Second)); syscall.Kill(pid, 0) == nil; time.Sleep(20 * time.Millisecond) {
-				if time.Now().After(deadline) {
+				c.checkoutGone(id, tc.what)
+				rawPID, err := os.ReadFile(filepath.Join(c.gh, "sleep-pid"))
+				if err != nil {
+					t.Fatalf("the test command did not start its child before stopping the script: %v", err)
+				}
+				pid, err := strconv.Atoi(strings.TrimSpace(string(rawPID)))
+				if err != nil {
+					t.Fatalf("the test command's child pid %q: %v", rawPID, err)
+				}
+				deadline := time.Now().Add(testload.Scale(500 * time.Millisecond))
+				for syscall.Kill(pid, 0) == nil && time.Now().Before(deadline) {
+					time.Sleep(20 * time.Millisecond)
+				}
+				if syscall.Kill(pid, 0) == nil {
 					_ = syscall.Kill(pid, syscall.SIGKILL)
-					t.Fatalf("the sleep the test script started (pid %d) outlived the deadline's kill", pid)
+					t.Errorf("the test command's child process %d outlived the stopped script", pid)
 				}
 			}
-		}
-	}
-	if after := c.git(c.repo, "status", "--porcelain") + c.git(c.repo, "rev-parse", "HEAD"); after != depot {
-		t.Errorf("the depot's checkout changed:\n%s\n%s", depot, after)
-	}
-	if after := c.git(c.repo, "for-each-ref"); after != refs {
-		t.Errorf("the depot's refs changed:\n%s\n%s", refs, after)
+			if !tc.signal {
+				b := c.has(id, tc.what, tc.stage, tc.hold)
+				if tc.norun && strings.Contains(c.log, "ci.sh of the base") {
+					t.Errorf("%s: the tests ran:\n%s", tc.what, c.log)
+				}
+				for _, want := range tc.wants {
+					c.noted(id, tc.what, fill.Replace(want))
+				}
+				for _, not := range tc.not {
+					if notes := c.notesOf(id); strings.Contains(notes, not) {
+						t.Errorf("%s: a note has %q:\n%s", tc.what, not, notes)
+					}
+				}
+				c.clean(id, tc.what)
+				// Done records the head it passed on, and nothing else does.
+				if got, _ := b.Metadata["ci_head"].(string); (tc.stage == "approved" && got != sha) || (tc.stage != "approved" && b.Metadata["ci_head"] != nil) {
+					t.Errorf("%s: ci_head = %v, want %s only for a bead that passed", tc.what, b.Metadata["ci_head"], sha)
+				}
+				for _, call := range ghCalls(t, c.gh) {
+					if call != "" && !strings.HasPrefix(call, "pr view ") {
+						t.Errorf("%s: gh was asked more than to read the pull request: %q", tc.what, call)
+					}
+				}
+				switch tc.what {
+				case "green":
+					// The depot has the commit now, and the test ran on it, in a
+					// checkout of its own, with the landing's switch set and the App's
+					// inputs left out of its environment. TestMain leaves no YARDR_
+					// variable in this process, so the switch is pr-ci's own.
+					c.git(c.repo, "cat-file", "-e", sha+"^{commit}")
+					if want := "ci.sh of the base: in " + filepath.Join(c.home, "worktrees", "r", id+"-ci") + ", at " + sha + ", landing=1, app=unset"; !strings.Contains(c.log, want) {
+						t.Errorf("green: the log lacks %q:\n%s", want, c.log)
+					}
+					if n := countCalls(t, c.gh, "pr view "); n != 2 {
+						t.Errorf("green: the pull request was read %d times, want twice (before the run, and after it):\n%v", n, ghCalls(t, c.gh))
+					}
+					for what, text := range map[string]string{"the log": c.log, "the notes": c.notesOf(id), "gh's calls": readFile(t, filepath.Join(c.gh, "calls"))} {
+						if strings.Contains(text, mintToken) {
+							t.Errorf("green: %s hold the token", what)
+						}
+					}
+				case "a test command that is no file of the base":
+					// It ran as a command with the same environment: the switch set over
+					// the empty one the group gave it, and the App's inputs gone.
+					if want := "the command: landing=1, app=unset"; !strings.Contains(c.log, want) {
+						t.Errorf("%s: the log lacks %q:\n%s", tc.what, want, c.log)
+					}
+				case "past the deadline":
+					// What the run started is killed with it.
+					raw, err := os.ReadFile(filepath.Join(c.gh, "sleep-pid"))
+					if err != nil {
+						t.Fatal(err)
+					}
+					pid, err := strconv.Atoi(strings.TrimSpace(string(raw)))
+					if err != nil {
+						t.Fatal(err)
+					}
+					for deadline := time.Now().Add(testload.Scale(5 * time.Second)); syscall.Kill(pid, 0) == nil; time.Sleep(20 * time.Millisecond) {
+						if time.Now().After(deadline) {
+							_ = syscall.Kill(pid, syscall.SIGKILL)
+							t.Fatalf("the sleep the test script started (pid %d) outlived the deadline's kill", pid)
+						}
+					}
+				}
+			}
+			if after := c.git(c.repo, "status", "--porcelain") + c.git(c.repo, "rev-parse", "HEAD"); after != depot {
+				t.Errorf("the depot's checkout changed:\n%s\n%s", depot, after)
+			}
+			if after := c.git(c.repo, "for-each-ref"); after != refs {
+				t.Errorf("the depot's refs changed:\n%s\n%s", refs, after)
+			}
+		})
 	}
 
 	// A bot's bump of Go modules, end to end through the real pr flow: the
@@ -380,49 +383,52 @@ func TestPRCIJudgesTheHead(t *testing.T) {
 	// The way back the hold gives is a review: the reviewer records the head it
 	// now reads, pr-ci passes the bump to approved with that head, and merge-pr
 	// merges it. The yard's CI is the only CI asked.
-	ctx, st := context.Background(), rpc.NewClient((&config.Config{Home: c.home}).Socket())
-	id, num := "r-e", 60
-	read := c.pull(num, map[string]string{"go.sum": "bump\n"})
-	c.prBeadIn(id, prURLn(num), "review", false)
-	reviewerDone := func(head string) {
-		t.Helper()
-		if _, err := st.UpdateBead(ctx, id, store.BeadPatch{AddLabels: []string{"merge-ok"}, Metadata: map[string]any{"reviewed_head": head}}, store.Expect{}, "test"); err != nil {
+	t.Run("a bot's bump rebased after its review", func(t *testing.T) {
+		c := newCIYard(t)
+		ctx, st := context.Background(), rpc.NewClient((&config.Config{Home: c.home}).Socket())
+		id, num := "r-e", 60
+		read := c.pull(num, map[string]string{"go.sum": "bump\n"})
+		c.prBeadIn(id, prURLn(num), "review", false)
+		reviewerDone := func(head string) {
+			t.Helper()
+			if _, err := st.UpdateBead(ctx, id, store.BeadPatch{AddLabels: []string{"merge-ok"}, Metadata: map[string]any{"reviewed_head": head}}, store.Expect{}, "test"); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := st.Done(ctx, id, "done", "Ready", store.Expect{Stage: "review"}, "test"); err != nil {
+				t.Fatal(err)
+			}
+			c.has(id, "reported done by the reviewer", "ciwait", false)
+		}
+		reviewerDone(read)
+		pushed := c.pull(num, map[string]string{"go.sum": "bump, rebased\n"})
+		c.ci(id, mergeOpts{head: pushed}, nil)
+		c.has(id, "pushed to after its review, the event lost", "ciwait", true)
+		c.noted(id, "pushed to after its review", "head "+pushed+" is not the reviewed "+read+": needs re-review")
+		c.clean(id, "pushed to after its review")
+		if c.fetched(pushed) {
+			t.Errorf("pr-ci fetched the head %s, which no reviewer read", pushed)
+		}
+		if b := c.beadOf(id); b.Metadata["ci_head"] != nil {
+			t.Errorf("ci_head = %v on a bead held for a head no reviewer read", b.Metadata["ci_head"])
+		}
+		if _, err := st.Advance(ctx, id, "review", store.Expect{}, "test"); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := st.Done(ctx, id, "done", "Ready", store.Expect{Stage: "review"}, "test"); err != nil {
+		if _, err := st.SetHold(ctx, id, false, store.Expect{}, "test"); err != nil {
 			t.Fatal(err)
 		}
-		c.has(id, "reported done by the reviewer", "ciwait", false)
-	}
-	reviewerDone(read)
-	pushed := c.pull(num, map[string]string{"go.sum": "bump, rebased\n"})
-	c.ci(id, mergeOpts{head: pushed}, nil)
-	c.has(id, "pushed to after its review, the event lost", "ciwait", true)
-	c.noted(id, "pushed to after its review", "head "+pushed+" is not the reviewed "+read+": needs re-review")
-	c.clean(id, "pushed to after its review")
-	if c.fetched(pushed) {
-		t.Errorf("pr-ci fetched the head %s, which no reviewer read", pushed)
-	}
-	if b := c.beadOf(id); b.Metadata["ci_head"] != nil {
-		t.Errorf("ci_head = %v on a bead held for a head no reviewer read", b.Metadata["ci_head"])
-	}
-	if _, err := st.Advance(ctx, id, "review", store.Expect{}, "test"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := st.SetHold(ctx, id, false, store.Expect{}, "test"); err != nil {
-		t.Fatal(err)
-	}
-	reviewerDone(pushed)
-	c.ci(id, mergeOpts{head: pushed}, nil)
-	if b := c.has(id, "tested at the head its reviewer read", "approved", false); b.Metadata["ci_head"] != pushed {
-		t.Fatalf("ci_head = %v, want the head its reviewer read, %s", b.Metadata["ci_head"], pushed)
-	}
-	standIn(t, c.gh, mergeOpts{head: pushed}, nil)
-	c.exec("merge-pr", "pr-merges", id)
-	c.mergedAs(c.gh, id, "merged by merge-pr", "merged", "pr merge "+prURLn(num)+" --rebase --delete-branch --match-head-commit "+pushed)
-	if n := countCalls(t, c.gh, "api "); n != 0 {
-		t.Errorf("GitHub was asked for CI, which is the yard's own:\n%v", ghCalls(t, c.gh))
-	}
+		reviewerDone(pushed)
+		c.ci(id, mergeOpts{head: pushed}, nil)
+		if b := c.has(id, "tested at the head its reviewer read", "approved", false); b.Metadata["ci_head"] != pushed {
+			t.Fatalf("ci_head = %v, want the head its reviewer read, %s", b.Metadata["ci_head"], pushed)
+		}
+		standIn(t, c.gh, mergeOpts{head: pushed}, nil)
+		c.exec("merge-pr", "pr-merges", id)
+		c.mergedAs(c.gh, id, "merged by merge-pr", "merged", "pr merge "+prURLn(num)+" --rebase --delete-branch --match-head-commit "+pushed)
+		if n := countCalls(t, c.gh, "api "); n != 0 {
+			t.Errorf("GitHub was asked for CI, which is the yard's own:\n%v", ghCalls(t, c.gh))
+		}
+	})
 }
 
 // What is no verdict on a pull request holds the bead, with a note that says
@@ -436,9 +442,8 @@ func TestPRCIJudgesTheHead(t *testing.T) {
 // or run for the ones that are known before it is, and the bead's checkout is
 // never made.
 func TestPRCIHoldsWhatItCannotJudge(t *testing.T) {
-	c := newCIYard(t)
 	none := ""
-	for i, tc := range []struct {
+	for _, tc := range []struct {
 		what      string
 		stage     string            // the bead's stage, ciwait unless written
 		url       string            // its link, its pull request's unless written
@@ -447,7 +452,7 @@ func TestPRCIHoldsWhatItCannotJudge(t *testing.T) {
 		head      string            // what GitHub says the head is, the pull request's unless written
 		reviewed  string            // what the reviewer recorded, the head GitHub says unless written, - for nothing
 		tests     *string           // the depot's test command, ci.sh unless written
-		change    func()            // changes the group for this run
+		change    func(c *ciYard)   // changes the group for this run
 		wants     []string          // in its notes, {n}, {id} and {sha} being the pull request's number, the bead and the commit
 		not       []string          // and not
 		asked     bool              // GitHub is asked about the pull request
@@ -477,66 +482,69 @@ func TestPRCIHoldsWhatItCannotJudge(t *testing.T) {
 			wants: []string{"origin did not give the commit " + headB, "is origin the repository the pull request is on?"}},
 		{what: "a mint that fails", stand: map[string]string{"mint-fail": "PRIVATE_KEY_VALUE_SHOULD_NOT_ESCAPE"},
 			wants: []string{"minting a token for o/r failed", "not running the tests"}},
-		{what: "no env_file", change: func() { c.envFile, c.opts = "", c.opts+" GITHUB_APP_ID= GITHUB_APP_PRIVATE_KEY_FILE=" },
+		{what: "no env_file", change: func(c *ciYard) { c.envFile, c.opts = "", c.opts+" GITHUB_APP_ID= GITHUB_APP_PRIVATE_KEY_FILE=" },
 			wants: []string{"has no GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY_FILE", "env_file"}},
 	} {
-		id, num := fmt.Sprintf("r-h%d", i), 30+i
-		sha := headA
-		if !tc.bare && tc.url == "" {
-			sha = c.pull(num, map[string]string{"feature.txt": "new\n"})
-		}
-		stage, url, tests := or(tc.stage, "ciwait"), or(tc.url, prURLn(num)), "ci.sh"
-		if tc.tests != nil {
-			tests = *tc.tests
-		}
-		c.prBeadIn(id, url, stage, false)
-		fill := strings.NewReplacer("{n}", strconv.Itoa(num), "{id}", id, "{sha}", sha)
-		if reviewed := or(tc.reviewed, or(tc.head, sha)); reviewed != "-" {
-			c.reviewed(id, fill.Replace(reviewed))
-		}
-		c.tests(tests)
-		envFile, opts := c.envFile, c.opts
-		if tc.change != nil {
-			tc.change()
-		}
-		c.ci(id, mergeOpts{head: or(tc.head, sha)}, tc.stand)
-		c.envFile, c.opts = envFile, opts
+		t.Run(tc.what, func(t *testing.T) {
+			c := newCIYard(t)
+			id, num := "r-h", 30
+			sha := headA
+			if !tc.bare && tc.url == "" {
+				sha = c.pull(num, map[string]string{"feature.txt": "new\n"})
+			}
+			stage, url, tests := or(tc.stage, "ciwait"), or(tc.url, prURLn(num)), "ci.sh"
+			if tc.tests != nil {
+				tests = *tc.tests
+			}
+			c.prBeadIn(id, url, stage, false)
+			fill := strings.NewReplacer("{n}", strconv.Itoa(num), "{id}", id, "{sha}", sha)
+			if reviewed := or(tc.reviewed, or(tc.head, sha)); reviewed != "-" {
+				c.reviewed(id, fill.Replace(reviewed))
+			}
+			c.tests(tests)
+			envFile, opts := c.envFile, c.opts
+			if tc.change != nil {
+				tc.change(c)
+			}
+			c.ci(id, mergeOpts{head: or(tc.head, sha)}, tc.stand)
+			c.envFile, c.opts = envFile, opts
 
-		c.has(id, tc.what, stage, true)
-		for _, want := range tc.wants {
-			c.noted(id, tc.what, fill.Replace(want))
-		}
-		for _, not := range tc.not {
-			if notes := c.notesOf(id); strings.Contains(notes, not) {
-				t.Errorf("%s: a note has %q:\n%s", tc.what, not, notes)
+			c.has(id, tc.what, stage, true)
+			for _, want := range tc.wants {
+				c.noted(id, tc.what, fill.Replace(want))
 			}
-		}
-		c.clean(id, tc.what)
-		if tc.unfetched && c.fetched(sha) {
-			t.Errorf("%s: the depot has the commit %s of the pull request, which pr-ci was to leave where it was", tc.what, sha)
-		}
-		if b := c.beadOf(id); b.Metadata["ci_head"] != nil {
-			t.Errorf("%s: ci_head = %v on a bead no verdict was given for", tc.what, b.Metadata["ci_head"])
-		}
-		if _, err := os.Stat(filepath.Join(c.gh, "calls")); tc.asked != (err == nil) {
-			t.Errorf("%s: GitHub asked = %v, want %v:\n%v", tc.what, err == nil, tc.asked, ghCalls(t, c.gh))
-		}
-		for _, call := range ghCalls(t, c.gh) {
-			if call != "" && !strings.HasPrefix(call, "pr view ") {
-				t.Errorf("%s: gh was asked more than to read the pull request: %q", tc.what, call)
-			}
-		}
-		if tc.what == "a mint that fails" {
-			for where, text := range map[string]string{"log": c.log, "notes": c.notesOf(id)} {
-				if strings.Contains(text, "PRIVATE_KEY_VALUE_SHOULD_NOT_ESCAPE") {
-					t.Errorf("the mint's stderr reached the %s", where)
+			for _, not := range tc.not {
+				if notes := c.notesOf(id); strings.Contains(notes, not) {
+					t.Errorf("%s: a note has %q:\n%s", tc.what, not, notes)
 				}
 			}
-		}
-		// No run reached the tests.
-		if strings.Contains(c.log, "ci.sh of the base") {
-			t.Errorf("%s: the tests ran:\n%s", tc.what, c.log)
-		}
+			c.clean(id, tc.what)
+			if tc.unfetched && c.fetched(sha) {
+				t.Errorf("%s: the depot has the commit %s of the pull request, which pr-ci was to leave where it was", tc.what, sha)
+			}
+			if b := c.beadOf(id); b.Metadata["ci_head"] != nil {
+				t.Errorf("%s: ci_head = %v on a bead no verdict was given for", tc.what, b.Metadata["ci_head"])
+			}
+			if _, err := os.Stat(filepath.Join(c.gh, "calls")); tc.asked != (err == nil) {
+				t.Errorf("%s: GitHub asked = %v, want %v:\n%v", tc.what, err == nil, tc.asked, ghCalls(t, c.gh))
+			}
+			for _, call := range ghCalls(t, c.gh) {
+				if call != "" && !strings.HasPrefix(call, "pr view ") {
+					t.Errorf("%s: gh was asked more than to read the pull request: %q", tc.what, call)
+				}
+			}
+			if tc.what == "a mint that fails" {
+				for where, text := range map[string]string{"log": c.log, "notes": c.notesOf(id)} {
+					if strings.Contains(text, "PRIVATE_KEY_VALUE_SHOULD_NOT_ESCAPE") {
+						t.Errorf("the mint's stderr reached the %s", where)
+					}
+				}
+			}
+			// No run reached the tests.
+			if strings.Contains(c.log, "ci.sh of the base") {
+				t.Errorf("%s: the tests ran:\n%s", tc.what, c.log)
+			}
+		})
 	}
 
 	// A link swapped after the review is a head nobody read as well: the bead
@@ -545,41 +553,44 @@ func TestPRCIHoldsWhatItCannotJudge(t *testing.T) {
 	// reviewer recorded stays with the bead. Only a person swaps the link of a
 	// bead past triage (a bead's agent is refused by store.AddLink), as a
 	// maintainer would by hand: the link removed, the other added.
-	id, num, to := "r-s", 70, 71
-	read := c.pull(num, map[string]string{"feature.txt": "read\n"})
-	swapped := c.pull(to, map[string]string{"feature.txt": "swapped in\n"})
-	c.prBeadIn(id, prURLn(num), "ciwait", false)
-	c.reviewed(id, read)
-	ctx, st := context.Background(), rpc.NewClient((&config.Config{Home: c.home}).Socket())
-	if err := st.RemoveLink(ctx, id, prURLn(num), "test"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := st.AddLink(ctx, id, store.NewLink{Kind: store.LinkTracks, Source: "github", URL: prURLn(to)}, "test"); err != nil {
-		t.Fatal(err)
-	}
-	c.ci(id, mergeOpts{head: swapped}, nil)
-	what := "a link swapped for another pull request's after the review"
-	c.has(id, what, "ciwait", true)
-	c.noted(id, what, "head "+swapped+" is not the reviewed "+read+": needs re-review", "Nothing of "+prURLn(to)+" was fetched or run")
-	c.clean(id, what)
-	if c.fetched(swapped) {
-		t.Errorf("%s: the depot has the commit %s of the pull request now linked, which pr-ci was to leave where it was", what, swapped)
-	}
-	if b := c.beadOf(id); b.Metadata["ci_head"] != nil {
-		t.Errorf("%s: ci_head = %v on a bead no verdict was given for", what, b.Metadata["ci_head"])
-	}
-	// The head GitHub gave is the one of the pull request the link names now.
-	for _, call := range ghCalls(t, c.gh) {
-		if call != "" && !strings.HasPrefix(call, "pr view "+prURLn(to)+" ") {
-			t.Errorf("%s: GitHub was asked %q, want a read of %s alone", what, call, prURLn(to))
+	t.Run("a link swapped for another pull request's after the review", func(t *testing.T) {
+		c := newCIYard(t)
+		id, num, to := "r-s", 70, 71
+		read := c.pull(num, map[string]string{"feature.txt": "read\n"})
+		swapped := c.pull(to, map[string]string{"feature.txt": "swapped in\n"})
+		c.prBeadIn(id, prURLn(num), "ciwait", false)
+		c.reviewed(id, read)
+		ctx, st := context.Background(), rpc.NewClient((&config.Config{Home: c.home}).Socket())
+		if err := st.RemoveLink(ctx, id, prURLn(num), "test"); err != nil {
+			t.Fatal(err)
 		}
-	}
-	if countCalls(t, c.gh, "pr view "+prURLn(to)+" ") == 0 {
-		t.Errorf("%s: GitHub was not asked about %s:\n%v", what, prURLn(to), ghCalls(t, c.gh))
-	}
-	if strings.Contains(c.log, "ci.sh of the base") {
-		t.Errorf("%s: the tests ran:\n%s", what, c.log)
-	}
+		if _, err := st.AddLink(ctx, id, store.NewLink{Kind: store.LinkTracks, Source: "github", URL: prURLn(to)}, "test"); err != nil {
+			t.Fatal(err)
+		}
+		c.ci(id, mergeOpts{head: swapped}, nil)
+		what := "a link swapped for another pull request's after the review"
+		c.has(id, what, "ciwait", true)
+		c.noted(id, what, "head "+swapped+" is not the reviewed "+read+": needs re-review", "Nothing of "+prURLn(to)+" was fetched or run")
+		c.clean(id, what)
+		if c.fetched(swapped) {
+			t.Errorf("%s: the depot has the commit %s of the pull request now linked, which pr-ci was to leave where it was", what, swapped)
+		}
+		if b := c.beadOf(id); b.Metadata["ci_head"] != nil {
+			t.Errorf("%s: ci_head = %v on a bead no verdict was given for", what, b.Metadata["ci_head"])
+		}
+		// The head GitHub gave is the one of the pull request the link names now.
+		for _, call := range ghCalls(t, c.gh) {
+			if call != "" && !strings.HasPrefix(call, "pr view "+prURLn(to)+" ") {
+				t.Errorf("%s: GitHub was asked %q, want a read of %s alone", what, call, prURLn(to))
+			}
+		}
+		if countCalls(t, c.gh, "pr view "+prURLn(to)+" ") == 0 {
+			t.Errorf("%s: GitHub was not asked about %s:\n%v", what, prURLn(to), ghCalls(t, c.gh))
+		}
+		if strings.Contains(c.log, "ci.sh of the base") {
+			t.Errorf("%s: the tests ran:\n%s", what, c.log)
+		}
+	})
 }
 
 // pr-ci takes its binding of a bead to its pull request, and its token, from

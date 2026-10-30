@@ -85,15 +85,19 @@ func TestMain(m *testing.M) {
 		os.Setenv(k, v)
 	}
 	// Each test has a yard, a repository and a server of its own, and most
-	// of its time is waiting for the processes it starts. One per available
-	// processor keeps every processor's wait overlapped; six at least, so a
-	// small machine still overlaps the waits. GOMAXPROCS accounts for CPU
-	// quotas that NumCPU does not. The budget is judged on the run
+	// of its time is waiting for the processes it starts: ten per
+	// available processor keep every processor's waits overlapped, where
+	// one per processor left the suite over its budget with the slots
+	// idle in those waits (ten measured at the plateau: more bought
+	// nothing, the processors themselves being the limit then); six at
+	// least, so a small machine still overlaps the waits. GOMAXPROCS
+	// accounts for CPU quotas that NumCPU does not.
+	// The budget is judged on the run
 	// alone under the race lock, where this package has no company; in
 	// the full run its company is the leg's own other packages, not
 	// another whole suite, since one race leg holds the machine-wide
 	// lock at a time.
-	flag.Set("test.parallel", strconv.Itoa(max(6, runtime.GOMAXPROCS(0))))
+	flag.Set("test.parallel", strconv.Itoa(max(6, 10*runtime.GOMAXPROCS(0))))
 	// A child this binary's tests start reuses the yardr its parent built:
 	// building it again costs a dozen seconds under load, for the same
 	// binary. The variable names no YARDR_ variable, which TestMain strips.

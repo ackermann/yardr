@@ -180,8 +180,6 @@ const (
 // squash changes; the commits' messages without their trailers; and the
 // footer. Each case is a bead and a branch of commits.
 func TestSquashMessage(t *testing.T) {
-	y := newYard(t)
-	y.commitMsg(y.repo, "base\n", map[string]string{"internal/store/old.go": "old\n"})
 	type commit struct {
 		msg   string
 		files map[string]string
@@ -255,33 +253,37 @@ func TestSquashMessage(t *testing.T) {
 			body:    "x\n\nRefs: https://github.com/acme/widgets/issues/7?a=1&b=2\nRefs: https://linear.app/acme/issue/ACM-9\nYardr-Bead: r-9",
 		},
 	} {
-		y.beadWith(c.id, c.title, c.typ, c.labels)
-		wt := filepath.Join(t.TempDir(), c.id)
-		y.git(y.repo, "worktree", "add", "-q", "-b", "yard/"+c.id, wt, "main")
-		for _, k := range c.commits {
-			if k.merge {
-				y.commit(y.repo, "m-"+c.id+".txt", "main moved\n")
-				y.git(wt, "merge", "-q", "--no-ff", "-m", "Merge main", "main")
-				continue
-			}
-			if k.mv != ([2]string{}) {
-				if err := os.MkdirAll(filepath.Join(wt, filepath.Dir(k.mv[1])), 0o755); err != nil {
-					t.Fatal(err)
+		t.Run(c.id, func(t *testing.T) {
+			y := newYard(t)
+			y.commitMsg(y.repo, "base\n", map[string]string{"internal/store/old.go": "old\n"})
+			y.beadWith(c.id, c.title, c.typ, c.labels)
+			wt := filepath.Join(t.TempDir(), c.id)
+			y.git(y.repo, "worktree", "add", "-q", "-b", "yard/"+c.id, wt, "main")
+			for _, k := range c.commits {
+				if k.merge {
+					y.commit(y.repo, "m-"+c.id+".txt", "main moved\n")
+					y.git(wt, "merge", "-q", "--no-ff", "-m", "Merge main", "main")
+					continue
 				}
-				y.git(wt, "mv", k.mv[0], k.mv[1])
+				if k.mv != ([2]string{}) {
+					if err := os.MkdirAll(filepath.Join(wt, filepath.Dir(k.mv[1])), 0o755); err != nil {
+						t.Fatal(err)
+					}
+					y.git(wt, "mv", k.mv[0], k.mv[1])
+				}
+				y.commitMsg(wt, k.msg, k.files)
 			}
-			y.commitMsg(wt, k.msg, k.files)
-		}
-		bin := yardrBin
-		if c.links != "" {
-			bin = fakeLinkLister(t, c.links)
-		}
+			bin := yardrBin
+			if c.links != "" {
+				bin = fakeLinkLister(t, c.links)
+			}
 
-		subject, body := y.squashMessage(bin, y.repo, c.id, "main", "yard/"+c.id)
+			subject, body := y.squashMessage(bin, y.repo, c.id, "main", "yard/"+c.id)
 
-		if subject != c.subject || body != c.body {
-			t.Errorf("%s:\nsubject %q\nwant    %q\nbody:\n%s\nwant:\n%s", c.id, subject, c.subject, body, c.body)
-		}
+			if subject != c.subject || body != c.body {
+				t.Errorf("%s:\nsubject %q\nwant    %q\nbody:\n%s\nwant:\n%s", c.id, subject, c.subject, body, c.body)
+			}
+		})
 	}
 }
 

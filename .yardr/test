@@ -1318,8 +1318,8 @@ summary() {
   echo "test: sh .yardr/test @ $(git rev-parse --short HEAD): $res, $pkgs_ok packages ok, $pkgs_failed failed, $(($(date +%s) - started)) s, waited $waited_total s"
 }
 # The packages over the 60 s budget (docs/testing.md R1): a directory, the
-# bead that brings it under, and why it is over. Two measured rows have fix
-# beads; the remaining row is the quiet run's yard-shape matrix, an acceptance
+# bead that brings it under, and why it is over. One measured row has a fix
+# bead; the remaining row is the quiet run's yard-shape matrix, an acceptance
 # test that runs only where YARDR_QUIET_RUN is set.
 # A race leg that runs one of these over 60 s still passes;
 # any other package over 60 s is run again alone, and fails the run when
@@ -1332,7 +1332,6 @@ summary() {
 # it, but delete it anyway.
 over60='
 contrib/isolated-yard yardr-n9ss TestYardShapes (the yard-shape matrix) walks three yards, 35-50 s beside one another, and runs only where YARDR_QUIET_RUN is set, which is the quiet run (docs/testing.md R6); the package is 18 s without it. No bead brings it under: it is an acceptance test, not a slow unit test
-contrib/assembly yardr-3426 The assembly suite takes 100.9 s in the race leg and 109.9 s alone on a quiet machine (29 Oct, load at or under 10 cores); landings pass it only as loaded. The fix bead profiles it and brings it under 60 s
 internal/cli yardr-wdjh The cli suite takes 79.4 s in the race leg and 61.0 s alone on a quiet machine (29 Oct, load at or under 10 cores); landings pass it only as loaded. The fix bead profiles it and brings it under 60 s
 '
 # machineload prints the machine's one-minute load average and core count,

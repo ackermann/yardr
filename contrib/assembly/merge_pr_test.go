@@ -7,10 +7,10 @@ package assembly
 // request's state in a directory, refuses a call that does not carry that
 // token, and merges with GitHub's rule for --match-head-commit.
 //
-// A yard costs more than a run of the script, so each test has one yard and
-// runs merge-pr in it once for every case: on a bead of its own where the run
-// ends the bead (a merge), else on the same bead again after the stand-in
-// changed, unheld first as a maintainer does after acting on GitHub.
+// Each case has a yard of its own (a copy of the template yard, which is
+// cheaper than a run of the script), so the cases run beside one another:
+// on a bead of its own where the run ends the bead (a merge), else on a
+// bead it holds and a maintainer unholds before running it again.
 
 import (
 	"context"
@@ -341,9 +341,7 @@ func (y *yard) mergedAs(gh, id, what, want string, merges ...string) {
 // else: not in an argument, the log or a note, and the depot's checkout is
 // never touched.
 func TestMergePRMerges(t *testing.T) {
-	y, gh := mergeYard(t)
-	depot := y.git(y.repo, "status", "--porcelain") + y.git(y.repo, "rev-parse", "HEAD")
-	for i, c := range []struct {
+	for _, c := range []struct {
 		what   string
 		o      mergeOpts
 		said   bool              // a maintainer says yes to the head, label and sha, before the run
@@ -366,67 +364,69 @@ func TestMergePRMerges(t *testing.T) {
 		{"a mint that is the github source's own", mergeOpts{}, false, nil, "merged",
 			"--rebase --delete-branch --match-head-commit " + headA, "merged %s at " + headA + " (rebase)", true},
 	} {
-		id, url := fmt.Sprintf("r-m%d", i), prURLn(10+i)
-		y.prBead(id, url, !c.said)
-		if c.said {
-			y.yardr("bead", "update", id, "--add-label", "merge-ok", "--meta", "merge_head="+c.o.yes)
-		}
-		if c.source {
-			decl := filepath.Join(t.TempDir(), "github.yaml")
-			if err := os.WriteFile(decl, []byte(githubDecl), 0o644); err != nil {
-				t.Fatal(err)
+		t.Run(c.what, func(t *testing.T) {
+			y, gh := mergeYard(t)
+			depot := y.git(y.repo, "status", "--porcelain") + y.git(y.repo, "rev-parse", "HEAD")
+			id, url := "r-m", prURLn(10)
+			y.prBead(id, url, !c.said)
+			if c.said {
+				y.yardr("bead", "update", id, "--add-label", "merge-ok", "--meta", "merge_head="+c.o.yes)
 			}
-			y.yardr("source", "add", decl)
-			y.yardr("source", "set", "github", "mint_command="+filepath.Join(gh, "bin", "github-mint")+" --from-source")
-			y.opts = ""
-		}
-
-		y.mergePR(gh, id, c.o, c.files)
-
-		var merges []string
-		if c.flags != "" {
-			merges = []string{"pr merge " + url + " " + c.flags}
-		}
-		y.mergedAs(gh, id, c.what, c.want, merges...)
-		if note := y.lastNoteOf(id); !strings.Contains(note, fmt.Sprintf(c.note, url)) {
-			t.Errorf("%s: no note with %q:\n%s", c.what, fmt.Sprintf(c.note, url), note)
-		}
-		// Every run that asked GitHub asked the mint, for the repository of
-		// the pull request and from the id and key file the group's env_file
-		// gave, and asked GitHub nothing of CI, which is the yard's own: no
-		// call of the api, where the check runs are.
-		if c.flags != "" {
-			var asked struct {
-				Inputs map[string]string `json:"inputs"`
-				Scope  string            `json:"scope"`
-			}
-			if err := json.Unmarshal([]byte(readFile(t, filepath.Join(gh, "mint-stdin"))), &asked); err != nil {
-				t.Fatalf("%s: %v", c.what, err)
-			}
-			if asked.Scope != "o/r" || asked.Inputs["GITHUB_APP_ID"] != "123456" || asked.Inputs["GITHUB_APP_PRIVATE_KEY_FILE"] != filepath.Join(gh, "app.pem") {
-				t.Errorf("%s: the mint was asked %+v, want scope o/r and the env_file's id and key file", c.what, asked)
-			}
-			wantArgs := "--from-group\n"
 			if c.source {
-				wantArgs = "--from-source\n"
+				decl := filepath.Join(t.TempDir(), "github.yaml")
+				if err := os.WriteFile(decl, []byte(githubDecl), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				y.yardr("source", "add", decl)
+				y.yardr("source", "set", "github", "mint_command="+filepath.Join(gh, "bin", "github-mint")+" --from-source")
+				y.opts = ""
 			}
-			if got := readFile(t, filepath.Join(gh, "mint-args")); got != wantArgs {
-				t.Errorf("%s: mint arguments = %q, want %q", c.what, got, wantArgs)
+
+			y.mergePR(gh, id, c.o, c.files)
+
+			var merges []string
+			if c.flags != "" {
+				merges = []string{"pr merge " + url + " " + c.flags}
 			}
-			if n := countCalls(t, gh, "api "); n != 0 {
-				t.Errorf("%s: GitHub was asked for CI, which is the yard's own, %d times:\n%v", c.what, n, ghCalls(t, gh))
+			y.mergedAs(gh, id, c.what, c.want, merges...)
+			if note := y.lastNoteOf(id); !strings.Contains(note, fmt.Sprintf(c.note, url)) {
+				t.Errorf("%s: no note with %q:\n%s", c.what, fmt.Sprintf(c.note, url), note)
 			}
-		}
-		if i == 0 {
+			// Every run that asked GitHub asked the mint, for the repository of
+			// the pull request and from the id and key file the group's env_file
+			// gave, and asked GitHub nothing of CI, which is the yard's own: no
+			// call of the api, where the check runs are.
+			if c.flags != "" {
+				var asked struct {
+					Inputs map[string]string `json:"inputs"`
+					Scope  string            `json:"scope"`
+				}
+				if err := json.Unmarshal([]byte(readFile(t, filepath.Join(gh, "mint-stdin"))), &asked); err != nil {
+					t.Fatalf("%s: %v", c.what, err)
+				}
+				if asked.Scope != "o/r" || asked.Inputs["GITHUB_APP_ID"] != "123456" || asked.Inputs["GITHUB_APP_PRIVATE_KEY_FILE"] != filepath.Join(gh, "app.pem") {
+					t.Errorf("%s: the mint was asked %+v, want scope o/r and the env_file's id and key file", c.what, asked)
+				}
+				wantArgs := "--from-group\n"
+				if c.source {
+					wantArgs = "--from-source\n"
+				}
+				if got := readFile(t, filepath.Join(gh, "mint-args")); got != wantArgs {
+					t.Errorf("%s: mint arguments = %q, want %q", c.what, got, wantArgs)
+				}
+				if n := countCalls(t, gh, "api "); n != 0 {
+					t.Errorf("%s: GitHub was asked for CI, which is the yard's own, %d times:\n%v", c.what, n, ghCalls(t, gh))
+				}
+			}
 			for what, text := range map[string]string{"the log": y.log, "the notes": y.notesOf(id), "gh's calls": readFile(t, filepath.Join(gh, "calls"))} {
 				if strings.Contains(text, mintToken) {
 					t.Errorf("%s hold the token", what)
 				}
 			}
-		}
-	}
-	if after := y.git(y.repo, "status", "--porcelain") + y.git(y.repo, "rev-parse", "HEAD"); after != depot {
-		t.Errorf("the depot's checkout changed:\n%s\n%s", depot, after)
+			if after := y.git(y.repo, "status", "--porcelain") + y.git(y.repo, "rev-parse", "HEAD"); after != depot {
+				t.Errorf("the depot's checkout changed:\n%s\n%s", depot, after)
+			}
+		})
 	}
 }
 
@@ -436,8 +436,6 @@ func TestMergePRMerges(t *testing.T) {
 // was pushed to after the yes is held too, naming both commits, and merged
 // only after they say yes again, to the head they looked at then.
 func TestMergePRHoldsForTheYes(t *testing.T) {
-	y, gh := mergeYard(t)
-	y.prBead("r-p", prURL, true)
 	yes := "yardr bead update r-p --add-label merge-ok --meta merge_head="
 	for _, c := range []struct {
 		what  string
@@ -457,19 +455,29 @@ func TestMergePRHoldsForTheYes(t *testing.T) {
 		{"a yes with no sha in it", mergeOpts{human: true, headOwner: "mallory", yes: "looks good"},
 			[]string{"not a full commit sha", yes}},
 	} {
-		y.mergePR(gh, "r-p", c.o, nil)
+		t.Run(c.what, func(t *testing.T) {
+			y, gh := mergeYard(t)
+			y.prBead("r-p", prURL, true)
+			y.mergePR(gh, "r-p", c.o, nil)
 
-		y.held(gh, "r-p", c.what, 0, c.wants...)
-		if n := countCalls(t, gh, "api "); n != 0 {
-			t.Errorf("%s: GitHub was asked about a pull request waiting for a yes:\n%v", c.what, ghCalls(t, gh))
-		}
+			y.held(gh, "r-p", c.what, 0, c.wants...)
+			if n := countCalls(t, gh, "api "); n != 0 {
+				t.Errorf("%s: GitHub was asked about a pull request waiting for a yes:\n%v", c.what, ghCalls(t, gh))
+			}
+		})
 	}
 
 	// They look at the new head and say yes to it: the pull request is
 	// merged at that head.
-	y.yardr("bead", "update", "r-p", "--add-label", "merge-ok", "--meta", "merge_head="+headB)
-	y.mergePR(gh, "r-p", mergeOpts{human: true, headOwner: "mallory", head: headB, yes: headB}, nil)
-	y.mergedAs(gh, "r-p", "the new yes", "merged", "pr merge "+prURL+" --merge --match-head-commit "+headB)
+	t.Run("saying yes to the new head merges it", func(t *testing.T) {
+		y, gh := mergeYard(t)
+		y.prBead("r-p", prURL, true)
+		y.mergePR(gh, "r-p", mergeOpts{human: true, headOwner: "mallory", head: headB, yes: headA}, nil)
+		y.held(gh, "r-p", "a fork pushed to after the yes", 0, "moved since your yes (yes at 4f2c9e1, head now 9b8a7c6)")
+		y.yardr("bead", "update", "r-p", "--add-label", "merge-ok", "--meta", "merge_head="+headB)
+		y.mergePR(gh, "r-p", mergeOpts{human: true, headOwner: "mallory", head: headB, yes: headB}, nil)
+		y.mergedAs(gh, "r-p", "the new yes", "merged", "pr merge "+prURL+" --merge --match-head-commit "+headB)
+	})
 }
 
 // The yard's CI must have passed on the commit that is merged: the bead's
@@ -480,8 +488,6 @@ func TestMergePRHoldsForTheYes(t *testing.T) {
 // note says what CI passed on and how to have it run again, on a head a
 // reviewer read. The commit is the same in any case of its letters.
 func TestMergePRHoldsUnlessTheYardsCIPassed(t *testing.T) {
-	y, gh := mergeYard(t)
-	y.prBead("r-p", prURL, true)
 	again := "yardr bead advance r-p --to ciwait, then yardr bead unhold r-p"
 	for _, c := range []struct {
 		what  string
@@ -499,17 +505,25 @@ func TestMergePRHoldsUnlessTheYardsCIPassed(t *testing.T) {
 		{"a fork pushed to after the run, and the yes said to the new head", mergeOpts{human: true, headOwner: "mallory", head: headB, yes: headB, ci: headA},
 			[]string{"CI has not passed on 9b8a7c6 (yard CI passed 4f2c9e1)", again}},
 	} {
-		y.mergePR(gh, "r-p", c.o, nil)
+		t.Run(c.what, func(t *testing.T) {
+			y, gh := mergeYard(t)
+			y.prBead("r-p", prURL, true)
+			y.mergePR(gh, "r-p", c.o, nil)
 
-		y.held(gh, "r-p", c.what, 0, c.wants...)
-		if n := countCalls(t, gh, "api "); n != 0 {
-			t.Errorf("%s: GitHub was asked for CI, which is the yard's own:\n%v", c.what, ghCalls(t, gh))
-		}
+			y.held(gh, "r-p", c.what, 0, c.wants...)
+			if n := countCalls(t, gh, "api "); n != 0 {
+				t.Errorf("%s: GitHub was asked for CI, which is the yard's own:\n%v", c.what, ghCalls(t, gh))
+			}
+		})
 	}
 
 	// The commit it passed on, in capitals: the same commit.
-	y.mergePR(gh, "r-p", mergeOpts{ci: strings.ToUpper(headA)}, nil)
-	y.mergedAs(gh, "r-p", "a ci_head in capitals", "merged", "pr merge "+prURL+" --rebase --delete-branch --match-head-commit "+headA)
+	t.Run("a ci_head in capitals", func(t *testing.T) {
+		y, gh := mergeYard(t)
+		y.prBead("r-p", prURL, true)
+		y.mergePR(gh, "r-p", mergeOpts{ci: strings.ToUpper(headA)}, nil)
+		y.mergedAs(gh, "r-p", "a ci_head in capitals", "merged", "pr merge "+prURL+" --rebase --delete-branch --match-head-commit "+headA)
+	})
 }
 
 // What GitHub refuses holds the bead with its words, and a refusal of the App
@@ -520,15 +534,13 @@ func TestMergePRHoldsUnlessTheYardsCIPassed(t *testing.T) {
 // none to mint with hold the bead with the reason, which is the mint's own
 // words and never a token.
 func TestMergePRHoldsWhatGitHubRefuses(t *testing.T) {
-	y, gh := mergeYard(t)
-	y.prBead("r-p", prURL, true)
 	for _, c := range []struct {
 		what   string
 		files  map[string]string
 		asked  int // merges asked of GitHub
 		wants  []string
-		tokens bool   // the case has no token: GitHub is not asked at all
-		change func() // changes the group for this run
+		tokens bool          // the case has no token: GitHub is not asked at all
+		change func(y *yard) // changes the group for this run
 	}{
 		{what: "the App without Contents", files: map[string]string{"refuse": "HTTP 403: Resource not accessible by integration (https://api.github.com/repos/o/r/pulls/7/merge)"}, asked: 1,
 			wants: []string{"GitHub refused the yard's App on o/r", "Contents and Workflows read and write", "Resource not accessible by integration"}},
@@ -545,35 +557,39 @@ func TestMergePRHoldsWhatGitHubRefuses(t *testing.T) {
 		{what: "no env_file", tokens: true,
 			wants: []string{"has no GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY_FILE", "env_file"},
 			// Whatever the machine running the test exports is not the group's.
-			change: func() { y.envFile, y.opts = "", y.opts+" GITHUB_APP_ID= GITHUB_APP_PRIVATE_KEY_FILE=" }},
+			change: func(y *yard) { y.envFile, y.opts = "", y.opts+" GITHUB_APP_ID= GITHUB_APP_PRIVATE_KEY_FILE=" }},
 		{what: "no mint anywhere", tokens: true,
 			wants:  []string{"the github source has no mint_command", "YARDR_GITHUB_MINT", "yardr source set github mint_command="},
-			change: func() { y.opts = "" }},
+			change: func(y *yard) { y.opts = "" }},
 	} {
-		envFile, opts := y.envFile, y.opts
-		if c.change != nil {
-			c.change()
-		}
-		y.mergePR(gh, "r-p", mergeOpts{}, c.files)
-		y.envFile, y.opts = envFile, opts
+		t.Run(c.what, func(t *testing.T) {
+			y, gh := mergeYard(t)
+			y.prBead("r-p", prURL, true)
+			envFile, opts := y.envFile, y.opts
+			if c.change != nil {
+				c.change(y)
+			}
+			y.mergePR(gh, "r-p", mergeOpts{}, c.files)
+			y.envFile, y.opts = envFile, opts
 
-		y.held(gh, "r-p", c.what, c.asked, c.wants...)
-		if c.what == "a mint that fails" {
-			for where, text := range map[string]string{"log": y.log, "notes": y.notesOf("r-p")} {
-				if strings.Contains(text, "PRIVATE_KEY_VALUE_SHOULD_NOT_ESCAPE") {
-					t.Errorf("the mint's stderr reached the %s", where)
+			y.held(gh, "r-p", c.what, c.asked, c.wants...)
+			if c.what == "a mint that fails" {
+				for where, text := range map[string]string{"log": y.log, "notes": y.notesOf("r-p")} {
+					if strings.Contains(text, "PRIVATE_KEY_VALUE_SHOULD_NOT_ESCAPE") {
+						t.Errorf("the mint's stderr reached the %s", where)
+					}
 				}
 			}
-		}
-		if _, err := os.Stat(filepath.Join(gh, "calls")); c.tokens && err == nil {
-			t.Errorf("%s: GitHub was asked with no token:\n%v", c.what, ghCalls(t, gh))
-		}
-		if c.asked == 1 {
-			// The merge is asked for once, with the commit looked at.
-			if want := "pr merge " + prURL + " --rebase --delete-branch --match-head-commit " + headA; countCalls(t, gh, want) != 1 {
-				t.Errorf("%s: %q not called once:\n%v", c.what, want, ghCalls(t, gh))
+			if _, err := os.Stat(filepath.Join(gh, "calls")); c.tokens && err == nil {
+				t.Errorf("%s: GitHub was asked with no token:\n%v", c.what, ghCalls(t, gh))
 			}
-		}
+			if c.asked == 1 {
+				// The merge is asked for once, with the commit looked at.
+				if want := "pr merge " + prURL + " --rebase --delete-branch --match-head-commit " + headA; countCalls(t, gh, want) != 1 {
+					t.Errorf("%s: %q not called once:\n%v", c.what, want, ghCalls(t, gh))
+				}
+			}
+		})
 	}
 }
 
@@ -582,8 +598,6 @@ func TestMergePRHoldsWhatGitHubRefuses(t *testing.T) {
 // one tracking something that is not a pull request address are held, and
 // nothing is asked of GitHub.
 func TestMergePRRefusesWhatItWasNotGiven(t *testing.T) {
-	y, gh := mergeYard(t)
-	standIn(t, gh, mergeOpts{}, nil)
 	for _, c := range []struct {
 		id, url string
 		label   bool
@@ -594,14 +608,18 @@ func TestMergePRRefusesWhatItWasNotGiven(t *testing.T) {
 		{"r-issue", "https://github.com/o/r/issues/7", true, []string{"which is not a pull request address"}},
 		{"r-files", "https://github.com/o/r/pull/7/files", true, []string{"which is not a pull request address"}},
 	} {
-		y.prBead(c.id, c.url, c.label)
+		t.Run(c.id, func(t *testing.T) {
+			y, gh := mergeYard(t)
+			standIn(t, gh, mergeOpts{}, nil)
+			y.prBead(c.id, c.url, c.label)
 
-		y.exec("merge-pr", "pr-merges", c.id)
+			y.exec("merge-pr", "pr-merges", c.id)
 
-		y.held(gh, c.id, c.id, 0, c.wants...)
-		if _, err := os.Stat(filepath.Join(gh, "calls")); err == nil {
-			t.Errorf("%s: GitHub was asked for a bead the yard may not merge:\n%v", c.id, ghCalls(t, gh))
-		}
+			y.held(gh, c.id, c.id, 0, c.wants...)
+			if _, err := os.Stat(filepath.Join(gh, "calls")); err == nil {
+				t.Errorf("%s: GitHub was asked for a bead the yard may not merge:\n%v", c.id, ghCalls(t, gh))
+			}
+		})
 	}
 }
 
