@@ -205,7 +205,7 @@ func TestStartCrewSetsTrustEnv(t *testing.T) {
 	if err := os.WriteFile(homeEnv, []byte("HOME="+home+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	h, calls, _ = envHerdr(t, "")
+	h, _, _ = envHerdr(t, "")
 	h.YardHome = home
 	r = store.CrewMember{Name: "yardmaster", Dir: home,
 		Config: map[string]any{"kind": "claude", "env_file": homeEnv}}

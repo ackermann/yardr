@@ -933,12 +933,12 @@ func (w *wtx) pendingHandoff(r *CrewMember, session string) (*Note, error) {
 	// before it is that last.
 	prefix := []byte(row.UUID + "\x00")
 	c := w.Bucket(bNotes).Cursor()
-	k, raw := c.Seek([]byte(row.UUID + "\x01"))
+	k, _ := c.Seek([]byte(row.UUID + "\x01"))
+	step := c.Prev
 	if k == nil {
-		k, raw = c.Last()
-	} else {
-		k, raw = c.Prev()
+		step = c.Last
 	}
+	k, raw := step()
 	for ; k != nil && bytes.HasPrefix(k, prefix); k, raw = c.Prev() {
 		var n Note
 		if err := json.Unmarshal(raw, &n); err != nil {

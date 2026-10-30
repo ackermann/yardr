@@ -647,7 +647,7 @@ func TestReleasedSessionFallsBackToTheElseGroupOnItsModelsWindow(t *testing.T) {
 	}
 
 	// A shared window used up still sends every bead to b.
-	s, r, d, _, b1, _, _ = elseYard(t, "a", codex, kimiUsed, codexOpen)
+	s, _, d, _, b1, _, _ = elseYard(t, "a", codex, kimiUsed, codexOpen)
 	_, err = s.Release(ctx, b1.ID, "moved to another group", store.Expect{}, "me")
 	must(t, err)
 	_, err = s.SetHold(ctx, b1.ID, true, store.Expect{}, "me")

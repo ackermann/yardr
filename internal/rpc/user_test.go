@@ -959,9 +959,9 @@ func TestUserStreamHoldsBackUntoldSettingsValues(t *testing.T) {
 // stands in no row.
 func TestUserTeammates(t *testing.T) {
 	ctx := context.Background()
-	st, u, token := userYard(t)
+	st, _, token := userYard(t)
 	var logged bytes.Buffer
-	u = NewUserServer(st, func(context.Context) string { return "south" }, slog.New(slog.NewTextHandler(&logged, nil)))
+	u := NewUserServer(st, func(context.Context) string { return "south" }, slog.New(slog.NewTextHandler(&logged, nil)))
 	h := u.Handler()
 	tablet, err := st.AddDevice(ctx, "sam", "tablet", "jo")
 	if err != nil {
