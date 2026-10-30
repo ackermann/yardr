@@ -198,6 +198,7 @@ type API interface {
 	Devices(ctx context.Context, user string) ([]Device, error)
 	RemoveDevice(ctx context.Context, user, name, actor string) (*Device, error)
 	DevicePairOpen(ctx context.Context, user, name, actor string) (*DevicePairingCode, error)
+	DevicePairState(ctx context.Context) (*DevicePairingState, error)
 	DevicePairClose(ctx context.Context, actor string) (*DevicePairing, error)
 	DevicePairOpenSelf(ctx context.Context, user, name string) (*DevicePairingCode, error)
 	DevicePairCloseSelf(ctx context.Context, user string) (*DevicePairing, error)

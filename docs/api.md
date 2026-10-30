@@ -71,8 +71,9 @@ which only a person or a crew member does. An advance along the edge
 `done-safe` takes is held to the depot's security paths as the outcome is. Every call this page names is read or agent but those of
 [`OperatorCalls`](#over-the-network), which are admin, all but
 `SourceGrants`, which is read on the socket and the operator's on the
-listener, `SessionScreen`, `Teammates`, `TelemetryShow` and `TelemetrySet`,
-whose socket class is operator, and `UninviteTeammate`, whose socket class
+listener, `SessionScreen`, `Teammates`, `TelemetryShow`, `TelemetrySet`,
+`DevicePairState` and `DevicePairClose`, whose socket class is operator,
+and `UninviteTeammate`, whose socket class
 is agent.
 
 It is a line against mistakes, not a wall. Every agent runs as the one OS
@@ -723,7 +724,10 @@ nothing else. What is not the same:
   with `TelemetryShow` and `TelemetrySet`.
   `/ping`, `/wake` and every other path are not there. The [calls for the
   operator alone](#for-the-operator-alone) are there besides, for a device
-  of an operator of the yard and for nobody else; `GiveSecret` is there too for
+  of an operator of the yard and for nobody else — but for the three that
+  open, read and end a pairing (`DevicePairOpen`, `DevicePairState` and
+  `DevicePairClose`), which are the socket's alone and are answered as no
+  method at all; `GiveSecret` is there too for
   a device of a user, for an ask with `secret.user` or `secret.as` that
   names them: their own address or credential in a source, or with
   `secret.login` the code their own login's sign-in page shows.
@@ -1061,7 +1065,11 @@ the yard link, the preview may be read from the router's peer over https, and
 the switch cannot be changed there, as approvals cannot. The hosted browser
 control uses the separate `web` link and the JWT-authenticated view, acting
 as the mapped yard user. Every
-other call is served wherever it comes from, as before.
+other call is served wherever it comes from, as before. The three that
+open, read and end a pairing, `DevicePairOpen`, `DevicePairState` and
+`DevicePairClose`, are the socket's alone: the listener answers each as a
+method the yard does not have, to a device of the operator too, so the
+rule above has no request of theirs to hold.
 
 Down the link from the edge `GiveSecret` is taken from a device of the
 operator, and which asks it is taken for depends on the yard. A hosted yard,
@@ -5234,7 +5242,7 @@ operator's alone to make. An operator is a user whose role is `operator`
 there may be several, and each of them makes these calls. The `operator`
 setting names one of them, the one an ask with no `--to` goes to; any
 operator approves or answers it. In yardr's code the list is `OperatorCalls`, and
-it has nine calls: `GiveSecret`, which gives the credential a secret ask
+it has twelve calls: `GiveSecret`, which gives the credential a secret ask
 asks for, `ApproveAsk`, which approves a run ask so that the yard runs
 the command it holds, carrying the approval's values to a hook's register
 call where the card asks for any, `ApproveSetup`, which approves a setup ask with
@@ -5245,8 +5253,10 @@ which reads what a running session's pane shows, its visible screen with
 the ANSI styling, `Teammates`, which reads the yard's teammates, one row
 per mapped address with its user and devices, and `UninviteTeammate`,
 which files a teammate's removal as a run ask on a new bead; `TelemetryShow`,
-which previews the switch and next request; and `TelemetrySet`, which turns
-the switch on or off. Each of the first three
+which previews the switch and next request; `TelemetrySet`, which turns
+the switch on or off; and `DevicePairOpen`, which opens a pairing for one
+device of one user, `DevicePairState`, which reads the open pairing back,
+and `DevicePairClose`, which ends it. Each of the first three
 takes `weighed`, the client's word that its person saw the card's weight,
 and the yard refuses a weighty card without it ([weighty
 cards](#weighty-cards)). Where they are served, and to whom:
@@ -5262,6 +5272,11 @@ cards](#weighty-cards)). Where they are served, and to whom:
   calls by the token and not by a word of the caller's; it cannot know
   whether an agent on some machine sent the request, so whoever holds
   that token gives and approves as the operator.
+- **Three are the socket's alone.** `DevicePairOpen`, `DevicePairState`
+  and `DevicePairClose` open, read and end a device pairing for a window
+  on the yard's own machine. A device token never opens a pairing, so on
+  the listener each is answered as a method the yard does not have, to a
+  device of the operator too, and down the yard link from the edge alike.
 - **A giving can be a user's own too.** A secret ask with `secret.user`
   asks for that user's own address in a source that tells people (for
   Pushover the user key), and one with `secret.as` for their own
@@ -5860,6 +5875,99 @@ POST /call/UninviteTeammate
 | `ask` | number | the ask's seq on its bead |
 
 The bead and the ask are one write: the removal is filed on a new bead, or neither. When the call ends without a reply (the server went away), a client cannot know which: say "the yard did not answer; read the queue again", never "filed", and read `UserAsks` again.
+
+### `DevicePairOpen`
+
+Opens a pairing for one device of one user, the opening `yardr user device pair <user> <device>` makes: the reply's code is good for 10 minutes and for one device, and 5 wrong codes end the pairing. A yard has one such pairing open at a time: opening while one lives, for a user the yard has not, or for a device the user has, is refused. It is the operator's to open: on the socket its Admin class refuses a bead's agent's pane, and the store's ActAddDevice gate refuses anyone but the operator, whatever `actor` says. A device token never opens a pairing: on the listener the call is answered as a method the yard does not have, to a device of the operator too, and down the yard link from the edge alike.
+
+| argument | type | |
+|---|---|---|
+| `user` | string | the user the pairing is for |
+| `name` | string | the device's name |
+| `actor` | string | who opens: the operator's name |
+
+```
+POST /call/DevicePairOpen
+{"user":"sam","name":"laptop","actor":"jo"}
+
+{
+  "result": {
+    "user": "sam",
+    "device": "laptop",
+    "state": "open",
+    "expires": "2026-10-08T09:30:00Z",
+    "code": "K7QM-2XPD"
+  }
+}
+```
+
+| field of the result | type | |
+|---|---|---|
+| `user` | string | the user the pairing is for |
+| `device` | string | the device's name |
+| `state` | string | `open` |
+| `code` | string | the code the device calls with, as `yardr user device pair` shows it |
+| `expires` | time | when the code runs out |
+
+When the call ends without a reply (the server went away), a client cannot know whether the pairing opened: say "the yard did not answer; read the pairing again", never "open", and read `DevicePairState` again.
+
+### `DevicePairState`
+
+Reads the yard's open device pairing back, so a window reopened shows the same pairing again: the device, the code as it was shown when it opened, when it runs out, and the QR string a phone scans in place of typing. The QR string is `<address>#<code>#<yard>`, the yard's `edge` address with its handle/name there; with no edge setting the yard names no address and `qr` is empty, and the code is given where it is asked for. With no pairing open the error is `not-found`. It is the operator's to read: on the socket its Operator class refuses agent and crew panes. A device token never opens a pairing: on the listener the call is answered as a method the yard does not have, to a device of the operator too, and down the yard link from the edge alike.
+
+```
+POST /call/DevicePairState
+{}
+
+{
+  "result": {
+    "user": "sam",
+    "device": "laptop",
+    "state": "open",
+    "expires": "2026-10-08T09:30:00Z",
+    "code": "K7QM-2XPD",
+    "qr": "https://edge.example.com#K7QM-2XPD#jo/edgeyard"
+  }
+}
+```
+
+| field of the result | type | |
+|---|---|---|
+| `user` | string | the user the pairing is for |
+| `device` | string | the device's name |
+| `state` | string | `open` |
+| `code` | string | the code the device calls with, as it was shown when it opened |
+| `expires` | time | when the code runs out |
+| `qr` | string | what a QR code of the pairing holds: `<address>#<code>#<yard>`; empty while the yard is connected to no edge |
+
+### `DevicePairClose`
+
+Ends the yard's open device pairing, as `yardr user device pair --end` does: nothing is added, and the code is good for nothing then. With no pairing open the error is `not-found`. It is the operator's to end: on the socket its Operator class refuses agent and crew panes, and the store's ActEndDevicePairing gate refuses anyone but the operator, whatever `actor` says. A device token never opens a pairing: on the listener the call is answered as a method the yard does not have, to a device of the operator too, and down the yard link from the edge alike.
+
+| argument | type | |
+|---|---|---|
+| `actor` | string | who ends it: the operator's name |
+
+```
+POST /call/DevicePairClose
+{"actor":"jo"}
+
+{
+  "result": {
+    "user": "sam",
+    "device": "laptop",
+    "state": "ended",
+    "expires": "2026-10-08T09:30:00Z"
+  }
+}
+```
+
+| field of the result | type | |
+|---|---|---|
+| `user` | string | the user the pairing was for |
+| `device` | string | the device's name |
+| `state` | string | `ended` |
+| `expires` | time | when the code would have run out |
 
 ### `TelemetryShow`
 

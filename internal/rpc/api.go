@@ -144,6 +144,16 @@ var Calls = map[string][]string{
 // the yard link from the edge. A hosted customer without a terminal uses
 // the web view's control through its separate web link, where the view
 // verifies the gateway's JWT and maps it to a yard user.
+//
+// DevicePairOpen opens a pairing for one device of one user, as `yardr
+// user device pair` does, and answers its code and expiry;
+// DevicePairState reads the open pairing back with its code and QR
+// string, so a reopened window shows the same pairing again; and
+// DevicePairClose ends it, as `yardr user device pair --end` does. The
+// three are the socket's alone: a device token never opens a pairing, so
+// the listener serves them to no device, not even the operator's, and
+// answers each as a method the yard does not have, down the yard link
+// from the edge alike (UserServer.operatorCall).
 var OperatorCalls = map[string][]string{
 	"GiveSecret":       {"bead", "ask", "values", "actor", "weighed"},
 	"ApproveAsk":       {"bead", "ask", "actor", "weighed", "values"},
@@ -154,6 +164,25 @@ var OperatorCalls = map[string][]string{
 	"UninviteTeammate": {"user", "actor"},
 	"TelemetryShow":    {},
 	"TelemetrySet":     {"on", "actor"},
+	"DevicePairOpen":   {"user", "name", "actor"},
+	"DevicePairState":  {},
+	"DevicePairClose":  {"actor"},
+}
+
+// socketOnly are the calls of OperatorCalls the listener serves to no
+// device, not even the operator's: opening, reading and ending a device
+// pairing are the socket's alone, since a device token never opens a
+// pairing. The link from the edge is served with the listener's mux, so
+// down it they are answered as not there too.
+var socketOnly = map[string]bool{
+	"DevicePairOpen":  true,
+	"DevicePairState": true,
+	"DevicePairClose": true,
+}
+
+func isOperatorCall(method string) bool {
+	_, ok := OperatorCalls[method]
+	return ok
 }
 
 // argNames are the names of the arguments of a call docs/api.md names, of

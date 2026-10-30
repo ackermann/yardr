@@ -722,7 +722,10 @@ var apiCalls = []apiCall{
 
 // apiOperatorCalls are the calls of the doc that OperatorCalls names:
 // documented and held to the server as apiCalls are, on the socket and on
-// the listener, where the device of the doc is the operator's.
+// the listener, where the device of the doc is the operator's. The
+// socket's own three (socketOnly) are held on the socket alone: on the
+// listener the device half is refused each as a method the yard does not
+// have (networkRefusal).
 var apiOperatorCalls = []apiCall{
 	{
 		method: "GiveSecret",
@@ -886,6 +889,53 @@ var apiOperatorCalls = []apiCall{
 			{"ask", "number", "the ask's seq on its bead"},
 		},
 		after: "The bead and the ask are one write: the removal is filed on a new bead, or neither. When the call ends without a reply (the server went away), a client cannot know which: say \"the yard did not answer; read the queue again\", never \"filed\", and read `UserAsks` again.",
+	},
+	{
+		method: "DevicePairOpen",
+		says:   "Opens a pairing for one device of one user, the opening `yardr user device pair <user> <device>` makes: the reply's code is good for 10 minutes and for one device, and 5 wrong codes end the pairing. A yard has one such pairing open at a time: opening while one lives, for a user the yard has not, or for a device the user has, is refused. It is the operator's to open: on the socket its Admin class refuses a bead's agent's pane, and the store's ActAddDevice gate refuses anyone but the operator, whatever `actor` says. A device token never opens a pairing: on the listener the call is answered as a method the yard does not have, to a device of the operator too, and down the yard link from the edge alike.",
+		args: []field{
+			{"user", "string", "the user the pairing is for"},
+			{"name", "string", "the device's name"},
+			{"actor", "string", "who opens: the operator's name"},
+		},
+		requests: []string{`{"user":"sam","name":"laptop","actor":"jo"}`},
+		fields: []field{
+			{"user", "string", "the user the pairing is for"},
+			{"device", "string", "the device's name"},
+			{"state", "string", "`open`"},
+			{"code", "string", "the code the device calls with, as `yardr user device pair` shows it"},
+			{"expires", "time", "when the code runs out"},
+		},
+		after: "When the call ends without a reply (the server went away), a client cannot know whether the pairing opened: say \"the yard did not answer; read the pairing again\", never \"open\", and read `DevicePairState` again.",
+	},
+	{
+		method: "DevicePairState",
+		says:   "Reads the yard's open device pairing back, so a window reopened shows the same pairing again: the device, the code as it was shown when it opened, when it runs out, and the QR string a phone scans in place of typing. The QR string is `<address>#<code>#<yard>`, the yard's `edge` address with its handle/name there; with no edge setting the yard names no address and `qr` is empty, and the code is given where it is asked for. With no pairing open the error is `not-found`. It is the operator's to read: on the socket its Operator class refuses agent and crew panes. A device token never opens a pairing: on the listener the call is answered as a method the yard does not have, to a device of the operator too, and down the yard link from the edge alike.",
+		// The QR string's address and yard are the edge the fixture
+		// sets for the depot-push cards.
+		requests: []string{`{}`},
+		fields: []field{
+			{"user", "string", "the user the pairing is for"},
+			{"device", "string", "the device's name"},
+			{"state", "string", "`open`"},
+			{"code", "string", "the code the device calls with, as it was shown when it opened"},
+			{"expires", "time", "when the code runs out"},
+			{"qr", "string", "what a QR code of the pairing holds: `<address>#<code>#<yard>`; empty while the yard is connected to no edge"},
+		},
+	},
+	{
+		method: "DevicePairClose",
+		says:   "Ends the yard's open device pairing, as `yardr user device pair --end` does: nothing is added, and the code is good for nothing then. With no pairing open the error is `not-found`. It is the operator's to end: on the socket its Operator class refuses agent and crew panes, and the store's ActEndDevicePairing gate refuses anyone but the operator, whatever `actor` says. A device token never opens a pairing: on the listener the call is answered as a method the yard does not have, to a device of the operator too, and down the yard link from the edge alike.",
+		args: []field{
+			{"actor", "string", "who ends it: the operator's name"},
+		},
+		requests: []string{`{"actor":"jo"}`},
+		fields: []field{
+			{"user", "string", "the user the pairing was for"},
+			{"device", "string", "the device's name"},
+			{"state", "string", "`ended`"},
+			{"expires", "time", "when the code would have run out"},
+		},
 	},
 	{
 		method:   "TelemetryShow",
@@ -2007,6 +2057,11 @@ func networkRefusal(method string, i int) (want string, ok bool) {
 	if method == "ApproveSetup" && i < 2 {
 		return fmt.Sprintf("ask %d is strong (code): this approval arrived through the device phone, and a strong card is not approved through a device. Approve it at a terminal on the yard's machine. Nothing ran, and the ask stays open", apiSetupAsks[i]), true
 	}
+	if socketOnly[method] {
+		// The socket's own three are no method at all to a
+		// device, the operator's included.
+		return "no such method " + method, true
+	}
 	return "", false
 }
 
@@ -2161,11 +2216,12 @@ func TestCallsAreTheDocs(t *testing.T) {
 	t.Run("Calls", func(t *testing.T) { callsAreTheDocs(t, "Calls", Calls, apiCalls) })
 	t.Run("OperatorCalls", func(t *testing.T) { callsAreTheDocs(t, "OperatorCalls", OperatorCalls, apiOperatorCalls) })
 	// What the listener serves every device is Calls, as it was before
-	// there was a second list, and a device of the operator the nine
-	// calls of OperatorCalls besides: a call is added to either on
-	// purpose, here too.
-	if len(Calls) != 26 || len(OperatorCalls) != 9 {
-		t.Errorf("Calls has %d calls and OperatorCalls %d, want 26 and 9", len(Calls), len(OperatorCalls))
+	// there was a second list, and a device of the operator nine of the
+	// twelve calls of OperatorCalls besides; the socket's own three it
+	// answers as no method at all: a call is added to either on purpose,
+	// here too.
+	if len(Calls) != 26 || len(OperatorCalls) != 12 {
+		t.Errorf("Calls has %d calls and OperatorCalls %d, want 26 and 12", len(Calls), len(OperatorCalls))
 	}
 	for name := range OperatorCalls {
 		if _, both := Calls[name]; both {
@@ -2216,10 +2272,12 @@ func callsAreTheDocs(t *testing.T, list string, Calls map[string][]string, apiCa
 
 // The doc's "TLS is yours, and the client's rule" section names every call
 // the listener holds to the in-the-clear rule, which is every call of
-// OperatorCalls: UserServer.call holds each of them through inTheClear. The
-// section is hand-written prose, held here by presence alone: a future
-// operator call the section does not name fails, so the section is updated
-// with the call. A call named only to contrast it is still named.
+// OperatorCalls but the socket's own three: UserServer.call holds each of
+// the rest through inTheClear, and answers the three as no method at all
+// before any such rule. The section is hand-written prose, held here by
+// presence alone: a future operator call the section does not name fails,
+// so the section is updated with the call. A call named only to contrast
+// it is still named.
 func TestTLSSectionNamesHeldCalls(t *testing.T) {
 	const file = "../../docs/api.md"
 	body, err := os.ReadFile(file)
@@ -2272,10 +2330,46 @@ func TestTLSSectionNamesHeldCalls(t *testing.T) {
 func TestAPIContract(t *testing.T) {
 	t.Run("socket", func(t *testing.T) { checkContract(t, runAPI(t, false), false) })
 	t.Run("network", func(t *testing.T) { checkContract(t, runAPI(t, true), true) })
+	t.Run("socket refuses a second device-pairing open", func(t *testing.T) {
+		hc := overSocket(apiYard(t))
+		first, ok := parse(t, post(t, hc, "DevicePairOpen", `{"user":"jo","name":"review-first","actor":"jo"}`)).(object)
+		if !ok {
+			t.Fatal("DevicePairOpen: the reply is no object")
+		}
+		codes, _ := at(first, "result.code")
+		if len(codes) != 1 {
+			t.Fatalf("DevicePairOpen: no code in the reply: %v", first)
+		}
+		code, ok := codes[0].(string)
+		if !ok || code == "" {
+			t.Fatalf("DevicePairOpen code = %v, want a code", codes[0])
+		}
+
+		second, ok := parse(t, post(t, hc, "DevicePairOpen", `{"user":"jo","name":"review-second","actor":"jo"}`)).(object)
+		if !ok {
+			t.Fatal("second DevicePairOpen: the reply is no object")
+		}
+		messages, _ := at(second, "error.message")
+		if len(messages) != 1 {
+			t.Fatalf("second DevicePairOpen = %v, want the store's refusal", second)
+		}
+		message, ok := messages[0].(string)
+		if !ok || !strings.Contains(message, "a pairing is open already") || strings.Contains(message, code) {
+			t.Errorf("second DevicePairOpen error = %q, want the store's refusal without the open code", message)
+		}
+	})
 }
 
 func checkContract(t *testing.T, run *apiRun, network bool) {
 	for _, c := range append(slices.Clone(apiCalls), apiOperatorCalls...) {
+		if network && socketOnly[c.method] {
+			// Every request was refused as no method at all
+			// (networkRefusal), so no reply stands to check.
+			if len(run.replies[c.method]) != 0 {
+				t.Errorf("%s answers a device, want no such method", c.method)
+			}
+			continue
+		}
 		fields := c.fields
 		if network && c.method == "ApproveSetup" {
 			// The device half is refused the courier setups, and takes
@@ -2498,6 +2592,19 @@ var (
 	telemetryOS           = regexp.MustCompile(`"os": "(?:darwin|linux|windows|other)"`)
 )
 
+// examplePairCode stands for a pairing's code in the doc, in its own field
+// and in the QR string that holds it: a code is random on every run. It is
+// the code the hand-written pairing section shows a device asking with, so
+// the doc reads as one yard's.
+const examplePairCode = "K7QM-2XPD"
+
+var (
+	// A code as shown, never an error's code: those read `{"code":"..."}`.
+	pairCode = regexp.MustCompile(`"code": "[A-Z0-9]{4}-[A-Z0-9]{4}"`)
+	// The code in a QR string, between its address and its yard.
+	pairQRCode = regexp.MustCompile(`#[A-Z0-9]{4}-[A-Z0-9]{4}#`)
+)
+
 // exampleUUIDs stand for the batch's event uuids in the doc, in order:
 // each is derived from the sending day, so the doc is the same on every
 // run. The example's batch holds three events, a daily and two crew days.
@@ -2550,6 +2657,8 @@ func callsDoc(run *apiRun, calls []apiCall) []string {
 			shown = telemetrySendingDay.ReplaceAllString(shown, `"sending_day": "`+exampleDay+`"`)
 			shown = telemetryEligibleFrom.ReplaceAllString(shown, `"eligible_from": "2026-10-09"`)
 			shown = telemetryOS.ReplaceAllString(shown, `"os": "darwin"`)
+			shown = pairCode.ReplaceAllString(shown, `"code": "`+examplePairCode+`"`)
+			shown = pairQRCode.ReplaceAllString(shown, `#`+examplePairCode+`#`)
 			shown = scrubUUIDs(shown)
 			out = append(out, fenced("", "POST /call/"+c.method, body, "", shown)...)
 		}

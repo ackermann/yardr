@@ -157,8 +157,9 @@ func refusedCounts(t *testing.T, st *store.Store, u *UserServer) map[string]int 
 //
 // The calls of OperatorCalls are served under a condition, to a device of
 // the yard's operator: to sam's device each is one of the methods that are
-// not there, SourceGrants among them, and to jo's they are there, and are
-// the whole of OperatorCalls.
+// not there, SourceGrants among them, and to jo's they are there, but for
+// the socket's own three, which are not there to any device, an
+// operator's included.
 func TestUserServesTheCallsAndNoOther(t *testing.T) {
 	st, u, token := userYard(t)
 	h := u.Handler()
@@ -203,8 +204,8 @@ func TestUserServesTheCallsAndNoOther(t *testing.T) {
 	if len(served) != len(Calls) || len(served) != 26 {
 		t.Errorf("%d calls are served and Calls has %d, want 26 of each: %v", len(served), len(Calls), served)
 	}
-	if !slices.Equal(operators, []string{"ApproveAsk", "ApproveSetup", "GiveSecret", "SessionScreen", "SourceGrants", "Teammates", "TelemetrySet", "TelemetryShow", "UninviteTeammate"}) || len(OperatorCalls) != 9 {
-		t.Errorf("a device of the operator is served %v besides, and OperatorCalls is %v: want ApproveAsk, ApproveSetup, GiveSecret, SessionScreen, SourceGrants, Teammates, TelemetrySet, TelemetryShow, UninviteTeammate and no other", operators, OperatorCalls)
+	if !slices.Equal(operators, []string{"ApproveAsk", "ApproveSetup", "GiveSecret", "SessionScreen", "SourceGrants", "Teammates", "TelemetrySet", "TelemetryShow", "UninviteTeammate"}) || len(OperatorCalls) != 12 {
+		t.Errorf("a device of the operator is served %v besides, and OperatorCalls is %v: want ApproveAsk, ApproveSetup, GiveSecret, SessionScreen, SourceGrants, Teammates, TelemetrySet, TelemetryShow, UninviteTeammate and no other of its twelve", operators, OperatorCalls)
 	}
 	// The whole grant graph is the operator's to read: to sam's device the
 	// call is not there, as a method the yard does not have, whatever it
@@ -264,12 +265,16 @@ func TestUserServesTheCallsAndNoOther(t *testing.T) {
 		t.Errorf("SourceGrants from the yard's machine is answered %s, want an empty list", w.Body)
 	}
 	// Made an operator too, sam's device is served every call of
-	// OperatorCalls and reads the list as jo's does: the role, not the
-	// operator setting, is what the calls are served on.
+	// OperatorCalls but the socket's own three, and reads the list as
+	// jo's does: the role, not the operator setting, is what the calls
+	// are served on.
 	if _, err := st.SetUser(context.Background(), "sam", map[string]string{store.UserRole: store.RoleOperator}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	for name := range OperatorCalls {
+		if socketOnly[name] {
+			continue
+		}
 		if none, _ := json.Marshal(noSuchMethod(name)); call(t, h, tablet.Token, name, `{}`) == string(none) {
 			t.Errorf("%s is not there for the device of sam, an operator now", name)
 		}
@@ -481,6 +486,34 @@ func TestUserServesTheCallsAndNoOther(t *testing.T) {
 	if !strings.Contains(w.Body.String(), "the telemetry switch is taken over https only") {
 		t.Errorf("TelemetrySet through the TLS router is answered %s, want it refused", w.Body)
 	}
+	// The socket's own three are answered as a method the yard does not
+	// have to every device, the operator's included: a device token never
+	// opens a pairing. So with a pairing open, from another machine, from
+	// the yard's own machine, and down the link from the edge.
+	if _, err := st.DevicePairOpen(context.Background(), "sam", "laptop", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name   string
+		bodies []string
+	}{
+		{"DevicePairOpen", []string{`{}`, `{"user":"sam","name":"phone","actor":"jo"}`}},
+		{"DevicePairState", []string{`{}`}},
+		{"DevicePairClose", []string{`{}`, `{"actor":"jo"}`}},
+	} {
+		none, _ := json.Marshal(noSuchMethod(c.name))
+		for _, body := range c.bodies {
+			if got := call(t, h, token, c.name, body); got != string(none) {
+				t.Errorf("%s %s from the operator's device is answered %s, want %s", c.name, body, got, none)
+			}
+			if got := localCall(t, h, token, c.name, body); got != string(none) {
+				t.Errorf("%s %s from the yard's machine is answered %s, want %s", c.name, body, got, none)
+			}
+			if got := edgeCall(t, h, token, c.name, body); got != string(none) {
+				t.Errorf("%s %s down the link is answered %s, want %s", c.name, body, got, none)
+			}
+		}
+	}
 	for _, name := range []string{"Sing", "Subscribe", "Close"} {
 		none, _ := json.Marshal(noSuchMethod(name))
 		if got := call(t, h, token, name, `{}`); got != string(none) {
@@ -504,9 +537,13 @@ func TestUserCallsNameTheirParty(t *testing.T) {
 	notAParty := map[string]string{"GetCrew": "name"} // a crew member that is read, not the reader
 	api := reflect.TypeOf((*store.API)(nil)).Elem()
 	// Of both lists: what a device of the operator is served besides Calls
-	// is made as its user too.
+	// is made as its user too. The socket's own three are served to no
+	// device, so no party of theirs is held to anyone.
 	calls := maps.Clone(Calls)
 	maps.Copy(calls, OperatorCalls)
+	for method := range socketOnly {
+		delete(calls, method)
+	}
 	for method, names := range calls {
 		for i, arg := range names {
 			if arg != "name" && arg != "actor" || notAParty[method] == arg {

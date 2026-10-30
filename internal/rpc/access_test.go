@@ -36,7 +36,7 @@ func TestAccessClassesEveryServedMethod(t *testing.T) {
 			t.Errorf("Access classes %s, which the socket does not serve", name)
 		}
 	}
-	for _, name := range []string{"SessionScreen", "Teammates", "TelemetryShow", "TelemetrySet"} {
+	for _, name := range []string{"SessionScreen", "Teammates", "TelemetryShow", "TelemetrySet", "DevicePairState"} {
 		if got := Access[name]; got != Operator {
 			t.Errorf("%s has class %v, want operator", name, got)
 		}

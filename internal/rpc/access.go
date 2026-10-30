@@ -306,6 +306,7 @@ var Access = map[string]Class{
 	"Devices":          Read,
 	"RemoveDevice":     Admin,
 	"DevicePairOpen":   Admin,
+	"DevicePairState":  Operator, // the open pairing's code is the operator's, not for an agent or crew pane
 	"DevicePairClose":  Operator,
 	// One's own pairing from the web view: the socket lets a person's own
 	// process (the view among them) call it, and no agent's pane; the user

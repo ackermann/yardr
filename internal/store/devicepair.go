@@ -53,6 +53,19 @@ type DevicePairingCode struct {
 	Code string `json:"code"`
 }
 
+// DevicePairingState is the yard's open device pairing as it is now, with
+// the code as it was shown when it was opened and the QR string a phone
+// scans in place of typing (QR).
+type DevicePairingState struct {
+	DevicePairingCode
+	// QR is what a QR code of the pairing holds: the address the device
+	// reaches the yard at, then '#', then the code, and '#' and the yard
+	// beside them where the address is the edge's. It is "" while the
+	// yard's edge setting names no edge, and the code is then given where
+	// it is asked for.
+	QR string `json:"qr"`
+}
+
 // devicePairings holds the yard's device pairing. Its lock is taken before
 // any of the store's, never after.
 type devicePairings struct {
@@ -220,6 +233,35 @@ func (s *Store) DevicePairClose(ctx context.Context, actor string) (*DevicePairi
 	}
 	s.endDevicePairing(ctx, p, pairing.Closed, "", actor)
 	out := p.DevicePairing
+	return &out, nil
+}
+
+// DevicePairState answers the yard's open device pairing with its code,
+// as it was shown when it was opened, and the QR string that holds the
+// address, the code and the yard, so a window reopened shows the same
+// pairing again. The address is the edge setting's, and the yard its
+// handle/name; with no edge setting the QR string is empty, and the code
+// is given where it is asked for. With no pairing open it is no pairing,
+// in the same words as DevicePairCodeSelf's. It is the operator's read
+// (rpc.OperatorCalls): on the socket an operator-class call, and never
+// served to a device, which would read the pairing's whole credential
+// here. A device token never opens a pairing.
+func (s *Store) DevicePairState(ctx context.Context) (*DevicePairingState, error) {
+	s.devPair.mu.Lock()
+	p := s.devicePairing(ctx)
+	if p == nil || p.State != PairOpened {
+		s.devPair.mu.Unlock()
+		return nil, fmt.Errorf("an open device pairing: %w (one lives in the server's memory, and ends with it)", ErrNotFound)
+	}
+	out := DevicePairingState{DevicePairingCode: DevicePairingCode{DevicePairing: p.DevicePairing, Code: displayCode(p.code)}}
+	s.devPair.mu.Unlock()
+	all, err := s.Settings(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if e, connected, err := EdgeOf(all); err == nil && connected {
+		out.QR = e.URL + "#" + out.Code + "#" + e.HandleName()
+	}
 	return &out, nil
 }
 

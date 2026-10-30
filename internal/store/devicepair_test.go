@@ -2,6 +2,8 @@ package store_test
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"errors"
 	"os"
 	"strings"
@@ -11,6 +13,7 @@ import (
 	"yardr.dev/yardr/internal/pairing"
 	"yardr.dev/yardr/internal/peer"
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/yardkey"
 )
 
 // A device pairing is opened by whoever adds a device and by nobody else:
@@ -104,6 +107,63 @@ func TestDevicePairOneAtATime(t *testing.T) {
 	}
 	if _, err := api.DevicePairOpen(ctx, "bob", "phone", "jo"); err != nil {
 		t.Fatalf("a pairing after the last was ended = %v", err)
+	}
+}
+
+// The open pairing reads back with its code and QR string, so a window
+// reopened shows the same pairing again; with none open there is no
+// pairing, before one opens and after it ends. The code is good for ten
+// minutes, and the QR holds the edge's address, the code and the yard's
+// handle/name there — and nothing while the yard is connected to no edge.
+func TestDevicePairState(t *testing.T) {
+	t.Parallel()
+	api, _ := deviceYard(t)
+	ctx := context.Background()
+	if _, err := api.DevicePairState(ctx); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("DevicePairState with none open = %v, want no pairing", err)
+	}
+	_, key, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edge := store.Edge{URL: "https://my.yardr.dev", Key: yardkey.Public(key), Handle: "mckean", Name: "edgeyard"}
+	if err := api.SetSetting(ctx, store.EdgeSetting, edge.String(), "jo"); err != nil {
+		t.Fatal(err)
+	}
+	opened, err := api.DevicePairOpen(ctx, "ada", "phone", "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := opened.Expires.Sub(time.Now()); d <= 9*time.Minute || d > pairing.TTL {
+		t.Fatalf("the code runs out in %v, want ten minutes", d)
+	}
+	got, err := api.DevicePairState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != opened.ID || got.User != "ada" || got.Device != "phone" || got.State != store.PairOpened ||
+		!got.Expires.Equal(opened.Expires) || got.Code != opened.Code {
+		t.Fatalf("DevicePairState = %+v, want the pairing %+v", got, opened)
+	}
+	if want := "https://my.yardr.dev#" + opened.Code + "#mckean/edgeyard"; got.QR != want {
+		t.Fatalf("DevicePairState QR = %q, want %q", got.QR, want)
+	}
+	if _, err := api.DevicePairClose(ctx, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := api.DevicePairState(ctx); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("DevicePairState after the pairing ended = %v, want no pairing", err)
+	}
+	// Connected to no edge, the yard names no address: the state still
+	// reads, with the code and no QR string.
+	if err := api.SetSetting(ctx, store.EdgeSetting, "", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := api.DevicePairOpen(ctx, "ada", "phone", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := api.DevicePairState(ctx); err != nil || got.QR != "" || got.Code == "" {
+		t.Fatalf("DevicePairState with no edge = %+v, %v, want the code and no QR", got, err)
 	}
 }
 

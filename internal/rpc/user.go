@@ -57,12 +57,16 @@ import (
 //
 //   - only the calls of Calls, by name: every other method of the store, and
 //     the array form yardr's own builds use, is answered as not there. The
-//     calls more are the nine of OperatorCalls, GiveSecret, ApproveAsk,
+//     calls more are nine of OperatorCalls, GiveSecret, ApproveAsk,
 //     ApproveSetup, SourceGrants, SessionScreen, Teammates,
 //     UninviteTeammate, TelemetryShow and TelemetrySet, for a device of
 //     an operator, and not there for anyone else (operatorCall), but
 //     GiveSecret for a device of a user whose own address or credential
-//     in a source is asked for (ownSecret);
+//     in a source is asked for (ownSecret). The other three of
+//     OperatorCalls, DevicePairOpen, DevicePairState and DevicePairClose,
+//     are the socket's alone and are not there for any device, an
+//     operator's included: a device token never opens a pairing
+//     (socketOnly);
 //   - every call is made as the user the credential resolves to (asUser);
 //   - Settings answers the keys of deviceSettings and no other, and the
 //     stream carries the value of a setting_changed for those alone
@@ -1169,16 +1173,12 @@ func asUser(method string, body []byte, user string) (json.RawMessage, error) {
 	return json.Marshal(given)
 }
 
-func isOperatorCall(method string) bool {
-	_, ok := OperatorCalls[method]
-	return ok
-}
-
 // operatorCall reports whether the call name is one of OperatorCalls and c
 // may make it here: c is a device of an operator of the yard, whose user's
 // role is store.RoleOperator (isOperator). Anyone else is
 // answered as for a method the yard does not have, so the listener is for
-// them what it was before it served the call.
+// them what it was before it served the call. The socket's own three
+// (socketOnly) are answered so to every device, an operator's included.
 //
 // On the socket the store holds such a call to two things (maySource): the
 // actor is an operator, and the call does not come from the pane of an
@@ -1202,7 +1202,7 @@ func isOperatorCall(method string) bool {
 // operator's commands run, by saying who is calling. So the narrower of the two, until someone decides otherwise.
 // A yard without an operator serves the call to nobody.
 func (u *UserServer) operatorCall(ctx context.Context, c *Caller, name string) bool {
-	if !isOperatorCall(name) || !c.device {
+	if !isOperatorCall(name) || socketOnly[name] || !c.device {
 		return false
 	}
 	return u.isOperator(ctx, c.User)

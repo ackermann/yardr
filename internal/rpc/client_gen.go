@@ -543,6 +543,9 @@ func (c *Client) RemoveDevice(ctx context.Context, user, name, actor string) (*s
 func (c *Client) DevicePairOpen(ctx context.Context, user, name, actor string) (*store.DevicePairingCode, error) {
 	return callV[*store.DevicePairingCode](c, ctx, "DevicePairOpen", user, name, actor)
 }
+func (c *Client) DevicePairState(ctx context.Context) (*store.DevicePairingState, error) {
+	return callV[*store.DevicePairingState](c, ctx, "DevicePairState")
+}
 func (c *Client) DevicePairClose(ctx context.Context, actor string) (*store.DevicePairing, error) {
 	return callV[*store.DevicePairing](c, ctx, "DevicePairClose", actor)
 }
