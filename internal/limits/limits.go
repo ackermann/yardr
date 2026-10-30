@@ -35,7 +35,6 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/config"
-	"yardr.dev/yardr/internal/shared"
 	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 )
@@ -451,9 +450,9 @@ func jsonError(err error) string {
 
 // Clock is a time as a person reads it on the day of now: "00:02", and with
 // the day for a time that is not today, "Sat 10 Oct 09:02". Both are local.
-// The one implementation is shared's.
-func Clock(t, now time.Time) string { return shared.Clock(t, now) }
+// The one implementation is store's.
+func Clock(t, now time.Time) string { return store.Clock(t, now) }
 
 // Span is a length of time in its two largest units: 42m, 3h 5m, 3d 9h.
-// The one implementation is shared's.
-func Span(d time.Duration) string { return shared.Span(d) }
+// The one implementation is store's.
+func Span(d time.Duration) string { return store.RoughSpan(d) }

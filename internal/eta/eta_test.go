@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"yardr.dev/yardr/internal/store"
 )
 
 var testNow = time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
@@ -483,7 +485,7 @@ func TestQueueAheadCountsOwnOriginator(t *testing.T) {
 	b := testBead("yardr-9c2k", "new")
 	b.Originator = "hal"
 	flow := &Flow{Stages: []string{"new"}}
-	any := OriginatorAny
+	any := store.OriginatorAny
 	routes := []Route{
 		{Stage: "new", Groups: []string{"builders"}},
 		{Stage: "new", Originator: &any, Groups: []string{"hal-builders"}},

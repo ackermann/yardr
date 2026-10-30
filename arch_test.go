@@ -27,16 +27,15 @@ const (
 	rootPkg        = "yardr.dev/yardr"
 )
 
-// leafPkgs is every internal package that imports no internal package,
-// measured at f75abf88, the page's leaves layer. A leaf that gains an
-// internal import fails rule (b) below; a rename updates this list with it.
+// leafPkgs is every internal package that imports no internal package:
+// the page's leaves layer, measured at f75abf88 minus shared and udiff,
+// which yardr-g1sf folded into store. A leaf that gains an internal
+// import fails rule (b) below; a rename updates this list with it.
 var leafPkgs = []string{
 	internalPrefix + "agents",
 	internalPrefix + "peer",
 	internalPrefix + "rpc/clientgen",
 	internalPrefix + "scripttest",
-	internalPrefix + "shared",
-	internalPrefix + "udiff",
 	internalPrefix + "version",
 }
 
@@ -50,7 +49,7 @@ type allowEdge struct {
 	removeBy string
 }
 
-// allowImportEdges is the store's 8 internal imports, one row each naming
+// allowImportEdges is the store's 6 internal imports, one row each naming
 // its package and the bead that cuts it. No leaf or cli edge breaks a
 // rule today, so the table holds no other row.
 var allowImportEdges = []allowEdge{
@@ -58,9 +57,7 @@ var allowImportEdges = []allowEdge{
 	{storePkg, internalPrefix + "config", "yardr-t8m6"},
 	{storePkg, internalPrefix + "pairing", "yardr-rxk9"},
 	{storePkg, internalPrefix + "peer", "yardr-yz0h"},
-	{storePkg, internalPrefix + "shared", "yardr-g1sf"},
 	{storePkg, internalPrefix + "source", "yardr-j8vt"},
-	{storePkg, internalPrefix + "udiff", "yardr-g1sf"},
 	{storePkg, internalPrefix + "yardkey", "yardr-rxk9"},
 }
 

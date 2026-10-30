@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"yardr.dev/yardr/internal/shared"
+	"yardr.dev/yardr/internal/store"
 )
 
 // SampleFloor is the durations a cell needs before it times a stage: below
@@ -27,10 +27,6 @@ const SampleFloor = 10
 // doneOutcome is the flow's default way on. The same word as
 // store.DefaultOutcome; eta_test pins the two equal.
 const doneOutcome = "done"
-
-// OriginatorAny is the originator a route names to take every
-// originator's beads: the shared keyword.
-const OriginatorAny = shared.OriginatorAny
 
 // A Cell is one group, label and stage's answered durations: the medians
 // and p90s of its entry-to-exit and claim-to-exit rings with the samples
@@ -211,10 +207,10 @@ func Estimate(b Bead, flow *Flow, routes []Route, groups []Group, cells Cells, q
 	// resolved. A default whose resolved group is missing serves no depot,
 	// as in the store's effective set.
 	primary := func(stage, typ string, depot *string, labels []string, priority int, originator string) (Group, bool) {
-		eff := shared.EffectiveRoutes(routes, viewRoute, depot, operator)
+		eff := store.EffectiveRoutesByKey(routes, viewRoute, depot, operator)
 		var resolved []Route
 		for _, r := range eff {
-			if !slices.ContainsFunc(r.Groups, shared.IsTemplatedGroup) {
+			if !slices.ContainsFunc(r.Groups, store.IsTemplatedGroup) {
 				resolved = append(resolved, r)
 				continue
 			}
@@ -226,7 +222,7 @@ func Estimate(b Bead, flow *Flow, routes []Route, groups []Group, cells Cells, q
 				if g == "wait" {
 					continue // wait ends the route; it is not a group to resolve.
 				}
-				if _, ok := byName[shared.ResolveGroup(g, *depot)]; !ok {
+				if _, ok := byName[store.ResolveGroup(g, *depot)]; !ok {
 					serves = false
 					break
 				}
@@ -237,11 +233,11 @@ func Estimate(b Bead, flow *Flow, routes []Route, groups []Group, cells Cells, q
 			out := r
 			out.Groups = make([]string, len(r.Groups))
 			for i, g := range r.Groups {
-				out.Groups[i] = shared.ResolveGroup(g, *depot)
+				out.Groups[i] = store.ResolveGroup(g, *depot)
 			}
 			resolved = append(resolved, out)
 		}
-		r := shared.Match(resolved, viewRoute, shared.Bead{Stage: stage, Type: typ, Depot: depot,
+		r := store.Match(resolved, viewRoute, store.BeadMatch{Stage: stage, Type: typ, Depot: depot,
 			Labels: labels, Priority: priority, Originator: originator}, operator)
 		if r == nil || len(r.Groups) == 0 {
 			return Group{}, false
@@ -323,8 +319,8 @@ func Estimate(b Bead, flow *Flow, routes []Route, groups []Group, cells Cells, q
 		}
 		med, p90 = scale(med, stretch), scale(p90, stretch)
 		low, high = low+med, high+p90
-		parts = append(parts, lg.stage+" ~"+shared.Span(med))
-		stages = append(stages, ETAStage{Stage: lg.stage, Group: lg.group, Median: shared.Span(med)})
+		parts = append(parts, lg.stage+" ~"+store.RoughSpan(med))
+		stages = append(stages, ETAStage{Stage: lg.stage, Group: lg.group, Median: store.RoughSpan(med)})
 		consider(c.ClaimN)
 		clocked = true
 	}
@@ -337,14 +333,14 @@ func Estimate(b Bead, flow *Flow, routes []Route, groups []Group, cells Cells, q
 	var eta *ETA
 	if clocked || queueClocked {
 		low, high = low+wait, high+wait
-		line := "eta usual " + shared.Span(low) + "–" + shared.Span(high)
-		if shared.Span(low) == shared.Span(high) {
-			line = "eta usual " + shared.Span(low)
+		line := "eta usual " + store.RoughSpan(low) + "–" + store.RoughSpan(high)
+		if store.RoughSpan(low) == store.RoughSpan(high) {
+			line = "eta usual " + store.RoughSpan(low)
 		}
-		eta = &ETA{Low: shared.Span(low), High: shared.Span(high), Stages: stages, Unclocked: unclocked, Samples: minN,
+		eta = &ETA{Low: store.RoughSpan(low), High: store.RoughSpan(high), Stages: stages, Unclocked: unclocked, Samples: minN,
 			Line: line + " (" + strings.Join(parts, "; ") + ")"}
 		if showQueue {
-			eta.Queue, eta.Ahead = shared.Span(wait), ahead
+			eta.Queue, eta.Ahead = store.RoughSpan(wait), ahead
 		}
 	}
 	late := lateMark(b, label, primaryOf, cells, now)
@@ -521,10 +517,10 @@ func simulateQueue(b Bead, g Group, cells Cells, q Queue, now time.Time, primary
 		return out
 	}
 	if out.ahead == 0 {
-		out.part = "queue ~" + shared.Span(out.wait) + " for " + g.Name
+		out.part = "queue ~" + store.RoughSpan(out.wait) + " for " + g.Name
 		return out
 	}
-	out.part = "queue ~" + shared.Span(out.wait) + " behind " + beads(out.ahead) + " for " + g.Name
+	out.part = "queue ~" + store.RoughSpan(out.wait) + " behind " + beads(out.ahead) + " for " + g.Name
 	return out
 }
 
@@ -567,9 +563,9 @@ func lateMark(b Bead, label string, primary func(stage string) (Group, bool), ce
 		if c.EntryN < SampleFloor || age <= c.EntryP90 {
 			return nil
 		}
-		return &Late{Stage: b.Stage, Clock: "waiting", InStage: shared.Span(age), P90: shared.Span(c.EntryP90),
+		return &Late{Stage: b.Stage, Clock: "waiting", InStage: store.RoughSpan(age), P90: store.RoughSpan(c.EntryP90),
 			Line: fmt.Sprintf("late: waiting in %s %s, past the usual %s (p90 entry-to-exit for %s in %s)",
-				b.Stage, shared.Span(age), shared.Span(c.EntryP90), label, g.Name)}
+				b.Stage, store.RoughSpan(age), store.RoughSpan(c.EntryP90), label, g.Name)}
 	}
 	if b.SessionStart == nil {
 		return nil
@@ -579,15 +575,15 @@ func lateMark(b Bead, label string, primary func(stage string) (Group, bool), ce
 	if c.ClaimN < SampleFloor || age <= c.ClaimP90 {
 		return nil
 	}
-	return &Late{Stage: b.Stage, Clock: "running", InStage: shared.Span(age), P90: shared.Span(c.ClaimP90),
+	return &Late{Stage: b.Stage, Clock: "running", InStage: store.RoughSpan(age), P90: store.RoughSpan(c.ClaimP90),
 		Line: fmt.Sprintf("late: running in %s %s, past the usual %s (p90 claim-to-exit for %s in %s)",
-			b.Stage, shared.Span(age), shared.Span(c.ClaimP90), label, *b.Group)}
+			b.Stage, store.RoughSpan(age), store.RoughSpan(c.ClaimP90), label, *b.Group)}
 }
 
-// viewRoute is r as matching reads it: the shared shape, adapted at the
-// boundary, since neither route type moves below the store.
-func viewRoute(r Route) shared.Route {
-	return shared.Route{Stage: r.Stage, Type: r.Type, Depot: r.Depot, Labels: r.Labels,
+// viewRoute is r as matching reads it: a store.RouteMatch, adapted at the
+// boundary, since matching reads the match shape and not eta's route.
+func viewRoute(r Route) store.RouteMatch {
+	return store.RouteMatch{Stage: r.Stage, Type: r.Type, Depot: r.Depot, Labels: r.Labels,
 		BeadPriority: r.BeadPriority, Originator: r.Originator}
 }
 

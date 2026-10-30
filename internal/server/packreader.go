@@ -13,7 +13,6 @@ import (
 
 	"yardr.dev/yardr/internal/pack"
 	"yardr.dev/yardr/internal/store"
-	"yardr.dev/yardr/internal/udiff"
 	"yardr.dev/yardr/internal/version"
 	"yardr.dev/yardr/packs"
 )
@@ -178,7 +177,7 @@ func askPlanOf(sub fs.FS, plan *pack.Plan) *store.AskPlan {
 			if !utf8.ValidString(ao.Text) || hasOld && !utf8.ValidString(oldText) {
 				out.NonText = append(out.NonText, o.Name)
 			}
-			ao.Diff = udiff.Unified(oldText, ao.Text)
+			ao.Diff = store.Unified(oldText, ao.Text)
 		}
 		out.Objects = append(out.Objects, ao)
 	}

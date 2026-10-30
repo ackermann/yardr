@@ -85,9 +85,6 @@ it lists every exported name with its comment, faster than grepping.
 - `scripttest`: stand-in scripts for tests (one launcher, symlinks to it).
 - `server`: the `yardr server` process: owns the store, serves the socket,
   re-execs itself on upgrade.
-- `shared`: what eta, the store and limits share but cannot pass between
-  them: route matching over a minimal route shape each side adapts,
-  duration spans and clock times.
 - `source`: declared sources: declarations, credentials, mints, calls; the
   operator's provider logic lives in commands, not here.
 - `standin`: fake Linear/GitHub APIs and the edge for tests and tryouts,
@@ -106,7 +103,6 @@ it lists every exported name with its comment, faster than grepping.
   the one POST of a batch to the compiled endpoint, behind `yardr
   telemetry on|off|show` and the daemon's telemetry pass; when to send,
   and the day's attempt, are `dispatch`'s.
-- `udiff`: one unified-diff rendering shared by history and ask cards.
 - `version`: build identity, noticing when the binary was replaced, and
   keeping the daemon's own descriptors out of what it execs (self-replace,
   an exec group's command, the quiet run).

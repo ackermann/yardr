@@ -17,9 +17,6 @@ func TestFloorParity(t *testing.T) {
 	if store.DefaultOutcome != "done" {
 		t.Fatalf("store.DefaultOutcome %q is not the word eta walks", store.DefaultOutcome)
 	}
-	if eta.OriginatorAny != store.OriginatorAny {
-		t.Fatalf("eta.OriginatorAny %q != store.OriginatorAny %q", eta.OriginatorAny, store.OriginatorAny)
-	}
 }
 
 // The walk follows the outcome the store calls done, whatever word that is.

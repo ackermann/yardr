@@ -25,7 +25,6 @@ import (
 	"unicode/utf8"
 
 	"yardr.dev/yardr/internal/source"
-	"yardr.dev/yardr/internal/udiff"
 )
 
 // AskPack is a pack apply ask's pack as the yard's server read it: its
@@ -566,7 +565,7 @@ func (w *wtx) packReplacement(carried *AskSource, d *source.Declaration, packNam
 		if hasNew {
 			newText = newF.Text // validated text in validatePackSource
 		}
-		diff := udiff.Unified(oldText, newText)
+		diff := Unified(oldText, newText)
 		payload += len(diff)
 		carried.Old = append(carried.Old, AskFileDiff{Program: prog, OldSHA256: oldSHA, NewSHA256: newSHA, Diff: diff})
 	}
@@ -672,7 +671,7 @@ func (w *wtx) packOneSourceDoes(carried AskSource, d *source.Declaration, settle
 			if _, ok := diffs[df.Program]; ok {
 				continue
 			}
-			ins, del := udiff.Counts(df.Diff)
+			ins, del := Counts(df.Diff)
 			extra = append(extra, safeSourceCardLine(fmt.Sprintf("command file %s would change: sha256 %s -> sha256 %s (%d insertions, %d deletions).",
 				df.Program, or(df.OldSHA256, "(none)"), or(df.NewSHA256, "(none)"), ins, del)))
 		}
@@ -713,7 +712,7 @@ func (w *wtx) packOneSourceDoes(carried AskSource, d *source.Declaration, settle
 		if _, ok := diffs[df.Program]; ok {
 			continue
 		}
-		ins, del := udiff.Counts(df.Diff)
+		ins, del := Counts(df.Diff)
 		extra = append(extra, safeSourceCardLine(fmt.Sprintf("command file %s would change: sha256 %s -> sha256 %s (%d insertions, %d deletions).",
 			df.Program, or(df.OldSHA256, "(none)"), or(df.NewSHA256, "(none)"), ins, del)))
 	}
@@ -831,7 +830,7 @@ func (w *wtx) packDepotDoes(name string, reading *PackReading, carried []AskSour
 		switch o.Action {
 		case "create", "change":
 			if o.Kind == "file" {
-				ins, del := udiff.Counts(o.Diff)
+				ins, del := Counts(o.Diff)
 				does = append(does, fmt.Sprintf("%s %s: %s, sha256 %s -> sha256 %s (%d insertions, %d deletions).",
 					o.Kind, o.Name, o.Action, or(o.FileOldSHA, "(none)"), or(o.FileNewSHA, "(none)"), ins, del))
 				continue

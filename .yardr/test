@@ -1777,7 +1777,7 @@ internal/store/peerbeads.go 1763 peer bead intake and fetching
 internal/store/peers.go 1703 peer records and their allowances
 internal/store/peersend.go 1263 sending beads to peers and settling them
 internal/store/policy.go 1201 the permission gates and their rules
-internal/store/routing.go 3180 groups, routes and their config merges
+internal/store/routing.go 3174 groups, routes and their config merges
 internal/store/runask.go 1211 run asks and their approval
 internal/store/runask_list.go 1223 ask cards, labels and preset reading
 internal/store/runask_more.go 1210 the user and crew-grant run-ask cards

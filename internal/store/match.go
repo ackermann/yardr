@@ -1,10 +1,4 @@
-// Package shared holds what eta, the store and limits share but cannot
-// pass between them: route matching and duration spans. The store reads
-// eta for its estimate shapes and limits reads the store, so neither the
-// store's matcher nor limits' span can be imported where they are also
-// needed; the one implementation of each lives here, over minimal shapes
-// every side adapts at the boundary, and every caller delegates to it.
-package shared
+package store
 
 import (
 	"fmt"
@@ -31,10 +25,10 @@ func ResolveGroup(name, depot string) string {
 	return strings.ReplaceAll(name, DepotTemplate, depot)
 }
 
-// A Route is the match fields of a route: what matching reads. Both
-// store.Route and eta.Route adapt to it at the boundary; neither moves
-// here, the store's being persisted.
-type Route struct {
+// A RouteMatch is the match fields of a route: what matching reads. Route
+// and eta.Route each adapt to it at the boundary, since the two types
+// differ and the one implementation of matching reads this shape alone.
+type RouteMatch struct {
 	Stage        string
 	Type         *string
 	Depot        *string
@@ -45,8 +39,8 @@ type Route struct {
 	Originator *string
 }
 
-// A Bead is the bead fields matching reads.
-type Bead struct {
+// A BeadMatch is the bead fields matching reads.
+type BeadMatch struct {
 	Stage      string
 	Type       string
 	Depot      *string
@@ -76,7 +70,7 @@ func MatchesOriginator(routeOriginator *string, originator, operator string) boo
 // Matches reports whether r applies to b: its stage, and every filter it
 // sets — the type, the depot, each label, the bead priority and the
 // originator.
-func Matches(r Route, b Bead, operator string) bool {
+func Matches(r RouteMatch, b BeadMatch, operator string) bool {
 	if r.Stage != b.Stage {
 		return false
 	}
@@ -124,7 +118,7 @@ func ResolvedOriginator(routeOriginator *string, operator string) string {
 }
 
 // KeyOf is r's match key for operator.
-func KeyOf(r Route, operator string) Key {
+func KeyOf(r RouteMatch, operator string) Key {
 	k := Key{stage: r.Stage, originator: ResolvedOriginator(r.Originator, operator)}
 	if r.Type != nil {
 		k.typ, k.hasType = *r.Type, true
@@ -145,14 +139,16 @@ func KeyOf(r Route, operator string) Key {
 	return k
 }
 
-// EffectiveRoutes are the routes of the depot a bead names: its own routes
-// plus every yard default whose match key no own route states. An own
-// route therefore sets a default aside only for the beads it states, and
-// only in its depot; a depot that states no route for a key keeps the
-// default, and a bead with no depot (nil) has the defaults alone. A route
-// naming another depot is never in the set. view adapts each route to
-// what matching reads; the result keeps the order of routes.
-func EffectiveRoutes[R any](routes []R, view func(R) Route, depot *string, operator string) []R {
+// EffectiveRoutesByKey are the routes of the depot a bead names, decided by
+// match key alone: its own routes plus every yard default whose key no own
+// route states. An own route therefore sets a default aside only for the
+// beads it states, and only in its depot; a depot that states no route for
+// a key keeps the default, and a bead with no depot (nil) has the defaults
+// alone. A route naming another depot is never in the set. The group
+// template stays unresolved: the store's EffectiveRoutes and eta resolve it
+// after. view adapts each route to what matching reads; the result keeps
+// the order of routes.
+func EffectiveRoutesByKey[R any](routes []R, view func(R) RouteMatch, depot *string, operator string) []R {
 	if depot == nil {
 		var out []R
 		for _, r := range routes {
@@ -185,7 +181,7 @@ func EffectiveRoutes[R any](routes []R, view func(R) Route, depot *string, opera
 // Match is the first route in match order that applies to b: routes in the
 // order they are tried, already effective for b's depot. nil when none
 // does. view adapts each route to what matching reads.
-func Match[R any](routes []R, view func(R) Route, b Bead, operator string) *R {
+func Match[R any](routes []R, view func(R) RouteMatch, b BeadMatch, operator string) *R {
 	for i := range routes {
 		if Matches(view(routes[i]), b, operator) {
 			return &routes[i]

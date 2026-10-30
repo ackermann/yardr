@@ -18,7 +18,6 @@ import (
 	bolt "go.etcd.io/bbolt"
 
 	"yardr.dev/yardr/internal/agents"
-	"yardr.dev/yardr/internal/shared"
 )
 
 // Group is whoever works a stage. Runner names the implementation (herdr,
@@ -478,11 +477,6 @@ type Route struct {
 // and nothing is tried after it.
 const RouteWait = "wait"
 
-// OriginatorAny is the originator a route names to take every originator's
-// beads: the shared keyword. It is a keyword, not a user: no user is named
-// it, and no bead is for it.
-const OriginatorAny = shared.OriginatorAny
-
 // RouteGroup is one group a route names and the condition it takes the
 // route's beads under.
 type RouteGroup struct {
@@ -612,7 +606,7 @@ func (r Route) GroupList() string {
 // effective routes are computed.
 func (r Route) Templated() bool {
 	return slices.ContainsFunc(r.Groups(), func(g RouteGroup) bool {
-		return shared.IsTemplatedGroup(g.Name)
+		return IsTemplatedGroup(g.Name)
 	})
 }
 
@@ -624,10 +618,10 @@ func (r Route) ResolveForDepot(depot string) Route {
 		return r
 	}
 	out := r
-	out.Group = shared.ResolveGroup(r.Group, depot)
+	out.Group = ResolveGroup(r.Group, depot)
 	out.Else = slices.Clone(r.Else)
 	for i := range out.Else {
-		out.Else[i].Name = shared.ResolveGroup(out.Else[i].Name, depot)
+		out.Else[i].Name = ResolveGroup(out.Else[i].Name, depot)
 	}
 	return out
 }
@@ -642,8 +636,8 @@ func (r Route) missingGroups(depot string, groups map[string]Group) []string {
 			continue
 		}
 		name := g.Name
-		if shared.IsTemplatedGroup(name) {
-			name = shared.ResolveGroup(name, depot)
+		if IsTemplatedGroup(name) {
+			name = ResolveGroup(name, depot)
 		}
 		if _, ok := groups[name]; !ok {
 			missing = append(missing, name)
@@ -1059,9 +1053,9 @@ func judge(now time.Time, limits []QuotaLimit, quota func(source string) Quota, 
 // limits command words it: "was to reset 2h ago".
 func resetsIn(left time.Duration) string {
 	if left < 0 {
-		return "was to reset " + shared.Span(-left) + " ago"
+		return "was to reset " + RoughSpan(-left) + " ago"
 	}
-	return "resets in " + shared.Span(left)
+	return "resets in " + RoughSpan(left)
 }
 
 // percent prints a percentage with at most one decimal.
@@ -1211,8 +1205,8 @@ func checkRouteGroups(tx *bolt.Tx, r Route) (Group, error) {
 			}
 			continue
 		}
-		if shared.IsTemplatedGroup(rg.Name) && r.Depot != nil {
-			return Group{}, fmt.Errorf("group %s: an own route names no %s template, since it knows its depot", rg.Name, shared.DepotTemplate)
+		if IsTemplatedGroup(rg.Name) && r.Depot != nil {
+			return Group{}, fmt.Errorf("group %s: an own route names no %s template, since it knows its depot", rg.Name, DepotTemplate)
 		}
 		if slices.ContainsFunc(gs[:i], func(o RouteGroup) bool { return o.Name == rg.Name }) {
 			return Group{}, fmt.Errorf("group %s is named twice", rg.Name)
@@ -1261,12 +1255,12 @@ func checkRouteGroups(tx *bolt.Tx, r Route) (Group, error) {
 		return Group{}, err
 	}
 	for _, rg := range gs {
-		if rg.Name == RouteWait || !shared.IsTemplatedGroup(rg.Name) {
+		if rg.Name == RouteWait || !IsTemplatedGroup(rg.Name) {
 			continue
 		}
 		resolves := false
 		for _, depot := range depots {
-			if _, ok := groups[shared.ResolveGroup(rg.Name, depot)]; ok {
+			if _, ok := groups[ResolveGroup(rg.Name, depot)]; ok {
 				resolves = true
 				break
 			}
@@ -1276,7 +1270,7 @@ func checkRouteGroups(tx *bolt.Tx, r Route) (Group, error) {
 		}
 	}
 	for _, rg := range gs {
-		if rg.Name == RouteWait || shared.IsTemplatedGroup(rg.Name) {
+		if rg.Name == RouteWait || IsTemplatedGroup(rg.Name) {
 			continue
 		}
 		if _, ok := groups[rg.Name]; !ok {
@@ -1291,8 +1285,8 @@ func checkRouteGroups(tx *bolt.Tx, r Route) (Group, error) {
 				continue
 			}
 			name := rg.Name
-			if shared.IsTemplatedGroup(name) {
-				name = shared.ResolveGroup(name, depot)
+			if IsTemplatedGroup(name) {
+				name = ResolveGroup(name, depot)
 			}
 			if _, ok := groups[name]; !ok {
 				serves = false
@@ -1308,7 +1302,7 @@ func checkRouteGroups(tx *bolt.Tx, r Route) (Group, error) {
 				}
 				if seen[rg.Name] {
 					return Group{}, fmt.Errorf("group %s is named twice after resolving %s for depot %s",
-						rg.Name, shared.DepotTemplate, depot)
+						rg.Name, DepotTemplate, depot)
 				}
 				seen[rg.Name] = true
 			}
@@ -1334,15 +1328,15 @@ func checkRouteGroups(tx *bolt.Tx, r Route) (Group, error) {
 		}
 	}
 	first := gs[0].Name
-	if !shared.IsTemplatedGroup(first) {
+	if !IsTemplatedGroup(first) {
 		return groups[first], nil
 	}
 	for _, depot := range serving {
-		if groups[shared.ResolveGroup(first, depot)].Runner == "herdr" {
+		if groups[ResolveGroup(first, depot)].Runner == "herdr" {
 			return Group{Runner: "herdr"}, nil
 		}
 	}
-	return groups[shared.ResolveGroup(first, serving[0])], nil
+	return groups[ResolveGroup(first, serving[0])], nil
 }
 
 // RouteEdit is what SetRoute changes of a route: the first group (Group,
@@ -1465,7 +1459,7 @@ func describeKey(r Route, operator string) string {
 		beads = "beads " + r.BeadPriorities()
 	}
 	orig := "the operator's beads"
-	switch resolved := shared.ResolvedOriginator(r.Originator, operator); {
+	switch resolved := ResolvedOriginator(r.Originator, operator); {
 	case resolved == OriginatorAny:
 		orig = "every originator's beads"
 	case resolved == operator:
@@ -1822,27 +1816,27 @@ func BeadOriginator(b Bead, operator string) string {
 // MatchesOriginator reports whether the route takes beads for originator,
 // whose subscription they build on. Any takes every originator's; a route
 // without one takes only the operator's, however it ranks, so no general
-// route swallows another person's work. The one implementation is
-// shared's.
+// route swallows another person's work.
 func (r Route) MatchesOriginator(originator, operator string) bool {
-	return shared.MatchesOriginator(r.Originator, originator, operator)
+	return MatchesOriginator(r.Originator, originator, operator)
 }
 
-// viewRoute is r as matching reads it: the shared shape, adapted at the
-// boundary, since the persisted route does not move below the store.
-func viewRoute(r Route) shared.Route {
-	return shared.Route{Stage: r.Stage, Type: r.Type, Depot: r.Depot, Labels: r.Labels(),
+// viewRoute is r as matching reads it: a RouteMatch, adapted at the
+// boundary, since matching reads the match shape and not the persisted
+// record.
+func viewRoute(r Route) RouteMatch {
+	return RouteMatch{Stage: r.Stage, Type: r.Type, Depot: r.Depot, Labels: r.Labels(),
 		BeadPriority: r.BeadPriority, Originator: r.Originator}
 }
 
-// viewBead is b as matching reads it: the shared shape.
-func viewBead(b Bead) shared.Bead {
-	return shared.Bead{Stage: b.Stage, Type: b.Type, Depot: b.Depot, Labels: b.Labels,
+// viewBead is b as matching reads it: a BeadMatch.
+func viewBead(b Bead) BeadMatch {
+	return BeadMatch{Stage: b.Stage, Type: b.Type, Depot: b.Depot, Labels: b.Labels,
 		Priority: b.Priority, Originator: b.Originator}
 }
 
-func (r Route) matchKey(operator string) shared.Key {
-	return shared.KeyOf(viewRoute(r), operator)
+func (r Route) matchKey(operator string) Key {
+	return KeyOf(viewRoute(r), operator)
 }
 
 // EffectiveRoutes are the routes of the depot a bead names: its own routes
@@ -1856,9 +1850,10 @@ func (r Route) matchKey(operator string) shared.Key {
 // there (UnservedRoutes names those). groups are the yard's, by name; nil
 // keeps every route without a template, as before, and serves no templated
 // one. The result keeps the order of routes: MatchRoute ranks it, and a
-// listing sorts it with SortRoutes. The key filtering is shared's.
+// listing sorts it with SortRoutes. The key filtering is
+// EffectiveRoutesByKey's.
 func EffectiveRoutes(routes []Route, depot *string, operator string, groups map[string]Group) []Route {
-	keyed := shared.EffectiveRoutes(routes, viewRoute, depot, operator)
+	keyed := EffectiveRoutesByKey(routes, viewRoute, depot, operator)
 	if depot == nil {
 		var out []Route
 		for _, r := range keyed {
@@ -1897,7 +1892,7 @@ type UnservedRoute struct {
 // aside instead, so it is not named here. routes is the yard's routes in
 // any order; the result keeps their order.
 func UnservedRoutes(routes []Route, depot, operator string, groups map[string]Group) []UnservedRoute {
-	keyed := shared.EffectiveRoutes(routes, viewRoute, &depot, operator)
+	keyed := EffectiveRoutesByKey(routes, viewRoute, &depot, operator)
 	var out []UnservedRoute
 	for _, r := range keyed {
 		if r.Depot != nil || !r.Templated() {
@@ -1925,7 +1920,7 @@ type SetAside struct {
 // aside. routes is the yard's routes in any order; the result keeps their
 // order.
 func SetAsideRoutes(routes []Route, depot string, operator string) []SetAside {
-	setter := map[shared.Key]Route{}
+	setter := map[Key]Route{}
 	for _, r := range routes {
 		if r.Depot == nil || *r.Depot != depot {
 			continue
@@ -1963,7 +1958,7 @@ func SetAsideRoutes(routes []Route, depot string, operator string) []SetAside {
 func MatchRoute(routes []Route, b Bead, operator string, groups map[string]Group) *Route {
 	eff := EffectiveRoutes(routes, b.Depot, operator, groups)
 	SortRoutes(eff)
-	return shared.Match(eff, viewRoute, viewBead(b), operator)
+	return Match(eff, viewRoute, viewBead(b), operator)
 }
 
 // Matches reports whether r applies to b: its stage, and every filter it
@@ -1972,9 +1967,8 @@ func MatchRoute(routes []Route, b Bead, operator string, groups map[string]Group
 // unpinned twin does. MatchRoute returns the first matching route of the
 // bead's depot's effective routes in SortRoutes order; route explain
 // names every matching route and why each other effective route misses.
-// The one implementation is shared's.
 func (r Route) Matches(b Bead, operator string) bool {
-	return shared.Matches(viewRoute(r), viewBead(b), operator)
+	return Matches(viewRoute(r), viewBead(b), operator)
 }
 
 // stageGroup is the group a bead answers to in its stage: the group working

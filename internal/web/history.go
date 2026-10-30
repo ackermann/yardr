@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"yardr.dev/yardr/internal/store"
-	"yardr.dev/yardr/internal/udiff"
 )
 
 // Change is one event of a bead's history: the event as the feed words it,
@@ -144,6 +143,6 @@ func list(v any) []string {
 	return nil
 }
 
-// unified is old and new as a unified diff by line, rendered as
-// udiff renders it so a card and a history show a change one way.
-func unified(old, new string) string { return udiff.Unified(old, new) }
+// unified is old and new as a unified diff by line, rendered as the store
+// renders it so a card and a history show a change one way.
+func unified(old, new string) string { return store.Unified(old, new) }

@@ -21,7 +21,6 @@ import (
 
 	"yardr.dev/yardr/internal/agents"
 	"yardr.dev/yardr/internal/config"
-	"yardr.dev/yardr/internal/shared"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -128,7 +127,7 @@ func (a *app) planUserLogin(ctx context.Context, st store.API, user, harness str
 			continue
 		}
 		candidates := []store.Route{r}
-		if shared.IsTemplatedGroup(r.Worker()) {
+		if store.IsTemplatedGroup(r.Worker()) {
 			candidates = nil
 			for _, depot := range depots {
 				resolved := r.ResolveForDepot(depot.Name)

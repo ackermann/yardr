@@ -1,8 +1,4 @@
-// Package udiff renders two texts as one unified diff by line, as
-// diff -u does: "--- was" / "+++ is", one hunk to a change with three
-// lines round it. It is the rendering a history and a run-ask card
-// share, so a change is shown the same way wherever it is approved.
-package udiff
+package store
 
 import (
 	"fmt"
@@ -17,8 +13,11 @@ const Context = 3
 // what changed, in more lines.
 const cells = 4 << 20
 
-// Unified is old and new as a unified diff by line, "" when no line
-// differs. A final newline is no line of its own.
+// Unified is old and new as one unified diff by line, as diff -u does:
+// "--- was" / "+++ is", one hunk to a change with three lines round it,
+// "" when no line differs. A final newline is no line of its own. It is
+// the rendering a history and a run-ask card share, so a change is shown
+// the same way wherever it is approved.
 func Unified(old, new string) string {
 	a, b := lines(old), lines(new)
 	pre := 0
@@ -113,7 +112,7 @@ func Unified(old, new string) string {
 			hunk.WriteString(o.text)
 			hunk.WriteByte('\n')
 		}
-		fmt.Fprintf(&out, "@@ -%s +%s @@\n%s", span(sa, na), span(sb, nb), hunk.String())
+		fmt.Fprintf(&out, "@@ -%s +%s @@\n%s", hunkSpan(sa, na), hunkSpan(sb, nb), hunk.String())
 		la, lb, at = sa+na, sb+nb, end+1
 	}
 	return out.String()
@@ -139,7 +138,7 @@ func Counts(diff string) (ins, del int) {
 	return ins, del
 }
 
-func span(before, n int) string {
+func hunkSpan(before, n int) string {
 	if n == 0 {
 		return fmt.Sprintf("%d,0", before)
 	}

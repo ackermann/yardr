@@ -19,7 +19,6 @@ import (
 	"unicode/utf8"
 
 	"yardr.dev/yardr/internal/source"
-	"yardr.dev/yardr/internal/udiff"
 )
 
 // parseSourceAdd reads the words of source add <file>: one file, named as
@@ -366,7 +365,7 @@ func credentialSays(d *source.Declaration, carried AskSource, diffs map[string]A
 		at := "<home>/sources/" + d.Name + "/" + prog
 		file := fmt.Sprintf("command file %s, copied to %s: sha256 %s, mode 0700", prog, at, carriedSHA(carried, prog))
 		if df, ok := diffs[prog]; ok {
-			ins, del := udiff.Counts(df.Diff)
+			ins, del := Counts(df.Diff)
 			file = fmt.Sprintf("command file %s, copied to %s: sha256 %s -> sha256 %s, mode 0700 (%d insertions, %d deletions)", prog, at, or(df.OldSHA256, "(none)"), or(df.NewSHA256, "(none)"), ins, del)
 		}
 		s += fmt.Sprintf(", minted from %s by the declaration's own mint command %s (%s), run with the mint's inputs and the operator's local logins where the source's mint_command is unset: one the operator sets wins over it", strings.Join(c.Mint, " and "), showCommand(c.MintCommand), file)
@@ -779,7 +778,7 @@ func commandSaysChanged(d *source.Declaration, carried AskSource, diffs map[stri
 			named = append(named, fmt.Sprintf("%s (%s, %s)", showCommand(c.Argv), c.Key, handed))
 		}
 		if df, ok := diffs[prog]; ok {
-			ins, del := udiff.Counts(df.Diff)
+			ins, del := Counts(df.Diff)
 			out = append(out, fmt.Sprintf("command file %s: %s: sha256 %s -> sha256 %s, mode 0700 (%d insertions, %d deletions).",
 				prog, andList(named), or(df.OldSHA256, "(none)"), or(df.NewSHA256, "(none)"), ins, del))
 			continue

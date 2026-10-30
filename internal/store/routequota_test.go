@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"yardr.dev/yardr/internal/shared"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -401,7 +400,7 @@ func TestRouteChoose(t *testing.T) {
 	usedUp := store.QuotaWindow{Label: "Weekly", UsedPercent: pct(100), ResetsAt: &late}
 	reason := func(under string) string {
 		return "Claude's Weekly window is 100% used, the route asks under " + under +
-			" (last known: used up until " + shared.Clock(late, now) + ")"
+			" (last known: used up until " + store.Clock(late, now) + ")"
 	}
 	route := func(first string, further ...string) store.Route {
 		g := store.ParseRouteGroup(first)
@@ -663,7 +662,7 @@ func TestRouteChoose(t *testing.T) {
 		"no condition, a per-model window of its own model last known used up": {route("a"),
 			map[string]store.Quota{"a": lastKnown(store.QuotaWindow{Label: "Weekly Fable", Model: "Fable", UsedPercent: pct(100), ResetsAt: &late})},
 			store.RouteChoice{Passed: []store.PassedGroup{{Group: "a", ResetsAt: &late,
-				Reason: "Claude's Weekly Fable window is 100% used, the route asks under 100 (last known: used up until " + shared.Clock(late, now) + ")"}}}, "a"},
+				Reason: "Claude's Weekly Fable window is 100% used, the route asks under 100 (last known: used up until " + store.Clock(late, now) + ")"}}}, "a"},
 		"no condition, nothing last known": {route("a"), map[string]store.Quota{"a": lastKnown()},
 			store.RouteChoice{Group: "a", Unknown: "the limits of a were not known: no fresh answer yet"}, "a"},
 	} {

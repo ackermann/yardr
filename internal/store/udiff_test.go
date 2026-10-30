@@ -1,4 +1,4 @@
-package udiff
+package store
 
 import (
 	"strings"

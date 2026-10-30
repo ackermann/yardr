@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 
 	bolt "go.etcd.io/bbolt"
-
-	"yardr.dev/yardr/internal/shared"
 )
 
 // migrateRoutePriority drops the priority every route carried until schema
@@ -33,7 +31,7 @@ func migrateRoutePriority(tx *bolt.Tx, from uint64) error {
 	type scopeKey struct {
 		own   bool
 		depot string
-		key   shared.Key
+		key   Key
 	}
 	scopeOf := func(r Route) scopeKey {
 		k := scopeKey{key: r.matchKey(operator)}

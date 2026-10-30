@@ -21,8 +21,8 @@ Seven of the eight live in `internal/store`, where the records live:
 | depot | `internal/store` | where a bead is worked: the repository and what tests it |
 | source | `internal/store` | a service outside the yard: the `Source` record, declared and called through `internal/source` |
 
-Other packages keep minimal shapes where they must (eta, shared); the
-store's are canonical.
+Other packages keep minimal shapes where they must (eta); the store's
+are canonical.
 
 Three more words from the [core concepts](../README.md#core-concepts)
 are not types of their own:
@@ -96,13 +96,14 @@ Each cross-concept verb is owned by exactly one interface:
 
 ## Layers
 
-Measured at f75abf88: 38 packages under `internal/`, each in one layer:
+38 packages under `internal/` at f75abf88, each in one layer (36 since
+the store-as-leaf splits folded `shared` and `udiff` into `store`):
 
-- leaves, importing no internal package (7): `agents`, `peer`, `rpc/clientgen`, `scripttest`, `shared`, `udiff`, `version`.
+- leaves, importing no internal package (5): `agents`, `peer`, `rpc/clientgen`, `scripttest`, `version`.
 - store (1): `store`. Measured: 130 non-test Go files, a 296-method `store.API`, 9 internal imports — the allow-listed edges under the rules. Shared types the leaf splits move stay in store itself: there is no separate types package.
 - services (26): `bdp`, `chat`, `config`, `depotfile`, `diskkeep`, `edgelink`, `eta`, `flowdraw`, `flowdraw/gen`, `hooks`, `limits`, `notify`, `otel`, `pack`, `pairing`, `preview`, `rpc`, `rpc/gen`, `source`, `standin`, `storetest`, `telemetry`, `testload`, `web`, `yardkey`, `yards`. (`storetest` and `testload` are test-only helpers; `rpc/gen` and `flowdraw/gen` are generators.)
 - dispatch, runner, server (3): the control loop and the process owners.
-- cli (1): `cli`. Measured: imports 29 of the 38 internal packages.
+- cli (1): `cli`. Measured: imports 28 of the 36 internal packages.
 - main: the root package, the binary; the only importer of `cli`.
 
 ## Import rules
@@ -110,9 +111,9 @@ Measured at f75abf88: 38 packages under `internal/`, each in one layer:
 Three rules; the test holds them, with today's breaking edges in one
 allow table, each row naming the bead that removes it:
 
-(a) `internal/store` imports no `internal` package. Today it imports 8
-(`agents`, `config`, `pairing`, `peer`, `shared`, `source`,
-`udiff`, `yardkey`); each stands in the table until its split bead cuts it.
+(a) `internal/store` imports no `internal` package. Today it imports 6
+(`agents`, `config`, `pairing`, `peer`, `source`,
+`yardkey`); each stands in the table until its split bead cuts it.
 
 (b) A leaf imports no internal package.
 
