@@ -827,16 +827,21 @@ func TestYardTestSelects(t *testing.T) {
 		// so the whole-suite fallback covers it instead of assuming it was embedded.
 		{"a deleted file under a pattern the rule cannot read", []string{"-qemb/other.txt"}, []string{
 			pre + "qemb/other.txt is read by no known package: testing everything"}},
+		// A non-Go file with a row of its own fires that row alone: the
+		// internal/ row matches .go files only.
 		{"another package's testdata", []string{"internal/hooks/testdata/github/ping.json"}, []string{
-			pre + "internal/hooks/testdata/github/ping.json changed: read by the tests of internal/rpc",
 			pre + "internal/hooks/testdata/github/ping.json changed: read by the tests of internal/hooks internal/dispatch",
-			testedNoRace + " m.test/m/internal/dispatch m.test/m/internal/hooks m.test/m/internal/rpc"}},
-		// TestEveryKindIsDecided scans internal/ for event writers, and rpc
-		// imports only the store: the reads row runs it on any change under
-		// internal/, here a package nothing imports.
+			testedNoRace + " m.test/m/internal/dispatch m.test/m/internal/hooks"}},
+		// TestEveryKindIsDecided scans the Go files of internal/ for event
+		// writers, and rpc imports only the store: the reads row runs it on
+		// any .go change under internal/, here a package nothing imports. A
+		// non-Go file under internal/ that no row of its own names matches
+		// no row, as before the internal/ row, and tests everything.
 		{"a go file under internal/", []string{"internal/dispatch/p.go"}, []string{
 			pre + "internal/dispatch/p.go changed: read by the tests of internal/rpc",
 			testedNoRace + " m.test/m/internal/dispatch m.test/m/internal/rpc"}},
+		{"a testdata file under internal/ with no row of its own", []string{"internal/dispatch/testdata/probe.json"}, []string{
+			pre + "internal/dispatch/testdata/probe.json is read by no known package: testing everything"}},
 		// The root package's scans read every .go file and every import, and
 		// none of these six directories (test helpers and generators) is a
 		// dependency of the root package or its tests, so no import selects

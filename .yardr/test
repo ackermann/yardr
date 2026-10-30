@@ -2376,7 +2376,11 @@ awk -F'|' -v root="$(git rev-parse --show-toplevel)" -v rows="$tmp/rows" -v stra
     if (bad) exit 1
     for (k = 1; k <= nf; k++) {
       f = order[k]; rowed = 0
-      for (j = 1; j <= r; j++) if (at[j] ~ /\/$/ ? index(f, at[j]) == 1 : f == at[j]) { rowed = 1; if (!fired[j]++) first[j] = f }
+      # The internal/ row runs the test that scans the Go files of
+      # internal/ for event writers, so it matches .go files only: a
+      # non-Go file under internal/ that no row of its own names is a
+      # stray, and tests everything (yardr-5y4s).
+      for (j = 1; j <= r; j++) if ((at[j] ~ /\/$/ ? index(f, at[j]) == 1 : f == at[j]) && !(at[j] == "internal/" && f !~ /\.go$/)) { rowed = 1; if (!fired[j]++) first[j] = f }
       if (!rowed && f !~ /\.go$/ && !(f in known) && !strays++) print f >stray
       if (f in known && !embeds++) print f >embedded
     }
