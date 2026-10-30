@@ -56,6 +56,18 @@ type AskWeight struct {
 	Line  string `json:"line"`
 }
 
+// WithoutWeightWords is a card's weight as a device that is no operator's
+// is told it where the command's words are held (RunArgvHeld): each class
+// with the yard's line for it, and nothing of what this card does, since
+// those particulars quote the held words and the plan behind them.
+func WithoutWeightWords(ws []AskWeight) []AskWeight {
+	out := make([]AskWeight, len(ws))
+	for i, w := range ws {
+		out[i] = AskWeight{Class: w.Class, Line: weightSays[w.Class]}
+	}
+	return out
+}
+
 // WeightMark starts a card's weight lines where they are shown (Marked):
 // its words end where the line begins, so nothing its asker typed stands
 // for a weight the yard gave. Every renderer of cards keeps the mark out
@@ -577,10 +589,103 @@ func grantWeight(w *wtx, run AskRun) ([]AskWeight, error) {
 	return out, nil
 }
 
-// carriedRunWeight weighs a row that carries sources (source add, pack
-// apply) by what it carries.
+// carriedRunWeight weighs a row that carries sources by what it carries.
 func carriedRunWeight(w *wtx, run AskRun) ([]AskWeight, error) {
 	return w.carriedWeight(run.Carried)
+}
+
+// packApplyWeight weighs a pack apply by what it carries and, where it
+// names a depot, by what its mappings give, in the classes the grant and
+// setup cards use: a call of an update is outside, and one that sends a
+// file is code; opening a thread reaches outside as an update does; a bind
+// says which agents the yard runs and with which permissions, so it is
+// code; a member is a person whose word the group takes, and no members
+// is anyone's, so trust. A first
+// install is code where its plan makes what the yard will run: files and
+// the groups and crew that work them. A credential alone weighs nothing
+// more, since a depot pack's declaration brings no value.
+func packApplyWeight(w *wtx, run AskRun) ([]AskWeight, error) {
+	out, err := w.carriedWeight(run.Carried)
+	if err != nil {
+		return nil, err
+	}
+	_, depot, m, err := packApplyWords(run.Argv[2:])
+	if err != nil || depot == "" || run.Pack == nil {
+		return out, err
+	}
+	declaredIn := func(name string) (*source.Declaration, error) {
+		for _, c := range run.Carried {
+			if c.Name == name {
+				return source.Parse("pack source "+c.Name, []byte(c.Text))
+			}
+		}
+		d, err := declared(w.Tx, name)
+		if errors.Is(err, ErrNotFound) {
+			return nil, nil
+		}
+		return d, err
+	}
+	var outside, code, trust []string
+	first, err := w.packFirstInstall(run.Pack.Name, depot)
+	if err != nil {
+		return nil, err
+	}
+	if first && run.Pack.Plan != nil {
+		var made []string
+		for _, o := range run.Pack.Plan.Objects {
+			if (o.Action == "create" || o.Action == "change") && slices.Contains([]string{"file", "group", "crew"}, o.Kind) {
+				made = append(made, o.Kind+" "+o.Name)
+			}
+		}
+		if len(made) > 0 {
+			code = append(code, fmt.Sprintf("the first install of pack %s into depot %s makes %s", run.Pack.Name, depot, andList(made)))
+		}
+	}
+	for _, g := range m.callGrants() {
+		d, err := declaredIn(g.Source)
+		if err != nil {
+			return nil, err
+		}
+		if d == nil {
+			continue
+		}
+		if ups := updatesOf(d, g.Calls); len(ups) > 0 {
+			outside = append(outside, fmt.Sprintf("%s may call %s of %s (%s)", g.Who, andList(ups), g.Source, anUpdate(ups)))
+		}
+		if ups := programsOf(d, g.Calls); len(ups) > 0 {
+			code = append(code, fmt.Sprintf("%s may send a file to %s through %s with no card, a program it will run", g.Who, g.Source, andList(ups)))
+		}
+	}
+	for _, g := range m.threadGrants() {
+		outside = append(outside, fmt.Sprintf("crew member %s may open threads in %s", g.Crew, andList(g.Sources)))
+	}
+	for _, kv := range m.Binds {
+		code = append(code, "the agents of "+kv)
+	}
+	for _, kv := range m.Members {
+		// No names is the widest answer there is: anyone, as the flag says.
+		group, names, _ := strings.Cut(kv, "=")
+		who := "anyone"
+		if names != "" {
+			who = andList(strings.Split(names, ","))
+		}
+		trust = append(trust, fmt.Sprintf("the group %s takes the word of %s", group, who))
+	}
+	for _, add := range []struct {
+		class string
+		says  []string
+	}{{WeightOutside, outside}, {WeightCode, code}, {WeightTrust, trust}} {
+		if len(add.says) == 0 {
+			continue
+		}
+		says := strings.Join(add.says, "; ")
+		if i := slices.IndexFunc(out, func(a AskWeight) bool { return a.Class == add.class }); i >= 0 {
+			out[i].Line += "; " + oneLine(says)
+			continue
+		}
+		out = append(out, weighs(add.class, says))
+	}
+	return out, nil
 }
 
 // sourceAddWeight weighs a source add by what it carries, and a source it

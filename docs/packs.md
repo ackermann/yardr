@@ -1813,9 +1813,9 @@ would replace changes to with each command file's diff, and for a depot
 pack each object with each changed file's diff. The approval is held to
 the build, the pack's bytes and the yard's sources as carded, and is
 carried out by the server after it. A pack that is a directory, a URL or
-an earlier import's record, any flag of `pack apply`, a first install of
-a depot pack, and a plan that asks, is refused to a terminal, where
-`yardr pack check <name>` shows the plan.
+an earlier import's record, any flag of `pack apply` but the depot and the
+mappings of a depot pack's first install, and a plan that asks, is refused
+to a terminal, where `yardr pack check <name>` shows the plan.
 
 **A pack updated is one card again.** A setup ask on a pack already
 applied (`yardr bead ask <id> "<question>" --setup <pack>`,

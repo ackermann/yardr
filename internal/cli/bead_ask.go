@@ -229,14 +229,14 @@ one of the list the yard runs from a card:
       no approval and is run directly
   call <source> <call> [param=value ...] [--as <user>]
       one call of a declared source, made when approved; a file is shown by its digest and a secret-file by its file alone
-  pack apply <name>
-      a pack yardr embeds, with no flag: of kind source, or of a depot
-      kind re-applied to the one depot that holds it where its plan
-      asks nothing; the card is written from the server's own binary
-      and shows each declared source whole, and for a depot pack each
-      object and each changed file's diff; the approval is carried out
-      by the server after it; a directory, URL or imported pack, any
-      flag, a first install and a plan that asks stay in a terminal
+  pack apply <name> [--depot <depot> [--flow <flow>] [--crew <pack>=<yard>] [--group <pack>=<yard>] [--bind <spec>] [--members <group>=<a,b>] [--open-threads <crew>=<sources>] [--calls <who>=<source>:<calls>]]
+      a pack yardr embeds: of kind source with no flag, a depot kind
+      re-applied to the one depot that holds it, or a depot pack's first
+      install to a named depot with the mappings that answer its plan;
+      the card comes from the server's own binary and shows each source,
+      mapping, object and file diff whole; the server carries it out; a
+      directory, URL or imported pack, any other flag and a plan that
+      asks stay in a terminal; --setup installs a pack of kind source
   hook add <name> --source <declared source> [--unknown unknown|allow|ignore]
       a new webhook endpoint POST /hooks/<name> for the declared
       source, verified with its signing secret given on the hook's own

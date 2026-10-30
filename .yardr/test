@@ -1761,7 +1761,7 @@ internal/dispatch/prompt.go 929 prompt, dialog and login watching
 internal/pack/export.go 1047 pack export and its object shapes
 internal/pack/pack.go 1927 pack reading, checking and its shapes
 internal/pack/plan.go 1122 import plans, diffs and their operations
-internal/rpc/user.go 1864 the user server, callers and pairing
+internal/rpc/user.go 1792 the user server, callers and pairing
 internal/source/declaration.go 1736 source declarations, credentials and calls
 internal/standin/standin.go 1540 the fake Linear, GitHub and edge APIs
 internal/store/asks.go 1790 ask and answer parsing and storage
@@ -1776,7 +1776,7 @@ internal/store/peers.go 1617 peer records and their allowances
 internal/store/peersend.go 1261 sending beads to peers and settling them
 internal/store/policy.go 1201 the permission gates and their rules
 internal/store/routing.go 3174 groups, routes and their config merges
-internal/store/runask.go 1139 run asks and their approval
+internal/store/runask.go 1127 run asks and their approval
 internal/store/runask_list.go 1223 ask cards, labels and preset reading
 internal/store/runask_more.go 1210 the user and crew-grant run-ask cards
 internal/store/runask_setup.go 1537 the setup ask, its card, and the carrying record

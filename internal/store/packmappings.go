@@ -2,7 +2,9 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -39,6 +41,225 @@ func (m Mappings) Bound() []string {
 	for _, kv := range m.Binds {
 		if name, _, _ := strings.Cut(kv, "="); name != "" && !strings.HasPrefix(name, "crew:") {
 			out = append(out, name)
+		}
+	}
+	return out
+}
+
+// PackApplyUse is how a refusal names the row.
+const PackApplyUse = "yardr pack apply <name> [--depot <depot> [--flow <flow>] [--crew <pack>=<yard>] [--group <pack>=<yard>] [--bind <spec>] [--members <group>=<a,b>] [--open-threads <crew>=<sources>] [--calls <who>=<source>:<calls>]]"
+
+// packApplyFlags are the words a card carries: the depot, and the
+// mappings a plan's questions are answered by. Every other flag of the
+// terminal's shapes the import in a way a card holds no word for.
+var packApplyFlags = map[string]bool{"--depot": true, "--flow": true, "--crew": true, "--group": true,
+	"--bind": true, "--members": true, "--open-threads": true, "--calls": true}
+
+// parsePackApply reads the words of pack apply into the row's one stored
+// form: the name, the depot, then the mappings in packMappingFlags' order.
+func parsePackApply(rest []string) ([]string, error) {
+	name, depot, m, err := packApplyWords(rest)
+	if err != nil {
+		return nil, err
+	}
+	out := []string{name}
+	if depot != "" {
+		out = append(out, "--depot", depot)
+	}
+	for _, flag := range packMappingFlags(m) {
+		word, value, _ := strings.Cut(flag, " ")
+		out = append(out, word, value)
+	}
+	return out, nil
+}
+
+// packApplyWords reads the pack's name, the depot and the mappings out of
+// the words of pack apply. A mapping answers a plan for a depot, so it
+// needs --depot; with none the words are a bare name, a re-apply. Each
+// value stands on the card as it was typed, and draws no line of its own
+// there: parseRow has held the line to names, numbers and flags.
+func packApplyWords(rest []string) (string, string, Mappings, error) {
+	var m Mappings
+	for _, word := range rest {
+		flag, _, _ := strings.Cut(word, "=")
+		if strings.HasPrefix(word, "-") && !packApplyFlags[flag] {
+			return "", "", m, fmt.Errorf("--run takes %s, and pack apply with %s shapes the import, which a card answers none of: it is the operator's to type in a terminal (yardr pack check %s shows its plan there)", PackApplyUse, flag, "<name>")
+		}
+	}
+	args, values, err := runWords(PackApplyUse, "pack apply", "the operator's", rest, packApplyFlags)
+	if err != nil {
+		return "", "", m, err
+	}
+	if len(args) != 1 {
+		return "", "", m, fmt.Errorf("--run takes %s: one pack's name, not %d words", PackApplyUse, len(args))
+	}
+	once := func(flag string) (string, error) {
+		if len(values[flag]) > 1 {
+			return "", fmt.Errorf("--run takes %s: one %s, not %d", PackApplyUse, flag, len(values[flag]))
+		}
+		return strings.Join(values[flag], ""), nil
+	}
+	takes := func(flag string) (map[string]string, error) {
+		var out map[string]string
+		for _, kv := range values[flag] {
+			pack, yard, ok := strings.Cut(kv, "=")
+			if !ok || pack == "" || yard == "" {
+				return nil, fmt.Errorf("--run takes %s: %s %s is not <pack>=<yard>", PackApplyUse, flag, kv)
+			}
+			if _, twice := out[pack]; twice {
+				return nil, fmt.Errorf("--run takes %s: %s names %s twice", PackApplyUse, flag, pack)
+			}
+			if out == nil {
+				out = map[string]string{}
+			}
+			out[pack] = yard
+		}
+		return out, nil
+	}
+	depot, err := once("--depot")
+	if err != nil {
+		return "", "", m, err
+	}
+	if m.Flow, err = once("--flow"); err != nil {
+		return "", "", m, err
+	}
+	if m.Crew, err = takes("--crew"); err != nil {
+		return "", "", m, err
+	}
+	if m.Groups, err = takes("--group"); err != nil {
+		return "", "", m, err
+	}
+	m.Binds, m.Members, m.OpenThreads, m.Calls = values["--bind"], values["--members"], values["--open-threads"], values["--calls"]
+	if depot == "" && !m.IsZero() {
+		return "", "", m, fmt.Errorf("--run takes %s: a mapping answers the plan for a named depot, so it needs --depot", PackApplyUse)
+	}
+	return args[0], depot, m, nil
+}
+
+// packTargetKey starts each Seen key a named depot's card holds for what
+// its command names beside the pack (packTargetsSeen).
+const packTargetKey = "target "
+
+// packFirstInstall says whether the depot holds no import of the pack.
+func (w *wtx) packFirstInstall(name, depot string) (bool, error) {
+	var rec PackImport
+	had, err := get(w.Tx, bPacks, join(depot, name), &rec)
+	return !had, err
+}
+
+// packTargetsSeen keeps in seenMap what a named depot's card rests on
+// beside the plan: the depot, its record of the pack, and each thing of
+// the yard a mapping names, so a change to any of them stales the
+// approval (packApplyStale) even where the plan reads alike. A target
+// that does not stand is kept as that, and stales when it comes to. The
+// selected flow is a name in the embedded pack, already held by the
+// reading and its plan, not a flow record in the yard.
+func (w *wtx) packTargetsSeen(seenMap map[string]string, name, depot string, m Mappings) error {
+	var d Depot
+	if _, err := get(w.Tx, bDepots, depot, &d); err != nil {
+		return err
+	}
+	seenMap[packTargetKey+"depot "+depot] = seen(d.Path, d.Kind, d.Base, d.Test)
+	var rec PackImport
+	if _, err := get(w.Tx, bPacks, join(depot, name), &rec); err != nil {
+		return err
+	}
+	seenMap[packTargetKey+"import of pack "+name+" in depot "+depot] = seen(rec)
+	for _, yard := range m.Crew {
+		var c CrewMember
+		if _, err := get(w.Tx, bCrew, yard, &c); err != nil {
+			return err
+		}
+		seenMap[packTargetKey+"crew member "+yard] = seen(c.Runner, c.Config, c.Dir)
+	}
+	for _, yard := range m.Groups {
+		var g Group
+		if _, err := get(w.Tx, bGroups, yard, &g); err != nil {
+			return err
+		}
+		seenMap[packTargetKey+"group "+yard] = seen(g.Runner, g.Config, g.Members)
+	}
+	for _, kv := range m.Members {
+		_, names, _ := strings.Cut(kv, "=")
+		for _, member := range strings.Split(names, ",") {
+			stands := w.Bucket(bUsers).Get([]byte(member)) != nil || w.Bucket(bCrew).Get([]byte(member)) != nil
+			seenMap[packTargetKey+"member "+member] = seen(stands)
+		}
+	}
+	for _, src := range mappedSources(m) {
+		fingerprint := ""
+		if got, _, err := sourceIn(w.Tx, src); err == nil {
+			if fingerprint, err = w.sourceSeen(got); err != nil {
+				return err
+			}
+		} else if !errors.Is(err, ErrNotFound) {
+			return err
+		}
+		seenMap[packTargetKey+"source "+src] = fingerprint
+	}
+	return nil
+}
+
+// mappedSources are the sources the mappings' grants name.
+func mappedSources(m Mappings) []string {
+	var out []string
+	for _, g := range m.threadGrants() {
+		out = append(out, g.Sources...)
+	}
+	for _, g := range m.callGrants() {
+		out = append(out, g.Source)
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
+}
+
+// threadGrant is one --open-threads word: the pack's crew member, and the
+// sources it may open threads in.
+type threadGrant struct {
+	Crew    string
+	Sources []string
+}
+
+// callGrant is one --calls word: who, as the flag names them, the source,
+// and the calls.
+type callGrant struct {
+	Who    string
+	Source string
+	Calls  []string
+}
+
+// grantWords are the comma-separated words of a mapping's value, without
+// the none that says the mapping grants nothing.
+func grantWords(v string) []string {
+	var out []string
+	for word := range strings.SplitSeq(v, ",") {
+		if word = strings.TrimSpace(word); word != "" && word != "none" {
+			out = append(out, word)
+		}
+	}
+	return out
+}
+
+// threadGrants are the open-threads the mappings grant.
+func (m Mappings) threadGrants() []threadGrant {
+	var out []threadGrant
+	for _, kv := range m.OpenThreads {
+		crew, v, _ := strings.Cut(kv, "=")
+		if sources := grantWords(v); len(sources) > 0 {
+			out = append(out, threadGrant{Crew: crew, Sources: sources})
+		}
+	}
+	return out
+}
+
+// callGrants are the calls the mappings grant.
+func (m Mappings) callGrants() []callGrant {
+	var out []callGrant
+	for _, kv := range m.Calls {
+		who, v, _ := strings.Cut(kv, "=")
+		src, words, _ := strings.Cut(v, ":")
+		if calls := grantWords(words); len(calls) > 0 {
+			out = append(out, callGrant{Who: who, Source: src, Calls: calls})
 		}
 	}
 	return out

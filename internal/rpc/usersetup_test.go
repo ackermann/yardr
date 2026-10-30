@@ -595,6 +595,79 @@ func TestWithoutRunWordsHoldsAPackCardsMappings(t *testing.T) {
 	if run.Pack.Mappings.IsZero() || run.Pack.Plan == nil {
 		t.Errorf("the cut changed the card it was given: %+v", run.Pack)
 	}
+	// The same mappings as the asker's words are held with them.
+	run.Argv = []string{"pack", "apply", "starter", "--depot", "web", "--members", "decisions=sam"}
+	run.Command = "yardr pack apply starter --depot web --members decisions=sam"
+	if bare, _ = withoutRunWords(run, nil); len(bare.Argv) != 0 || bare.Command != "" {
+		t.Errorf("the device is told the mappings in argv: %q, %q", bare.Argv, bare.Command)
+	}
+}
+
+// A weight line quotes the words argv holds, so the device keeps the class
+// and loses the line, and a card whose words are told keeps it whole.
+func TestWithoutWeightWordsHoldsWhatArgvHolds(t *testing.T) {
+	weight := []store.AskWeight{{Class: store.WeightTrust, Line: "widens who the yard listens to: the group decisions takes the word of sam"}}
+	held := &store.RunAsked{Argv: []string{"pack", "apply", "starter", "--depot", "web", "--members", "decisions=sam"}}
+	got := withoutWeightWords(held, weight)
+	if len(got) != 1 || got[0].Class != store.WeightTrust || got[0].Line != "widens who the yard listens to" {
+		t.Errorf("the device is told the weight %+v", got)
+	}
+	if !strings.Contains(weight[0].Line, "sam") {
+		t.Errorf("the cut changed the card it was given: %+v", weight)
+	}
+	told := &store.RunAsked{Argv: []string{"pack", "apply", "starter"}}
+	if got := withoutWeightWords(told, weight); got[0].Line != weight[0].Line {
+		t.Errorf("a card whose words are told lost its weight's line: %+v", got)
+	}
+	if got := withoutWeightWords(nil, weight); got[0].Line != weight[0].Line {
+		t.Errorf("an ask with no run lost its weight's line: %+v", got)
+	}
+}
+
+// The lines of a pack card's weight quote the mappings its argv holds, so
+// Bead and UserAsks tell them to a device of the operator alone, and any other
+// device the classes.
+func TestDevicesAreToldAPackCardsWeightAsItsWords(t *testing.T) {
+	y := newSecretYard(t)
+	ctx := context.Background()
+	if err := y.st.PutDepot(ctx, store.Depot{Name: "web", Path: t.TempDir(), Kind: store.DepotDir}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	y.st.SetPackReader(func(_ context.Context, name, depot string, m store.Mappings, _ store.API) (*store.PackReading, error) {
+		return &store.PackReading{Name: name, Kind: "dir", Depot: depot, Mappings: m, Label: "embedded in yardr test1", Build: "test1", Plan: &store.AskPlan{}}, nil
+	})
+	_, err := y.st.AddAsk(ctx, "yd-crm", store.Ask{Question: "May the pack go in?", To: "jo",
+		Context: []string{"The depot has no way of working yet."},
+		Run:     &store.AskRun{Argv: []string{"pack apply dir --depot web --members decisions=ada-secret"}}}, "yardmaster")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		who, token string
+		whole      bool
+	}{{"jo's device", y.jo, true}, {"sam's device", y.sam, false}} {
+		_, raw := y.bead(t, c.token)
+		if strings.Contains(raw, "ada-secret") != c.whole {
+			t.Errorf("%s is told the mapping in Bead: %v, want %v\n%s", c.who, !c.whole, c.whole, raw)
+		}
+		if !strings.Contains(raw, `"class":"trust"`) {
+			t.Errorf("%s lost the card's class in Bead:\n%s", c.who, raw)
+		}
+	}
+	// The user it was put to keeps it in their queue when the role moves.
+	if _, err := y.st.SetUser(ctx, "sam", map[string]string{store.UserRole: store.RoleOperator}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := y.st.SetSetting(ctx, store.OperatorSetting, "sam", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.st.SetUser(ctx, "jo", map[string]string{store.UserRole: store.RoleMember}, "sam"); err != nil {
+		t.Fatal(err)
+	}
+	q, raw := y.queue(t, y.jo)
+	if len(q.Open) == 0 || strings.Contains(raw, "ada-secret") || !strings.Contains(raw, `"class":"trust"`) {
+		t.Errorf("jo's device, a member's now, is told by UserAsks:\n%s", raw)
+	}
 }
 
 // runOf is the card of the run ask seq in the view, which fails the test when

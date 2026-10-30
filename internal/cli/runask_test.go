@@ -805,7 +805,7 @@ func TestRunListIsTheCLIs(t *testing.T) {
 		"yardr source check <source> --user <user>": {
 			"source check pushover --user ada",
 		},
-		"yardr pack apply <name>": {"pack apply telegram"},
+		store.PackApplyUse: {"pack apply telegram"},
 		"yardr hook add <name> --source <declared source> [--unknown unknown|allow|ignore]": {"hook add linear --source linear"},
 		"yardr subscribe <user> yardr [--done] [--where <key>=<value>]":                     {"subscribe jo yardr --where label=ui --done --where label=web"},
 		"yardr user set <user> tell=<parts>":                                                {"user set jo tell=asks,notifications"},
@@ -893,7 +893,7 @@ func TestRunListIsTheCLIs(t *testing.T) {
 					}
 				}
 			}
-			if use == "yardr pack apply <name>" {
+			if use == store.PackApplyUse {
 				ctx := context.Background()
 				// A pack approval is carried out by the server after it
 				// (B3), so there is no typed state to compare yet: the
@@ -1763,5 +1763,16 @@ func TestBeadAskRunPackApply(t *testing.T) {
 	}
 	if _, err := y.st.GetSource(context.Background(), "phone"); err == nil {
 		t.Fatalf("a pack approval applied the pack in its write")
+	}
+	// A flag a card holds no word for is refused before anything is stored,
+	// and a source pack's depot points to its setup card.
+	if _, err := y.as(t, "yardmaster", "ask", b.ID, "Apply it?", "--context", "why", "--run", "pack apply telegram --yes"); err == nil || !strings.Contains(err.Error(), "pack apply with --yes") {
+		t.Fatalf("a refused flag: %v", err)
+	}
+	if err := y.st.PutDepot(context.Background(), store.Depot{Name: "web", Path: t.TempDir()}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.as(t, "yardmaster", "ask", b.ID, "Apply it?", "--context", "why", "--run", "pack apply telegram --depot web"); err == nil || !strings.Contains(err.Error(), "--setup telegram") {
+		t.Fatalf("a source pack to a depot: %v", err)
 	}
 }

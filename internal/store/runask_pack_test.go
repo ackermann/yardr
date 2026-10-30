@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -22,6 +23,9 @@ type fakePack struct {
 	kind     string
 	depot    string
 	mappings Mappings
+	// What the last reading was asked for.
+	readDepot    string
+	readMappings Mappings
 }
 
 func (f *fakePack) reading() *PackReading {
@@ -55,6 +59,7 @@ func (y *askYard) setPack(f *fakePack) {
 		if name != "wired" && name != "starter" {
 			return nil, errFakeNoPack(name)
 		}
+		f.readDepot, f.readMappings = depot, mappings
 		r := f.reading()
 		r.Name = name
 		return r, nil
@@ -143,7 +148,22 @@ func TestPackApplyRefusals(t *testing.T) {
 	y.setPack(&fakePack{label: "embedded in yardr test1"})
 	for _, c := range []struct{ argv, want string }{
 		{"pack apply wired --yes", "pack apply with --yes"},
-		{"pack apply wired --depot yardr", "pack apply with --depot"},
+		{"pack apply wired --auth=x", "pack apply with --auth"},
+		{"pack apply wired --sha256 abc", "pack apply with --sha256"},
+		{"pack apply wired --prune", "pack apply with --prune"},
+		{"pack apply wired --pack-roles", "pack apply with --pack-roles"},
+		{"pack apply wired --depot-roles", "pack apply with --depot-roles"},
+		{"pack apply wired --source-env a=b", "pack apply with --source-env"},
+		{"pack apply wired --source-base a=b", "pack apply with --source-base"},
+		{"pack apply wired --notify a=b", "pack apply with --notify"},
+		{"pack apply wired --group a=b", "needs --depot"},
+		{"pack apply wired --depot a --depot b", "one --depot, not 2"},
+		{"pack apply wired --depot a --flow b --flow c", "one --flow, not 2"},
+		{"pack apply wired --depot a --crew b", "is not <pack>=<yard>"},
+		{"pack apply wired --depot a --group b=c --group b=d", "names b twice"},
+		{"pack apply wired --depot a --bind b=\u202ec", "is none of their characters"},
+		{"pack apply wired --depot a --bind b=c\nd=e", "is none of their characters"},
+		{"pack apply wired --depot nosuch", "depot nosuch"},
 		{"pack apply wired extra", "one pack's name"},
 		{"pack apply nosuch", "yardr embeds no pack of that name"},
 	} {
@@ -155,6 +175,238 @@ func TestPackApplyRefusals(t *testing.T) {
 	}
 	if notes, err := y.Notes(y.ctx, y.bead); err != nil || len(notes) != 0 {
 		t.Fatalf("the refused asks left %d notes, %v", len(notes), err)
+	}
+}
+
+// A pack of kind source is never installed through this row with a depot
+// or mappings: the setup card is its one route.
+func TestPackApplySourceKindPointsToSetup(t *testing.T) {
+	y, _ := runYard(t)
+	y.setPack(&fakePack{label: "embedded in yardr test1"})
+	y.firstInstallDepot(t)
+	ask := packAsk()
+	ask.Run.Argv = []string{"pack apply wired --depot web"}
+	if _, err := y.AddAsk(y.ctx, y.bead, ask, "yardmaster"); err == nil || !strings.Contains(err.Error(), "--setup wired") {
+		t.Fatalf("a source pack to a depot: AddAsk = %v", err)
+	}
+}
+
+func (y *askYard) firstInstallDepot(t *testing.T) {
+	t.Helper()
+	if err := y.PutDepot(y.ctx, Depot{Name: "web", Path: t.TempDir()}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// firstInstallPlan is a depot plan that asks nothing, with what a first
+// install makes.
+func firstInstallPlan() *AskPlan {
+	return &AskPlan{Objects: []AskPlanObject{
+		{Kind: "file", Name: "roles/a.md", Action: "create", FileNewSHA: strings.Repeat("b", 64), Text: "role\n", Diff: "+role\n"},
+		{Kind: "group", Name: "builders", Action: "create"},
+		{Kind: "route", Name: "builders", Action: "create"},
+	}}
+}
+
+// A first install is asked with its depot and mappings as words: the card
+// is built from them whatever the writer sent, shows them whole, weighs
+// strong, and is approved only weighed. Each thing it names stales it.
+func TestPackApplyFirstInstallCardAndStale(t *testing.T) {
+	y, _ := runYard(t)
+	y.firstInstallDepot(t)
+	if err := y.PutGroup(y.ctx, Group{Name: "takers", Runner: "manual"}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	plan := firstInstallPlan()
+	plan.Objects = append(plan.Objects, AskPlanObject{Kind: "flow", Name: "starter.fresh", Action: "create"})
+	f := &fakePack{label: "embedded in yardr test1", kind: "git", depot: "web", plan: plan}
+	y.setPack(f)
+	ask := packAsk()
+	// Typed out of order, and with a forged depot beside argv.
+	ask.Run.Argv = []string{"pack apply starter --bind reviewers=claude:opus --flow fresh --group builders=takers --depot web"}
+	ask.Run.Pack = &AskPack{Name: "starter", Depot: "forged"}
+	seq := y.ask(t, ask, "yardmaster")
+	got := y.asked(t, seq)
+	run := got.Ask.Run
+	wantArgv := "pack apply starter --depot web --flow fresh --group builders=takers --bind reviewers=claude:opus"
+	if strings.Join(run.Argv, " ") != wantArgv {
+		t.Fatalf("the stored argv = %q, want %q", run.Argv, wantArgv)
+	}
+	if f.readDepot != "web" || f.readMappings.Flow != "fresh" || f.readMappings.Groups["builders"] != "takers" {
+		t.Fatalf("the reading was asked for depot %q, mappings %+v", f.readDepot, f.readMappings)
+	}
+	if run.Pack.Depot != "web" || run.Pack.Mappings.Groups["builders"] != "takers" || run.Pack.Plan == nil {
+		t.Fatalf("the stored pack = %+v", run.Pack)
+	}
+	joined := strings.Join(run.Does, "\n")
+	for _, want := range []string{
+		"into depot web: 4 to create",
+		"this is a first install: depot web holds no import of pack starter.",
+		"the plan uses mapping --flow fresh.",
+		"the plan uses mapping --group builders=takers.",
+		"the plan uses mapping --bind reviewers=claude:opus.",
+		"file roles/a.md: create",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("the card lacks %q:\n%s", want, joined)
+		}
+	}
+	if !StrongWeight(got.Ask.Weight) || !strings.Contains(WeightWords(got.Ask.Weight), "code") {
+		t.Fatalf("the card's weight = %+v", got.Ask.Weight)
+	}
+	if !RunArgvHeld(run.Argv) || RunArgvHeld([]string{"pack", "apply", "starter"}) {
+		t.Errorf("RunArgvHeld holds the wrong pack apply")
+	}
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false, nil); err == nil || !strings.Contains(err.Error(), "approve it where its weight is shown") {
+		t.Fatalf("an unweighed approval = %v", err)
+	}
+	if done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true, nil); err != nil || done.Result != "approved, to be carried out" {
+		t.Fatalf("the weighed approval = %+v, %v", done, err)
+	}
+	for _, c := range []struct {
+		name, want string
+		move       func() error
+	}{
+		{"the depot", "the depot web", func() error {
+			d, err := y.GetDepot(y.ctx, "web")
+			if err != nil {
+				return err
+			}
+			d.Base = "trunk"
+			return y.PutDepot(y.ctx, *d, "mckean")
+		}},
+		{"the mapping's target's members", "the group takers", func() error {
+			g, err := y.GetGroup(y.ctx, "takers")
+			if err != nil {
+				return err
+			}
+			g.Members = []string{"ada"}
+			return y.PutGroup(y.ctx, *g, "mckean")
+		}},
+		{"the mapping's target", "the group takers", func() error {
+			return y.PutGroup(y.ctx, Group{Name: "takers", Runner: "exec", Config: map[string]any{"cmd": "true"}}, "mckean")
+		}},
+		{"the depot's pack record", "the import of pack starter in depot web", func() error {
+			_, err := y.RecordPack(y.ctx, PackImport{Pack: "starter", Depot: "web", Source: "x"}, true, "mckean")
+			return err
+		}},
+	} {
+		seq := y.ask(t, ask, "yardmaster")
+		if err := c.move(); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true, nil); err == nil || !strings.Contains(err.Error(), c.want) || !strings.Contains(err.Error(), nothingRan) {
+			t.Errorf("%s moved: ApproveAsk = %v", c.name, err)
+		}
+	}
+	// The depot holds the pack now: naming it is a re-apply, no first install.
+	seq = y.ask(t, ask, "yardmaster")
+	if joined := strings.Join(y.asked(t, seq).Ask.Run.Does, "\n"); strings.Contains(joined, "first install") {
+		t.Errorf("a re-apply to a named depot reads as a first install:\n%s", joined)
+	}
+	if ws := y.asked(t, seq).Ask.Weight; len(ws) != 1 || !strings.Contains(ws[0].Line, "the agents of reviewers=claude:opus") || strings.Contains(ws[0].Line, "first install") {
+		t.Errorf("a re-apply's weight = %+v", ws)
+	}
+}
+
+// A plan the mappings leave asking, or that refuses or would overwrite, is
+// refused at the ask naming what it asks, and an over-cap plan by its cap.
+func TestPackApplyFirstInstallRefusals(t *testing.T) {
+	y, _ := runYard(t)
+	y.firstInstallDepot(t)
+	ask := packAsk()
+	ask.Run.Argv = []string{"pack apply starter --depot web"}
+	for _, c := range []struct {
+		name string
+		plan AskPlan
+		want string
+	}{
+		{"an unmapped group", AskPlan{Missing: []string{"group.web-builders.kind: which agent?"}}, "group.web-builders.kind: which agent?"},
+		{"an expose question", AskPlan{Asks: []string{"expose hal to the peer north"}}, "expose hal to the peer north"},
+		{"a refused plan", AskPlan{Refused: []string{"a route stands"}}, "a route stands"},
+		{"an edited file", AskPlan{Edited: []string{"roles/a.md"}}, "roles/a.md"},
+		{"an over-cap plan", AskPlan{Objects: []AskPlanObject{{Kind: "file", Name: "big", Action: "create", Text: strings.Repeat("a", MaxRunPackFiles+1)}}}, "a card holds at most"},
+	} {
+		y.setPack(&fakePack{label: "embedded in yardr test1", kind: "git", depot: "web", plan: &c.plan})
+		if _, err := y.AddAsk(y.ctx, y.bead, ask, "yardmaster"); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: AddAsk = %v, want %q", c.name, err, c.want)
+		}
+	}
+	// A crew member may propose it; applying it directly stays refused.
+	err := y.write(func(w *wtx) error {
+		return w.may(y.ctx, "yardmaster", ActApplyPack, Object{Kind: KindPack, Name: "starter"})
+	})
+	if err == nil {
+		t.Fatalf("a crew member's direct first install was allowed")
+	}
+}
+
+// Each mapping that gives access weighs in the class the grant and setup
+// cards give it, and a declaration with a credential alone adds no strength.
+func TestPackApplyMappingWeights(t *testing.T) {
+	y, _ := runYard(t)
+	y.firstInstallDepot(t)
+	const decl = `name: crm
+base: https://crm.example.com/v1
+credential: { env: CRM_TOKEN, header: "Authorization: Bearer {credential}" }
+calls:
+  look: { kind: read, request: { method: GET, path: /look } }
+  note: { kind: update, request: { method: POST, path: /notes } }
+  upload:
+    kind: update
+    params: { file: { type: file } }
+    request: { method: POST, path: /files }
+`
+	if _, err := y.PutSource(y.ctx, "crm.yaml", decl, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	y.Store.SetPackReader(func(ctx context.Context, name string, depot string, mappings Mappings, yard API) (*PackReading, error) {
+		return &PackReading{Name: name, Kind: "git", Depot: depot, Label: "embedded in yardr test1", Plan: &AskPlan{}}, nil
+	})
+	for _, c := range []struct {
+		words  string
+		class  string
+		says   string
+		strong bool
+	}{
+		{"--calls builders=crm:read", "", "", false},
+		{"--calls builders=crm:none", "", "", false},
+		{"--calls builders=crm:look,note", WeightOutside, "builders may call note of crm (an update)", false},
+		{"--calls crew:hal=crm:upload", WeightCode, "crew:hal may send a file to crm through upload with no card", true},
+		{"--open-threads hal=crm", WeightOutside, "crew member hal may open threads in crm", false},
+		{"--open-threads hal=none", "", "", false},
+		{"--bind builders=claude:opus,yolo", WeightCode, "the agents of builders=claude:opus,yolo", true},
+		{"--members decisions=ada,hal --bind x=claude --calls builders=crm:note", WeightOutside, "builders may call note of crm", true},
+		{"--members decisions=ada,hal", WeightTrust, "the group decisions takes the word of ada and hal", true},
+		{"--members decisions=", WeightTrust, "the group decisions takes the word of anyone", true},
+	} {
+		ask := packAsk()
+		ask.Run.Argv = []string{"pack apply starter --depot web " + c.words}
+		seq := y.ask(t, ask, "yardmaster")
+		ws := y.asked(t, seq).Ask.Weight
+		if c.class == "" {
+			if len(ws) != 0 {
+				t.Errorf("%s: weight = %+v, want none", c.words, ws)
+			}
+			continue
+		}
+		i := slices.IndexFunc(ws, func(a AskWeight) bool { return a.Class == c.class })
+		if i < 0 || !strings.Contains(ws[i].Line, c.says) {
+			t.Errorf("%s: weight = %+v, want %s saying %q", c.words, ws, c.class, c.says)
+		}
+		if StrongWeight(ws) != c.strong {
+			t.Errorf("%s: strong = %v, want %v", c.words, StrongWeight(ws), c.strong)
+		}
+	}
+	// A depot pack carrying a credentialed declaration, and nothing to run.
+	y.Store.SetPackReader(func(ctx context.Context, name string, depot string, mappings Mappings, yard API) (*PackReading, error) {
+		return &PackReading{Name: name, Kind: "git", Depot: depot, Label: "embedded in yardr test1", Plan: &AskPlan{},
+			Sources: []AskSource{{Name: "phone", Text: "name: phone\nbase: https://phone.example.com/v1\ncredential: { env: PHONE_TOKEN, header: \"Authorization: Bearer {credential}\" }\ncalls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n"}}}, nil
+	})
+	ask := packAsk()
+	ask.Run.Argv = []string{"pack apply starter --depot web"}
+	if ws := y.asked(t, y.ask(t, ask, "yardmaster")).Ask.Weight; StrongWeight(ws) {
+		t.Errorf("a credential alone is strong: %+v", ws)
 	}
 }
 

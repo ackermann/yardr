@@ -1056,6 +1056,55 @@ func carryFirstInstallWithMappings(t *testing.T) {
 	}
 }
 
+// A depot pack's first install runs whole from its ask: the ask's words
+// reach the server's reading, the card weighs strong, and the approval
+// imports what the terminal's command would, into the named depot.
+func TestCarryFirstInstallFromItsAsk(t *testing.T) {
+	ctx := context.Background()
+	st, home, bead := carryYard(t)
+	if err := st.PutDepot(ctx, store.Depot{Name: "notes", Path: t.TempDir(), Kind: store.DepotDir}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	reading, err := st.ReadPack(ctx, "dir", "notes", store.Mappings{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var words []string
+	for _, line := range reading.Plan.Missing {
+		id, _, _ := strings.Cut(line, ":")
+		parts := strings.Split(id, ".")
+		if parts[0] == "group" && parts[len(parts)-1] == "kind" {
+			words = append(words, "--bind "+strings.TrimPrefix(parts[1], "notes-")+"=claude:opus")
+		}
+		if parts[0] == "group" && parts[len(parts)-1] == "members" {
+			words = append(words, "--members "+strings.TrimPrefix(parts[1], "notes-")+"=mckean")
+		}
+	}
+	ask := packAskOf("dir")
+	ask.Run.Argv = []string{"pack apply dir --depot notes " + strings.Join(words, " ")}
+	seq, err := st.AddAsk(ctx, bead, ask, "yardmaster")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.ApproveAsk(ctx, bead, seq, "mckean", false, nil); err == nil {
+		t.Fatalf("an unweighed approval of a first install ran")
+	}
+	if _, err := st.ApproveAsk(ctx, bead, seq, "mckean", true, nil); err != nil {
+		t.Fatal(err)
+	}
+	drain(t, st, home, "boot-one")
+	if rec := carryState(t, st, bead, seq); rec.State != store.CarryDone {
+		t.Fatalf("the carrying record = %+v", rec)
+	}
+	recs, err := st.Packs(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(recs, func(r store.PackImport) bool { return r.Pack == "dir" && r.Depot == "notes" }) {
+		t.Fatalf("the import records = %+v, want dir in depot notes", recs)
+	}
+}
+
 // Depot packs: the holding and the verifying of a plan, an object at
 // a time. A carded change that rebuilds unchanged is finishing; one
 // the yard moved is staleness.

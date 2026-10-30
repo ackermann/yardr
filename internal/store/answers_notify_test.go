@@ -329,7 +329,7 @@ func TestBeadPicksBefore(t *testing.T) {
 	}
 }
 
-// An approval of a run ask that sets a setting or adds a source marks its
+// An approval of a run ask that sets a setting, adds a source, or applies a pack with a depot or mappings named marks its
 // noted event, so the stream and the notifications hold its sentence from
 // anyone who is no operator (WithoutHeld): the sentence names the command
 // whole, value or path with it. So does the taking back of a login ask when

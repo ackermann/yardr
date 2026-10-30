@@ -1,6 +1,8 @@
 // The pack apply row of the run-ask list (design yardr-bht9, B2): a pack
 // yardr embeds, of kind source or of a depot kind whose plan asks
-// nothing, proposed with no flag. The asker sends argv alone: the bytes
+// nothing, proposed by name, and a depot pack also to a named depot with
+// the mappings that answer its plan, a first install among them. The
+// asker sends argv alone: the bytes
 // the card shows are the server's own, read from its binary inside the
 // write that stores the ask through the reading it registered
 // (SetPackReader), and whatever carried bytes the writer sent are thrown
@@ -17,6 +19,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -78,21 +81,6 @@ type AskGovern struct {
 	Type string `json:"type,omitempty"`
 	Flow string `json:"flow"`
 	Now  string `json:"now,omitempty"`
-}
-
-// parsePackApply reads the words of pack apply <name>: one bare name
-// and no flag, since a flag shapes an import and a card answers none.
-func parsePackApply(rest []string) ([]string, error) {
-	const use = "yardr pack apply <name>"
-	for _, word := range rest {
-		if strings.HasPrefix(word, "-") {
-			return nil, fmt.Errorf("--run takes %s, and pack apply with %s shapes the import, which a card answers none of: it is the operator's to type in a terminal (yardr pack check %s shows its plan there)", use, word, "<name>")
-		}
-	}
-	if len(rest) != 1 {
-		return nil, fmt.Errorf("--run takes %s: one pack's name, not %d words", use, len(rest))
-	}
-	return []string{rest[0]}, nil
 }
 
 // checkPackApply is applying a pack's own check as the asker: it is the
@@ -321,12 +309,26 @@ func (w *wtx) packApplyCard(run AskRun, asking bool) (AskRun, error) {
 	if read == nil {
 		return AskRun{}, fmt.Errorf("pack %s: no server has registered its reading of the packs yardr embeds on this store, so no card can be written from the binary that runs the yard: a pack is proposed from a yard its server runs", name)
 	}
-	// A stored card rebuilds from its own depot and mappings, so the
-	// approval is held to the plan the card showed; a new ask names
-	// neither yet, and reads as a re-apply always has.
-	depot, mappings := "", Mappings{}
-	if run.Pack != nil {
+	// The depot and mappings are the command's own words. A stored re-apply
+	// names no depot: it rebuilds from the depot its card holds, so the
+	// approval is held to the plan the card showed. What a writer sends
+	// beside argv never reaches here, since an ask keeps argv and carried
+	// bytes alone (askedRun).
+	_, depot, mappings, err := packApplyWords(run.Argv[2:])
+	if err != nil {
+		return AskRun{}, err
+	}
+	named := depot != ""
+	if !named && !asking && run.Pack != nil {
 		depot, mappings = run.Pack.Depot, run.Pack.Mappings
+	}
+	if named {
+		// Who may name a depot: the row's askers, as for any ask, since
+		// the approval is the gate. What the store holds to here is that
+		// the depot stands; one that holds the pack reads as a re-apply.
+		if w.Bucket(bDepots).Get([]byte(depot)) == nil {
+			return AskRun{}, fmt.Errorf("pack %s: depot %s: %w", name, depot, ErrNotFound)
+		}
 	}
 	reading, err := read(context.Background(), name, depot, mappings, w.store)
 	if err != nil {
@@ -390,13 +392,15 @@ func (w *wtx) packApplyCard(run AskRun, asking bool) (AskRun, error) {
 			return AskRun{}, err
 		}
 	}
-	cardedMappings := reading.Mappings
-	if cardedMappings.IsZero() {
-		cardedMappings = mappings
+	if reading.Mappings.IsZero() {
+		reading.Mappings = mappings
 	}
 	card := AskRun{Argv: run.Argv, Seen: seenMap, Carried: carried,
-		Pack: &AskPack{Name: name, Kind: reading.Kind, Depot: reading.Depot, Mappings: cardedMappings, Label: reading.Label}}
+		Pack: &AskPack{Name: name, Kind: reading.Kind, Depot: reading.Depot, Mappings: reading.Mappings, Label: reading.Label}}
 	if reading.Kind == "source" {
+		if named {
+			return AskRun{}, fmt.Errorf("pack %s: it is of kind source, so it goes into the yard and no depot, and a setup card installs it: yardr bead ask <bead> \"<question>\" --setup %s", name, name)
+		}
 		does, err := w.packSourceDoes(name, reading, carried, decls)
 		if err != nil {
 			return AskRun{}, err
@@ -424,6 +428,18 @@ func (w *wtx) packApplyCard(run AskRun, asking bool) (AskRun, error) {
 		does, err := w.packDepotDoes(name, reading, carried, decls)
 		if err != nil {
 			return AskRun{}, err
+		}
+		if named {
+			first, err := w.packFirstInstall(name, depot)
+			if err != nil {
+				return AskRun{}, err
+			}
+			if first {
+				does = slices.Insert(does, 1, fmt.Sprintf("this is a first install: depot %s holds no import of pack %s.", depot, name))
+			}
+			if err := w.packTargetsSeen(seenMap, name, depot, mappings); err != nil {
+				return AskRun{}, err
+			}
 		}
 		card.Does = does
 		card.Pack.Plan = reading.Plan
@@ -852,9 +868,15 @@ func runPackApply(ctx context.Context, w *wtx, run AskRun, actor string, by *app
 // packApplyStale says why a pack approval is refused: the pack's bytes
 // moved or another embeds it (a build alone is no reason), a source it
 // would add or replace moved (naming the command copy that did), what is
-// owed changed, or a depot plan is not the stored one.
+// owed changed, a depot plan is not the stored one, or something a named
+// depot's card rests on (packTargetsSeen) moved.
 func (w *wtx) packApplyStale(seq uint64, was, now AskRun) error {
 	name := was.Argv[2]
+	for _, key := range slices.Sorted(maps.Keys(was.Seen)) {
+		if target, ok := strings.CutPrefix(key, packTargetKey); ok && was.Seen[key] != now.Seen[key] {
+			return fmt.Errorf("ask %d was written from the %s as it stood, and it changed since: the card is from before that changed. %s", seq, target, nothingRan)
+		}
+	}
 	if was.Pack != nil && was.Pack.Plan != nil {
 		wasRaw, _ := json.Marshal(was.Pack.Plan)
 		var nowRaw []byte
