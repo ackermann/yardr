@@ -9,6 +9,7 @@ import (
 
 	"io"
 	"yardr.dev/yardr/internal/agents"
+	"yardr.dev/yardr/internal/store"
 )
 
 // harnessCmd prints what yardr knows of the harness kinds: the files it was
@@ -75,7 +76,7 @@ knows no marks, no error lines and no flags of it, and it may stop to ask.`,
 }
 
 // harnessKnown names, in a few words each, what h's file says.
-func harnessKnown(h agents.Harness) []string {
+func harnessKnown(h store.Harness) []string {
 	var out []string
 	add := func(has bool, what string) {
 		if has {
@@ -87,7 +88,7 @@ func harnessKnown(h agents.Harness) []string {
 	add(len(h.Dialogs) > 0, "dialogs told of")
 	add(len(h.Login) > 0, "login screen")
 	add(len(h.Background) > 0, "background work")
-	add(h.Hints != (agents.Hints{}), "hints")
+	add(h.Hints != (store.Hints{}), "hints")
 	add(h.Model != nil, "reported model")
 	add(h.Context != nil, "context use")
 	add(len(h.Usage) > 0, "token count")
@@ -123,7 +124,7 @@ func envKeys(env []string) []string {
 // model, context use and tokens are read from: the directory (moved by the
 // variable the file names, if it names one) and the glob that finds the
 // session's file in it.
-func sessionFiles(m *agents.ModelSource) string {
+func sessionFiles(m *store.ModelSource) string {
 	dir := "~/" + m.Home
 	if m.HomeEnv != "" {
 		dir += " (or $" + m.HomeEnv + ")"
@@ -152,7 +153,7 @@ var atUnits = map[string]string{"s": "seconds", "ms": "milliseconds", "us": "mic
 // is. A count the entry names no field for reads as 0, and an entry that
 // names no time for its lines is left out of a count that stops at a time
 // (usageEntries in internal/runner/usage.go).
-func usageEntry(u agents.UsageSource) (lines, counts, at string) {
+func usageEntry(u store.UsageSource) (lines, counts, at string) {
 	numbers := " that has numbers at " + u.Usage
 	if slices.Contains(strings.Split(u.Usage, "."), "*") {
 		numbers += " (the * adds up every key there)"
@@ -193,7 +194,7 @@ func usageEntry(u agents.UsageSource) (lines, counts, at string) {
 
 // printHarness prints h as yardr harness show does; has is whether its kind
 // has a file.
-func printHarness(w io.Writer, h agents.Harness, has bool) {
+func printHarness(w io.Writer, h store.Harness, has bool) {
 	if !has {
 		fmt.Fprintf(w, "%s: no harness file in this build of yardr.\n", h.Kind)
 		fmt.Fprintln(w, "herdr starts it and says whether it is idle, working, blocked or done. yardr knows no marks,")
@@ -291,7 +292,7 @@ func printHarness(w io.Writer, h agents.Harness, has bool) {
 	if c := h.Context; c != nil {
 		tokens := c.Tokens
 		if len(tokens) == 0 {
-			tokens = agents.DefaultContextTokens
+			tokens = store.DefaultContextTokens
 		}
 		fmt.Fprintln(w, "\nThe context its agent holds: a crew member is asked for a handoff at its --context-handoff percent of the window")
 		fmt.Fprintf(w, "  %s: %s at %s of the last %s that has any of them\n",
@@ -336,7 +337,7 @@ func printHarness(w io.Writer, h agents.Harness, has bool) {
 	}
 	if r := h.LoginRecipe; r != nil {
 		fmt.Fprintf(w, "\nLogin led by a program, with no terminal (yardr harness login %s --json)\n", h.Kind)
-		fmt.Fprintf(w, "  the command: %s %s\n", agents.Executable(h.Kind), strings.Join(r.Argv, " "))
+		fmt.Fprintf(w, "  the command: %s %s\n", store.Executable(h.Kind), strings.Join(r.Argv, " "))
 		for _, m := range r.Methods {
 			fmt.Fprintf(w, "  method %q: %s\n", m.Label, strings.Join(m.Args, " "))
 		}

@@ -60,12 +60,12 @@ import (
 // ever.
 
 // Reasons a session_harness_error gives: those an error line of a harness
-// file may give (agents.Reasons).
+// file may give (store.Reasons).
 const (
-	ReasonAtCapacity  = agents.ReasonAtCapacity
-	ReasonNotLoggedIn = agents.ReasonNotLoggedIn
-	ReasonRateLimited = agents.ReasonRateLimited
-	ReasonOther       = agents.ReasonOther
+	ReasonAtCapacity  = store.ReasonAtCapacity
+	ReasonNotLoggedIn = store.ReasonNotLoggedIn
+	ReasonRateLimited = store.ReasonRateLimited
+	ReasonOther       = store.ReasonOther
 )
 
 // HarnessErrorKey is a handle key: the reason of the session_harness_error

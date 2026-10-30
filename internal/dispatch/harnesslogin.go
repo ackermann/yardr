@@ -236,7 +236,7 @@ func (d *Dispatcher) harnessInstalled(kind string) bool {
 	if d.HarnessInstalled != nil {
 		return d.HarnessInstalled(kind)
 	}
-	_, err := exec.LookPath(agents.Executable(kind))
+	_, err := exec.LookPath(store.Executable(kind))
 	return err == nil
 }
 

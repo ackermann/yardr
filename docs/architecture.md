@@ -99,9 +99,9 @@ Each cross-concept verb is owned by exactly one interface:
 38 packages under `internal/` at f75abf88, each in one layer (36 since
 the store-as-leaf splits folded `shared` and `udiff` into `store`):
 
-- leaves, importing no internal package (5): `agents`, `peer`, `rpc/clientgen`, `scripttest`, `version`.
-- store (1): `store`. Measured: 130 non-test Go files, a 296-method `store.API`, 6 internal imports — the 5 allow-listed edges and the peer exception under the rules. Shared types the leaf splits move stay in store itself: there is no separate types package.
-- services (26): `bdp`, `chat`, `config`, `depotfile`, `diskkeep`, `edgelink`, `eta`, `flowdraw`, `flowdraw/gen`, `hooks`, `limits`, `notify`, `otel`, `pack`, `pairing`, `preview`, `rpc`, `rpc/gen`, `source`, `standin`, `storetest`, `telemetry`, `testload`, `web`, `yardkey`, `yards`. (`storetest` and `testload` are test-only helpers; `rpc/gen` and `flowdraw/gen` are generators.)
+- leaves, importing no internal package (4): `peer`, `rpc/clientgen`, `scripttest`, `version`.
+- store (1): `store`. Measured: 130 non-test Go files, a 296-method `store.API`, 5 internal imports — the 4 allow-listed edges and the peer exception under the rules. Shared types the leaf splits move stay in store itself: there is no separate types package.
+- services (27): `agents`, `bdp`, `chat`, `config`, `depotfile`, `diskkeep`, `edgelink`, `eta`, `flowdraw`, `flowdraw/gen`, `hooks`, `limits`, `notify`, `otel`, `pack`, `pairing`, `preview`, `rpc`, `rpc/gen`, `source`, `standin`, `storetest`, `telemetry`, `testload`, `web`, `yardkey`, `yards`. (`storetest` and `testload` are test-only helpers; `rpc/gen` and `flowdraw/gen` are generators.)
 - dispatch, runner, server (3): the control loop and the process owners.
 - cli (1): `cli`. Measured: imports 28 of the 36 internal packages.
 - main: the root package, the binary; the only importer of `cli`.
@@ -114,9 +114,9 @@ allow table, each row naming the bead that removes it:
 (a) `internal/store` imports no `internal` package, except
 `internal/peer`, which stays: it is OS process code with no yard
 types, so the edge carries none of the coupling the rule is there to
-stop. Besides that one, today it imports 5 (`agents`, `config`,
-`pairing`, `source`, `yardkey`); each stands in the table until its
-split bead cuts it.
+stop. Besides that one, today it imports 4 (`config`, `pairing`,
+`source`, `yardkey`); each stands in the table until its split bead
+cuts it.
 
 (b) A leaf imports no internal package.
 

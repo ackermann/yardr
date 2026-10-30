@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"yardr.dev/yardr/internal/agents"
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/runner"
 	"yardr.dev/yardr/internal/store"
@@ -47,7 +46,7 @@ func (c *crewCountRunner) SessionID(_ context.Context, h map[string]any, _ time.
 	return agentID(agent), nil
 }
 
-func (c *crewCountRunner) Usage(ctx context.Context, h map[string]any, startedAt time.Time, fallback bool) (agents.Usage, bool, string, error) {
+func (c *crewCountRunner) Usage(ctx context.Context, h map[string]any, startedAt time.Time, fallback bool) (store.Usage, bool, string, error) {
 	return c.reader.Usage(ctx, h, startedAt, fallback)
 }
 

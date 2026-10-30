@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"yardr.dev/yardr/internal/agents"
+	"yardr.dev/yardr/internal/store"
 )
 
 // yardr harness prints what this build knows of the harness kinds: on a
@@ -35,7 +36,7 @@ func TestHarnessListAndShow(t *testing.T) {
 		"pi        pi           v1    model flag, version flag, one-shot call\n",
 		"No file, so started as herdr starts it and nothing more known: gemini, cursor,")
 	var listed struct {
-		Harnesses []agents.Harness `json:"harnesses"`
+		Harnesses []store.Harness `json:"harnesses"`
 	}
 	if err := json.Unmarshal([]byte(ask(0, "harness", "list", "--json")), &listed); err != nil || len(listed.Harnesses) != len(agents.Harnesses) {
 		t.Fatalf("list --json: %v, %d harnesses", err, len(listed.Harnesses))
@@ -101,17 +102,17 @@ func TestHarnessListAndShow(t *testing.T) {
 			`  "Choose the text style": the cursor ❯ is moved onto "✔ Dark mode", then Enter`+"\n"+
 			`  "Security notes:": Enter, once "Press Enter to continue…" shows`+"\n"+
 			`  "Try the new fullscreen renderer?": the cursor ❯ is moved onto "2. Not now", then Enter`+"\n")
-	var shown agents.Harness
+	var shown store.Harness
 	showJSON := ask(0, "harness", "show", "kimi", "--json")
 	if err := json.Unmarshal([]byte(showJSON), &shown); err != nil ||
-		shown.Kind != "kimi" || shown.Marks.Edge != "│" || len(shown.Errors) != 4 || shown.Errors[0].Reason != agents.ReasonRateLimited {
+		shown.Kind != "kimi" || shown.Marks.Edge != "│" || len(shown.Errors) != 4 || shown.Errors[0].Reason != store.ReasonRateLimited {
 		t.Fatalf("show kimi --json: %v, %+v", err, shown)
 	}
 	if shown.Trust == nil || len(shown.Trust.EnvNames) != 1 || shown.Trust.EnvNames[0] != "KIMI_CODE_TRUST_WORKSPACE" ||
 		strings.Contains(showJSON, "KIMI_CODE_TRUST_WORKSPACE=1") {
 		t.Fatalf("show kimi --json exposes the trust environment: %s", showJSON)
 	}
-	if len(shown.Offers) != 3 || shown.Offers[0] != (agents.Offer{Model: "kimi-code/k3", Label: "K3", Recommended: "yardmaster"}) {
+	if len(shown.Offers) != 3 || shown.Offers[0] != (store.Offer{Model: "kimi-code/k3", Label: "K3", Recommended: "yardmaster"}) {
 		t.Fatalf("show kimi --json offers: %+v", shown.Offers)
 	}
 	if shown.Provider != "Moonshot" {
@@ -142,7 +143,7 @@ func TestHarnessListAndShow(t *testing.T) {
 	wantText(t, ask(0, "harness", "show", "claude"), "claude  Claude Code, by Anthropic  (harnesses/claude.yaml, version 1)")
 	wantText(t, ask(0, "harness", "show", "pi"), "Models it offers", "none named: --model takes any id",
 		"pi  pi  (harnesses/pi.yaml, version 1)")
-	shown = agents.Harness{}
+	shown = store.Harness{}
 	if err := json.Unmarshal([]byte(ask(0, "harness", "show", "pi", "--json")), &shown); err != nil || shown.Provider != "" {
 		t.Fatalf("show pi --json: %v, provider %q", err, shown.Provider)
 	}
@@ -157,7 +158,7 @@ func TestHarnessListAndShow(t *testing.T) {
 	}
 	wantText(t, ask(0, "harness", "show", "claude"), "is fetched, checked against its sha256 and run with `install "+shown.Fetch.Version+"`, which puts it at ~/.local/bin/claude")
 	wantText(t, ask(0, "harness", "show", "kimi"), "on a Mac without a terminal: no way known, it is installed by hand")
-	shown = agents.Harness{}
+	shown = store.Harness{}
 	if err := json.Unmarshal([]byte(ask(0, "harness", "show", "kimi", "--json")), &shown); err != nil || shown.Fetch != nil {
 		t.Fatalf("show kimi --json: %v, fetch %+v", err, shown.Fetch)
 	}
@@ -195,15 +196,15 @@ func TestHarnessListAndShow(t *testing.T) {
 	// A synthetic file covers shapes the embedded harnesses do not: an
 	// explicit context token list and type key, usage times in milliseconds
 	// and seconds, an entry with no type, and multiple accepted answers.
-	h := agents.Harness{
+	h := store.Harness{
 		Kind: "synthetic", Label: "Synthetic", Version: 1,
-		Model:   &agents.ModelSource{Home: ".syn", Glob: "s/{session}.jsonl", Field: "model"},
-		Context: &agents.ContextSource{Type: "turn", TypeField: "kind", Usage: "info", Tokens: []string{"prompt", "cached"}},
-		Usage: []agents.UsageSource{
+		Model:   &store.ModelSource{Home: ".syn", Glob: "s/{session}.jsonl", Field: "model"},
+		Context: &store.ContextSource{Type: "turn", TypeField: "kind", Usage: "info", Tokens: []string{"prompt", "cached"}},
+		Usage: []store.UsageSource{
 			{Usage: "totals", Input: "in", At: "at", AtUnit: "ms"},
 			{Type: "done", Usage: "totals", Read: "sum", Output: "out", At: "at", AtUnit: "s"},
 		},
-		Onboarding: []agents.Trust{{Dialog: "Pick one", Answers: []string{"Yes", "Sure"}, Cursor: ">"}},
+		Onboarding: []store.Trust{{Dialog: "Pick one", Answers: []string{"Yes", "Sure"}, Cursor: ">"}},
 	}
 	var synthetic bytes.Buffer
 	printHarness(&synthetic, h, true)
@@ -253,7 +254,7 @@ func TestDoctorOffers(t *testing.T) {
 	fakeTools(t, map[string]string{"claude": "echo 2.1.288\n", "codex": "echo 0.160.1\n", "kimi": "echo 2.1.1\n", "grok": "echo 1\n", "pi": "echo 1\n", "muse": "echo 1.4.9\n", "kiro-cli": "echo 2.32.0\n"})
 	stub(t, &loginShell, func() string { return "" })
 	m := machineOf(t)
-	if got := m["claude"].Offers; len(got) != 3 || got[0] != (agents.Offer{Model: "opus", Label: "Opus 5.5", Recommended: "yardmaster"}) {
+	if got := m["claude"].Offers; len(got) != 3 || got[0] != (store.Offer{Model: "opus", Label: "Opus 5.5", Recommended: "yardmaster"}) {
 		t.Errorf("claude offers: %+v", got)
 	}
 	if got := m["codex"].Offers; len(got) != 2 || got[0].Recommended != "yardmaster" || got[1].Recommended != "" {
@@ -262,10 +263,10 @@ func TestDoctorOffers(t *testing.T) {
 	if got := m["kimi"].Offers; len(got) != 3 || got[0].Model != "kimi-code/k3" {
 		t.Errorf("kimi offers: %+v", got)
 	}
-	if got := m["muse"].Offers; len(got) != 2 || got[0] != (agents.Offer{Model: "muse-spark-1.3-contributor", Label: "Spark 1.3 Contributor", Recommended: "yardmaster"}) {
+	if got := m["muse"].Offers; len(got) != 2 || got[0] != (store.Offer{Model: "muse-spark-1.3-contributor", Label: "Spark 1.3 Contributor", Recommended: "yardmaster"}) {
 		t.Errorf("muse offers: %+v", got)
 	}
-	if got := m["kiro-cli"].Offers; len(got) != 3 || got[0] != (agents.Offer{Model: "claude-opus-5.5", Label: "Opus 5.5", Recommended: "yardmaster"}) {
+	if got := m["kiro-cli"].Offers; len(got) != 3 || got[0] != (store.Offer{Model: "claude-opus-5.5", Label: "Opus 5.5", Recommended: "yardmaster"}) {
 		t.Errorf("kiro offers: %+v", got)
 	}
 	for _, kind := range []string{"grok", "pi", "git", "herdr"} {

@@ -386,7 +386,7 @@ func loginKind(handle map[string]any) (kind, exe string) {
 	if kind == "" {
 		kind = agents.DefaultKind
 	}
-	return kind, agents.Executable(kind)
+	return kind, store.Executable(kind)
 }
 
 // promptShown reports whether r sees prompt in the session of handle, and

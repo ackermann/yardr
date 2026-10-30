@@ -266,7 +266,7 @@ func (a *app) askHarness(w io.Writer, ctx context.Context, cfg *config.Config, s
 	}
 	kind, _ := r.Config["kind"].(string)
 	kind = or(kind, defaultKind(ctx, st))
-	exe := agents.Executable(kind)
+	exe := store.Executable(kind)
 	if agents.OneShotArgs(kind, tryPrompt) == nil || exe == "" {
 		return true, nil
 	}
@@ -633,7 +633,7 @@ func isAre(list []string) string {
 func absent(r store.CrewMember) []string {
 	var out []string
 	kind, _ := r.Config["kind"].(string)
-	for _, exe := range []string{"herdr", agents.Executable(kind)} {
+	for _, exe := range []string{"herdr", store.Executable(kind)} {
 		if _, err := lookPath(exe); exe != "" && err != nil {
 			out = append(out, exe)
 		}
@@ -747,7 +747,7 @@ func diagnose(ctx context.Context, cfg *config.Config, st store.API, r *store.Cr
 // "" when no call can be made: yardr knows no one-shot form for the kind, or
 // its harness is not on PATH here.
 func tryAfterFailure(ctx context.Context, kind string) (string, string) {
-	exe := agents.Executable(kind)
+	exe := store.Executable(kind)
 	if agents.OneShotArgs(kind, tryPrompt) == nil || exe == "" {
 		return "", ""
 	}

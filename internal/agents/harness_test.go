@@ -9,6 +9,8 @@ import (
 	"testing"
 	"testing/fstest"
 	"time"
+
+	"yardr.dev/yardr/internal/store"
 )
 
 // The files yardr is built with are read (a file that is not would have
@@ -20,7 +22,7 @@ func TestHarnessFiles(t *testing.T) {
 	var kinds []string
 	for _, h := range Harnesses {
 		kinds = append(kinds, h.Kind)
-		if h.Version != FileVersion || h.Label == "" {
+		if h.Version != store.FileVersion || h.Label == "" {
 			t.Errorf("%s: version %d, label %q", h.Kind, h.Version, h.Label)
 		}
 		if modelLists[h.Kind] == nil {
@@ -51,14 +53,14 @@ func TestHarnessFiles(t *testing.T) {
 func TestKindWithNoFile(t *testing.T) {
 	for _, kind := range []string{"gemini", "cursor", "nope", ""} {
 		h, ok := Lookup(kind)
-		if ok || h.Marks != (Marks{}) || h.Errors != nil || h.Dialogs != nil || h.Login != nil || h.LoginRecipe != nil || h.LoginEnv != nil || h.Background != nil || h.Model != nil || h.Trust != nil || h.ApiKey != nil || h.Onboarding != nil || h.Label != "" || h.Provider != "" ||
+		if ok || h.Marks != (store.Marks{}) || h.Errors != nil || h.Dialogs != nil || h.Login != nil || h.LoginRecipe != nil || h.LoginEnv != nil || h.Background != nil || h.Model != nil || h.Trust != nil || h.ApiKey != nil || h.Onboarding != nil || h.Label != "" || h.Provider != "" ||
 			h.Flags.Unattended != nil || h.Flags.Always != nil || h.Flags.Permissions != nil {
 			t.Errorf("%q: %v, %+v; want nothing known", kind, ok, h)
 		}
 		if UnattendedArgs(kind) != nil || VersionArgs(kind) != nil || OneShotArgs(kind, "x") != nil || TrustEnv(kind, false) != nil {
 			t.Errorf("%q has flags", kind)
 		}
-		if ms, err := h.Models(t.Context()); ms != nil || err != nil {
+		if ms, err := Models(h, t.Context()); ms != nil || err != nil {
 			t.Errorf("%q lists models: %v, %v", kind, ms, err)
 		}
 	}
@@ -105,7 +107,7 @@ func TestAlwaysFlags(t *testing.T) {
 	}
 }
 
-func load(t *testing.T, files map[string]string) ([]Harness, error) {
+func load(t *testing.T, files map[string]string) ([]store.Harness, error) {
 	t.Helper()
 	fsys := fstest.MapFS{}
 	for name, body := range files {
@@ -377,7 +379,7 @@ func TestBackground(t *testing.T) {
 			t.Errorf("%s: background %+v; only claude's and muse's files name one", h.Kind, h.Background)
 		}
 	}
-	runs := func(h Harness, line string) bool {
+	runs := func(h store.Harness, line string) bool {
 		for _, b := range h.Background {
 			if b.Matches(line) {
 				return true
@@ -432,7 +434,7 @@ func TestBackground(t *testing.T) {
 // file's comment says. A file may name none: grok, opencode and pi name
 // none, and a kind with no file has no list.
 func TestOffers(t *testing.T) {
-	for kind, want := range map[string][]Offer{
+	for kind, want := range map[string][]store.Offer{
 		"claude": {
 			{Model: "opus", Label: "Opus 5.5", Recommended: "yardmaster"},
 			{Model: "fable", Label: "Fable 5.1"},
@@ -500,7 +502,7 @@ func TestOffers(t *testing.T) {
 // word for word. No other kind adds to a hint.
 func TestHints(t *testing.T) {
 	for _, h := range Harnesses {
-		want := Hints{}
+		want := store.Hints{}
 		if h.Kind == "kimi" {
 			want.Reset = "Kimi asks what to do with a session that sat idle, and keeps the prompt until it is answered"
 		}
@@ -508,7 +510,7 @@ func TestHints(t *testing.T) {
 			t.Errorf("%s: hints %+v, want %+v", h.Kind, h.Hints, want)
 		}
 	}
-	if h, _ := Lookup("cursor"); h.Hints != (Hints{}) {
+	if h, _ := Lookup("cursor"); h.Hints != (store.Hints{}) {
 		t.Errorf("a kind with no file has hints: %+v", h.Hints)
 	}
 }
@@ -597,7 +599,7 @@ func TestOnboarding(t *testing.T) {
 		}
 	}
 	claude, _ := Lookup("claude")
-	want := []Trust{
+	want := []store.Trust{
 		{Dialog: "Choose the text style", Answers: []string{"✔ Dark mode"}, Cursor: "❯"},
 		{Dialog: "Security notes:", Answers: []string{"Press Enter to continue…"}},
 		{Dialog: "Try the new fullscreen renderer?", Answers: []string{"2. Not now"}, Cursor: "❯"},
@@ -731,7 +733,7 @@ func TestModelIn(t *testing.T) {
 	codex, _ := Lookup("codex")
 	muse, _ := Lookup("muse")
 	for _, c := range []struct {
-		src        *ModelSource
+		src        *store.ModelSource
 		line, want string
 	}{
 		{claude.Model, `{"type":"assistant","message":{"model":"claude-fable-5-1"}}`, "claude-fable-5-1"},
@@ -749,9 +751,9 @@ func TestModelIn(t *testing.T) {
 		{muse.Model, `{"type":"run.model.configured","payload":{"record":{"model_id":"muse-spark-1.3"}}}`, ""},
 		{muse.Model, `{"payload_type":"run.model.configured","payload":{"record":{"model_id":7}}}`, ""},
 		{muse.Model, `{"payload_type":"run.model.configured`, ""},
-		{&ModelSource{Field: "model"}, `{"type":"anything","model":"m"}`, "m"},
-		{&ModelSource{TypeField: "kind", Type: "a", Field: "model"}, `{"kind":"a","model":"m"}`, "m"},
-		{&ModelSource{TypeField: "kind", Type: "a", Field: "model"}, `{"kind":"b","model":"m"}`, ""},
+		{&store.ModelSource{Field: "model"}, `{"type":"anything","model":"m"}`, "m"},
+		{&store.ModelSource{TypeField: "kind", Type: "a", Field: "model"}, `{"kind":"a","model":"m"}`, "m"},
+		{&store.ModelSource{TypeField: "kind", Type: "a", Field: "model"}, `{"kind":"b","model":"m"}`, ""},
 	} {
 		if got := c.src.ModelIn([]byte(c.line)); got != c.want {
 			t.Errorf("%s in %s: %q, want %q", c.src.Field, c.line, got, c.want)
@@ -782,9 +784,9 @@ func TestWorkspaceIn(t *testing.T) {
 		t.Fatal("only muse matches its sessions by worktree")
 	}
 	at := time.Date(2026, 10, 21, 18, 46, 17, 253217000, time.UTC)
-	any := &ModelSource{Workspace: &WorkspaceSource{Field: "ws", At: "at"}}
+	any := &store.ModelSource{Workspace: &store.WorkspaceSource{Field: "ws", At: "at"}}
 	for _, c := range []struct {
-		src       *ModelSource
+		src       *store.ModelSource
 		line      string
 		workspace string
 		when      time.Time
@@ -820,7 +822,7 @@ func TestSessionIn(t *testing.T) {
 	muse, _ := Lookup("muse")
 	codex, _ := Lookup("codex")
 	for _, c := range []struct {
-		src       *ModelSource
+		src       *store.ModelSource
 		dir, path string
 		want      string
 		ok        bool
@@ -1009,7 +1011,7 @@ func TestContextSource(t *testing.T) {
 		t.Fatalf("output tokens alone = %d, %v; want 0, false", n, ok)
 	}
 	// A file that names its own token fields and type key is read by those.
-	custom := ContextSource{Type: "turn", TypeField: "kind", Usage: "use", Tokens: []string{"total_tokens"}}
+	custom := store.ContextSource{Type: "turn", TypeField: "kind", Usage: "use", Tokens: []string{"total_tokens"}}
 	if n, ok := custom.UsageIn([]byte(`{"kind":"turn","use":{"total_tokens":9}}`)); !ok || n != 9 {
 		t.Fatalf("custom source = %d, %v; want 9, true", n, ok)
 	}
@@ -1155,7 +1157,7 @@ var (
 
 // tally is what src reads from lines as the runner reads a file: each line
 // through UsageIn, and those that read added in the order of the file.
-func tally(src UsageSource, lines ...string) (Usage, bool) {
+func tally(src store.UsageSource, lines ...string) (store.Usage, bool) {
 	t := src.Tally()
 	for _, line := range lines {
 		if l, ok := src.UsageIn([]byte(line)); ok {
@@ -1192,7 +1194,7 @@ func TestUsageSources(t *testing.T) {
 	// Opus 752 / 74,978 / 23,562,912 / 247,751, and Haiku's 960 and 23 for the
 	// calls that have no line of their own. Claude reports its input apart from
 	// its cache, so the fresh input is that input.
-	if got, ok := tally(totals, session...); !ok || got != (Usage{Input: 752 + 960, FreshInput: 752 + 960, Output: 74978 + 23, CacheRead: 23562912, CacheWrite: 247751}) {
+	if got, ok := tally(totals, session...); !ok || got != (store.Usage{Input: 752 + 960, FreshInput: 752 + 960, Output: 74978 + 23, CacheRead: 23562912, CacheWrite: 247751}) {
 		t.Errorf("cost-state reads %+v, %v", got, ok)
 	}
 	// A session still running has written no cost-state line: that is no count,
@@ -1206,17 +1208,17 @@ func TestUsageSources(t *testing.T) {
 	}
 
 	// 5 messages in 8 lines: counted once for each message.id, not once for each line.
-	if got, ok := tally(lines, session...); !ok || got != (Usage{Input: 10, FreshInput: 10, Output: 931, CacheRead: 261272, CacheWrite: 40915}) {
+	if got, ok := tally(lines, session...); !ok || got != (store.Usage{Input: 10, FreshInput: 10, Output: 931, CacheRead: 261272, CacheWrite: 40915}) {
 		t.Errorf("message lines read %+v, %v; want each of the 5 messages once", got, ok)
 	}
 	every := lines
 	every.Key = ""
-	if got, _ := tally(every, session...); got != (Usage{Input: 16, FreshInput: 16, Output: 1777, CacheRead: 426870, CacheWrite: 58102}) {
+	if got, _ := tally(every, session...); got != (store.Usage{Input: 16, FreshInput: 16, Output: 1777, CacheRead: 426870, CacheWrite: 58102}) {
 		t.Errorf("every line read %+v; this is what the key keeps out", got)
 	}
 	l, ok = lines.UsageIn([]byte(claudeLines[1]))
 	if want := time.Date(2026, 10, 21, 19, 34, 48, 246_000_000, time.UTC); !ok || !l.At.Equal(want) || l.Key != "msg_011CgFweBRXKGoR2hEx6yoiJ" ||
-		l.Usage != (Usage{Input: 2, FreshInput: 2, Output: 107, CacheRead: 27018, CacheWrite: 19126}) {
+		l.Usage != (store.Usage{Input: 2, FreshInput: 2, Output: 107, CacheRead: 27018, CacheWrite: 19126}) {
 		t.Errorf("first assistant line: %+v, %v", l, ok)
 	}
 	for _, line := range []string{claudeLines[0], claudeCostState} {
@@ -1250,11 +1252,11 @@ func TestUsageSources(t *testing.T) {
 	}
 	for _, c := range []struct {
 		upto int
-		want Usage
+		want store.Usage
 	}{
-		{4, Usage{Input: 18104, FreshInput: 18104, Output: 368}},
-		{5, Usage{Input: 2879571, FreshInput: 2879571 - 2709248, Output: 25036, CacheRead: 2709248}},
-		{6, Usage{Input: 11714314, FreshInput: 11714314 - 11487872, Output: 45824, CacheRead: 11487872}},
+		{4, store.Usage{Input: 18104, FreshInput: 18104, Output: 368}},
+		{5, store.Usage{Input: 2879571, FreshInput: 2879571 - 2709248, Output: 25036, CacheRead: 2709248}},
+		{6, store.Usage{Input: 11714314, FreshInput: 11714314 - 11487872, Output: 45824, CacheRead: 11487872}},
 	} {
 		if got, ok := tally(last, codexLines[:c.upto]...); !ok || got != c.want {
 			t.Errorf("first %d lines read %+v, %v; want %+v", c.upto, got, ok, c.want)
@@ -1287,7 +1289,7 @@ func TestUsageSources(t *testing.T) {
 	// input as Muse reports it, 1,957,248, beside the fresh input. The same
 	// records hold 16,984 reasoning tokens, which are inside the output and are
 	// not added to it.
-	if got, ok := tally(records, museLines...); !ok || got != (Usage{Input: 1957248, FreshInput: 205114, Output: 26241, CacheRead: 1752134}) {
+	if got, ok := tally(records, museLines...); !ok || got != (store.Usage{Input: 1957248, FreshInput: 205114, Output: 26241, CacheRead: 1752134}) {
 		t.Errorf("muse's records read %+v, %v; want 205,114 fresh input, 1,752,134 cache read, 26,241 output", got, ok)
 	}
 	// The 41 records with tokens and the tool and reminder records are read,
@@ -1307,14 +1309,14 @@ func TestUsageSources(t *testing.T) {
 	}
 	for _, c := range []struct {
 		name, line string
-		want       Usage
+		want       store.Usage
 	}{
 		// 435 is the output; 337 of it is thinking. Added on top the call would
 		// have 772 output tokens.
-		{"reasoning inside the output", museReasoning, Usage{Input: 29089, FreshInput: 29089 - 25457, Output: 435, CacheRead: 25457}},
-		{"the most reasoning in an output", museMostReasoning, Usage{Input: 41572, FreshInput: 41572 - 38001, Output: 25649, CacheRead: 38001}},
+		{"reasoning inside the output", museReasoning, store.Usage{Input: 29089, FreshInput: 29089 - 25457, Output: 435, CacheRead: 25457}},
+		{"the most reasoning in an output", museMostReasoning, store.Usage{Input: 41572, FreshInput: 41572 - 38001, Output: 25649, CacheRead: 38001}},
 		// The call that wrote a compaction's summary is a call of the session.
-		{"a compaction call", museCompaction, Usage{Input: 229076, FreshInput: 229076, Output: 1783}},
+		{"a compaction call", museCompaction, store.Usage{Input: 229076, FreshInput: 229076, Output: 1783}},
 	} {
 		if l, ok := records.UsageIn([]byte(c.line)); !ok || l.Usage != c.want {
 			t.Errorf("muse, %s: %+v, %v; want %+v", c.name, l.Usage, ok, c.want)
@@ -1336,53 +1338,53 @@ func TestUsageSources(t *testing.T) {
 }
 
 // One line of the session file reads as the counts at the source's Usage path
-// in a line of its Type, in the five ways a UsageSource goes beyond a
-// ContextSource: a type in a path of keys, a * that adds up a map, the four
+// in a line of its Type, in the five ways a store.UsageSource goes beyond a
+// store.ContextSource: a type in a path of keys, a * that adds up a map, the four
 // counts by name (the input as the line has it, and beside it the fresh input,
 // which is the input less the cache when the harness counts the cache in it),
 // a key that tells a line from a repeat, and a time.
 func TestUsageIn(t *testing.T) {
 	for _, c := range []struct {
 		name string
-		src  UsageSource
+		src  store.UsageSource
 		line string
-		want UsageLine
+		want store.UsageLine
 		ok   bool
 	}{
-		{"a type in one key", UsageSource{Type: "turn", TypeField: "kind", Usage: "use", Input: "in"}, `{"kind":"turn","use":{"in":3}}`, UsageLine{Usage: Usage{Input: 3, FreshInput: 3}}, true},
-		{"the type is read from type_field", UsageSource{Type: "turn", TypeField: "kind", Usage: "use", Input: "in"}, `{"type":"turn","use":{"in":3}}`, UsageLine{}, false},
-		{"the key is type by default", UsageSource{Type: "turn", Usage: "use", Input: "in"}, `{"type":"turn","use":{"in":3}}`, UsageLine{Usage: Usage{Input: 3, FreshInput: 3}}, true},
-		{"a type in a path", UsageSource{Type: "x", TypeField: "a.b", Usage: "u", Input: "i"}, `{"a":{"b":"x"},"u":{"i":3}}`, UsageLine{Usage: Usage{Input: 3, FreshInput: 3}}, true},
-		{"another type in a path", UsageSource{Type: "x", TypeField: "a.b", Usage: "u", Input: "i"}, `{"a":{"b":"y"},"u":{"i":3}}`, UsageLine{}, false},
-		{"a path through what is no object", UsageSource{Type: "x", TypeField: "a.b", Usage: "u", Input: "i"}, `{"a":"x","u":{"i":3}}`, UsageLine{}, false},
-		{"a path with no type named reads any line", UsageSource{Usage: "u", Input: "i"}, `{"u":{"i":1}}`, UsageLine{Usage: Usage{Input: 1, FreshInput: 1}}, true},
+		{"a type in one key", store.UsageSource{Type: "turn", TypeField: "kind", Usage: "use", Input: "in"}, `{"kind":"turn","use":{"in":3}}`, store.UsageLine{Usage: store.Usage{Input: 3, FreshInput: 3}}, true},
+		{"the type is read from type_field", store.UsageSource{Type: "turn", TypeField: "kind", Usage: "use", Input: "in"}, `{"type":"turn","use":{"in":3}}`, store.UsageLine{}, false},
+		{"the key is type by default", store.UsageSource{Type: "turn", Usage: "use", Input: "in"}, `{"type":"turn","use":{"in":3}}`, store.UsageLine{Usage: store.Usage{Input: 3, FreshInput: 3}}, true},
+		{"a type in a path", store.UsageSource{Type: "x", TypeField: "a.b", Usage: "u", Input: "i"}, `{"a":{"b":"x"},"u":{"i":3}}`, store.UsageLine{Usage: store.Usage{Input: 3, FreshInput: 3}}, true},
+		{"another type in a path", store.UsageSource{Type: "x", TypeField: "a.b", Usage: "u", Input: "i"}, `{"a":{"b":"y"},"u":{"i":3}}`, store.UsageLine{}, false},
+		{"a path through what is no object", store.UsageSource{Type: "x", TypeField: "a.b", Usage: "u", Input: "i"}, `{"a":"x","u":{"i":3}}`, store.UsageLine{}, false},
+		{"a path with no type named reads any line", store.UsageSource{Usage: "u", Input: "i"}, `{"u":{"i":1}}`, store.UsageLine{Usage: store.Usage{Input: 1, FreshInput: 1}}, true},
 
-		{"every value of a map", UsageSource{Usage: "m.*", Input: "i", Output: "o"}, `{"m":{"a":{"i":1,"o":10},"b":{"i":2},"c":7}}`, UsageLine{Usage: Usage{Input: 3, FreshInput: 3, Output: 10}}, true},
-		{"a * in the middle of the path", UsageSource{Usage: "m.*.n", Input: "i"}, `{"m":{"a":{"n":{"i":1}},"b":{"n":{"i":2}},"c":{"x":{"i":9}}}}`, UsageLine{Usage: Usage{Input: 3, FreshInput: 3}}, true},
-		{"a * where there is no map", UsageSource{Usage: "m.*", Input: "i"}, `{"m":5}`, UsageLine{}, false},
-		{"a * over an empty map", UsageSource{Usage: "m.*", Input: "i"}, `{"m":{}}`, UsageLine{}, false},
+		{"every value of a map", store.UsageSource{Usage: "m.*", Input: "i", Output: "o"}, `{"m":{"a":{"i":1,"o":10},"b":{"i":2},"c":7}}`, store.UsageLine{Usage: store.Usage{Input: 3, FreshInput: 3, Output: 10}}, true},
+		{"a * in the middle of the path", store.UsageSource{Usage: "m.*.n", Input: "i"}, `{"m":{"a":{"n":{"i":1}},"b":{"n":{"i":2}},"c":{"x":{"i":9}}}}`, store.UsageLine{Usage: store.Usage{Input: 3, FreshInput: 3}}, true},
+		{"a * where there is no map", store.UsageSource{Usage: "m.*", Input: "i"}, `{"m":5}`, store.UsageLine{}, false},
+		{"a * over an empty map", store.UsageSource{Usage: "m.*", Input: "i"}, `{"m":{}}`, store.UsageLine{}, false},
 
-		{"a count the object lacks reads 0", UsageSource{Usage: "u", Input: "i", Output: "o"}, `{"u":{"o":5}}`, UsageLine{Usage: Usage{Output: 5}}, true},
-		{"a count no field is named for reads 0", UsageSource{Usage: "u", Input: "i"}, `{"u":{"i":4,"o":9}}`, UsageLine{Usage: Usage{Input: 4, FreshInput: 4}}, true},
-		{"none of the fields", UsageSource{Usage: "u", Input: "i", Output: "o"}, `{"u":{"x":5}}`, UsageLine{}, false},
-		{"a field that is no number", UsageSource{Usage: "u", Input: "i"}, `{"u":{"i":"5"}}`, UsageLine{}, false},
-		{"all four", UsageSource{Usage: "u", Input: "i", Output: "o", CacheRead: "r", CacheWrite: "w"}, `{"u":{"i":1,"o":2,"r":3,"w":4}}`, UsageLine{Usage: Usage{Input: 1, FreshInput: 1, Output: 2, CacheRead: 3, CacheWrite: 4}}, true},
-		{"the cache is in the input", UsageSource{Usage: "u", Input: "i", CacheRead: "c", CacheInInput: true}, `{"u":{"i":100,"c":40}}`, UsageLine{Usage: Usage{Input: 100, FreshInput: 60, CacheRead: 40}}, true},
-		{"the cache is in the input, and a write and an output beside it", UsageSource{Usage: "u", Input: "i", Output: "o", CacheRead: "r", CacheWrite: "w", CacheInInput: true}, `{"u":{"i":100,"o":2,"r":40,"w":4}}`, UsageLine{Usage: Usage{Input: 100, FreshInput: 60, Output: 2, CacheRead: 40, CacheWrite: 4}}, true},
-		{"the cache is in the input, and none of it was read", UsageSource{Usage: "u", Input: "i", CacheRead: "c", CacheInInput: true}, `{"u":{"i":100,"c":0}}`, UsageLine{Usage: Usage{Input: 100, FreshInput: 100}}, true},
-		{"the cache is beside the input", UsageSource{Usage: "u", Input: "i", CacheRead: "c"}, `{"u":{"i":100,"c":40}}`, UsageLine{Usage: Usage{Input: 100, FreshInput: 100, CacheRead: 40}}, true},
-		{"the path is not an object", UsageSource{Usage: "u", Input: "i"}, `{"u":[{"i":1}]}`, UsageLine{}, false},
+		{"a count the object lacks reads 0", store.UsageSource{Usage: "u", Input: "i", Output: "o"}, `{"u":{"o":5}}`, store.UsageLine{Usage: store.Usage{Output: 5}}, true},
+		{"a count no field is named for reads 0", store.UsageSource{Usage: "u", Input: "i"}, `{"u":{"i":4,"o":9}}`, store.UsageLine{Usage: store.Usage{Input: 4, FreshInput: 4}}, true},
+		{"none of the fields", store.UsageSource{Usage: "u", Input: "i", Output: "o"}, `{"u":{"x":5}}`, store.UsageLine{}, false},
+		{"a field that is no number", store.UsageSource{Usage: "u", Input: "i"}, `{"u":{"i":"5"}}`, store.UsageLine{}, false},
+		{"all four", store.UsageSource{Usage: "u", Input: "i", Output: "o", CacheRead: "r", CacheWrite: "w"}, `{"u":{"i":1,"o":2,"r":3,"w":4}}`, store.UsageLine{Usage: store.Usage{Input: 1, FreshInput: 1, Output: 2, CacheRead: 3, CacheWrite: 4}}, true},
+		{"the cache is in the input", store.UsageSource{Usage: "u", Input: "i", CacheRead: "c", CacheInInput: true}, `{"u":{"i":100,"c":40}}`, store.UsageLine{Usage: store.Usage{Input: 100, FreshInput: 60, CacheRead: 40}}, true},
+		{"the cache is in the input, and a write and an output beside it", store.UsageSource{Usage: "u", Input: "i", Output: "o", CacheRead: "r", CacheWrite: "w", CacheInInput: true}, `{"u":{"i":100,"o":2,"r":40,"w":4}}`, store.UsageLine{Usage: store.Usage{Input: 100, FreshInput: 60, Output: 2, CacheRead: 40, CacheWrite: 4}}, true},
+		{"the cache is in the input, and none of it was read", store.UsageSource{Usage: "u", Input: "i", CacheRead: "c", CacheInInput: true}, `{"u":{"i":100,"c":0}}`, store.UsageLine{Usage: store.Usage{Input: 100, FreshInput: 100}}, true},
+		{"the cache is beside the input", store.UsageSource{Usage: "u", Input: "i", CacheRead: "c"}, `{"u":{"i":100,"c":40}}`, store.UsageLine{Usage: store.Usage{Input: 100, FreshInput: 100, CacheRead: 40}}, true},
+		{"the path is not an object", store.UsageSource{Usage: "u", Input: "i"}, `{"u":[{"i":1}]}`, store.UsageLine{}, false},
 
-		{"a key", UsageSource{Usage: "u", Input: "i", Read: "sum", Key: "m.id"}, `{"m":{"id":"a"},"u":{"i":1}}`, UsageLine{Usage: Usage{Input: 1, FreshInput: 1}, Key: "a"}, true},
-		{"no key in the line", UsageSource{Usage: "u", Input: "i", Read: "sum", Key: "m.id"}, `{"m":{},"u":{"i":1}}`, UsageLine{}, false},
-		{"a key that is no string", UsageSource{Usage: "u", Input: "i", Read: "sum", Key: "m.id"}, `{"m":{"id":7},"u":{"i":1}}`, UsageLine{}, false},
-		{"an empty key", UsageSource{Usage: "u", Input: "i", Read: "sum", Key: "m.id"}, `{"m":{"id":""},"u":{"i":1}}`, UsageLine{}, false},
+		{"a key", store.UsageSource{Usage: "u", Input: "i", Read: "sum", Key: "m.id"}, `{"m":{"id":"a"},"u":{"i":1}}`, store.UsageLine{Usage: store.Usage{Input: 1, FreshInput: 1}, Key: "a"}, true},
+		{"no key in the line", store.UsageSource{Usage: "u", Input: "i", Read: "sum", Key: "m.id"}, `{"m":{},"u":{"i":1}}`, store.UsageLine{}, false},
+		{"a key that is no string", store.UsageSource{Usage: "u", Input: "i", Read: "sum", Key: "m.id"}, `{"m":{"id":7},"u":{"i":1}}`, store.UsageLine{}, false},
+		{"an empty key", store.UsageSource{Usage: "u", Input: "i", Read: "sum", Key: "m.id"}, `{"m":{"id":""},"u":{"i":1}}`, store.UsageLine{}, false},
 
-		{"not JSON", UsageSource{Usage: "u", Input: "i"}, `nope`, UsageLine{}, false},
-		{"cut short", UsageSource{Usage: "u", Input: "i"}, `{"u":{"i":`, UsageLine{}, false},
-		{"no line", UsageSource{Usage: "u", Input: "i"}, ``, UsageLine{}, false},
-		{"null", UsageSource{Usage: "u", Input: "i"}, `null`, UsageLine{}, false},
-		{"an array", UsageSource{Usage: "u", Input: "i"}, `[{"u":{"i":1}}]`, UsageLine{}, false},
+		{"not JSON", store.UsageSource{Usage: "u", Input: "i"}, `nope`, store.UsageLine{}, false},
+		{"cut short", store.UsageSource{Usage: "u", Input: "i"}, `{"u":{"i":`, store.UsageLine{}, false},
+		{"no line", store.UsageSource{Usage: "u", Input: "i"}, ``, store.UsageLine{}, false},
+		{"null", store.UsageSource{Usage: "u", Input: "i"}, `null`, store.UsageLine{}, false},
+		{"an array", store.UsageSource{Usage: "u", Input: "i"}, `[{"u":{"i":1}}]`, store.UsageLine{}, false},
 	} {
 		got, ok := c.src.UsageIn([]byte(c.line))
 		if ok != c.ok || got != c.want {
@@ -1409,22 +1411,22 @@ func TestUsageIn(t *testing.T) {
 		{"seconds with a fraction", "t", "s", `{"t":1792616839.5,"u":{"i":1}}`, instant.Add(246_783 * time.Microsecond)},
 		{"in a path", "meta.at", "us", `{"meta":{"at":1792616839253217},"u":{"i":1}}`, instant},
 	} {
-		src := UsageSource{Usage: "u", Input: "i", At: c.at, AtUnit: c.unit}
+		src := store.UsageSource{Usage: "u", Input: "i", At: c.at, AtUnit: c.unit}
 		if got, ok := src.UsageIn([]byte(c.line)); !ok || !got.At.Equal(c.want) || got.Usage.Input != 1 {
 			t.Errorf("%s: %v, %v; want %v", c.name, got.At, ok, c.want)
 		}
 	}
 	// A time that is not there, or does not read, leaves the counts and no time.
 	for name, c := range map[string]struct {
-		src  UsageSource
+		src  store.UsageSource
 		line string
 	}{
-		"no at named":             {UsageSource{Usage: "u", Input: "i"}, `{"timestamp":"2026-10-21T21:07:19Z","u":{"i":1}}`},
-		"none in the line":        {UsageSource{Usage: "u", Input: "i", At: "timestamp"}, `{"u":{"i":1}}`},
-		"no time":                 {UsageSource{Usage: "u", Input: "i", At: "timestamp"}, `{"timestamp":"yesterday","u":{"i":1}}`},
-		"not a string":            {UsageSource{Usage: "u", Input: "i", At: "timestamp"}, `{"timestamp":true,"u":{"i":1}}`},
-		"a number as RFC 3339":    {UsageSource{Usage: "u", Input: "i", At: "timestamp"}, `{"timestamp":"1792616839","u":{"i":1}}`},
-		"a unit no file may name": {UsageSource{Usage: "u", Input: "i", At: "t", AtUnit: "ns"}, `{"t":1792616839253217000,"u":{"i":1}}`},
+		"no at named":             {store.UsageSource{Usage: "u", Input: "i"}, `{"timestamp":"2026-10-21T21:07:19Z","u":{"i":1}}`},
+		"none in the line":        {store.UsageSource{Usage: "u", Input: "i", At: "timestamp"}, `{"u":{"i":1}}`},
+		"no time":                 {store.UsageSource{Usage: "u", Input: "i", At: "timestamp"}, `{"timestamp":"yesterday","u":{"i":1}}`},
+		"not a string":            {store.UsageSource{Usage: "u", Input: "i", At: "timestamp"}, `{"timestamp":true,"u":{"i":1}}`},
+		"a number as RFC 3339":    {store.UsageSource{Usage: "u", Input: "i", At: "timestamp"}, `{"timestamp":"1792616839","u":{"i":1}}`},
+		"a unit no file may name": {store.UsageSource{Usage: "u", Input: "i", At: "t", AtUnit: "ns"}, `{"t":1792616839253217000,"u":{"i":1}}`},
 	} {
 		if got, ok := c.src.UsageIn([]byte(c.line)); !ok || !got.At.IsZero() || got.Usage.Input != 1 {
 			t.Errorf("%s: %+v, %v; want the count and no time", name, got, ok)
@@ -1452,23 +1454,23 @@ func TestUsageTally(t *testing.T) {
 	}
 	for _, c := range []struct {
 		name  string
-		src   UsageSource
+		src   store.UsageSource
 		lines []string
-		want  Usage
+		want  store.Usage
 		ok    bool
 	}{
-		{"last, the default", UsageSource{Usage: "u", Input: "i"}, lines, Usage{Input: 1000, FreshInput: 1000}, true},
-		{"last, by name", UsageSource{Usage: "u", Input: "i", Read: "last"}, lines[:4], Usage{Input: 100, FreshInput: 100}, true},
-		{"sum", UsageSource{Usage: "u", Input: "i", Read: "sum"}, lines, Usage{Input: 1111, FreshInput: 1111}, true},
-		{"sum, once for each key, the last line of each", UsageSource{Usage: "u", Input: "i", Read: "sum", Key: "id"}, lines, Usage{Input: 110, FreshInput: 110}, true},
-		{"sum, once for each key, the first line of one key", UsageSource{Usage: "u", Input: "i", Read: "sum", Key: "id"}, lines[:2], Usage{Input: 11, FreshInput: 11}, true},
-		{"no line", UsageSource{Usage: "u", Input: "i"}, nil, Usage{}, false},
-		{"no line that reads", UsageSource{Usage: "u", Input: "i", Read: "sum"}, lines[2:3], Usage{}, false},
-		{"no line that has a key", UsageSource{Usage: "u", Input: "i", Read: "sum", Key: "id"}, lines[2:3], Usage{}, false},
-		{"a line of 0 is a count", UsageSource{Usage: "u", Input: "i", Read: "sum"}, []string{`{"u":{"i":0}}`}, Usage{}, true},
-		{"last, with the cache in the input", UsageSource{Usage: "u", Input: "i", CacheRead: "c", CacheInInput: true}, cached, Usage{Input: 1000, FreshInput: 600, CacheRead: 400}, true},
-		{"sum, with the cache in the input", UsageSource{Usage: "u", Input: "i", CacheRead: "c", CacheInInput: true, Read: "sum"}, cached, Usage{Input: 1110, FreshInput: 666, CacheRead: 444}, true},
-		{"sum, once for each key, with the cache in the input", UsageSource{Usage: "u", Input: "i", CacheRead: "c", CacheInInput: true, Read: "sum", Key: "id"}, cached, Usage{Input: 1010, FreshInput: 606, CacheRead: 404}, true},
+		{"last, the default", store.UsageSource{Usage: "u", Input: "i"}, lines, store.Usage{Input: 1000, FreshInput: 1000}, true},
+		{"last, by name", store.UsageSource{Usage: "u", Input: "i", Read: "last"}, lines[:4], store.Usage{Input: 100, FreshInput: 100}, true},
+		{"sum", store.UsageSource{Usage: "u", Input: "i", Read: "sum"}, lines, store.Usage{Input: 1111, FreshInput: 1111}, true},
+		{"sum, once for each key, the last line of each", store.UsageSource{Usage: "u", Input: "i", Read: "sum", Key: "id"}, lines, store.Usage{Input: 110, FreshInput: 110}, true},
+		{"sum, once for each key, the first line of one key", store.UsageSource{Usage: "u", Input: "i", Read: "sum", Key: "id"}, lines[:2], store.Usage{Input: 11, FreshInput: 11}, true},
+		{"no line", store.UsageSource{Usage: "u", Input: "i"}, nil, store.Usage{}, false},
+		{"no line that reads", store.UsageSource{Usage: "u", Input: "i", Read: "sum"}, lines[2:3], store.Usage{}, false},
+		{"no line that has a key", store.UsageSource{Usage: "u", Input: "i", Read: "sum", Key: "id"}, lines[2:3], store.Usage{}, false},
+		{"a line of 0 is a count", store.UsageSource{Usage: "u", Input: "i", Read: "sum"}, []string{`{"u":{"i":0}}`}, store.Usage{}, true},
+		{"last, with the cache in the input", store.UsageSource{Usage: "u", Input: "i", CacheRead: "c", CacheInInput: true}, cached, store.Usage{Input: 1000, FreshInput: 600, CacheRead: 400}, true},
+		{"sum, with the cache in the input", store.UsageSource{Usage: "u", Input: "i", CacheRead: "c", CacheInInput: true, Read: "sum"}, cached, store.Usage{Input: 1110, FreshInput: 666, CacheRead: 444}, true},
+		{"sum, once for each key, with the cache in the input", store.UsageSource{Usage: "u", Input: "i", CacheRead: "c", CacheInInput: true, Read: "sum", Key: "id"}, cached, store.Usage{Input: 1010, FreshInput: 606, CacheRead: 404}, true},
 	} {
 		if got, ok := tally(c.src, c.lines...); got != c.want || ok != c.ok {
 			t.Errorf("%s: %+v, %v; want %+v, %v", c.name, got, ok, c.want, c.ok)

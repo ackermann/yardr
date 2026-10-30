@@ -363,7 +363,7 @@ func (a *app) agentKindModel(ctx context.Context, ans *groupAnswers) error {
 	}
 	if kindPick == otherKind {
 		other := []huh.Option[string]{}
-		for _, k := range agents.HerdrKinds {
+		for _, k := range store.HerdrKinds {
 			if _, ok := agents.Lookup(k); !ok {
 				other = append(other, huh.NewOption(k, k))
 			}
@@ -414,7 +414,7 @@ func (a *app) agentKindModel(ctx context.Context, ans *groupAnswers) error {
 var listModels = func(ctx context.Context, kind string) (models []string, err error) {
 	preset, _ := agents.Lookup(kind)
 	_ = spinner.New().Title("Asking " + kind + " for its models…").
-		Action(func() { models, err = preset.Models(ctx) }).Run()
+		Action(func() { models, err = agents.Models(preset, ctx) }).Run()
 	return models, err
 }
 

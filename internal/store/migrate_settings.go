@@ -2,8 +2,6 @@ package store
 
 import (
 	bolt "go.etcd.io/bbolt"
-
-	"yardr.dev/yardr/internal/agents"
 )
 
 // migrateSettings gives a yard from before the onboarding (yard-p01r) the
@@ -43,7 +41,7 @@ func migrateSettings(tx *bolt.Tx) error {
 		return err
 	}
 	if kind == "" {
-		kind, from = agents.DefaultKind, "default"
+		kind, from = "claude", "default"
 	}
 	if err := put(tx, bSettings, "default_kind", kind); err != nil {
 		return err

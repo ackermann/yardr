@@ -932,7 +932,7 @@ func (s *yardState) lines(home string) []docLine {
 		}
 		out = append(out, docLine{tagFault, "crew", fmt.Sprintf("%s is not logged in: run %s in another terminal and log in there; "+
 			"then answer the login in its pane or start it fresh (%s %s)",
-			name, agents.Executable(l.Kind), yardr, restart)})
+			name, store.Executable(l.Kind), yardr, restart)})
 	}
 	if len(s.Held) == 0 {
 		out = append(out, docLine{tagOK, "held", "no bead is held"})

@@ -40,7 +40,7 @@ const (
 )
 
 // Usage is what the agent of handle's session used, read from its own session
-// file by the entries of its kind's usage (agents.UsageSource), once the
+// file by the entries of its kind's usage (store.UsageSource), once the
 // session has ended. The kind is the handle's own (harnessKind) and the file is
 // named by the session id the dispatcher kept on it (agent_session): herdr is
 // not asked, since it no longer knows an agent whose tab is closed. With no id
@@ -69,48 +69,48 @@ const (
 // err is for what the caller tries again on a later pass: the file could not
 // be read, or dispatch.ErrUsageNotYet. missing is for what it records: why no
 // count is there and none will come. Otherwise u is the count.
-func (h *Herdr) Usage(ctx context.Context, handle map[string]any, startedAt time.Time, fallback bool) (u agents.Usage, partial bool, missing string, err error) {
+func (h *Herdr) Usage(ctx context.Context, handle map[string]any, startedAt time.Time, fallback bool) (u store.Usage, partial bool, missing string, err error) {
 	if err := ctx.Err(); err != nil {
-		return agents.Usage{}, false, "", err
+		return store.Usage{}, false, "", err
 	}
 	name, _ := handle[harnessKind].(string)
 	kind, _ := agents.Lookup(name)
 	if kind.Model == nil || len(kind.Usage) == 0 {
-		return agents.Usage{}, false, missingNoSource, nil
+		return store.Usage{}, false, missingNoSource, nil
 	}
 	id, _ := handle[agentSession].(string)
 	if !plainSessionID(id) {
 		worktree, _ := handle["worktree"].(string)
 		matched, ambiguous, err := h.matchWorkspace(kind, worktree, startedAt)
 		if err != nil {
-			return agents.Usage{}, false, "", err
+			return store.Usage{}, false, "", err
 		}
 		switch {
 		case ambiguous:
-			return agents.Usage{}, false, missingAmbiguous, nil
+			return store.Usage{}, false, missingAmbiguous, nil
 		case matched == "":
-			return agents.Usage{}, false, missingNoID, nil
+			return store.Usage{}, false, missingNoID, nil
 		}
 		id = matched
 	}
 	until, kept, err := countUntilIn(handle)
 	if err != nil {
-		return agents.Usage{}, false, "", err
+		return store.Usage{}, false, "", err
 	}
 	entries := usageEntries(kind.Usage, kept, fallback)
 	if len(entries) == 0 {
-		return agents.Usage{}, false, missingNoLine, nil
+		return store.Usage{}, false, missingNoLine, nil
 	}
 	path, err := sessionFile(kind.Model.Pattern(h.agentHome(kind), id))
 	switch {
 	case err != nil:
-		return agents.Usage{}, false, "", err
+		return store.Usage{}, false, "", err
 	case path == "":
-		return agents.Usage{}, false, missingNoFile, nil
+		return store.Usage{}, false, missingNoFile, nil
 	}
 	// One pass over the file feeds every entry tried: a file is a few MB, and
 	// a fallback needs no second read.
-	tallies := make([]*agents.UsageTally, len(entries))
+	tallies := make([]*store.UsageTally, len(entries))
 	for i, e := range entries {
 		tallies[i] = e.Tally()
 	}
@@ -125,7 +125,7 @@ func (h *Herdr) Usage(ctx context.Context, handle map[string]any, startedAt time
 		return false
 	})
 	if err != nil {
-		return agents.Usage{}, false, "", err
+		return store.Usage{}, false, "", err
 	}
 	for i, t := range tallies {
 		if got, ok := t.Usage(); ok {
@@ -133,18 +133,18 @@ func (h *Herdr) Usage(ctx context.Context, handle map[string]any, startedAt time
 		}
 	}
 	if !fallback {
-		return agents.Usage{}, false, "", dispatch.ErrUsageNotYet
+		return store.Usage{}, false, "", dispatch.ErrUsageNotYet
 	}
-	return agents.Usage{}, false, missingNoLine, nil
+	return store.Usage{}, false, missingNoLine, nil
 }
 
 // usageEntries are the entries of a kind's usage that Usage tries, in the order
 // of its file: all of them with fallback, else the first. A count that stops at
 // a time (kept) leaves out the entries that name none for their lines, and the
 // first of those left is then the first.
-func usageEntries(entries []agents.UsageSource, kept, fallback bool) []agents.UsageSource {
+func usageEntries(entries []store.UsageSource, kept, fallback bool) []store.UsageSource {
 	if kept {
-		entries = slices.DeleteFunc(slices.Clone(entries), func(e agents.UsageSource) bool { return e.At == "" })
+		entries = slices.DeleteFunc(slices.Clone(entries), func(e store.UsageSource) bool { return e.At == "" })
 	}
 	if !fallback && len(entries) > 1 {
 		entries = entries[:1]

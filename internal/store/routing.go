@@ -16,8 +16,6 @@ import (
 	"time"
 
 	bolt "go.etcd.io/bbolt"
-
-	"yardr.dev/yardr/internal/agents"
 )
 
 // Group is whoever works a stage. Runner names the implementation (herdr,
@@ -40,19 +38,16 @@ type Group struct {
 
 // Kind is the kind the agents of g start as: the one its config names, and
 // for a herdr group that names none the yard's default_kind (def, "" where
-// the setting is not set), then the runner's own default. A group whose
-// runner is not herdr has none. Claim gives a session its kind by it, and
-// whoever asks what a group burns (a route's condition, route add's
-// warning, doctor's note) asks it too, so that they speak of the provider
-// the session burns.
+// the setting is not set). "" where neither names one: the caller resolves
+// the runner's own default. A group whose runner is not herdr has none.
+// Claim gives a session its kind by it, and whoever asks what a group burns
+// (a route's condition, route add's warning, doctor's note) asks it too, so
+// that they speak of the provider the session burns.
 func (g Group) Kind(def string) string {
 	if kind, _ := g.Config["kind"].(string); kind != "" || g.Runner != "herdr" {
 		return kind
 	}
-	if def != "" {
-		return def
-	}
-	return agents.DefaultKind
+	return def
 }
 
 // LoginFor is the user whose login the group's panes carry, as declared:
@@ -584,7 +579,7 @@ func (r Route) Quotaed() bool {
 // setting, for a group that names no kind (Group.Kind).
 func (r Route) Gated(groups map[string]Group, def string) bool {
 	for _, g := range r.Groups() {
-		if g.When != "" || groups[g.Name].Kind(def) != "" {
+		if g.When != "" || groups[g.Name].Kind(def) != "" || groups[g.Name].Runner == "herdr" {
 			return true
 		}
 	}
@@ -2490,6 +2485,11 @@ func (s *Store) Claim(ctx context.Context, beadID, group, stage, actor string, v
 			return err
 		}
 		kind := g.Kind(def)
+		if kind == "" && g.Runner == "herdr" {
+			// The runner's default, as Group.Kind named it: a herdr
+			// session starts as claude where nothing names one.
+			kind = "claude"
+		}
 		model, _ := g.Config["model"].(string)
 		stored := Session{ID: newEdgeID(), Bead: row.UUID, Group: group, Stage: stage, Runner: g.Runner,
 			Kind: kind, Model: model, State: "starting", StartedAt: now()}

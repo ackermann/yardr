@@ -4,7 +4,7 @@ import "context"
 
 // Context is the context the session's agent holds, in tokens: the last
 // use its own session file holds, by the kind's context source
-// (agents.ContextSource). ok is false when the kind names no source, or
+// (store.ContextSource). ok is false when the kind names no source, or
 // the file says no use yet (no reply, or none with numbers). The file is
 // found as the model source's is (see Model).
 func (h *Herdr) Context(ctx context.Context, handle map[string]any) (used int, ok bool, err error) {

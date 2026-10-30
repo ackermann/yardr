@@ -26,10 +26,10 @@ import (
 // requirements are the programs a yard needs beside its harness: what for,
 // as the onboarding and yardr doctor say it when one is not on PATH, and
 // where to get it. Nothing here is run by yardr: the text is for the person,
-// and fetch is data for a program that fetches (agents.Fetch).
+// and fetch is data for a program that fetches (store.Fetch).
 var requirements = []struct {
 	exe, need, get string
-	fetch          *agents.Fetch
+	fetch          *store.Fetch
 }{
 	{"herdr", "it starts every agent in a pane of its own, the yardmaster first: without it nothing runs",
 		"https://herdr.dev", herdrFetch},
@@ -50,11 +50,11 @@ var requirements = []struct {
 // binaries are signed ad hoc, by no Developer ID: these checksums are all
 // that says the file is the one that was verified. The address is GitHub's
 // and answers with a redirect to GitHub's storage.
-var herdrFetch = &agents.Fetch{
-	Verified: agents.Verified{From: "https://herdr.dev/docs/install/", On: "2026-10-13"},
+var herdrFetch = &store.Fetch{
+	Verified: store.Verified{From: "https://herdr.dev/docs/install/", On: "2026-10-13"},
 	Version:  "0.9.4",
 	Path:     "~/.local/bin/herdr",
-	Targets: map[string]agents.FetchFile{
+	Targets: map[string]store.FetchFile{
 		"darwin/arm64": {
 			URL:    "https://github.com/herdrdev/herdr/releases/download/v0.9.4/herdr-macos-aarch64",
 			SHA256: "ea20bfff9cb8c83a996081c926e6ff9370de8e543baa859bca48d19175d895ff",
@@ -82,7 +82,7 @@ type need struct {
 	// Fetch is how a program that fetches gets it, when it is not found, on
 	// a Mac, and yardr knows a way (see fetchFor). With none it is installed
 	// by hand, as Get says.
-	Fetch *agents.Download `json:"fetch,omitempty"`
+	Fetch *store.Download `json:"fetch,omitempty"`
 	// AnyOf, on the line that says no harness is installed, are the
 	// harnesses that can be fetched here: any one of them answers it.
 	AnyOf []need `json:"any_of,omitempty"`
@@ -106,7 +106,7 @@ type need struct {
 	// Offers are the models the kind's file suggests a person pick, each
 	// the id its --model flag takes with the label to show and what it is
 	// recommended for; absent when the file names none.
-	Offers []agents.Offer `json:"offers,omitempty"`
+	Offers []store.Offer `json:"offers,omitempty"`
 	// Optional is a harness nothing in the yard runs on: one of those a
 	// home with no yard could be created on. What is wrong with it is said,
 	// and is no fault.
@@ -208,7 +208,7 @@ func basicNeeds() []need {
 // harnessNeed is the harness of kind, found or not, not yet asked for its
 // version.
 func harnessNeed(kind, what string) need {
-	n := need{Program: agents.Executable(kind), For: what, Harness: kind, Get: agents.InstallHint(kind)}
+	n := need{Program: store.Executable(kind), For: what, Harness: kind, Get: agents.InstallHint(kind)}
 	if h, ok := agents.Lookup(kind); ok {
 		n.HarnessFile = h.Version
 		n.HarnessAlways = h.Flags.Always
@@ -227,7 +227,7 @@ func harnessNeed(kind, what string) need {
 // fetchFor is f for this machine and this user: nil off a Mac, where
 // nothing is fetched and a missing program stays a hint to install it by
 // hand, and nil when the home is not known.
-func fetchFor(f *agents.Fetch) *agents.Download {
+func fetchFor(f *store.Fetch) *store.Download {
 	home, err := userHomeDir()
 	if err != nil {
 		return nil
@@ -237,7 +237,7 @@ func fetchFor(f *agents.Fetch) *agents.Download {
 
 // installed reports whether kind's harness is on PATH.
 func installed(kind string) bool {
-	_, err := lookPath(agents.Executable(kind))
+	_, err := lookPath(store.Executable(kind))
 	return err == nil
 }
 
@@ -279,7 +279,7 @@ func machineNeeds(ctx context.Context, uses []harnessUse, try bool) []need {
 	}
 	if none {
 		for _, k := range presetKinds() {
-			missing = append(missing, agents.Executable(k))
+			missing = append(missing, store.Executable(k))
 		}
 	}
 	finds := loginShellFinds(ctx, missing)
@@ -288,7 +288,7 @@ func machineNeeds(ctx context.Context, uses []harnessUse, try bool) []need {
 	}
 	if none {
 		for _, k := range presetKinds() {
-			if p := finds[agents.Executable(k)]; p != "" {
+			if p := finds[store.Executable(k)]; p != "" {
 				n := harnessNeed(k, forNewYard)
 				n.Optional, n.LoginPath = true, p
 				out = append(out, n)

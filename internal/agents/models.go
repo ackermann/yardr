@@ -1,7 +1,7 @@
 // Package agents knows the coding-agent CLIs herdr can start: what yardr
 // knows of each kind beyond what herdr does, read from the kind's file
-// (Harness), and how each lists its models. Model lists are read live from
-// the installed tool, so they stay current.
+// (store.Harness), and how each lists its models. Model lists are read live
+// from the installed tool, so they stay current.
 package agents
 
 import (
@@ -15,13 +15,9 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-)
 
-// HerdrKinds are the agent kinds herdr 0.9 can start (herdr agent start
-// --help); a custom kind must be one of them.
-var HerdrKinds = []string{"pi", "claude", "codex", "gemini", "cursor", "devin", "agy", "cline", "omp",
-	"mastracode", "opencode", "copilot", "kimi", "kiro", "droid", "amp", "grok", "hermes", "kilo",
-	"qodercli", "qwen", "letta", "maki", "muse"}
+	"yardr.dev/yardr/internal/store"
+)
 
 func run(ctx context.Context, name string, args ...string) (string, error) {
 	out, err := exec.CommandContext(ctx, name, args...).Output()
@@ -315,7 +311,7 @@ func Kinds() []string {
 	for _, h := range Harnesses {
 		out = append(out, h.Kind)
 	}
-	for _, k := range HerdrKinds {
+	for _, k := range store.HerdrKinds {
 		if _, ok := Lookup(k); !ok {
 			out = append(out, k)
 		}
@@ -325,21 +321,10 @@ func Kinds() []string {
 
 // IsKind reports whether herdr can start kind.
 func IsKind(kind string) bool {
-	for _, k := range HerdrKinds {
+	for _, k := range store.HerdrKinds {
 		if k == kind {
 			return true
 		}
 	}
 	return false
-}
-
-// executables are the kinds whose command is not named after the kind.
-var executables = map[string]string{"cursor": "cursor-agent", "kiro": "kiro-cli"}
-
-// Executable is the command herdr runs for kind.
-func Executable(kind string) string {
-	if e, ok := executables[kind]; ok {
-		return e
-	}
-	return kind
 }

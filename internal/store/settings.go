@@ -17,7 +17,6 @@ import (
 
 	bolt "go.etcd.io/bbolt"
 
-	"yardr.dev/yardr/internal/agents"
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/yardkey"
 )
@@ -218,8 +217,8 @@ var KnownSettings = append([]Setting{
 		}},
 	{Key: DefaultKindSetting, Help: "the agent kind of herdr groups and crew members whose config names none", Default: "claude",
 		Check: func(v string) error {
-			if !agents.IsKind(v) {
-				return fmt.Errorf("%s %q: herdr starts %s", DefaultKindSetting, v, strings.Join(agents.Kinds(), ", "))
+			if !slices.Contains(HerdrKinds, v) {
+				return fmt.Errorf("%s %q: herdr starts %s", DefaultKindSetting, v, strings.Join(HerdrKinds, ", "))
 			}
 			return nil
 		}},
@@ -644,27 +643,16 @@ func checkDefaultPack(v string) error {
 }
 
 // checkPermissionsPreset takes what names a permission preset of some
-// harness: the one-word form of a preset's label (agents.PresetLabel), as
+// harness: the one-word form of a preset's label (PresetLabel), as
 // yardr init --permissions takes it. Which presets the yard's own harness
 // offers is init's to hold the value to; this holds a stored value to a
 // preset some harness knows, so a misspelling is refused where it is set
 // instead of read as no preset later.
 func checkPermissionsPreset(v string) error {
-	for _, kind := range agents.Kinds() {
-		if _, ok := agents.Preset(kind, v); ok {
-			return nil
-		}
+	if slices.Contains(PresetNames, PresetLabel(v)) {
+		return nil
 	}
-	var have []string
-	for _, kind := range agents.Kinds() {
-		for _, l := range agents.PresetLabels(kind) {
-			if k := agents.PresetLabel(l); !slices.Contains(have, k) {
-				have = append(have, k)
-			}
-		}
-	}
-	slices.Sort(have)
-	return fmt.Errorf("%s %q: no harness has a permission preset of that name (there is: %s); yardr init --permissions names what the yard's harness offers", PermissionsPresetSetting, v, strings.Join(have, ", "))
+	return fmt.Errorf("%s %q: no harness has a permission preset of that name (there is: %s); yardr init --permissions names what the yard's harness offers", PermissionsPresetSetting, v, strings.Join(PresetNames, ", "))
 }
 
 // CheckHookAddr refuses what the webhook receiver could not listen on: an

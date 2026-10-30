@@ -499,13 +499,13 @@ func TestHarnessLoginRecipeShown(t *testing.T) {
 		out, _ := executeOut(testApp(t, nil, home), append([]string{"harness", "show"}, args...)...)
 		return out
 	}
-	var shown agents.Harness
+	var shown store.Harness
 	if err := json.Unmarshal([]byte(show("claude", "--json")), &shown); err != nil || shown.LoginRecipe == nil {
 		t.Fatalf("show claude --json: %v, %+v", err, shown.LoginRecipe)
 	}
 	if r := shown.LoginRecipe; strings.Join(r.Argv, " ") != "auth login" || len(r.Methods) != 2 || r.Methods[1].Args[0] != "--console" ||
 		!strings.Contains(r.OpenURL, "visit: (https://") || r.Input != "^Paste code here if prompted" ||
-		r.Verified != (agents.Verified{From: "claude auth login, Claude Code 2.1.288", On: "2026-10-13"}) {
+		r.Verified != (store.Verified{From: "claude auth login, Claude Code 2.1.288", On: "2026-10-13"}) {
 		t.Errorf("claude's recipe: %+v", r)
 	}
 	wantText(t, show("claude"), "Login led by a program, with no terminal (yardr harness login claude --json)",
@@ -514,7 +514,7 @@ func TestHarnessLoginRecipeShown(t *testing.T) {
 		"(read from claude auth login, Claude Code 2.1.288 on 2026-10-13; it may stop matching when the harness prints something else)",
 		"API key it runs with, offered on the yard's first-login ask", "  variables: ANTHROPIC_API_KEY",
 		`Use-this-API-key dialog, drawn with no login: yardr answers "Do you want to use this API key?" with Yes`)
-	shown = agents.Harness{}
+	shown = store.Harness{}
 	if err := json.Unmarshal([]byte(show("kimi", "--json")), &shown); err != nil || shown.LoginRecipe != nil {
 		t.Fatalf("show kimi --json: %v, %+v", err, shown.LoginRecipe)
 	}

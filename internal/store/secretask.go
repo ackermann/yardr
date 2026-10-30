@@ -32,7 +32,6 @@ import (
 	"strings"
 	"time"
 
-	"yardr.dev/yardr/internal/agents"
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/source"
 )
@@ -129,8 +128,8 @@ func (s AskSecret) Line() string {
 	}
 	if s.Harness != "" {
 		label := s.Harness
-		if h, ok := agents.Lookup(s.Harness); ok && h.Label != "" {
-			label = h.Label
+		if l, ok := HarnessLabels[s.Harness]; ok && l != "" {
+			label = l
 		}
 		return fmt.Sprintf("a secret: %s, the API key %s runs with, asked for crew member %s; it is read by every %s session that burns the operator's login (the crew, groups without login_for, the operator's conversations), from its next start",
 			s.Names(), label, s.Crew, label)
@@ -452,12 +451,12 @@ func (w *wtx) askedHarnessKey(sec AskSecret, to string) (*AskSecret, error) {
 	case strings.TrimSpace(sec.Hook) != "":
 		return nil, fmt.Errorf("a harness API key is no hook's signing secret: it takes no hook")
 	}
-	h, ok := agents.Lookup(kind)
-	if !ok {
+	if _, ok := HarnessLabels[kind]; !ok {
 		return nil, fmt.Errorf("harness %s: the yard has no harness file for it (yardr harness list)", kind)
 	}
-	if len(h.LoginEnv) == 0 {
-		return nil, fmt.Errorf("harness %s: its file names no login_env, so there is no API key to ask for", h.Kind)
+	loginEnv := HarnessLoginEnv[kind]
+	if len(loginEnv) == 0 {
+		return nil, fmt.Errorf("harness %s: its file names no login_env, so there is no API key to ask for", kind)
 	}
 	crew := strings.TrimSpace(sec.Crew)
 	if crew == "" {
@@ -467,13 +466,13 @@ func (w *wtx) askedHarnessKey(sec AskSecret, to string) (*AskSecret, error) {
 		return nil, fmt.Errorf("a harness API key is asked for a crew member of the yard (yardr crew list): crew member %s: %w", crew, ErrNotFound)
 	}
 	for _, n := range sec.Env {
-		if !slices.Contains(h.LoginEnv, n) {
-			return nil, fmt.Errorf("harness %s: %s is no variable of its API key (its file names %s)", h.Kind, n, strings.Join(h.LoginEnv, ", "))
+		if !slices.Contains(loginEnv, n) {
+			return nil, fmt.Errorf("harness %s: %s is no variable of its API key (its file names %s)", kind, n, strings.Join(loginEnv, ", "))
 		}
 	}
-	names := slices.Clone(h.LoginEnv)
+	names := slices.Clone(loginEnv)
 	if len(sec.Env) > 0 {
-		names = slices.DeleteFunc(slices.Clone(h.LoginEnv), func(n string) bool { return !slices.Contains(sec.Env, n) })
+		names = slices.DeleteFunc(slices.Clone(loginEnv), func(n string) bool { return !slices.Contains(sec.Env, n) })
 	}
 	ops, err := operatorsIn(w.Tx)
 	if err != nil {
@@ -485,7 +484,7 @@ func (w *wtx) askedHarnessKey(sec AskSecret, to string) (*AskSecret, error) {
 	case !ops.is(to):
 		return nil, fmt.Errorf("a secret is %s to give (%s): giving a harness API key is theirs alone, so %s cannot be asked for one", ops.article(), ops, to)
 	}
-	return &AskSecret{Harness: h.Kind, Crew: crew, Env: names}, nil
+	return &AskSecret{Harness: kind, Crew: crew, Env: names}, nil
 }
 
 // askedAddress checks an ask for the user's own address in the source d
@@ -964,10 +963,11 @@ func (w *wtx) giveHarnessKey(ctx context.Context, home string, row *beadRow, ask
 	if w.Bucket(bCrew).Get([]byte(sec.Crew)) == nil {
 		return fmt.Errorf("crew member %s: %w", sec.Crew, ErrNotFound)
 	}
-	h, ok := agents.Lookup(sec.Harness)
-	if !ok || len(h.LoginEnv) == 0 {
+	loginEnv := HarnessLoginEnv[sec.Harness]
+	if _, ok := HarnessLabels[sec.Harness]; !ok || len(loginEnv) == 0 {
 		return fmt.Errorf("harness %s: its file names no login_env now, so there is no API key to give", sec.Harness)
 	}
+	h := Harness{Kind: sec.Harness, Label: HarnessLabels[sec.Harness], LoginEnv: loginEnv}
 	// givable held the names to the ask's; the harness file is the
 	// writer's to check, without saying back what was sent.
 	names := make([]string, 0, len(values))

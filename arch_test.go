@@ -35,10 +35,10 @@ const (
 
 // leafPkgs is every internal package that imports no internal package:
 // the page's leaves layer, measured at f75abf88 minus shared and udiff,
-// which yardr-g1sf folded into store. A leaf that gains an internal
+// which yardr-g1sf folded into store, and minus agents, which yardr-8nca
+// made import store for the harness types. A leaf that gains an internal
 // import fails rule (b) below; a rename updates this list with it.
 var leafPkgs = []string{
-	internalPrefix + "agents",
 	peerPkg,
 	internalPrefix + "rpc/clientgen",
 	internalPrefix + "scripttest",
@@ -55,12 +55,11 @@ type allowEdge struct {
 	removeBy string
 }
 
-// allowImportEdges is the store's 5 remaining internal imports, one row
-// each naming its package and the bead that cuts it. The store's sixth,
+// allowImportEdges is the store's 4 remaining internal imports, one row
+// each naming its package and the bead that cuts it. The store's fifth,
 // internal/peer, is rule (a)'s permanent exception, not a row. No leaf
 // or cli edge breaks a rule today, so the table holds no other row.
 var allowImportEdges = []allowEdge{
-	{storePkg, internalPrefix + "agents", "yardr-8nca"},
 	{storePkg, internalPrefix + "config", "yardr-t8m6"},
 	{storePkg, internalPrefix + "pairing", "yardr-rxk9"},
 	{storePkg, internalPrefix + "source", "yardr-j8vt"},

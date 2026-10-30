@@ -342,7 +342,7 @@ func TestStartAgentAcceptsFolderTrust(t *testing.T) {
 	muse, _ := agents.Lookup("muse")
 	for _, c := range []struct {
 		name     string
-		entry    agents.Trust
+		entry    store.Trust
 		dialog   func(on string) string
 		off, yes string
 		start    string
@@ -473,7 +473,7 @@ func TestStartAgentLeavesOtherKeyQuestions(t *testing.T) {
 	no, yes := apiKeyDialog("No (recommended)"), apiKeyDialog("Yes")
 	cases := []struct {
 		name, screen string
-		key          *agents.Trust
+		key          *store.Trust
 	}{
 		{"another question with Yes", " Do you want to allow this?\n ❯ Yes\n", claude.ApiKey},
 		{"the folder-trust dialog", trustDialog("No, exit"), claude.ApiKey},
@@ -588,7 +588,7 @@ func TestStartAgentLeavesOtherQuestions(t *testing.T) {
 	stuck := strings.ReplaceAll(trustDialog("No, exit"), "❯ No, exit", "> No, exit")
 	cases := []struct {
 		name, screen string
-		trust        *agents.Trust
+		trust        *store.Trust
 		keys         string // the last key that may have been sent, "" for none
 	}{
 		{"another question", " Do you want to allow this?\n ❯ Yes\n   No\n", claude.Trust, ""},
@@ -732,8 +732,8 @@ func TestStartAgentAnswersDialogShownAtStart(t *testing.T) {
 	drawing := " Quick safety check: Is this a project you\n ❯ \n"
 	for _, c := range []struct {
 		name, screen string
-		trust        *agents.Trust
-		key          *agents.Trust
+		trust        *store.Trust
+		key          *store.Trust
 		mark         bool // the answer lands on the handle
 		moves        bool // down is sent before enter
 	}{
@@ -984,7 +984,7 @@ func TestTrustEntry(t *testing.T) {
 	muse, _ := agents.Lookup("muse")
 	cases := []struct {
 		cfg  map[string]any
-		want *agents.Trust
+		want *store.Trust
 	}{
 		{nil, claude.Trust}, // kind defaults to claude
 		{map[string]any{"kind": "claude"}, claude.Trust},
@@ -1011,7 +1011,7 @@ func TestKeyEntry(t *testing.T) {
 	claude, _ := agents.Lookup("claude")
 	cases := []struct {
 		cfg  map[string]any
-		want *agents.Trust
+		want *store.Trust
 	}{
 		{nil, claude.ApiKey}, // kind defaults to claude
 		{map[string]any{"kind": "claude"}, claude.ApiKey},
@@ -1034,7 +1034,7 @@ func TestOnboardingEntries(t *testing.T) {
 	claude, _ := agents.Lookup("claude")
 	for _, c := range []struct {
 		cfg  map[string]any
-		want []agents.Trust
+		want []store.Trust
 	}{
 		{nil, claude.Onboarding}, // kind defaults to claude
 		{map[string]any{"kind": "claude"}, claude.Onboarding},

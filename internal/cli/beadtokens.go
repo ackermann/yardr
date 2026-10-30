@@ -4,7 +4,6 @@ import (
 	"slices"
 	"strings"
 
-	"yardr.dev/yardr/internal/agents"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -13,14 +12,14 @@ import (
 // (pending). Tokens is the headline number, fresh input, cache writes
 // and output; Usage carries all five counts.
 type beadSessionTokens struct {
-	Session string       `json:"session"`
-	Stage   string       `json:"stage"`
-	Kind    string       `json:"kind"`
-	Tokens  int          `json:"tokens"`
-	Usage   agents.Usage `json:"usage"`
-	Partial bool         `json:"partial,omitempty"`
-	Missing string       `json:"missing,omitempty"`
-	Pending bool         `json:"pending,omitempty"`
+	Session string      `json:"session"`
+	Stage   string      `json:"stage"`
+	Kind    string      `json:"kind"`
+	Tokens  int         `json:"tokens"`
+	Usage   store.Usage `json:"usage"`
+	Partial bool        `json:"partial,omitempty"`
+	Missing string      `json:"missing,omitempty"`
+	Pending bool        `json:"pending,omitempty"`
 }
 
 // beadTokens is what the bead's agent sessions used, as bead show
@@ -29,7 +28,7 @@ type beadSessionTokens struct {
 // the sessions whose result was missing, Pending those with none yet.
 type beadTokens struct {
 	Tokens    int                 `json:"tokens"`
-	Usage     agents.Usage        `json:"usage"`
+	Usage     store.Usage         `json:"usage"`
 	Partial   bool                `json:"partial"`
 	Uncounted int                 `json:"uncounted"`
 	Pending   int                 `json:"pending"`

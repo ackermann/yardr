@@ -10,8 +10,6 @@ import (
 	"sync/atomic"
 
 	bolt "go.etcd.io/bbolt"
-
-	"yardr.dev/yardr/internal/agents"
 )
 
 // SourceYardr is yardr's own event log as a subscription source: bead
@@ -403,8 +401,8 @@ func answerSentence(actor, bead, asker string, askSeq uint64, ask Ask, ans Answe
 		return oneLine(fmt.Sprintf("%s gave %s, %s's own address in the source %s (ask %d on %s)", actor, strings.Join(ans.Given, " and "), ask.Secret.User, ask.Secret.Source, askSeq, bead))
 	case len(ans.Given) > 0 && ask.Secret != nil && ask.Secret.Harness != "":
 		label := ask.Secret.Harness
-		if h, ok := agents.Lookup(ask.Secret.Harness); ok && h.Label != "" {
-			label = h.Label
+		if l, ok := HarnessLabels[ask.Secret.Harness]; ok && l != "" {
+			label = l
 		}
 		return oneLine(fmt.Sprintf("%s gave %s, the API key %s runs with on the operator's login, asked for crew member %s (ask %d on %s)", actor, strings.Join(ans.Given, " and "), label, ask.Secret.Crew, askSeq, bead))
 	case len(ans.Given) > 0 && ask.Secret != nil && ask.Secret.Crew != "":

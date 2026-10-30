@@ -1431,7 +1431,7 @@ func yardArgs(kind, preset string) []string {
 }
 
 // presetLabel is a permission preset's label as --bind takes it: one word.
-func presetLabel(label string) string { return agents.PresetLabel(label) }
+func presetLabel(label string) string { return store.PresetLabel(label) }
 
 // presetArgs are the arguments of kind's permission preset called label, as
 // the group form lists them; none is no arguments.

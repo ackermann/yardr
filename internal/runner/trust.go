@@ -13,6 +13,7 @@ import (
 
 	"yardr.dev/yardr/internal/agents"
 	"yardr.dev/yardr/internal/dispatch"
+	"yardr.dev/yardr/internal/store"
 )
 
 // A harness may ask whether a folder is trusted the first time it is
@@ -74,7 +75,7 @@ var trustRedrawWait = 2 * time.Second
 // trustEntry is the folder-trust dialog yardr answers for an agent with
 // this config: the one its kind's harness file names, and none when the
 // file names none or the group or crew member says `trust=false`.
-func trustEntry(cfg map[string]any) *agents.Trust {
+func trustEntry(cfg map[string]any) *store.Trust {
 	kind, _ := agents.Lookup(agents.Kind(cfg))
 	if kind.Trust == nil || cfg["trust"] == false {
 		return nil
@@ -87,7 +88,7 @@ func trustEntry(cfg map[string]any) *agents.Trust {
 // file names none. `trust=false` leaves it answered: that flag is folder
 // trust's, and the key in the session's environment is the operator's own
 // consent to use it.
-func keyEntry(cfg map[string]any) *agents.Trust {
+func keyEntry(cfg map[string]any) *store.Trust {
 	kind, _ := agents.Lookup(agents.Kind(cfg))
 	if kind.ApiKey == nil {
 		return nil
@@ -99,7 +100,7 @@ func keyEntry(cfg map[string]any) *agents.Trust {
 // with this config, in the order its kind's harness file names them, and
 // none when the file names none. `trust=false` leaves them answered, as
 // it leaves the API-key dialog: that flag is folder trust's.
-func onboardingEntries(cfg map[string]any) []agents.Trust {
+func onboardingEntries(cfg map[string]any) []store.Trust {
 	kind, _ := agents.Lookup(agents.Kind(cfg))
 	return kind.Onboarding
 }
@@ -120,7 +121,7 @@ func (h *Herdr) startupShown(ctx context.Context, pane, kind string) bool {
 	if !ok || pane == "" {
 		return false
 	}
-	entries := make([]agents.Trust, 0, len(hn.Onboarding)+2)
+	entries := make([]store.Trust, 0, len(hn.Onboarding)+2)
 	if hn.Trust != nil {
 		entries = append(entries, *hn.Trust)
 	}
@@ -148,7 +149,7 @@ func (h *Herdr) startupShown(ctx context.Context, pane, kind string) bool {
 // answerStartup answers the startup dialog showing in pane, if it is one
 // yardr answers itself (folder trust, API key, onboarding, in that order),
 // and reports the handle mark for the answer, "" when none landed.
-func (h *Herdr) answerStartup(ctx context.Context, pane string, trust, key *agents.Trust, onboarding []agents.Trust) string {
+func (h *Herdr) answerStartup(ctx context.Context, pane string, trust, key *store.Trust, onboarding []store.Trust) string {
 	switch {
 	case trust != nil && h.acceptTrust(ctx, pane, *trust):
 		return dispatch.TrustAccepted
@@ -358,7 +359,7 @@ func editClaudeStore(storePath string, edit func(store map[string]any) (changed 
 // trustAnswer finds t on a pane's screen: found when the dialog is up,
 // which takes its mark and one accepting answer on separate lines,
 // selected when the dialog's cursor is on the exact answer line.
-func trustAnswer(screen string, t agents.Trust) (found, selected bool) {
+func trustAnswer(screen string, t store.Trust) (found, selected bool) {
 	dialog, answer := false, false
 	for _, l := range strings.Split(screen, "\n") {
 		dialog = dialog || t.ShowsDialog(l)
@@ -413,7 +414,7 @@ func (h *Herdr) AcceptOnboarding(ctx context.Context, handle map[string]any, cfg
 
 // acceptOnboarding answers the first of entries whose screen pane shows,
 // and reports its index, -1 when none is up.
-func (h *Herdr) acceptOnboarding(ctx context.Context, pane string, entries []agents.Trust) int {
+func (h *Herdr) acceptOnboarding(ctx context.Context, pane string, entries []store.Trust) int {
 	for i, e := range entries {
 		if h.acceptTrust(ctx, pane, e) {
 			return i
@@ -429,7 +430,7 @@ func (h *Herdr) acceptOnboarding(ctx context.Context, pane string, entries []age
 // left for a human, as any other question is. An entry with no cursor is
 // answered with Enter alone when found, without moving one: without a
 // cursor nothing can be seen selected.
-func (h *Herdr) acceptTrust(ctx context.Context, pane string, t agents.Trust) bool {
+func (h *Herdr) acceptTrust(ctx context.Context, pane string, t store.Trust) bool {
 	screen, err := h.readPane(ctx, pane, 0)
 	for moves := 0; err == nil; moves++ {
 		found, selected := trustAnswer(screen, t)

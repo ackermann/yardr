@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"yardr.dev/yardr/internal/agents"
+	"yardr.dev/yardr/internal/store"
 )
 
 // machineOf is doctor --json's machine items on a home with no yard, by
@@ -50,7 +51,7 @@ func TestDoctorFetchOnMac(t *testing.T) {
 	if f := herdr.Fetch; herdr.Found || herdr.Get != "https://herdr.dev" || f == nil ||
 		f.Path != "/Users/pat/.local/bin/herdr" || f.Version != "0.9.4" || !strings.HasSuffix(f.URL, "/v0.9.4/herdr-macos-aarch64") ||
 		f.SHA256 != herdrFetch.Targets["darwin/arm64"].SHA256 || f.Size == 0 || f.Member != "" || f.Run != nil ||
-		f.Verified != (agents.Verified{From: "https://herdr.dev/docs/install/", On: "2026-10-13"}) {
+		f.Verified != (store.Verified{From: "https://herdr.dev/docs/install/", On: "2026-10-13"}) {
 		t.Errorf("herdr: %+v, fetch %+v", herdr, f)
 	}
 	if git := m["git"]; git.Fetch != nil || !strings.Contains(git.Get, "xcode-select --install") {

@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"yardr.dev/yardr/internal/agents"
 	"yardr.dev/yardr/internal/dispatch"
+	"yardr.dev/yardr/internal/store"
 )
 
 // Usage reads what a session used from its agent's own session file, which the
@@ -145,23 +145,23 @@ func TestHerdrUsageReadsTheSessionsCount(t *testing.T) {
 
 	var (
 		// Claude Code's totals, Haiku's side calls added to the main model's.
-		costStateUsage = agents.Usage{Input: 752 + 960, FreshInput: 752 + 960, Output: 74978 + 23, CacheRead: 23562912, CacheWrite: 247751}
+		costStateUsage = store.Usage{Input: 752 + 960, FreshInput: 752 + 960, Output: 74978 + 23, CacheRead: 23562912, CacheWrite: 247751}
 		// The three messages once each, not the six lines.
-		allMessages = agents.Usage{Input: 6, FreshInput: 6, Output: 614, CacheRead: 132889, CacheWrite: 34511}
+		allMessages = store.Usage{Input: 6, FreshInput: 6, Output: 614, CacheRead: 132889, CacheWrite: 34511}
 		// The first two, the second by its first line: all that is at or
 		// before 19:34:53.
-		firstTwo  = agents.Usage{Input: 4, FreshInput: 4, Output: 275, CacheRead: 73162, CacheWrite: 32709}
-		lastCount = agents.Usage{Input: 11714314, FreshInput: 11714314 - 11487872, Output: 45824, CacheRead: 11487872}
-		midCount  = agents.Usage{Input: 2879571, FreshInput: 2879571 - 2709248, Output: 25036, CacheRead: 2709248}
+		firstTwo  = store.Usage{Input: 4, FreshInput: 4, Output: 275, CacheRead: 73162, CacheWrite: 32709}
+		lastCount = store.Usage{Input: 11714314, FreshInput: 11714314 - 11487872, Output: 45824, CacheRead: 11487872}
+		midCount  = store.Usage{Input: 2879571, FreshInput: 2879571 - 2709248, Output: 25036, CacheRead: 2709248}
 		// Muse reports its input with the cache in it; the side session's
 		// call is counted, the tool record and the model_completed line add
 		// nothing.
-		allRecords    = agents.Usage{Input: 27979 + 36689 + 15467 + 44852, FreshInput: 27979 + (36689 - 27633) + 15467 + (44852 - 44273), Output: 111 + 182 + 461 + 89, CacheRead: 27633 + 44273}
-		throughSecond = agents.Usage{Input: 27979 + 36689, FreshInput: 27979 + (36689 - 27633), Output: 111 + 182, CacheRead: 27633}
-		firstOnly     = agents.Usage{Input: 27979, FreshInput: 27979, Output: 111}
-		uaSum         = agents.Usage{Input: 3000, FreshInput: 1100, Output: 110, CacheRead: 1900}
-		uaFirst       = agents.Usage{Input: 1000, FreshInput: 600, Output: 50, CacheRead: 400}
-		ubSum         = agents.Usage{Input: 500, FreshInput: 400, Output: 25, CacheRead: 100}
+		allRecords    = store.Usage{Input: 27979 + 36689 + 15467 + 44852, FreshInput: 27979 + (36689 - 27633) + 15467 + (44852 - 44273), Output: 111 + 182 + 461 + 89, CacheRead: 27633 + 44273}
+		throughSecond = store.Usage{Input: 27979 + 36689, FreshInput: 27979 + (36689 - 27633), Output: 111 + 182, CacheRead: 27633}
+		firstOnly     = store.Usage{Input: 27979, FreshInput: 27979, Output: 111}
+		uaSum         = store.Usage{Input: 3000, FreshInput: 1100, Output: 110, CacheRead: 1900}
+		uaFirst       = store.Usage{Input: 1000, FreshInput: 600, Output: 50, CacheRead: 400}
+		ubSum         = store.Usage{Input: 500, FreshInput: 400, Output: 25, CacheRead: 100}
 	)
 	// The words the record keeps and the report prints.
 	const (
@@ -183,7 +183,7 @@ func TestHerdrUsageReadsTheSessionsCount(t *testing.T) {
 		handle   map[string]any
 		started  time.Time
 		fallback bool
-		usage    agents.Usage
+		usage    store.Usage
 		partial  bool
 		missing  string // why no count is there, "" for a count
 		notYet   bool   // dispatch.ErrUsageNotYet, for the caller to ask again
@@ -246,8 +246,8 @@ func TestHerdrUsageReadsTheSessionsCount(t *testing.T) {
 		{name: "claude until, nothing yet", handle: handle("claude", "c1", "2026-10-21T19:34:48.245Z"), notYet: true},
 		{name: "claude until, nothing, fallback allowed", handle: handle("claude", "c1", "2026-10-21T19:34:48.245Z"), fallback: true, missing: noLine},
 		// A line whose time does not read cannot be placed before the cutoff.
-		{name: "claude with an untimed message", handle: handle("claude", "c5", ""), fallback: true, usage: agents.Usage{Input: 3, FreshInput: 3, Output: 117, CacheRead: 27118, CacheWrite: 19131}, partial: true},
-		{name: "claude until, untimed message left out", handle: handle("claude", "c5", "2026-10-21T19:35:00Z"), usage: agents.Usage{Input: 2, FreshInput: 2, Output: 107, CacheRead: 27018, CacheWrite: 19126}, partial: true},
+		{name: "claude with an untimed message", handle: handle("claude", "c5", ""), fallback: true, usage: store.Usage{Input: 3, FreshInput: 3, Output: 117, CacheRead: 27118, CacheWrite: 19131}, partial: true},
+		{name: "claude until, untimed message left out", handle: handle("claude", "c5", "2026-10-21T19:35:00Z"), usage: store.Usage{Input: 2, FreshInput: 2, Output: 107, CacheRead: 27018, CacheWrite: 19126}, partial: true},
 		// An entry in count_due that is not a cutoff changes nothing. A cutoff
 		// that does not read is an error for the caller to see, and never a count
 		// without one: that would count what a person did in a kept pane after the

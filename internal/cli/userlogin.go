@@ -176,8 +176,8 @@ func (a *app) planUserLogin(ctx context.Context, st store.API, user, harness str
 	}
 	// Found before anything is made: a person made and no sign-in to lead is
 	// the half-made person this plan is for.
-	if _, err := lookPath(agents.Executable(harness)); err != nil {
-		return nil, fmt.Errorf("%s is not on PATH, so there is no sign-in to lead: %s", agents.Executable(harness), agents.InstallHint(harness))
+	if _, err := lookPath(store.Executable(harness)); err != nil {
+		return nil, fmt.Errorf("%s is not on PATH, so there is no sign-in to lead: %s", store.Executable(harness), agents.InstallHint(harness))
 	}
 	return p, nil
 }
@@ -520,9 +520,9 @@ func (a *app) signIn(c *cobra.Command, st store.API, user, group, bead string) (
 	if err != nil {
 		return fail(err)
 	}
-	path, err := lookPath(agents.Executable(h.Kind))
+	path, err := lookPath(store.Executable(h.Kind))
 	if err != nil {
-		return fail(fmt.Errorf("%s is not on PATH, so there is nothing to log in: %s", agents.Executable(h.Kind), agents.InstallHint(h.Kind)))
+		return fail(fmt.Errorf("%s is not on PATH, so there is nothing to log in: %s", store.Executable(h.Kind), agents.InstallHint(h.Kind)))
 	}
 
 	needs, needsOut := io.Pipe()

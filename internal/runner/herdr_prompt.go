@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"yardr.dev/yardr/internal/agents"
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/store"
 )
@@ -28,7 +27,7 @@ import (
 // delivered is answered instead of talked over: its cursor reads as the
 // harness's screen, so without this the prompt would go into the dialog
 // and its Enter would answer it blind (see startupShown).
-func (h *Herdr) startAgent(ctx context.Context, args []string, name, prompt string, handle map[string]any, trust, key *agents.Trust, onboarding []agents.Trust) (map[string]any, error) {
+func (h *Herdr) startAgent(ctx context.Context, args []string, name, prompt string, handle map[string]any, trust, key *store.Trust, onboarding []store.Trust) (map[string]any, error) {
 	var err error
 	// A pane created a moment ago may not have its shell prompt up yet.
 	for attempt := 0; ; attempt++ {

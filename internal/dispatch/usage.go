@@ -5,7 +5,6 @@ import (
 	"errors"
 	"time"
 
-	"yardr.dev/yardr/internal/agents"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -47,7 +46,7 @@ var ErrUsageNotYet = errors.New("the session file holds no usage line yet")
 // after the first. startedAt is when the session started, by which a session
 // with no id that is found by its worktree is matched to its file.
 type UsageReader interface {
-	Usage(ctx context.Context, handle map[string]any, startedAt time.Time, fallback bool) (u agents.Usage, partial bool, missing string, err error)
+	Usage(ctx context.Context, handle map[string]any, startedAt time.Time, fallback bool) (u store.Usage, partial bool, missing string, err error)
 }
 
 // Countable reports whether an ended session with handle h has an agent whose

@@ -176,7 +176,7 @@ operator the way the machine's own login does.`,
 					return err
 				}
 			}
-			exe := agents.Executable(h.Kind)
+			exe := store.Executable(h.Kind)
 			if !a.json {
 				if r := h.LoginRecipe; r == nil {
 					if group != "" {
@@ -259,7 +259,7 @@ func newLoginID(kind string) string {
 // stdin leaves its wait, and one answered through the yard leaves stdin's; an
 // input neither answers within loginInputTimeout ends the login. With none
 // the login is led on stdin alone.
-func leadLogin(ctx context.Context, h agents.Harness, path string, in io.Reader, out io.Writer, env []string, group string, st store.API) error {
+func leadLogin(ctx context.Context, h store.Harness, path string, in io.Reader, out io.Writer, env []string, group string, st store.API) error {
 	r := h.LoginRecipe
 	enc := json.NewEncoder(out)
 	// An address is printed as it is, not with its & written as \u0026.
@@ -343,7 +343,7 @@ func leadLogin(ctx context.Context, h agents.Harness, path string, in io.Reader,
 	// reference it waits under where the yard has one.
 	prompts := make(chan string, 4)
 	cmd.Stdout, cmd.Stderr = io.MultiWriter(&loginScreen{recipe: r, say: say, secrets: secrets, prompts: prompts, over: over}, &printed), &errs
-	command := agents.Executable(h.Kind) + " " + strings.Join(args, " ")
+	command := store.Executable(h.Kind) + " " + strings.Join(args, " ")
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("%s: %w", command, err)
 	}
@@ -494,7 +494,7 @@ func leadLogin(ctx context.Context, h agents.Harness, path string, in io.Reader,
 // here, by one goroutine, and the command has ended before anything else is
 // said.
 type loginScreen struct {
-	recipe  *agents.LoginRecipe
+	recipe  *store.LoginRecipe
 	say     func(any)
 	secrets *loginSecrets
 	// prompts carries the lines the command waits on to the loop; over ends

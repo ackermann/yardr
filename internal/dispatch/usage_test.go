@@ -74,12 +74,12 @@ func (c *countRunner) Stop(ctx context.Context, h map[string]any) error {
 	return c.fakeRunner.Stop(ctx, h)
 }
 
-func (c *countRunner) Usage(ctx context.Context, h map[string]any, startedAt time.Time, fallback bool) (agents.Usage, bool, string, error) {
+func (c *countRunner) Usage(ctx context.Context, h map[string]any, startedAt time.Time, fallback bool) (store.Usage, bool, string, error) {
 	c.mu.Lock()
 	err := c.usageErr
 	c.mu.Unlock()
 	if err != nil {
-		return agents.Usage{}, false, "", err
+		return store.Usage{}, false, "", err
 	}
 	return c.reader.Usage(ctx, h, startedAt, fallback)
 }

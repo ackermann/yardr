@@ -1,4 +1,4 @@
-package agents
+package store
 
 import (
 	"fmt"
@@ -70,7 +70,7 @@ type Download struct {
 // (design yardr-3az6, open question 3).
 var fetchTarget = regexp.MustCompile(`^darwin/(arm64|amd64)$`)
 
-var sha256Hex = regexp.MustCompile(`^[0-9a-f]{64}$`)
+var fetchSHA256Hex = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 // For is f for the system goos/goarch and the user's home; nil when f is
 // nil or names no file for that system.
@@ -119,7 +119,7 @@ func (f *Fetch) Check(program string) error {
 			return fmt.Errorf("targets.%s: url %q is no https address", target, file.URL)
 		case !strings.Contains(file.URL, f.Version):
 			return fmt.Errorf("targets.%s: url %q does not name version %s: a file that changes at its address has no one checksum", target, file.URL, f.Version)
-		case !sha256Hex.MatchString(file.SHA256):
+		case !fetchSHA256Hex.MatchString(file.SHA256):
 			return fmt.Errorf("targets.%s: sha256 %q is not 64 lower-case hex digits", target, file.SHA256)
 		case file.Size <= 0:
 			return fmt.Errorf("targets.%s: no size", target)

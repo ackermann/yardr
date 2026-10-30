@@ -1741,7 +1741,6 @@ sleepbudget() {
 # The root package's test counts the rows against the tree, so delete the
 # row with the file.
 filesizes='
-internal/agents/harness.go 1385 schemas, trust marks and flags of every harness kind
 internal/chat/chat.go 1196 the chat TUI model, state and rendering
 internal/cli/bead_ask.go 1505 the ask and answer commands with secret-giving and setup approval
 internal/cli/beads.go 1099 the bead show, list and history commands and their printing
@@ -1751,7 +1750,7 @@ internal/cli/init.go 1685 yard init, onboarding and settings
 internal/cli/ops.go 1833 the server, daemon, depot, group, route and session commands
 internal/cli/pack.go 2203 pack loading, import planning and its question rounds
 internal/cli/peers.go 1567 the peer identity, intake and ping commands
-internal/cli/routereport.go 1514 the route report and its rendering
+internal/cli/routereport.go 1513 the route report and its rendering
 internal/cli/sourcecmd.go 2242 the source command and its builtin checks
 internal/cli/subscriptions.go 1148 the identity, subscribe and thread commands
 internal/cli/updown.go 1302 yard up and down with their handoffs
@@ -1782,7 +1781,7 @@ internal/store/runask_list.go 1223 ask cards, labels and preset reading
 internal/store/runask_more.go 1210 the user and crew-grant run-ask cards
 internal/store/runask_setup.go 1811 setup asks and their approval
 internal/store/secretask.go 1094 secret asks and harness key files
-internal/store/settings.go 1130 yard settings and their checks
+internal/store/settings.go 1118 yard settings and their checks
 internal/store/sourcecalls.go 1300 source grants and callables
 internal/store/subscriptions.go 1210 identities, subscriptions and where-clauses
 internal/store/users.go 1301 user records and operator words

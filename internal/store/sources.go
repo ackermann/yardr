@@ -12,7 +12,6 @@ import (
 
 	bolt "go.etcd.io/bbolt"
 
-	"yardr.dev/yardr/internal/agents"
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/source"
 )
@@ -598,7 +597,7 @@ type sourceKey struct {
 	crew *CrewMember
 	// harness is the kind whose API key was given, and login the user
 	// whose key file of the kind File is; nil for any other giving.
-	harness *agents.Harness
+	harness *Harness
 	login   string
 	// hook is the hook whose signing secret was given, "" for a
 	// credential: File is then the hook's secret file.

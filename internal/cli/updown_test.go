@@ -15,7 +15,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 
-	"yardr.dev/yardr/internal/agents"
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/scripttest"
@@ -80,8 +79,8 @@ type countRunner struct{ *paneRunner }
 
 var _ dispatch.UsageReader = countRunner{}
 
-func (countRunner) Usage(context.Context, map[string]any, time.Time, bool) (agents.Usage, bool, string, error) {
-	return agents.Usage{}, false, "", nil
+func (countRunner) Usage(context.Context, map[string]any, time.Time, bool) (store.Usage, bool, string, error) {
+	return store.Usage{}, false, "", nil
 }
 
 type failedCountDueStore struct{ store.API }

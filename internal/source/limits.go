@@ -8,9 +8,15 @@ import (
 	"strings"
 
 	"go.yaml.in/yaml/v3"
-
-	"yardr.dev/yardr/internal/agents"
 )
+
+// herdrKinds are the agent kinds herdr 0.9 can start, a copy of
+// store.HerdrKinds: this package cannot import the store until the store
+// stops importing it (yardr-j8vt), and it cannot import agents since agents
+// imports the store (yardr-8nca). The copy goes away with yardr-j8vt.
+var herdrKinds = []string{"pi", "claude", "codex", "gemini", "cursor", "devin", "agy", "cline", "omp",
+	"mastracode", "opencode", "copilot", "kimi", "kiro", "droid", "amp", "grok", "hermes", "kilo",
+	"qodercli", "qwen", "letta", "maki", "muse"}
 
 // ProviderMark is where, in the command of a limits key, the provider's own
 // name for the harness kind asked about goes.
@@ -100,8 +106,8 @@ func (r *reader) limits(e entry) *Limits {
 			for _, k := range kinds {
 				name, ok := r.str(k.v, k.path)
 				switch {
-				case !agents.IsKind(k.key):
-					r.errf(k.k, k.path, "%s is no harness kind herdr starts (it starts: %s)", k.key, strings.Join(agents.HerdrKinds, ", "))
+				case !slices.Contains(herdrKinds, k.key):
+					r.errf(k.k, k.path, "%s is no harness kind herdr starts (it starts: %s)", k.key, strings.Join(herdrKinds, ", "))
 				case !ok:
 				case !providerName.MatchString(name):
 					r.errf(k.v, k.path, "%q is no name of a provider: use letters, digits, '.', '-' and '_', starting with a letter or digit", name)

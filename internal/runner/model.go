@@ -13,6 +13,7 @@ import (
 
 	"yardr.dev/yardr/internal/agents"
 	"yardr.dev/yardr/internal/dispatch"
+	"yardr.dev/yardr/internal/store"
 )
 
 // Model is the model the session's agent itself reports, "" while it has
@@ -27,7 +28,7 @@ import (
 // worktree (matchWorkspace); not the pane's status line, which shows a
 // display name in a layout that changes. Where the file is and which line
 // names the model is in the kind's harness file (`model`,
-// agents.ModelSource):
+// store.ModelSource):
 //
 //	claude  ~/.claude/projects/<dir>/<id>.jsonl: the model of the first
 //	        assistant message, which is what the API answered with
@@ -76,7 +77,7 @@ func (h *Herdr) SessionID(ctx context.Context, handle map[string]any, startedAt 
 // no id: kind is herdr's when it named an agent, else the handle's own, and
 // id is the worktree match's, "" when no file qualifies or two or more do.
 // An ambiguous match reads as no id here; the count says why (Usage).
-func (h *Herdr) matchSession(kind agents.Harness, handle map[string]any, startedAt time.Time) (agents.Harness, string, error) {
+func (h *Herdr) matchSession(kind store.Harness, handle map[string]any, startedAt time.Time) (store.Harness, string, error) {
 	if kind.Kind == "" {
 		name, _ := handle[harnessKind].(string)
 		kind, _ = agents.Lookup(name)
@@ -94,7 +95,7 @@ func (h *Herdr) matchSession(kind agents.Harness, handle map[string]any, started
 // ambiguous match is never the earliest of them, so no model or count is
 // read from a retry or a manual run. A kind that declares no workspace, or
 // no worktree, matches nothing.
-func (h *Herdr) matchWorkspace(kind agents.Harness, worktree string, startedAt time.Time) (id string, ambiguous bool, err error) {
+func (h *Herdr) matchWorkspace(kind store.Harness, worktree string, startedAt time.Time) (id string, ambiguous bool, err error) {
 	if kind.Model == nil || kind.Model.Workspace == nil || worktree == "" {
 		return "", false, nil
 	}
@@ -136,7 +137,7 @@ func (h *Herdr) matchWorkspace(kind agents.Harness, worktree string, startedAt t
 
 // fileStart is when the session file at path started: the time of its first
 // line with one that reads. ok is false when no line has one.
-func fileStart(src *agents.ModelSource, path string) (start time.Time, ok bool, err error) {
+func fileStart(src *store.ModelSource, path string) (start time.Time, ok bool, err error) {
 	err = eachLine(path, func(line []byte) bool {
 		l, has := src.WorkspaceIn(line)
 		if !has || l.At.IsZero() {
@@ -153,7 +154,7 @@ func fileStart(src *agents.ModelSource, path string) (start time.Time, ok bool, 
 
 // fileNamesWorktree reports whether one of the session file's lines names
 // worktree.
-func fileNamesWorktree(src *agents.ModelSource, path, worktree string) (bool, error) {
+func fileNamesWorktree(src *store.ModelSource, path, worktree string) (bool, error) {
 	var names bool
 	err := eachLine(path, func(line []byte) bool {
 		l, has := src.WorkspaceIn(line)
@@ -169,18 +170,18 @@ func fileNamesWorktree(src *agents.ModelSource, path, worktree string) (bool, er
 // plain id (it goes into a glob, where one finds nothing); kind is still
 // herdr's when it named an agent, so the worktree match knows what matched
 // nothing.
-func (h *Herdr) sessionKind(ctx context.Context, handle map[string]any) (agents.Harness, string, error) {
+func (h *Herdr) sessionKind(ctx context.Context, handle map[string]any) (store.Harness, string, error) {
 	name, _ := handle["agent"].(string)
 	if name == "" {
-		return agents.Harness{}, "", nil
+		return store.Harness{}, "", nil
 	}
 	raw, err := h.run(ctx, "agent", "get", name)
 	if err != nil {
 		var herr *herdrError
 		if errors.As(err, &herr) && herr.Code == "agent_not_found" {
-			return agents.Harness{}, "", nil
+			return store.Harness{}, "", nil
 		}
-		return agents.Harness{}, "", err
+		return store.Harness{}, "", err
 	}
 	var info struct {
 		Agent struct {
@@ -191,7 +192,7 @@ func (h *Herdr) sessionKind(ctx context.Context, handle map[string]any) (agents.
 		} `json:"agent"`
 	}
 	if err := json.Unmarshal(raw, &info); err != nil {
-		return agents.Harness{}, "", err
+		return store.Harness{}, "", err
 	}
 	kind, _ := agents.Lookup(info.Agent.Kind)
 	if id := info.Agent.Session.Value; plainSessionID(id) {
@@ -210,7 +211,7 @@ func plainSessionID(id string) bool {
 // agentHome is the own directory of an agent of kind, whose file names a
 // model source: set (tests), else the one the agent's environment variable
 // names, else its directory in the user's home.
-func (h *Herdr) agentHome(kind agents.Harness) string {
+func (h *Herdr) agentHome(kind store.Harness) string {
 	if set := h.AgentHomes[kind.Kind]; set != "" {
 		return set
 	}

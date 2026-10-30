@@ -15,7 +15,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"io"
-	"yardr.dev/yardr/internal/agents"
 	"yardr.dev/yardr/internal/limits"
 	"yardr.dev/yardr/internal/runner"
 	"yardr.dev/yardr/internal/store"
@@ -53,24 +52,24 @@ type routeReportOpts struct {
 // it; Partial says one session read partial, Uncounted how many came back
 // missing, Pending how many have no result yet.
 type routeReportRow struct {
-	Group         string       `json:"group"`
-	Depot         string       `json:"depot"`
-	Originator    string       `json:"originator"`
-	Label         string       `json:"label"`
-	Beads         int          `json:"beads"`
-	SentBack      float64      `json:"sent_back"`
-	AtLimit       int          `json:"at_limit"`
-	ReviewFixed   float64      `json:"review_fixed"`
-	SecFixed      float64      `json:"sec_fixed"`
-	Failed        int          `json:"failed"`
-	MedianWait    *string      `json:"median_wait"`
-	MedianBuild   *string      `json:"median_build"`
-	TokensPerBead *int         `json:"tokens_per_bead"`
-	Tokens        int          `json:"tokens"`
-	Usage         agents.Usage `json:"usage"`
-	Partial       bool         `json:"partial"`
-	Uncounted     int          `json:"uncounted"`
-	Pending       int          `json:"pending"`
+	Group         string      `json:"group"`
+	Depot         string      `json:"depot"`
+	Originator    string      `json:"originator"`
+	Label         string      `json:"label"`
+	Beads         int         `json:"beads"`
+	SentBack      float64     `json:"sent_back"`
+	AtLimit       int         `json:"at_limit"`
+	ReviewFixed   float64     `json:"review_fixed"`
+	SecFixed      float64     `json:"sec_fixed"`
+	Failed        int         `json:"failed"`
+	MedianWait    *string     `json:"median_wait"`
+	MedianBuild   *string     `json:"median_build"`
+	TokensPerBead *int        `json:"tokens_per_bead"`
+	Tokens        int         `json:"tokens"`
+	Usage         store.Usage `json:"usage"`
+	Partial       bool        `json:"partial"`
+	Uncounted     int         `json:"uncounted"`
+	Pending       int         `json:"pending"`
 }
 
 // routeKindRow is one BY HARNESS row: the sessions one harness kind ran in
@@ -79,16 +78,16 @@ type routeReportRow struct {
 // Stages is the stages they ran, sorted. Tokens, Usage, Partial,
 // Uncounted and Pending are the kind's counts, as the cell's are.
 type routeKindRow struct {
-	Kind      string       `json:"kind"`
-	Sessions  int          `json:"sessions"`
-	Hours     *string      `json:"hours"`
-	Median    *string      `json:"median"`
-	Stages    []string     `json:"stages"`
-	Tokens    int          `json:"tokens"`
-	Usage     agents.Usage `json:"usage"`
-	Partial   bool         `json:"partial"`
-	Uncounted int          `json:"uncounted"`
-	Pending   int          `json:"pending"`
+	Kind      string      `json:"kind"`
+	Sessions  int         `json:"sessions"`
+	Hours     *string     `json:"hours"`
+	Median    *string     `json:"median"`
+	Stages    []string    `json:"stages"`
+	Tokens    int         `json:"tokens"`
+	Usage     store.Usage `json:"usage"`
+	Partial   bool        `json:"partial"`
+	Uncounted int         `json:"uncounted"`
+	Pending   int         `json:"pending"`
 }
 
 // routeCrewRow is one CREW row: one member's counted crew sessions in the
@@ -96,12 +95,12 @@ type routeKindRow struct {
 // and Uncounted are as the cell's. There is no pending: the log shows no
 // crew session until its count is recorded.
 type routeCrewRow struct {
-	Member    string       `json:"member"`
-	Sessions  int          `json:"sessions"`
-	Tokens    int          `json:"tokens"`
-	Usage     agents.Usage `json:"usage"`
-	Partial   bool         `json:"partial"`
-	Uncounted int          `json:"uncounted"`
+	Member    string      `json:"member"`
+	Sessions  int         `json:"sessions"`
+	Tokens    int         `json:"tokens"`
+	Usage     store.Usage `json:"usage"`
+	Partial   bool        `json:"partial"`
+	Uncounted int         `json:"uncounted"`
 }
 
 // routeReport is the report: From is when the oldest retained event was
@@ -173,7 +172,7 @@ type reportExit struct {
 // the session used, whether the reading falls short of it, or why no
 // count is there.
 type routeSessionUsage struct {
-	usage   agents.Usage
+	usage   store.Usage
 	partial bool
 	missing string
 }
@@ -208,7 +207,7 @@ func usageOf(data map[string]any) (routeSessionUsage, bool) {
 	}
 	u := routeSessionUsage{}
 	u.missing, _ = rec["missing"].(string)
-	u.usage = agents.Usage{
+	u.usage = store.Usage{
 		Input:      usageNumber(rec["input"]),
 		FreshInput: usageNumber(rec["fresh_input"]),
 		Output:     usageNumber(rec["output"]),
@@ -221,7 +220,7 @@ func usageOf(data map[string]any) (routeSessionUsage, bool) {
 
 // newTokens is the headline number: fresh input, cache writes and output,
 // leaving out cache reads, which would drown the difference between beads.
-func newTokens(u agents.Usage) int {
+func newTokens(u store.Usage) int {
 	return u.FreshInput + u.CacheWrite + u.Output
 }
 
@@ -388,7 +387,7 @@ type routeCell struct {
 	builds      []time.Duration
 	waits       []time.Duration
 	tokens      int
-	usage       agents.Usage
+	usage       store.Usage
 	partial     bool
 	uncounted   int
 	pending     int
@@ -1047,7 +1046,7 @@ func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o rout
 	kindSessions := map[string]int{}
 	kindStages := map[string]map[string]bool{}
 	kindTokens := map[string]int{}
-	kindUsage := map[string]agents.Usage{}
+	kindUsage := map[string]store.Usage{}
 	kindPartial := map[string]bool{}
 	kindUncounted := map[string]int{}
 	kindPending := map[string]int{}
@@ -1109,7 +1108,7 @@ func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o rout
 	}
 	crewSessions := map[string]int{}
 	crewTokens := map[string]int{}
-	crewUsage := map[string]agents.Usage{}
+	crewUsage := map[string]store.Usage{}
 	crewPartial := map[string]bool{}
 	crewUncounted := map[string]int{}
 	for _, cu := range crew {

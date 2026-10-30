@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"io"
+	"yardr.dev/yardr/internal/agents"
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/limits"
 	"yardr.dev/yardr/internal/store"
@@ -267,7 +268,10 @@ window and resets_at, or the reason under limits_unknown.`,
 			if group != "" {
 				kind := g.Kind(defaultKind(ctx, st))
 				if kind == "" {
-					return fmt.Errorf("group %s starts no agents, so no subscription burns for it: nothing has windows to read", group)
+					if g.Runner != "herdr" {
+						return fmt.Errorf("group %s starts no agents, so no subscription burns for it: nothing has windows to read", group)
+					}
+					kind = agents.DefaultKind
 				}
 				provider, _ := g.Config["provider"].(string)
 				asked := []kindLimits{askLimits(ctx, func(ctx context.Context, kind string) (*limits.Report, error) {
