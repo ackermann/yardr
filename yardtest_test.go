@@ -364,6 +364,8 @@ func yardTestRows(t *testing.T) (script string, rows []readsRow) {
 // left behind by a deletion fails here, as a grown file, an unlisted file
 // over 1000 lines or a ceiling above its file fails the gate.
 func TestYardTestRowsAreThere(t *testing.T) {
+	// It only reads the script and stats the tree it names.
+	t.Parallel()
 	_, rows := yardTestRows(t)
 	for _, row := range rows {
 		info, err := os.Stat(row.path)
@@ -609,6 +611,7 @@ func TestYardTestSelects(t *testing.T) {
 		base  string
 		short string
 		since string
+		used  bool // a run has changed it, so the next must reset it first
 	}
 	// newFixture builds the module the rows run the script against, once:
 	// the table's packages and nothing in them, the socket suites' shape,
@@ -689,10 +692,15 @@ func TestYardTestSelects(t *testing.T) {
 	// (a name after "-") or moved them (a name "from -> to", done by git mv,
 	// which git reports as a rename unless asked not to): its first line, and
 	// the rest.
-	planned := func(t *testing.T, fx selectsFixture, script string, env []string, changed ...string) (first, rest string, err error) {
+	planned := func(t *testing.T, fx *selectsFixture, script string, env []string, changed ...string) (first, rest string, err error) {
 		t.Helper()
-		gitT(t, fx.dir, "reset", "-q", "--hard", fx.base)
-		gitT(t, fx.dir, "clean", "-qfd")
+		// A row's copy is at the base as it comes: only a copy a run has
+		// already changed pays for the reset back to it (yardr-5372).
+		if fx.used {
+			gitT(t, fx.dir, "reset", "-q", "--hard", fx.base)
+			gitT(t, fx.dir, "clean", "-qfd")
+		}
+		fx.used = true
 		for _, name := range changed {
 			text := "changed\n"
 			if strings.HasSuffix(name, ".go") {
@@ -727,7 +735,7 @@ func TestYardTestSelects(t *testing.T) {
 	const unraced = ": testing without -race"
 	// A plain run's plan: its first line says what it was compared with and,
 	// when there is something to test, that it tests without -race and why.
-	plan := func(t *testing.T, fx selectsFixture, script string, nothing bool, changed ...string) (string, error) {
+	plan := func(t *testing.T, fx *selectsFixture, script string, nothing bool, changed ...string) (string, error) {
 		t.Helper()
 		first, out, err := planned(t, fx, script, nil, changed...)
 		want := "test: what changed" + fx.since + plainWhy
@@ -851,7 +859,7 @@ func TestYardTestSelects(t *testing.T) {
 			// its testing line, unless it has nothing to test: then it makes
 			// no claim about how.
 			nothing := slices.ContainsFunc(c.want, func(line string) bool { return strings.HasPrefix(line, pre+"no package changed") })
-			out, err := plan(t, fx, script, nothing, c.changed...)
+			out, err := plan(t, &fx, script, nothing, c.changed...)
 			want := strings.ReplaceAll(strings.Join(c.want, "\n"), shortPH, fx.short)
 			if err != nil || out != want {
 				t.Errorf("err %v, output:\n%s\nwant:\n%s", err, out, want)
@@ -954,7 +962,7 @@ func TestYardTestSelects(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			fx := rowFixture(t)
-			first, rest, err := planned(t, fx, script, []string{"YARDR_LANDING=1"}, c.changed...)
+			first, rest, err := planned(t, &fx, script, []string{"YARDR_LANDING=1"}, c.changed...)
 			firstWant := strings.ReplaceAll(c.first, sincePH, fx.since)
 			want := strings.ReplaceAll(strings.Join(c.rest, "\n"), shortPH, fx.short)
 			if err != nil || first != firstWant || rest != want {
@@ -1020,7 +1028,7 @@ func TestYardTestSelects(t *testing.T) {
 			})
 			home := t.TempDir()
 			env := append([]string{"YARDR_TEST_PLAN=", "HOME=" + home, "REAL_HOME=" + os.Getenv("HOME"), "FAKE=" + fake, "REAL_GO=" + realGo, pathWith(fake)}, c.env...)
-			first, rest, err := planned(t, fx, script, env, c.changed...)
+			first, rest, err := planned(t, &fx, script, env, c.changed...)
 			firstWant := strings.ReplaceAll(c.first, sincePH, fx.since)
 			if err != nil || first != firstWant {
 				t.Errorf("err %v, output:\n%s\n%s", err, first, rest)
@@ -1088,7 +1096,7 @@ func TestYardTestSelects(t *testing.T) {
 			fake, _ := fakeBins(t, map[string]string{
 				"go": "#!/bin/sh\nif [ \"$1\" = list ]; then exec \"$REAL_GO\" \"$@\"; fi\necho \"${YARDR_TEST_RPC:+rpc }${GOOS:+$GOOS }$*\" >>\"$FAKE/calls\"\n",
 			})
-			first, rest, err := planned(t, fx, script, append([]string{"YARDR_LANDING=1", "YARDR_TEST_PLAN=", "YARDR_RACE_HELD=1", "FAKE=" + fake, "REAL_GO=" + realGo, pathWith(fake)}, c.load...), c.changed)
+			first, rest, err := planned(t, &fx, script, append([]string{"YARDR_LANDING=1", "YARDR_TEST_PLAN=", "YARDR_RACE_HELD=1", "FAKE=" + fake, "REAL_GO=" + realGo, pathWith(fake)}, c.load...), c.changed)
 			if err != nil || first != landing+c.reason+fx.since+c.suffix {
 				t.Errorf("err %v, output:\n%s\n%s", err, first, rest)
 			}
@@ -1114,7 +1122,7 @@ func TestYardTestSelects(t *testing.T) {
 		t.Parallel()
 		fx := rowFixture(t)
 		stale := strings.Replace(script, "\nreads='\n", "\nreads='\nnowhere/ internal/pack internal/gone\n", 1)
-		first, rest, err := planned(t, fx, stale, nil, "docs/web.md")
+		first, rest, err := planned(t, &fx, stale, nil, "docs/web.md")
 		if want := pre + "the row for nowhere/ in " + yardTest + " names internal/gone, which is no package here"; err == nil || first != want || rest != "" {
 			t.Errorf("err %v, output:\n%s\n%s\nwant:\n%s", err, first, rest, want)
 		}
@@ -1127,7 +1135,7 @@ func TestYardTestSelects(t *testing.T) {
 		t.Parallel()
 		fx := rowFixture(t)
 		deleted := strings.Replace(script, "\nreads='\n", "\nreads='\nfakepkg/ fakepkg .\n", 1)
-		out, err := plan(t, fx, deleted, false, "-fakepkg/p.go")
+		out, err := plan(t, &fx, deleted, false, "-fakepkg/p.go")
 		if want := strings.Join([]string{
 			pre + "the row for fakepkg/ in " + yardTest + " names fakepkg, which this change deletes: skipping the row",
 			pre + "fakepkg/p.go changed: read by the tests of fakepkg .",
@@ -1138,7 +1146,7 @@ func TestYardTestSelects(t *testing.T) {
 		// The landing that failed for yardr-d860: base's copy, over a
 		// change that deletes a rowed directory, is the whole suite,
 		// not a stale row.
-		first, rest, err := planned(t, fx, deleted, []string{"YARDR_LANDING=1"}, "-fakepkg/p.go")
+		first, rest, err := planned(t, &fx, deleted, []string{"YARDR_LANDING=1"}, "-fakepkg/p.go")
 		if want := landing + "fakepkg/p.go was deleted" + fx.since + wholeSuffix; err != nil || first != want || rest != skipSocket {
 			t.Errorf("err %v, output:\n%s\n%s\nwant:\n%s\n%s", err, first, rest, want, skipSocket)
 		}
@@ -1146,7 +1154,7 @@ func TestYardTestSelects(t *testing.T) {
 		// the new ones, not a rename: git's rename detection used to hide the
 		// deletion, which let a landing reach pick() with the base's row
 		// still naming fakepkg/ instead of taking the whole-suite path.
-		out, err = plan(t, fx, deleted, false, "fakepkg/p.go -> moved/p.go")
+		out, err = plan(t, &fx, deleted, false, "fakepkg/p.go -> moved/p.go")
 		if want := strings.Join([]string{
 			pre + "the row for fakepkg/ in " + yardTest + " names fakepkg, which this change deletes: skipping the row",
 			pre + "fakepkg/p.go changed: read by the tests of fakepkg .",
@@ -1154,12 +1162,12 @@ func TestYardTestSelects(t *testing.T) {
 		}, "\n"); err != nil || out != want {
 			t.Errorf("err %v, output:\n%s\nwant:\n%s", err, out, want)
 		}
-		first, rest, err = planned(t, fx, deleted, []string{"YARDR_LANDING=1"}, "fakepkg/p.go -> moved/p.go")
+		first, rest, err = planned(t, &fx, deleted, []string{"YARDR_LANDING=1"}, "fakepkg/p.go -> moved/p.go")
 		if want := landing + "fakepkg/p.go was deleted" + fx.since + wholeSuffix; err != nil || first != want || rest != skipSocket {
 			t.Errorf("err %v, output:\n%s\n%s\nwant:\n%s\n%s", err, first, rest, want, skipSocket)
 		}
 		stale := strings.Replace(deleted, "\nreads='\n", "\nreads='\nnowhere/ nowhere\n", 1)
-		first, rest, err = planned(t, fx, stale, nil, "-fakepkg/p.go")
+		first, rest, err = planned(t, &fx, stale, nil, "-fakepkg/p.go")
 		if want := pre + "the row for nowhere/ in " + yardTest + " names nowhere, which is no package here"; err == nil || first != want || rest != "" {
 			t.Errorf("err %v, output:\n%s\n%s\nwant:\n%s", err, first, rest, want)
 		}
@@ -2849,10 +2857,10 @@ if [ "$1" = test ]; then
   case "$*" in
   *"-count=1"*)
     echo 'ok  yardr.dev/yardr/internal/dispatch 12.3s'
-    sleep 2
+    sleep 1
     ;;
   *)
-    sleep 2
+    sleep 1
     echo 'ok  yardr.dev/yardr/internal/dispatch 1m1.2s'
     ;;
   esac
@@ -3466,6 +3474,8 @@ func TestYardTestRaceLockIsTheYards(t *testing.T) {
 // as a worker that runs no leg, so it pins the holder alone. Its own home
 // stands in for the yard's, so no real gate waits on it.
 func TestYardTestRaceLockDiesWithTheRun(t *testing.T) {
+	// Its driver, home and the processes it kills are its own.
+	t.Parallel()
 	driver, home := raceLockDriver(t)
 	statusFile := filepath.Join(home, "status")
 	quote := func(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'" }
@@ -3784,6 +3794,8 @@ func raceLockDriver(t *testing.T) (driver, home string) {
 // waiter's bead and worktree. Its own home stands in for the yard's, so no
 // real gate waits on it.
 func TestYardTestRaceLockServesWaitersInOrder(t *testing.T) {
+	// Its home, driver, queue and waiters are its own.
+	t.Parallel()
 	if _, err := exec.LookPath("perl"); err != nil {
 		t.Skip("no perl in PATH")
 	}
@@ -4347,6 +4359,8 @@ func raceDeadPID(t *testing.T) int {
 // for live waiters, and a reaped child for a dead waiter. Its own home stands
 // in for the yard's, so no real gate waits on it.
 func TestYardTestRaceQueueView(t *testing.T) {
+	// Its home, tickets and holder process are its own.
+	t.Parallel()
 	if _, err := exec.LookPath("perl"); err != nil {
 		t.Skip("no perl in PATH")
 	}
@@ -5201,18 +5215,18 @@ func TestYardTestBudgets(t *testing.T) {
 				"FAIL\tyardr.dev/yardr/internal/broken\n"+
 				"--- FAIL: TestBroken (0.01s)\n"+
 				"ok  \texample.com/other\t99.9s\n")
-		// Root, cli, assembly, deploy and isolated-yard are
-		// allow-listed, exactly 60 s complies, and cached, failed and
-		// foreign lines are not judged: only hooks, server, dispatch,
-		// pack, store and web are re-run, up to three at a time, with
-		// the leg's flags and -count=1, inside its hold. The module
-		// path is the root, whose allow-list row yardr-1x36 deleted
-		// and yardr-bkzy added back with yardr-5372 as its fix, as
-		// yardr-ab6t deleted cli's and yardr-bkzy added it back with
-		// yardr-wdjh, and yardr-bkzy added assembly's and deploy's
-		// with yardr-3426 and yardr-yx53; yardr-3cc4 deleted store's
-		// and yardr-3gdg web's. The load is pinned quiet, so hooks'
-		// over-alone verdict fails however loaded the test machine is.
+		// Cli, assembly, deploy and isolated-yard are allow-listed,
+		// exactly 60 s complies, and cached, failed and foreign lines
+		// are not judged: only root, hooks, server, dispatch, pack,
+		// store and web are re-run, up to three at a time, with the
+		// leg's flags and -count=1, inside its hold. The module path
+		// is the root, whose allow-list row yardr-5372 deleted with
+		// its fix, as yardr-ab6t deleted cli's and yardr-bkzy added
+		// it back with yardr-wdjh, and yardr-bkzy added assembly's
+		// and deploy's with yardr-3426 and yardr-yx53; yardr-3cc4
+		// deleted store's and yardr-3gdg web's. The load is pinned
+		// quiet, so hooks' over-alone verdict fails however loaded
+		// the test machine is.
 		fake, env := r1go(t)
 		out, code := runEnv(t, dir, append(env,
 			"FAKE_OVER=yardr.dev/yardr/internal/hooks",
@@ -5222,19 +5236,20 @@ func TestYardTestBudgets(t *testing.T) {
 			t.Fatalf("exit %d, output %q, want exit 1", code, out)
 		}
 		// Hooks is over alone too: the run fails, naming both times.
-		// Server, dispatch, pack, store and web are under alone: each
-		// passes with the R1 line. Root, cli, assembly, deploy and
-		// isolated-yard carry rows, so over budget they are not
+		// Root, server, dispatch, pack, store and web are under
+		// alone: each passes with the R1 line. Cli, assembly, deploy
+		// and isolated-yard carry rows, so over budget they are not
 		// re-run and name no verdict; the calls below pin the skipped
 		// set.
+		root := "test: R1: yardr.dev/yardr took 65.5 s in the run, 12.3 s alone: under budget, loaded run"
 		hooks := "test: yardr.dev/yardr/internal/hooks took 65.5 s with -race, 66.6 s alone, over the 60 s budget (docs/testing.md R1)"
 		server := "test: R1: yardr.dev/yardr/internal/server took 118.3 s in the run, 12.3 s alone: under budget, loaded run"
 		dispatch := "test: R1: yardr.dev/yardr/internal/dispatch took 61.2 s in the run, 12.3 s alone: under budget, loaded run"
 		pack := "test: R1: yardr.dev/yardr/internal/pack took 61.5 s in the run, 12.3 s alone: under budget, loaded run"
 		store := "test: R1: yardr.dev/yardr/internal/store took 60.1 s in the run, 12.3 s alone: under budget, loaded run"
 		web := "test: R1: yardr.dev/yardr/internal/web took 100 s in the run, 12.3 s alone: under budget, loaded run"
-		if !strings.Contains(out, hooks+"\n") || !strings.Contains(out, server+"\n") || !strings.Contains(out, dispatch+"\n") || !strings.Contains(out, pack+"\n") || !strings.Contains(out, store+"\n") || !strings.Contains(out, web+"\n") {
-			t.Fatalf("output %q, want it to name hooks, server, dispatch, pack, store and web", out)
+		if !strings.Contains(out, root+"\n") || !strings.Contains(out, hooks+"\n") || !strings.Contains(out, server+"\n") || !strings.Contains(out, dispatch+"\n") || !strings.Contains(out, pack+"\n") || !strings.Contains(out, store+"\n") || !strings.Contains(out, web+"\n") {
+			t.Fatalf("output %q, want it to name root, hooks, server, dispatch, pack, store and web", out)
 		}
 		if got := strings.Count(out, "over the 60 s budget"); got != 1 {
 			t.Errorf("output %q, want 1 budget failure, got %d", out, got)
@@ -5242,6 +5257,7 @@ func TestYardTestBudgets(t *testing.T) {
 		// The re-runs overlap, so the journal's order is the scheduler's
 		// rather than the launch's; the set is pinned, in sorted order.
 		wantCallsAnyOrder(t, fake, []string{
+			"test -race -count=1 yardr.dev/yardr held=1",
 			"test -race -count=1 yardr.dev/yardr/internal/dispatch held=1",
 			"test -race -count=1 yardr.dev/yardr/internal/hooks held=1",
 			"test -race -count=1 yardr.dev/yardr/internal/pack held=1",
@@ -5658,7 +5674,10 @@ loadedmachine() {
 		// judges the same verdicts without paying for the overlap again,
 		// since the re-measure case above pays for this shape. The
 		// strict row's sleeps are short and add up, four of them one
-		// after another.
+		// after another. Half a second is the overlap window the quiet
+		// row needs: the fake counts a re-run before it sleeps, so the
+		// maximum proves the overlap however the spawns stagger, and a
+		// longer sleep only lengthens this suite (yardr-5372).
 		leg := "ok  \tyardr.dev/yardr/internal/store\t1m1.4s\n" +
 			"ok  \tyardr.dev/yardr/internal/bdp\t1m1.1s\n" +
 			"ok  \tyardr.dev/yardr/internal/pack\t1m1.3s\n" +
@@ -5678,13 +5697,13 @@ loadedmachine() {
 		}{
 			{"quiet convicts", []string{"YARDR_TEST_LOADAVG=1.5", "YARDR_TEST_CORES=10"}, 1,
 				"test: yardr.dev/yardr/internal/dispatch took 61.2 s with -race, 66.6 s alone, over the 60 s budget (docs/testing.md R1)",
-				"2", 3},
+				"0.5", 3},
 			{"loaded passes", []string{"YARDR_TEST_LOADAVG=72.4", "YARDR_TEST_CORES=10"}, 0,
 				"test: R1: yardr.dev/yardr/internal/dispatch took 61.2 s in the run, 66.6 s alone: over budget, loaded machine (load 72.4 on 10 cores), not failed",
 				"", 0},
 			{"strict fails naming the load, one re-run at a time", []string{"YARDR_TEST_LOADAVG=72.4", "YARDR_TEST_CORES=10", "YARDR_R1_STRICT=1"}, 1,
 				"test: yardr.dev/yardr/internal/dispatch took 61.2 s with -race, 66.6 s alone, over the 60 s budget (docs/testing.md R1), loaded machine (load 72.4 on 10 cores)",
-				"0.3", 1},
+				"0.2", 1},
 		} {
 			t.Run(c.name, func(t *testing.T) {
 				dir := t.TempDir()

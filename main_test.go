@@ -21,8 +21,10 @@ type repoGoFile struct {
 
 // loadRepoGoFiles walks the repository's non-test Go files once for the
 // TestNoGoCodeNames* tests: three walks cost 31 s together under -race, one
-// walk matched thrice costs one. The walkers run beside the package's other
-// slow tests (t.Parallel), so the walk happens once however they interleave.
+// walk matched thrice costs one. loadRepoScan below scans those lines once
+// for all four name tests, as four scans cost most of their seconds again
+// (yardr-5372). The walkers run beside the package's other slow tests
+// (t.Parallel), so the walk happens once however they interleave.
 // It skips nothing but .git; a test looks past what its own walk skipped.
 var loadRepoGoFiles = sync.OnceValues(func() ([]repoGoFile, error) {
 	var out []repoGoFile
@@ -50,9 +52,113 @@ var loadRepoGoFiles = sync.OnceValues(func() ([]repoGoFile, error) {
 	return out, err
 })
 
-func mustRepoGoFiles(t *testing.T) []repoGoFile {
-	t.Helper()
+// scanHit is one line a name test cares about: its number (from 1), its
+// trimmed text for the failure message, and what the test's pattern found
+// in it. all holds every match of the role pattern, which a line can carry
+// twice; credential and isImport are the GitHub test's other two checks of
+// the same line, so its one pass over the line answers all three.
+type scanHit struct {
+	line       int
+	text       string
+	found      string
+	all        []string
+	credential bool
+	isImport   bool
+}
+
+// repoFileScan is one file's hits for the four name tests, by test: role,
+// notify, github and source (the core's). The tests share the walk above
+// but used to each scan every line again: four scans cost most of their
+// seconds under -race, one scan matched four ways costs one (yardr-5372).
+// A test applies its own exceptions to the hits, as it did to the lines.
+type repoFileScan struct {
+	path   string
+	role   []scanHit
+	notify []scanHit
+	github []scanHit
+	source []scanHit
+}
+
+var (
+	rolePattern       = regexp.MustCompile(`(roles/)?\b(builder|reviewer|merger)\.md\b`)
+	notifyPattern     = regexp.MustCompile(`(?i)telegram|pushover`)
+	githubPattern     = regexp.MustCompile(`(?i)github`)
+	credentialPattern = regexp.MustCompile(`\bGITHUB_(?:TOKEN|APP_ID|APP_PRIVATE_KEY_FILE)\b`)
+	importPattern     = regexp.MustCompile(`^\s*(\S+ )?"github\.com/[^"]*"(,)?\s*$`)
+	sourcePattern     = regexp.MustCompile(`"github"|"linear"|hooks\.(GitHub|Linear)\b`)
+)
+
+// containsFold says whether s holds sub under ASCII case folding, as the
+// name patterns' (?i) does for the ASCII names they look for. It is the
+// scan's prefilter: a byte loop with no allocation, where a regexp search
+// of every line cost the name tests their seconds under -race.
+func containsFold(s, sub string) bool {
+	for i := 0; i+len(sub) <= len(s); i++ {
+		j := 0
+		for j < len(sub) {
+			a, b := s[i+j], sub[j]
+			if 'A' <= a && a <= 'Z' {
+				a += 'a' - 'A'
+			}
+			if 'A' <= b && b <= 'Z' {
+				b += 'a' - 'A'
+			}
+			if a != b {
+				break
+			}
+			j++
+		}
+		if j == len(sub) {
+			return true
+		}
+	}
+	return false
+}
+
+// loadRepoScan scans the shared walk's lines once for the name tests. A
+// regexp search of every line for every test is what it replaces: each
+// pattern first gets a plain string prefilter (a fold for the (?i) names,
+// a substring for the rest), and the regexp runs only on a line that
+// holds its words, which few do. The hits keep what the regexp would
+// have found, so a test's verdicts are its own as before.
+var loadRepoScan = sync.OnceValues(func() ([]repoFileScan, error) {
 	files, err := loadRepoGoFiles()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]repoFileScan, 0, len(files))
+	for _, f := range files {
+		scan := repoFileScan{path: f.path}
+		for i, line := range f.lines {
+			if strings.Contains(line, ".md") {
+				if all := rolePattern.FindAllString(line, -1); all != nil {
+					scan.role = append(scan.role, scanHit{line: i + 1, text: strings.TrimSpace(line), all: all})
+				}
+			}
+			if containsFold(line, "telegram") || containsFold(line, "pushover") {
+				scan.notify = append(scan.notify, scanHit{line: i + 1, text: strings.TrimSpace(line), found: notifyPattern.FindString(line)})
+			}
+			if strings.Contains(line, "GITHUB_") || containsFold(line, "github") {
+				if credentialPattern.MatchString(line) || githubPattern.MatchString(line) {
+					scan.github = append(scan.github, scanHit{line: i + 1, text: strings.TrimSpace(line),
+						found: githubPattern.FindString(line), credential: credentialPattern.MatchString(line),
+						isImport: importPattern.MatchString(line)})
+				}
+			}
+			if strings.Contains(line, `"github"`) || strings.Contains(line, `"linear"`) || strings.Contains(line, "hooks.") {
+				if m := sourcePattern.FindString(line); m != "" {
+					scan.source = append(scan.source, scanHit{line: i + 1, text: strings.TrimSpace(line), found: m})
+				}
+			}
+		}
+		out = append(out, scan)
+	}
+	return out, nil
+})
+
+func mustRepoScan(t *testing.T) []repoFileScan {
+	t.Helper()
+	files, err := loadRepoScan()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,22 +178,21 @@ func mustRepoGoFiles(t *testing.T) []repoGoFile {
 // build depots with roles of their own.
 func TestNoGoCodeNamesARole(t *testing.T) {
 	t.Parallel()
-	role := regexp.MustCompile(`(roles/)?\b(builder|reviewer|merger)\.md\b`)
 	examples := []string{"internal/cli/groupform.go", "internal/cli/ops.go"}
 	var files int
-	for _, f := range mustRepoGoFiles(t) {
+	for _, f := range mustRepoScan(t) {
 		// The pack reader and the packs name roles' files: this test
 		// looks past what its own walk skipped.
 		if strings.HasPrefix(f.path, "internal/pack/") || strings.HasPrefix(f.path, "packs/") {
 			continue
 		}
 		files++
-		for i, line := range f.lines {
-			for _, m := range role.FindAllString(line, -1) {
+		for _, hit := range f.role {
+			for _, m := range hit.all {
 				if strings.HasPrefix(m, "roles/") && slices.Contains(examples, f.path) {
 					continue
 				}
-				t.Errorf("%s:%d names %s: a role's file is the pack's to name (internal/pack, packs/): %s", f.path, i+1, m, strings.TrimSpace(line))
+				t.Errorf("%s:%d names %s: a role's file is the pack's to name (internal/pack, packs/): %s", f.path, hit.line, m, hit.text)
 			}
 		}
 	}
@@ -106,40 +211,24 @@ func TestNoGoCodeNamesARole(t *testing.T) {
 // (YRD-29).
 func TestCoreComparesNoSourceName(t *testing.T) {
 	t.Parallel()
-	name := regexp.MustCompile(`"github"|"linear"|hooks\.(GitHub|Linear)\b`)
 	var files int
-	err := filepath.WalkDir("internal", func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		path = filepath.ToSlash(path)
-		if d.IsDir() {
-			if path == "internal/hooks" || path == "internal/standin" {
-				return fs.SkipDir
-			}
-			return nil
-		}
-		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
-			return nil
+	for _, f := range mustRepoScan(t) {
+		// The adapters and the trial stand-in name sources: this test
+		// looks past them, as its own walk skipped their directories.
+		if !strings.HasPrefix(f.path, "internal/") || strings.HasPrefix(f.path, "internal/hooks/") || strings.HasPrefix(f.path, "internal/standin/") {
+			continue
 		}
 		files++
-		body, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		for i, line := range strings.Split(string(body), "\n") {
-			if path == "internal/source/declaration.go" && strings.Contains(line, "BuiltIn") {
+		for _, hit := range f.source {
+			if f.path == "internal/source/declaration.go" && strings.Contains(hit.text, "BuiltIn") {
 				continue
 			}
-			if name.MatchString(line) {
-				t.Errorf("%s:%d names a source: ask its adapter instead (internal/hooks): %s", path, i+1, strings.TrimSpace(line))
-			}
+			t.Errorf("%s:%d names a source: ask its adapter instead (internal/hooks): %s", f.path, hit.line, hit.text)
 		}
-		return nil
-	})
+	}
 	// Not for want of looking: the walk read the core.
-	if err != nil || files < 100 {
-		t.Fatalf("%d Go files read, %v", files, err)
+	if files < 100 {
+		t.Fatalf("%d Go files read", files)
 	}
 }
 
@@ -155,20 +244,17 @@ func TestCoreComparesNoSourceName(t *testing.T) {
 // at them leaves the operator with no next step.
 func TestNoGoCodeNamesANotifyService(t *testing.T) {
 	t.Parallel()
-	name := regexp.MustCompile(`(?i)telegram|pushover`)
 	var files int
-	for _, f := range mustRepoGoFiles(t) {
+	for _, f := range mustRepoScan(t) {
 		files++
-		for i, line := range f.lines {
-			if f.path == "packs/packs.go" && strings.Contains(line, "go:embed") {
+		for _, hit := range f.notify {
+			if f.path == "packs/packs.go" && strings.Contains(hit.text, "go:embed") {
 				continue
 			}
-			if f.path == "internal/store/settings.go" && strings.Contains(line, "pack apply") {
+			if f.path == "internal/store/settings.go" && strings.Contains(hit.text, "pack apply") {
 				continue
 			}
-			if m := name.FindString(line); m != "" {
-				t.Errorf("%s:%d names %s: a service that tells a user is a pack's to name (packs/, tests' fixtures, docs): %s", f.path, i+1, m, strings.TrimSpace(line))
-			}
+			t.Errorf("%s:%d names %s: a service that tells a user is a pack's to name (packs/, tests' fixtures, docs): %s", f.path, hit.line, hit.found, hit.text)
 		}
 	}
 	// Not for want of looking: the walk started at the repository's root.
@@ -187,8 +273,6 @@ func TestNoGoCodeNamesANotifyService(t *testing.T) {
 // the stand-in. A line importing a Go module (github.com/...) cannot go.
 func TestNoGoCodeNamesGitHub(t *testing.T) {
 	t.Parallel()
-	name := regexp.MustCompile(`(?i)github`)
-	credential := regexp.MustCompile(`\bGITHUB_(?:TOKEN|APP_ID|APP_PRIVATE_KEY_FILE)\b`)
 	kept := []string{
 		"contrib/isolated-yard/sources/main.go",
 		"internal/bdp/server.go",
@@ -208,24 +292,24 @@ func TestNoGoCodeNamesGitHub(t *testing.T) {
 		"packs/packs.go",
 	}
 	// A Go import of a module: an optional name, the quoted path, and
-	// nothing else. Anything longer that names github.com (a URL built or
-	// held) is the code's to own, and fails outside the kept files.
-	isImport := regexp.MustCompile(`^\s*(\S+ )?"github\.com/[^"]*"(,)?\s*$`)
+	// nothing else (importPattern, in the shared scan). Anything longer
+	// that names github.com (a URL built or held) is the code's to own,
+	// and fails outside the kept files.
 	var files int
-	for _, f := range mustRepoGoFiles(t) {
+	for _, f := range mustRepoScan(t) {
 		files++
-		for i, line := range f.lines {
-			if credential.MatchString(line) {
-				t.Errorf("%s:%d names a GitHub credential: credentials belong to a source pack, not Go code: %s", f.path, i+1, strings.TrimSpace(line))
+		for _, hit := range f.github {
+			if hit.credential {
+				t.Errorf("%s:%d names a GitHub credential: credentials belong to a source pack, not Go code: %s", f.path, hit.line, hit.text)
 			}
 			if slices.Contains(kept, f.path) {
 				continue
 			}
-			if isImport.MatchString(line) {
+			if hit.isImport {
 				continue
 			}
-			if m := name.FindString(line); m != "" {
-				t.Errorf("%s:%d names %s: GitHub is a pack's to name (packs/github): %s", f.path, i+1, m, strings.TrimSpace(line))
+			if hit.found != "" {
+				t.Errorf("%s:%d names %s: GitHub is a pack's to name (packs/github): %s", f.path, hit.line, hit.found, hit.text)
 			}
 		}
 	}
@@ -243,6 +327,8 @@ func TestNoGoCodeNamesGitHub(t *testing.T) {
 // and to a heading where the link names one, and holds the README to its
 // length.
 func TestReadmeLinksResolve(t *testing.T) {
+	// It only reads the README and the pages it links to.
+	t.Parallel()
 	body, err := os.ReadFile("README.md")
 	if err != nil {
 		t.Fatal(err)
