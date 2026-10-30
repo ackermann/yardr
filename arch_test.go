@@ -13,8 +13,11 @@ import (
 // this test holds the code to that page. The page is the norm and this
 // test its check: the two change together, so a new import that breaks
 // the rules fails the gate here. It lives in the root package because
-// the gate runs root whenever a package the binary imports changes,
-// which is every internal package these rules judge.
+// the gate runs root whenever a package the binary imports changes and,
+// by rows of the reads table in .yardr/test, whenever a test helper or a
+// generator under internal/ does (scripttest and rpc/clientgen are leaves
+// the rules judge, and the binary imports neither): together every
+// internal package these rules judge.
 //
 // The rules, quoted from the page:
 // (a) internal/store imports no internal package, except internal/peer,

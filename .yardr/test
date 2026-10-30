@@ -2140,8 +2140,13 @@ since="since $base ($said), from $(git rev-parse --short "$from")"
 # rows additionally cover readers that do not import it, and files
 # the embed skips (names beginning with . or _).
 # The . on the contrib rows is the root package, whose test reads every .go
-# file of the repository (main_test.go): a package the binary imports runs
-# it as an importer does, and contrib's programs are imported by nothing.
+# file of the repository (main_test.go) and holds every package's imports to
+# docs/architecture.md (arch_test.go): a package the binary imports runs it as
+# an importer does, and contrib's programs are imported by nothing. The test
+# helpers and generators under internal/ (scripttest, standin, storetest,
+# rpc/gen, rpc/clientgen, flowdraw/gen) are no dependency of the root package
+# or its tests either, so each has its row too, and a new one needs its row
+# when it is added.
 # It also follows every link of the README to its page and heading, so the
 # README and docs/ name it.
 reads='
@@ -2163,6 +2168,12 @@ packs/website/                 internal/pack
 .yardr/security_paths          internal/store
 .yardr/test                    .
 internal/                       internal/rpc
+internal/scripttest/           .
+internal/standin/              .
+internal/storetest/            .
+internal/rpc/gen/              .
+internal/rpc/clientgen/        .
+internal/flowdraw/gen/         .
 internal/hooks/testdata/       internal/hooks internal/dispatch
 internal/cli/testdata/         internal/cli
 internal/pack/testdata/        internal/pack
