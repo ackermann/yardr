@@ -181,6 +181,14 @@ func TestSlowPassNamesTheStepsItsTimeWentTo(t *testing.T) {
 			t.Errorf("slow pass line lacks %q:\n%s", want, lines[0])
 		}
 	}
+	// The slowest single ask of the reap is named with its time: the one
+	// 12 s liveness call, a status ask. Kind and time only: the session
+	// it was for stays out of the line (the leak check below holds it).
+	for _, want := range []string{" slowest.call=status", " slowest.took=12s"} {
+		if !strings.Contains(lines[0], want) {
+			t.Errorf("slow pass line lacks %q:\n%s", want, lines[0])
+		}
+	}
 	// Every step is named, in the order the pass runs them.
 	at := 0
 	for _, step := range []string{"stamp_limits_clock", "nudge_limits_refresher", "drain_starts", "drain_crew_starts",
@@ -220,6 +228,11 @@ func TestSlowPassNamesTheStepsItsTimeWentTo(t *testing.T) {
 		if !strings.Contains(lines[1], want) {
 			t.Errorf("slow pass line lacks %q:\n%s", want, lines[1])
 		}
+	}
+	// Its reap asked once and the ask was instant on the pass's clock,
+	// so the line names no slowest ask.
+	if strings.Contains(lines[1], " slowest.") {
+		t.Errorf("slow pass line names a slowest ask for an instant reap:\n%s", lines[1])
 	}
 	if got := f.starts(); len(got) != 2 {
 		t.Fatalf("starts = %v, want the second bead started too", got)

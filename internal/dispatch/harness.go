@@ -223,7 +223,9 @@ func (d *Dispatcher) paneTail(ctx context.Context, r Runner, s store.Session) (t
 	if !ok {
 		return "", false
 	}
+	done := askTimer(ctx, askPane)
 	tail, err := t.Tail(ctx, s.Handle, stallTail)
+	done()
 	if err != nil {
 		tail = "(pane not readable: " + err.Error() + ")"
 	}

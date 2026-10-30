@@ -831,7 +831,7 @@ func TestTrustDialogNotAnsweredAfterThePromptWasSent(t *testing.T) {
 func TestTrustDialogAnsweredAfterBlockedDelivery(t *testing.T) {
 	t.Parallel()
 	s := storetest.New(t)
-	r := &nudgeRunner{fakeRunner: &fakeRunner{dead: map[string]bool{}}, status: "idle", block: 1}
+	r := &tailCountingNudgeRunner{nudgeRunner: &nudgeRunner{fakeRunner: &fakeRunner{dead: map[string]bool{}}, status: "idle", block: 1}}
 	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": r}, PromptSettle: -1, PromptWait: -1}
 	ctx := context.Background()
 	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake"}, "me"))
@@ -846,6 +846,7 @@ func TestTrustDialogAnsweredAfterBlockedDelivery(t *testing.T) {
 		t.Fatalf("handle = %v, want the prompt still pending", h)
 	}
 	// At the trust dialog, with no echo of the prompt.
+	tailsBeforeTrust := r.tailCalls
 	r.status, r.screen = "blocked", fakeTrustDialog
 	must(t, d.Reconcile(ctx))
 	if h := handleOf(t, s, b.ID); h[dispatch.TrustAccepted] != true || h[store.PendingPrompt] != "read your brief" {
@@ -853,6 +854,9 @@ func TestTrustDialogAnsweredAfterBlockedDelivery(t *testing.T) {
 	}
 	if !slices.Equal(r.trustKeys, []string{"enter"}) || r.trustCalls != 1 {
 		t.Fatalf("trust keys = %v in %d passes, want one enter on one pass", r.trustKeys, r.trustCalls)
+	}
+	if got := r.tailCalls - tailsBeforeTrust; got != 1 {
+		t.Fatalf("pane tails after answering trust = %d, want only the limits step's pane look", got)
 	}
 	// The agent boots; the prompt goes on the usual path.
 	r.status = "idle"
@@ -1309,6 +1313,16 @@ type nudgeRunner struct {
 	screen     string   // what the pane shows
 	trustKeys  []string // keys sent to answer the trust dialog
 	trustCalls int      // passes that asked for the trust dialog to be answered
+}
+
+type tailCountingNudgeRunner struct {
+	*nudgeRunner
+	tailCalls int
+}
+
+func (r *tailCountingNudgeRunner) Tail(context.Context, map[string]any, int) (string, error) {
+	r.tailCalls++
+	return "", nil
 }
 
 func (n *nudgeRunner) InputText(context.Context, map[string]any) (string, bool, error) {

@@ -1,6 +1,7 @@
 package dispatch
 
 import (
+	"context"
 	"log/slog"
 	"time"
 )
@@ -33,7 +34,33 @@ type passTiming struct {
 	// sessions is how many sessions the pass found live: what the steps
 	// that ask a runner about each of them grow with.
 	sessions int
+	// slowest is the slowest single runner ask reap made this pass, kept
+	// by the apply (see ask) so the slow pass line can name the call that
+	// dominated reap instead of only reap's total. Nil when reap made no
+	// timed ask, or every one was instant on the dispatcher's clock.
+	slowest *slowAsk
 }
+
+// slowAsk is one runner ask of reap: which session it was for, which kind
+// of call (askStatus, askPane or askNudge) and how long it took. The
+// session is kept on the record for whoever reads the pass in process;
+// the slow pass line logs only the kind and the time (see endPass), so
+// no session's id reaches that line.
+type slowAsk struct {
+	session string
+	call    string
+	took    time.Duration
+}
+
+// The kinds of runner ask reap times (see reap): a liveness or status
+// call, a read of the agent's pane (a prompt look, a screen or input
+// read, a tail; a trust answer counts here, being decided by one pane
+// read), and a typing into the pane (a prompt delivery, a submit).
+const (
+	askStatus = "status"
+	askPane   = "pane"
+	askNudge  = "nudge"
+)
 
 // stepTime is how long one step of the pass took.
 type stepTime struct {
@@ -106,6 +133,20 @@ func (p *passTiming) callTo(name string) *callTime {
 	return c
 }
 
+// ask keeps call as the pass's slowest reap ask when it took longer
+// than the one kept so far. It is called by reap's serial apply, never
+// by its workers, so the pass's record needs no lock; an ask that took
+// no time on the dispatcher's clock is not kept, there being nothing
+// to name.
+func (p *passTiming) ask(session, call string, took time.Duration) {
+	if p == nil || took <= 0 {
+		return
+	}
+	if p.slowest == nil || took > p.slowest.took {
+		p.slowest = &slowAsk{session: session, call: call, took: took}
+	}
+}
+
 // live notes how many sessions the pass found live, from the count per
 // group that reap returns.
 func (p *passTiming) live(active map[string]int) {
@@ -129,16 +170,65 @@ func (d *Dispatcher) endPass(p *passTiming) {
 	if total <= d.Interval {
 		return
 	}
-	attrs := make([]any, 0, 3+len(p.steps)+len(p.calls))
+	attrs := make([]any, 0, 4+len(p.steps)+len(p.calls))
 	attrs = append(attrs, slog.Duration("took", millis(total)), slog.Duration("interval", d.Interval),
 		slog.Int("sessions", p.sessions))
 	for _, s := range p.steps {
 		attrs = append(attrs, slog.Duration(s.name, millis(s.took)))
 	}
+	if p.slowest != nil {
+		// Names and numbers, as the rest of the line: the call is one of
+		// the fixed kinds, never anything the session carried.
+		attrs = append(attrs, slog.Group("slowest",
+			slog.String("call", p.slowest.call), slog.Duration("took", millis(p.slowest.took))))
+	}
 	for _, c := range p.calls {
 		attrs = append(attrs, slog.Group(c.name, slog.Duration("took", millis(c.took)), slog.Int("calls", c.calls)))
 	}
 	d.Log.Warn("slow pass", attrs...)
+}
+
+// askLog is one reap worker's timed runner asks, in the order it made
+// them. A worker owns its log alone (no other goroutine touches it) and
+// hands it back in its outcome; the serial apply folds it into the
+// pass's slowest (passTiming.ask). It rides on the worker's context,
+// like the pass's PaneCache, so the prompt pass's own pane reads and
+// typings are timed without the runner being wrapped: a wrapped runner
+// would claim pane and typing interfaces the real one lacks and change
+// what the prompt pass decides. A context without a log (every serial
+// caller) times nothing.
+type askLog struct {
+	now   func() time.Time
+	calls []callTime
+}
+
+type askLogKey struct{}
+
+// withAskLog returns ctx carrying a fresh askLog that reads now, and
+// the log itself.
+func withAskLog(ctx context.Context, now func() time.Time) (context.Context, *askLog) {
+	l := &askLog{now: now}
+	return context.WithValue(ctx, askLogKey{}, l), l
+}
+
+// timer starts timing one ask of kind: the func it returns ends the
+// ask and records it under kind. On a nil log it records nothing.
+func (l *askLog) timer(kind string) func() {
+	if l == nil {
+		return func() {}
+	}
+	start := l.now()
+	return func() {
+		l.calls = append(l.calls, callTime{name: kind, took: l.now().Sub(start), calls: 1})
+	}
+}
+
+// askTimer is timer for the log ctx carries, for the runner calls the
+// prompt pass and its helpers make (see prompt.go): outside a reap
+// worker there is no log and the call is untimed.
+func askTimer(ctx context.Context, kind string) func() {
+	l, _ := ctx.Value(askLogKey{}).(*askLog)
+	return l.timer(kind)
 }
 
 // millis is d rounded to the millisecond, which is as fine as a pass's steps are read.
