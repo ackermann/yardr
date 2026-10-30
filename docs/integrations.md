@@ -904,16 +904,20 @@ commands the source names use that selected URL.
   [chat.md](chat.md#questions-for-you)): `yardr source set <source>
   calls_per_hour=<n>` or `updates_per_hour=<n>`, `yardr source grant
   <source> read|<call>|--preset <preset> --group <group>|--crew <crew member>`, and
-  `yardr source add <file>` for a new source, whose ask carries the
-  declaration and each command file it names so the card shows the whole
-  declaration ([below](#a-call-by-a-session-or-a-crew-member)). Where an
+  `yardr source add <file>`, whose ask carries the
+  declaration and each command file it names: for a new source the card shows
+  the whole declaration, and for a name the yard has the replacement, each
+  changed key whole old and new with each command file's diff
+  ([below](#a-call-by-a-session-or-a-crew-member)). The approval keeps the
+  source's env_file, mint_command, call limits, region base and ignored
+  senders, and every grant of it stands. Where an
   embedded pack brings the source, a crew member proposes the whole setup
   as one card instead (`yardr bead ask <id> "<question>" --setup <pack>
   --crew <crew member> --recommend <n> --why "<why>" --context
   "<what it is for>"`, [chat.md](chat.md#setting-up-a-packs-sources)):
   the apply, the account and the preset grants together. Every
   other command of a source stays the operator's to type in a terminal:
-  a replacement by `source add`, `source set env_file=`, `mint_command=`
+  `source set env_file=`, `mint_command=`
   and `base=`, `source key` (a key is asked for with a secret ask)
   and `source rm`. Their words are a file, a path, a program or the name
   of where the credential is sent, and a command that is approved from a

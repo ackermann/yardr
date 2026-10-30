@@ -400,13 +400,14 @@ or decline it. The command is one of a fixed list:
 | `peer add <name> <invite>` | the yard of the invite linked as the peer: the card names the invited yard, its key, and where this yard calls it, or that this yard never calls it | only the operator, with `peer rm <name>` |
 | `peer allow <peer> --mail-limit <n>` | a link that should take more mail in an hour | anyone, with a lower number |
 | `peer allow <peer> --send <kinds>`, `--receive <kinds>` | what a link may carry each way, of any kind (`ask`, `bead`, `file`, `mail`, `ping`, `thread`): the card names what it carries in and out after the command and before it | anyone where kinds were given, only the operator where they were taken, with the kinds that stood, which the card names |
+| `peer allow <peer> --expose <names>`, `--trust <name>@<peer>=<user>`, `--reach <name>@<peer>=<user>` | who the link shows itself to, whose mail it trusts and whose asks it sends on: the card names each whole, now and proposed | anyone where trust was newly given, only the operator where a trusted name's user moved, with the trust that stood, which the card names |
 | `peer intake <peer> --depot <depot> --flow <flow> [--limit <n>] [--default]` | where the beads a peer sends go: the card names the depot, the flow, the stage they arrive in and who works it (where agents do, work starts on the other yard's text), and what the link has for the depot now; the approval does not install `return-branch`, as the command at a terminal does | only the operator, with the intake that stood, which the card names, or `peer intake <peer> --depot <depot> --none` (anyone's) where none did |
 | `peer identity <peer> <crew> --source <source> --id <id>` | who a sender is in a source that hears by identity, when they are a crew member of a peer's yard: a delivery from the id is then kept with the speaker `<crew>@<peer>`, information and not instructions, and it is no user of this yard | only the operator, with the id that stood, which the card names, or `--rm` where none did |
 | `peer rm <name>` | a link removed with its intakes, identities and queued mail: the card names each with its count, and the beads it sent stay and say their link is removed while the other yard stands | only the operator, with `peer add <name> <invite>` from a fresh invite |
 | `peer set <name> --url <url>` | a peer called at a new address: the card names the peer and the address now and proposed, each whole; taking the address away (`--url ""`, never called) stays in a terminal | only the operator, with `peer set` carrying the address that stood, which the card names, or `--url ""` where it had none |
 | `source set <source> calls_per_hour=<n>`, `updates_per_hour=<n>` | how many calls of a source one caller makes in an hour, and how many of them are updates | only the operator: every setting of a source is yours |
 | `source grant <source> read\|<call>\|--preset <preset> --group <group>\|--crew <crew member> [--as <user>]` | a group's sessions or a crew member may make the source's read calls, or one call by its name; several `--group` and `--crew` are one command and one change; with `--preset <name>` the preset's calls of the pack that declares the source, named on the card with the pack; with `--as <user>` the call is made as that user, and that user alone approves it | anyone, with `yardr source revoke` by the same words, one call at a time |
-| `source add <file>` | a new source the file declares: the ask carries the declaration and each command file it names, and the card shows the whole declaration; a commands-free add runs at approval, one naming commands is carried out by the server after it | only the operator, with `yardr source rm <name>` |
+| `source add <file>` | a source the file declares, new or replacing the one of its name: the ask carries the declaration and each command file it names. A new source's card shows the whole declaration; a commands-free add runs at approval, one naming commands is carried out by the server after it. A replacement's card shows each changed key whole, old and new, each command file's diff, and who a standing grant of read now reaches; the source keeps its env_file, mint_command, region base, call limits and ignored senders, and every grant stands | only the operator: a new source with `yardr source rm <name>`; a replacement by asking the old declaration again as a card |
 | `source ignore <source> --rm <id>` | a sender ignored in the source is heard again: their next message follows the hook's word, a fresh mapping card under unknown, heard as an outsider under allow | only the operator, with nothing: no command ignores again, a fresh card's nobody pick does |
 | `source check <source> --user <user>` | one real test message to the user through the source, sent when the user or the operator approves; the card carries the message whole | nobody: a sent message cannot be unsent |
 | `pack apply <name>` | a pack yardr embeds, with no flag: of kind source, or of a depot kind re-applied to the one depot that holds it where its plan asks nothing; the card is written from the server's own binary, shows each declared source whole and, for a depot pack, each object and changed file's diff, and is carried out by the server after approval | only the operator: for a source, with `yardr source rm <name>`; a depot import has no one command back, and `yardr pack check <name> --depot <depot>` shows where it stands |
@@ -439,18 +440,19 @@ updates only `<depot>-assembly`'s `cmd` and that depot's local Git config; it
 never runs `git push`. The card carries an `outside` weight and says how to
 file its reverse.
 
-Anything else that is the operator's is still typed by you: a replacement
-by `source add`, a hook's replacement and its `--map` and `--as`, a source's `env_file` and `mint_command`, `peer allow` with `--trust`,
-`--reach` or `--expose`, taking a
+Anything else that is the operator's is still typed by you: a hook's
+replacement and its `--map` and `--as`, a source's `env_file`,
+`mint_command` and `base`, taking a
 peer's identity back (`peer identity --rm`), a user's `notify` and `env_file`,
 `group add` with `--runner exec` or `cmd=`, `group set` with `cmd=`, the
 `operator` setting and the settings of where the yard reads and serves from,
-and every other command.
+and every other command. A crew member's own `source add` for a name the
+yard has is refused: a replacement is proposed as a card, or typed by you.
 `hook_public_url` is the exception among the addresses: it binds nothing,
 only says where the yard is reached from outside, so a crew member may
 propose it and its card shows the whole URL each hook is registered at.
 A command that mixes a flag of the list with one that is not is refused
-whole, and the limit and the kinds of `peer allow` are two asks: one
+whole, and the limit and the rest of `peer allow` are two asks: one
 command carries one or the other. A card about a link (`peer add`, `peer
 allow`, `peer intake`, `peer identity`, `peer rm`, `peer rename`, `peer
 set`) is approved from this yard, and an approval that arrives through

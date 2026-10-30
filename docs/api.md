@@ -5369,9 +5369,9 @@ yard's line for it and what this card does. A routine card has none.
 | `credential` | gives a credential or an address to the yard | every secret ask; `user key`; a setup ask, which takes the account |
 | `as-user` | lets calls or words count as a person's | `source grant ... --as <user>`; a secret ask with `secret.as`; `user identity`; a mapping ask, whose picks write a user's identity |
 | `outside` | lets the yard change something outside it | `source grant` of an update call, or of a preset holding one; `source set` of `calls_per_hour` or `updates_per_hour` that raises the updates a caller can make in an hour, the lower of the two; a setup ask whose presets grant an update call |
-| `code` | brings a program the yard will run | `source add` and `pack apply` whose command files are new or differ from the copies that stand; a setup ask whose pack brings such files |
+| `code` | brings a program the yard will run | a `source add` that replaces a source, whatever it changes; `source add` and `pack apply` whose command files are new or differ from the copies that stand; a setup ask whose pack brings such files |
 | `trust` | widens who the yard listens to | `user add`; `peer allow` adding a kind or raising the mail limit; `crew set peers=` adding a peer; `hook add` |
-| `reads` | widens what a standing grant of read reaches | `pack apply`, or a setup ask, that replaces a declaration with a new or changed read call while someone holds a grant of `read` of it |
+| `reads` | widens what a standing grant of read reaches | `source add` or `pack apply`, or a setup ask, that replaces a declaration with a new or changed read call while someone holds a grant of `read` of it |
 
 A card that narrows (a revoke, a lower limit, `user rm`, `timer rm`, a
 kind taken off a link) is never weighty. A later build may add a class: a
