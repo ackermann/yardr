@@ -5215,18 +5215,18 @@ func TestYardTestBudgets(t *testing.T) {
 				"FAIL\tyardr.dev/yardr/internal/broken\n"+
 				"--- FAIL: TestBroken (0.01s)\n"+
 				"ok  \texample.com/other\t99.9s\n")
-		// Cli, assembly, deploy and isolated-yard are allow-listed,
-		// exactly 60 s complies, and cached, failed and foreign lines
-		// are not judged: only root, hooks, server, dispatch, pack,
-		// store and web are re-run, up to three at a time, with the
+		// Cli, assembly and isolated-yard are allow-listed, exactly
+		// 60 s complies, and cached, failed and foreign lines are not
+		// judged: only root, hooks, server, dispatch, pack, store,
+		// web and deploy are re-run, up to three at a time, with the
 		// leg's flags and -count=1, inside its hold. The module path
 		// is the root, whose allow-list row yardr-5372 deleted with
 		// its fix, as yardr-ab6t deleted cli's and yardr-bkzy added
 		// it back with yardr-wdjh, and yardr-bkzy added assembly's
 		// and deploy's with yardr-3426 and yardr-yx53; yardr-3cc4
-		// deleted store's and yardr-3gdg web's. The load is pinned
-		// quiet, so hooks' over-alone verdict fails however loaded
-		// the test machine is.
+		// deleted store's, yardr-3gdg web's and yardr-yx53 deploy's.
+		// The load is pinned quiet, so hooks' over-alone verdict
+		// fails however loaded the test machine is.
 		fake, env := r1go(t)
 		out, code := runEnv(t, dir, append(env,
 			"FAKE_OVER=yardr.dev/yardr/internal/hooks",
@@ -5236,8 +5236,8 @@ func TestYardTestBudgets(t *testing.T) {
 			t.Fatalf("exit %d, output %q, want exit 1", code, out)
 		}
 		// Hooks is over alone too: the run fails, naming both times.
-		// Root, server, dispatch, pack, store and web are under
-		// alone: each passes with the R1 line. Cli, assembly, deploy
+		// Root, server, dispatch, pack, store, web and deploy are
+		// under alone: each passes with the R1 line. Cli, assembly
 		// and isolated-yard carry rows, so over budget they are not
 		// re-run and name no verdict; the calls below pin the skipped
 		// set.
@@ -5248,8 +5248,9 @@ func TestYardTestBudgets(t *testing.T) {
 		pack := "test: R1: yardr.dev/yardr/internal/pack took 61.5 s in the run, 12.3 s alone: under budget, loaded run"
 		store := "test: R1: yardr.dev/yardr/internal/store took 60.1 s in the run, 12.3 s alone: under budget, loaded run"
 		web := "test: R1: yardr.dev/yardr/internal/web took 100 s in the run, 12.3 s alone: under budget, loaded run"
-		if !strings.Contains(out, root+"\n") || !strings.Contains(out, hooks+"\n") || !strings.Contains(out, server+"\n") || !strings.Contains(out, dispatch+"\n") || !strings.Contains(out, pack+"\n") || !strings.Contains(out, store+"\n") || !strings.Contains(out, web+"\n") {
-			t.Fatalf("output %q, want it to name root, hooks, server, dispatch, pack, store and web", out)
+		deploy := "test: R1: yardr.dev/yardr/contrib/deploy took 69.7 s in the run, 12.3 s alone: under budget, loaded run"
+		if !strings.Contains(out, root+"\n") || !strings.Contains(out, hooks+"\n") || !strings.Contains(out, server+"\n") || !strings.Contains(out, dispatch+"\n") || !strings.Contains(out, pack+"\n") || !strings.Contains(out, store+"\n") || !strings.Contains(out, web+"\n") || !strings.Contains(out, deploy+"\n") {
+			t.Fatalf("output %q, want it to name root, hooks, server, dispatch, pack, store, web and deploy", out)
 		}
 		if got := strings.Count(out, "over the 60 s budget"); got != 1 {
 			t.Errorf("output %q, want 1 budget failure, got %d", out, got)
@@ -5258,6 +5259,7 @@ func TestYardTestBudgets(t *testing.T) {
 		// rather than the launch's; the set is pinned, in sorted order.
 		wantCallsAnyOrder(t, fake, []string{
 			"test -race -count=1 yardr.dev/yardr held=1",
+			"test -race -count=1 yardr.dev/yardr/contrib/deploy held=1",
 			"test -race -count=1 yardr.dev/yardr/internal/dispatch held=1",
 			"test -race -count=1 yardr.dev/yardr/internal/hooks held=1",
 			"test -race -count=1 yardr.dev/yardr/internal/pack held=1",

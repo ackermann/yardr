@@ -8,7 +8,6 @@ package deploy
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
 	"os"
 	"os/exec"
@@ -21,7 +20,6 @@ import (
 
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/dispatch"
-	"yardr.dev/yardr/internal/rpc"
 	"yardr.dev/yardr/internal/runner"
 	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/server"
@@ -36,6 +34,11 @@ var yardrBin string
 // to commit as.
 var gitEnv = []string{"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1", "GIT_AUTHOR_NAME=t",
 	"GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t"}
+
+// loadFactorEnv marks the TestMainKeepsTheGatesLoadFactor child, which skips
+// the driven binary's build: the child only reads the load factor, it never
+// runs the binary, so building it there is a second build per run.
+const loadFactorEnv = "DEPLOY_TEST_LOAD_FACTOR"
 
 // As contrib/assembly's: nothing of a yardr or a git running these tests
 // reaches what they start, the home is one with no yard in it, every server
@@ -74,18 +77,21 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	yardrBin = filepath.Join(dir, "yardr")
-	build := exec.Command("go", "build", "-o", yardrBin, "yardr.dev/yardr")
-	build.Stdout, build.Stderr = os.Stderr, os.Stderr
-	if err := build.Run(); err != nil {
-		panic("building yardr: " + err.Error())
+	if os.Getenv(loadFactorEnv) == "" {
+		build := exec.Command("go", "build", "-o", yardrBin, "yardr.dev/yardr")
+		build.Stdout, build.Stderr = os.Stderr, os.Stderr
+		if err := build.Run(); err != nil {
+			panic("building yardr: " + err.Error())
+		}
+		// Run it once before any test times a script that starts it: the first
+		// run of a file written a moment ago waits behind the machine's other
+		// first runs on macOS (yardr-c3nm). version needs no home.
+		_ = exec.Command(yardrBin, "version").Run()
 	}
-	// Run it once before any test times a script that starts it: the first
-	// run of a file written a moment ago waits behind the machine's other
-	// first runs on macOS (yardr-c3nm). version needs no home.
-	_ = exec.Command(yardrBin, "version").Run()
 	code := m.Run()
 	os.RemoveAll(dir)
 	os.RemoveAll(nowhere)
+	removeTemplates()
 	scripttest.Remove()
 	os.Exit(code)
 }
@@ -95,8 +101,7 @@ func TestMain(m *testing.M) {
 // plain run has none, so only a child started with one shows that it reaches
 // testload.Scale.
 func TestMainKeepsTheGatesLoadFactor(t *testing.T) {
-	const modeEnv = "DEPLOY_TEST_LOAD_FACTOR"
-	if os.Getenv(modeEnv) != "" {
+	if os.Getenv(loadFactorEnv) != "" {
 		// At least, not exactly: Scale also reads the machine's own load
 		// and takes the larger of the two, so on a loaded box it may give
 		// more than the gate's factor.
@@ -107,7 +112,7 @@ func TestMainKeepsTheGatesLoadFactor(t *testing.T) {
 	}
 	t.Parallel()
 	cmd := exec.Command(os.Args[0], "-test.run=^TestMainKeepsTheGatesLoadFactor$")
-	cmd.Env = append(os.Environ(), modeEnv+"=1", "YARDR_"+testload.Env+"=3.0")
+	cmd.Env = append(os.Environ(), loadFactorEnv+"=1", "YARDR_"+testload.Env+"=3.0")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("the gate's factor did not reach the child's fuses: %v\n%s", err, out)
 	}
@@ -214,7 +219,26 @@ type yard struct {
 	plant      string            // redirections after the script in the group's cmd, which leave descriptors open for it
 }
 
+// newYard is one isolated yardr with depot r over a fresh repository whose
+// base main is checked out in the depot, bead r-1 in merged, and a Dokku
+// host with the app "app" behind the fake ssh: the base template's,
+// borrowed (fixture_test.go).
 func newYard(t *testing.T) *yard {
+	t.Helper()
+	y := borrowBase(t)
+	y.opts = map[string]string{
+		"FAKE_SSH":          y.state,
+		"DOKKU_HOST":        "dokku.test",
+		"DOKKU_APP":         "app",
+		"DOKKU_KNOWN_HOSTS": filepath.Join(y.state, "known_hosts"),
+		"DOKKU_URL":         "https://app.example.test",
+	}
+	return y
+}
+
+// newYardCLI is newYard through the real CLI end to end, for the one test
+// that keeps that path: TestDeployPushesTheBase.
+func newYardCLI(t *testing.T) *yard {
 	t.Helper()
 	// A test with a yard shares nothing with another's (TestMain), so it
 	// runs beside them from here on.
@@ -356,16 +380,15 @@ func (y *yard) deploy(id string) {
 	}
 	e := &runner.Exec{Home: y.home, Bin: yardrBin}
 	ctx := context.Background()
-	st := rpc.NewClient((&config.Config{Home: y.home}).Socket())
+	st := y.client()
 	// The train and base as the dispatcher passes them, read the way bead
-	// show --json shows them: one call, unmarshalled twice.
-	shown := y.yardr("bead", "show", id, "--json")
-	var b store.Bead
-	if err := json.Unmarshal([]byte(shown), &b); err != nil {
+	// show --json shows them: the bead and its family.
+	b, err := st.GetBead(ctx, id)
+	if err != nil {
 		y.t.Fatal(err)
 	}
-	var fam store.Family
-	if err := json.Unmarshal([]byte(shown), &fam); err != nil {
+	fam, err := st.Family(ctx, id)
+	if err != nil {
 		y.t.Fatal(err)
 	}
 	depot, err := st.GetDepot(ctx, y.depot)
@@ -422,24 +445,36 @@ func shellQuote(s string) string {
 
 func (y *yard) bead(id string) store.Bead {
 	y.t.Helper()
-	var b store.Bead
-	if err := json.Unmarshal([]byte(y.yardr("bead", "show", id, "--json")), &b); err != nil {
+	b, err := y.client().GetBead(context.Background(), id)
+	if err != nil {
 		y.t.Fatal(err)
 	}
-	return b
+	return *b
 }
 
 func (y *yard) family(id string) store.Family {
 	y.t.Helper()
-	var f store.Family
-	if err := json.Unmarshal([]byte(y.yardr("bead", "show", id, "--json")), &f); err != nil {
+	f, err := y.client().Family(context.Background(), id)
+	if err != nil {
 		y.t.Fatal(err)
 	}
-	return f
+	return *f
 }
 
-// notes is the bead as prime shows it, notes included.
-func (y *yard) notes(id string) string { return y.yardr("prime", "--bead", id) }
+// notes is the bead's notes as prime shows them: every note's text, in
+// order. The checks read note content, never prime's headers.
+func (y *yard) notes(id string) string {
+	y.t.Helper()
+	notes, err := y.client().Notes(context.Background(), id)
+	if err != nil {
+		y.t.Fatal(err)
+	}
+	texts := make([]string, 0, len(notes))
+	for _, n := range notes {
+		texts = append(texts, store.NoteLetters(n.Text))
+	}
+	return strings.Join(texts, "\n")
+}
 
 // pushes is what the fake ssh was run with for each push: git's own probe
 // of the ssh it has (-G) is no push.
@@ -480,8 +515,10 @@ func (y *yard) at(name string) string {
 // unset here, leaves to the yard's setting; mailed says whether it has mail.
 func (y *yard) lead() {
 	y.t.Helper()
-	y.yardr("crew", "add", "lead", "--runner", "manual")
-	y.yardr("settings", "set", "yardmaster", "lead")
+	y.addCrew("lead")
+	if err := y.client().SetSetting(context.Background(), store.YardmasterSetting, "lead", "test"); err != nil {
+		y.t.Fatal(err)
+	}
 }
 
 func (y *yard) mailed() bool { return y.mailedAs("lead") }
@@ -515,7 +552,7 @@ func (y *yard) refused(id, want string) {
 // gains no remote and its checkout is not touched. ssh is run with the
 // pinned known-hosts file alone, strict checking and nothing to ask.
 func TestDeployPushesTheBase(t *testing.T) {
-	y := newYard(t)
+	y := newYardCLI(t)
 	sha := y.commit(y.repo, "b.txt", "landed\n")
 	if err := os.WriteFile(filepath.Join(y.repo, "wip.txt"), []byte("someone's\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -662,7 +699,7 @@ func TestDeployNeverForces(t *testing.T) {
 // live, its note naming the commit that is running.
 func TestDeployQueuedLandingsCoalesce(t *testing.T) {
 	y := newYard(t)
-	y.yardr("bead", "create", "more work", "--id", "r-2", "-d", "r", "-s", "merged")
+	y.createBead("more work", "r-2", "r", "", "merged")
 	y.commit(y.repo, "b.txt", "r-1 landed\n")
 	sha := y.commit(y.repo, "c.txt", "r-2 landed\n")
 
@@ -729,8 +766,8 @@ func TestDeployRunsTheInstalledScriptNotTheTrees(t *testing.T) {
 // commit ahead of main: r-1's landing.
 func trainYard(t *testing.T) *yard {
 	y := newYard(t)
-	y.yardr("bead", "create", "the train", "--id", "r-e", "-d", "r", "-t", "train", "-s", "merged")
-	y.yardr("dep", "add", "r-e", "r-1", "-k", "parent")
+	y.createBead("the train", "r-e", "r", "train", "merged")
+	y.addParent("r-e", "r-1")
 	y.git(y.repo, "branch", "yard/r-e")
 	wt := filepath.Join(t.TempDir(), "train")
 	y.git(y.repo, "worktree", "add", "-q", wt, "yard/r-e")

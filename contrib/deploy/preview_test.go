@@ -17,24 +17,32 @@ import (
 
 // previewYard is newYard with bead r-2 waiting in preview, its branch
 // yard/r-2 one commit ahead of main, and the group's cmd that of a preview:
-// no app, and a URL that is a pattern.
+// no app, and a URL that is a pattern: the preview template's, borrowed
+// (fixture_test.go).
 func previewYard(t *testing.T) *yard {
-	y := newYard(t)
+	y := borrowPreview(t)
 	y.mode = "preview"
-	delete(y.opts, "DOKKU_APP")
-	y.opts["DOKKU_URL"] = "http://{app}.dokku.test"
-	y.yardr("bead", "create", "a page", "--id", "r-2", "-d", "r", "-s", "preview")
-	y.branch("r-2", "page.txt", "a first try\n")
+	y.opts = map[string]string{
+		"FAKE_SSH":          y.state,
+		"DOKKU_HOST":        "dokku.test",
+		"DOKKU_KNOWN_HOSTS": filepath.Join(y.state, "known_hosts"),
+		"DOKKU_URL":         "http://{app}.dokku.test",
+	}
 	return y
 }
 
 // worktree is where the branch of bead id is checked out, made with the
-// branch (from from) when it is not there.
+// branch (from from) when it is not there. A branch the template already
+// made is only checked out, not made again.
 func (y *yard) worktree(id, from string) string {
 	y.t.Helper()
 	wt := filepath.Join(filepath.Dir(y.repo), "wt-"+id)
 	if _, err := os.Stat(wt); err != nil {
-		y.git(y.repo, "worktree", "add", "-q", "-b", "yard/"+id, wt, from)
+		if y.git(y.repo, "branch", "--list", "yard/"+id) != "" {
+			y.git(y.repo, "worktree", "add", "-q", wt, "yard/"+id)
+		} else {
+			y.git(y.repo, "worktree", "add", "-q", "-b", "yard/"+id, wt, from)
+		}
 	}
 	return wt
 }
@@ -131,7 +139,7 @@ func TestPreviewSecondPushIsForced(t *testing.T) {
 	y.deploy("r-2")
 	first := y.at("preview-r-2")
 
-	y.yardr("bead", "advance", "r-2", "--to", "preview")
+	y.advanceBead("r-2", "preview")
 	y.git(y.worktree("r-2", "main"), "commit", "-q", "--amend", "-m", "a second try")
 	sha := y.git(y.repo, "rev-parse", "yard/r-2")
 	if y.git(y.repo, "merge-base", first, sha) == first {
@@ -164,9 +172,9 @@ func TestPreviewNameOfABeadWithADot(t *testing.T) {
 	y.depot = "s.dev"
 	y.git(".", "init", "-q", "-b", "main", y.repo)
 	y.commit(y.repo, "a.txt", "one\n")
-	y.yardr("depot", "add", "s.dev", y.repo, "--base", "main")
-	y.yardr("depot", "flow", "s.dev", "f")
-	y.yardr("bead", "create", "a page", "--id", "s.dev-ryta", "-d", "s.dev", "-s", "preview")
+	y.putDepot("s.dev", y.repo, "main")
+	y.pointFlow("s.dev", "", "f")
+	y.createBead("a page", "s.dev-ryta", "s.dev", "", "preview")
 	sha := y.branch("s.dev-ryta", "page.txt", "a page\n")
 
 	y.deploy("s.dev-ryta")
@@ -181,7 +189,7 @@ func TestPreviewNameOfABeadWithADot(t *testing.T) {
 		t.Fatalf("the note does not name the app's address:\n%s", y.notes("s.dev-ryta"))
 	}
 
-	y.yardr("bead", "close", "s.dev-ryta", "--reason", "not wanted")
+	y.closeBead("s.dev-ryta", "not wanted")
 	if out, ok := y.remove("s.dev"); !ok {
 		t.Fatalf("remove failed:\n%s", out)
 	}
@@ -203,7 +211,7 @@ func TestPreviewRefusesANameItCouldNotFindAgain(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			y := previewYard(t)
 			y.lead()
-			y.yardr("bead", "create", "a page", "--id", c.id, "-d", "r", "-s", "preview")
+			y.createBead("a page", c.id, "r", "", "preview")
 			y.branch(c.id, "page.txt", "a page\n")
 			y.deploy(c.id)
 			y.refused(c.id, c.want)
@@ -251,7 +259,7 @@ func TestPreviewRefusesBeforeThePush(t *testing.T) {
 func TestPreviewRefusesABeadWithNoBranch(t *testing.T) {
 	y := previewYard(t)
 	y.lead()
-	y.yardr("bead", "create", "nothing built", "--id", "r-3", "-d", "r", "-s", "preview")
+	y.createBead("nothing built", "r-3", "r", "", "preview")
 	y.deploy("r-3")
 	y.refused("r-3", "the bead's branch yard/r-3 is not a local branch")
 }
@@ -359,9 +367,9 @@ func TestPreviewHostRefusesItsCommands(t *testing.T) {
 // so far and its own change, and the note names the train.
 func TestPreviewChildOfATrain(t *testing.T) {
 	y := previewYard(t)
-	y.yardr("bead", "create", "the train", "--id", "r-e", "-d", "r", "-t", "train", "-s", "preview")
-	y.yardr("bead", "create", "a wagon", "--id", "r-3", "-d", "r", "-s", "preview")
-	y.yardr("dep", "add", "r-e", "r-3", "-k", "parent")
+	y.createBead("the train", "r-e", "r", "train", "preview")
+	y.createBead("a wagon", "r-3", "r", "", "preview")
+	y.addParent("r-e", "r-3")
 	y.commit(y.worktree("r-e", "main"), "train.txt", "an earlier child landed on the train\n")
 	sha := y.commit(y.worktree("r-3", "yard/r-e"), "child.txt", "this child's change\n")
 	if fam := y.family("r-3"); fam.Train != "r-e" {
@@ -385,7 +393,7 @@ func TestPreviewChildOfATrain(t *testing.T) {
 // is held with its address for a person to move.
 func TestPreviewWithNoDoneOutcomeHolds(t *testing.T) {
 	y := previewYard(t)
-	y.yardrIn(strings.Replace(flow, "look on done | ", "", 1), "flow", "set", "f", "-f", "-")
+	y.putFlow("f", strings.Replace(flow, "look on done | ", "", 1))
 
 	y.deploy("r-2")
 
@@ -406,9 +414,9 @@ func TestPreviewWithNoDoneOutcomeHolds(t *testing.T) {
 func overYard(t *testing.T) *yard {
 	y := previewYard(t)
 	for _, id := range []string{"r-3", "r-4"} {
-		y.yardr("bead", "create", "a page", "--id", id, "-d", "r", "-s", "preview")
+		y.createBead("a page", id, "r", "", "preview")
 	}
-	y.yardr("bead", "close", "r-3", "--reason", "not wanted")
+	y.closeBead("r-3", "not wanted")
 	for _, app := range []string{"preview-r-1", "preview-r-3", "preview-r-4", "preview-r-gone", "preview-other-1"} {
 		y.makeApp(app)
 	}

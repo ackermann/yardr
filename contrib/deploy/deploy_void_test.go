@@ -7,6 +7,7 @@ package deploy
 // calls and writes deploy-*.jsonl logs as void 1.1.12's openDeployLog does.
 
 import (
+	"context"
 	"maps"
 	"os"
 	"path/filepath"
@@ -188,9 +189,15 @@ func (y *yard) noWorktreeLeft(before int) {
 	}
 }
 
-// mailedAs says whether that crew member has mail.
+// mailedAs says whether that crew member has exactly one unread mail, as
+// `yardr crew show` says it ("inbox 1 unread").
 func (y *yard) mailedAs(who string) bool {
-	return strings.Contains(y.yardr("crew", "show", who), "inbox 1 unread")
+	y.t.Helper()
+	page, err := y.client().InboxFor(context.Background(), who, "", 0)
+	if err != nil {
+		y.t.Fatal(err)
+	}
+	return page.Total == 1
 }
 
 // voidRefused fails unless id went to decide with want in its note, the
@@ -397,7 +404,7 @@ func TestVoidTrainItselfDeploysTheBase(t *testing.T) {
 // log.
 func TestVoidQueuedLandingsCoalesce(t *testing.T) {
 	y := voidYard(t)
-	y.yardr("bead", "create", "more work", "--id", "r-2", "-d", "r", "-s", "merged")
+	y.createBead("more work", "r-2", "r", "", "merged")
 	y.commit(y.repo, "b.txt", "r-1 landed\n")
 	sha := y.commit(y.repo, "c.txt", "r-2 landed\n")
 
@@ -432,7 +439,7 @@ func TestVoidQueuedLandingsCoalesce(t *testing.T) {
 func TestVoidFailedDeploy(t *testing.T) {
 	y := voidYard(t)
 	y.lead()
-	y.yardr("crew", "add", "ops", "--runner", "manual")
+	y.addCrew("ops")
 	y.opts["YARDR_NOTIFY"] = "ops"
 	sha := y.commit(y.repo, "b.txt", "landed\n")
 	status := y.git(y.repo, "status", "--porcelain")
