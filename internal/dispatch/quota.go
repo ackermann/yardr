@@ -158,9 +158,7 @@ func withoutGroups(r *store.Route, aside []waitedGroup) store.Route {
 	out := *r
 	out.Group, out.When = kept[0].Name, kept[0].When
 	out.Else = nil
-	for _, rg := range kept[1:] {
-		out.Else = append(out.Else, rg)
-	}
+	out.Else = append(out.Else, kept[1:]...)
 	return out
 }
 
