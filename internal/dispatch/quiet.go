@@ -605,13 +605,6 @@ func (d *Dispatcher) execQuietRun(ctx context.Context, depot store.Depot) (Quiet
 	if err != nil {
 		return QuietResult{Commit: commit, Load: quietLoad()}, err
 	}
-	// The test command tells its packages by the worktree's path as git
-	// prints it (git rev-parse --show-toplevel in .yardr/test's pick),
-	// which is resolved (/private/tmp for /tmp here); an unresolved
-	// temp path names no package there and the run fails at the pick.
-	if resolved, err := filepath.EvalSymlinks(tmp); err == nil {
-		tmp = resolved
-	}
 	defer os.RemoveAll(tmp)
 	if _, err := git("-C", depot.Path, "worktree", "add", "--detach", tmp, commit); err != nil {
 		return QuietResult{Commit: commit, Load: quietLoad()}, fmt.Errorf("quiet run: worktree of %s at %s: %w", depot.Name, commit, err)

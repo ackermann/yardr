@@ -862,10 +862,10 @@ func TestQuietExecRunEnvironment(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
 		env      map[string]string // set for the run, besides HOME
-		tmpdir   string            // TMPDIR for the run; empty leaves it
+		tmpLink  bool              // TMPDIR for the run is a link to a directory of its own, as /tmp is on a Mac
 		script   string            // check.sh: it passes when the run set the row's environment
 		yardHome bool              // set YARDR_HOME and run the dispatcher with it
-		check    func(t *testing.T, home, yard string)
+		check    func(t *testing.T, home, yard, repo string)
 	}{
 		{
 			// The suite is work the yard starts, so it inherits the
@@ -897,16 +897,23 @@ func TestQuietExecRunEnvironment(t *testing.T) {
 			script: "[ \"$YARDR_QUIET_RUN\" = 1 ]\n",
 		},
 		{
-			// Under /tmp as the daemon makes its worktrees (no TMPDIR
-			// of a test harness): the check compares git's resolved
-			// toplevel with the directory it runs in, and the run
-			// resolves its worktree before adding it, so the two name
-			// it the same way.
-			name:     "ResolvesItsWorktree",
-			tmpdir:   "/tmp",
-			script:   "[ \"$(git rev-parse --show-toplevel)\" = \"$PWD\" ] && [ -f \"$HOME/.yardr/race.lock\" ] && [ ! -e \"$YARDR_HOME/race.lock\" ]\n",
+			// The suite runs in a worktree the run made for it, and the
+			// worktree goes with the run. The temp directory is a link, as
+			// /tmp is on a Mac, and the run leaves the worktree's path as
+			// the temp directory spells it: the gate plans from that
+			// spelling as from the resolved one (TestYardTestSelects), so
+			// the script pins neither and names where it runs by pwd -P: a
+			// linked worktree (not the depot's checkout) directly under
+			// TMPDIR. The race lock the run holds is the machine's, under
+			// HOME, not the yard's home.
+			name:    "RunsInItsWorktree",
+			tmpLink: true,
+			script: `[ "$(git rev-parse --git-dir)" != "$(git rev-parse --git-common-dir)" ] &&
+[ "$(dirname "$(pwd -P)")" = "$(cd "$TMPDIR" && pwd -P)" ] &&
+[ -f "$HOME/.yardr/race.lock" ] && [ ! -e "$YARDR_HOME/race.lock" ]
+`,
 			yardHome: true,
-			check: func(t *testing.T, home, yard string) {
+			check: func(t *testing.T, home, yard, repo string) {
 				t.Helper()
 				lock, err := os.Stat(filepath.Join(home, ".yardr", "race.lock"))
 				if err != nil || lock.Mode().Perm() != 0o600 {
@@ -915,13 +922,20 @@ func TestQuietExecRunEnvironment(t *testing.T) {
 				if _, err := os.Stat(filepath.Join(yard, "race.lock")); !os.IsNotExist(err) {
 					t.Fatalf("race lock appeared under the configured yard home: %v", err)
 				}
+				// The worktree went with the run, taken away by the path it
+				// was made at: nothing is left in the temp directory, and
+				// git knows no worktree of the depot but its checkout.
+				if left, err := os.ReadDir(os.Getenv("TMPDIR")); err != nil || len(left) != 0 {
+					t.Fatalf("temp directory after the run = %v, %v; want it empty", left, err)
+				}
+				out, err := exec.Command("git", "-C", repo, "worktree", "list").CombinedOutput()
+				if lines := strings.Split(strings.TrimSpace(string(out)), "\n"); err != nil || len(lines) != 1 {
+					t.Fatalf("worktrees of the depot after the run = %q, %v; want its checkout alone", out, err)
+				}
 			},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if tc.tmpdir != "" {
-				t.Setenv("TMPDIR", tc.tmpdir)
-			}
 			home := t.TempDir()
 			t.Setenv("HOME", home)
 			yard := t.TempDir()
@@ -960,10 +974,19 @@ func TestQuietExecRunEnvironment(t *testing.T) {
 			must(t, err)
 			_, err = s.Advance(ctx, b.ID, "merged", store.Expect{}, "me")
 			must(t, err)
+			if tc.tmpLink {
+				// Set last: the run's worktree is all that is to be made
+				// under the link, and a store over the socket (YARDR_TEST_RPC)
+				// binds its socket under TMPDIR, a path a link this long
+				// would overrun.
+				link := filepath.Join(t.TempDir(), "tmp")
+				must(t, os.Symlink(t.TempDir(), link))
+				t.Setenv("TMPDIR", link)
+			}
 			dispatch.QuietMaybe(d, ctx)
 			waitQuiet(t, s, store.QuietPassed, 1)
 			if tc.check != nil {
-				tc.check(t, home, yard)
+				tc.check(t, home, yard, repo)
 			}
 		})
 	}
