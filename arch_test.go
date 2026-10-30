@@ -22,13 +22,17 @@ import (
 // The rules, quoted from the page:
 // (a) internal/store imports no internal package, except internal/peer,
 // which stays: it is OS process code with no yard types, so the edge
-// carries none of the coupling the rule is there to stop;
+// carries none of the coupling the rule is there to stop; and
+// internal/source, which stays: the store executes run asks through its
+// functions, not only its types, so cutting the edge would make the two
+// import each other, while source itself imports only internal/config;
 // (b) a leaf imports no internal package;
 // (c) no internal package imports internal/cli, and only the root main may.
 const (
 	internalPrefix = "yardr.dev/yardr/internal/"
 	storePkg       = internalPrefix + "store"
 	peerPkg        = internalPrefix + "peer"
+	sourcePkg      = internalPrefix + "source"
 	cliPkg         = internalPrefix + "cli"
 	rootPkg        = "yardr.dev/yardr"
 )
@@ -47,28 +51,9 @@ var leafPkgs = []string{
 	internalPrefix + "version",
 }
 
-// allowEdge is one import edge that breaks a rule today, standing until
-// the bead in removeBy cuts it. The fix deletes its row with it: a row
-// whose edge no longer breaks a rule fails the test, as a breaking edge
-// with no row does.
-type allowEdge struct {
-	from     string
-	to       string
-	removeBy string
-}
-
-// allowImportEdges is the store's 1 remaining internal import, one row
-// naming its package and the bead that cuts it. The store's second,
-// internal/peer, is rule (a)'s permanent exception, not a row. No leaf
-// or cli edge breaks a rule today, so the table holds no other row.
-var allowImportEdges = []allowEdge{
-	{storePkg, internalPrefix + "source", "yardr-j8vt"},
-}
-
 // TestImportRules runs go list over the repository and checks every
-// import edge against the page's three rules. A breaking edge not in the
-// allow table fails naming that edge, and a table row whose edge is gone
-// fails telling its fix to delete the row.
+// import edge against the page's three rules. A breaking edge fails
+// naming that edge.
 func TestImportRules(t *testing.T) {
 	t.Parallel()
 	if _, err := exec.LookPath("go"); err != nil {
@@ -98,28 +83,13 @@ func TestImportRules(t *testing.T) {
 			t.Errorf("package %s is gone (renamed?): update the leaf list and the page with it", pkg)
 		}
 	}
-	byEdge := map[[2]string][]int{}
-	for i, row := range allowImportEdges {
-		key := [2]string{row.from, row.to}
-		byEdge[key] = append(byEdge[key], i)
-	}
-	used := make([]bool, len(allowImportEdges))
-	allow := func(from, to string) bool {
-		for _, i := range byEdge[[2]string{from, to}] {
-			if !used[i] {
-				used[i] = true
-				return true
-			}
-		}
-		return false
-	}
 	isInternal := func(p string) bool { return strings.HasPrefix(p, internalPrefix) }
 	for _, from := range slices.Sorted(maps.Keys(imports)) {
 		for _, to := range imports[from] {
 			var rule string
 			switch {
-			case from == storePkg && isInternal(to) && to != peerPkg:
-				rule = "(a): internal/store imports no internal package except internal/peer"
+			case from == storePkg && isInternal(to) && to != peerPkg && to != sourcePkg:
+				rule = "(a): internal/store imports no internal package except internal/peer and internal/source"
 			case to == cliPkg && from != rootPkg:
 				rule = "(c): only the root main imports internal/cli"
 			case slices.Contains(leafPkgs, from) && isInternal(to):
@@ -128,15 +98,7 @@ func TestImportRules(t *testing.T) {
 			if rule == "" {
 				continue
 			}
-			if allow(from, to) {
-				continue
-			}
 			t.Errorf("%s imports %s, breaking rule %s", from, to, rule)
-		}
-	}
-	for i, row := range allowImportEdges {
-		if !used[i] {
-			t.Errorf("allow row %s -> %s (remove-by %s) names no breaking edge: delete the row", row.from, row.to, row.removeBy)
 		}
 	}
 }
