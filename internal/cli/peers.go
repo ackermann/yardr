@@ -151,9 +151,6 @@ remove the peer first to replace it.`,
 			if err != nil {
 				return err
 			}
-			if own, err := yardkey.Load(cfg.PeerKey()); err == nil && yardkey.Public(own) == inv.Key {
-				return errors.New("that invite is this yard's own: give it to the other yard's operator, and add theirs here")
-			}
 			p, err := st.AddPeer(ctx, store.Peer{Name: args[0], Key: inv.Key, URL: inv.URL, Calls: inv.Name}, a.who())
 			if err != nil {
 				return err

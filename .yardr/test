@@ -1743,14 +1743,14 @@ sleepbudget() {
 filesizes='
 internal/agents/harness.go 1385 schemas, trust marks and flags of every harness kind
 internal/chat/chat.go 1196 the chat TUI model, state and rendering
-internal/cli/bead_ask.go 1575 the ask and answer commands with secret-giving and setup approval
+internal/cli/bead_ask.go 1505 the ask and answer commands with secret-giving and setup approval
 internal/cli/beads.go 1099 the bead show, list and history commands and their printing
 internal/cli/crew.go 2304 the crew, inbox, mail and memory commands
 internal/cli/doctor.go 1274 the doctor examinations and its report
 internal/cli/init.go 1685 yard init, onboarding and settings
 internal/cli/ops.go 1833 the server, daemon, depot, group, route and session commands
 internal/cli/pack.go 2203 pack loading, import planning and its question rounds
-internal/cli/peers.go 1570 the peer identity, intake and ping commands
+internal/cli/peers.go 1567 the peer identity, intake and ping commands
 internal/cli/routereport.go 1514 the route report and its rendering
 internal/cli/sourcecmd.go 2242 the source command and its builtin checks
 internal/cli/subscriptions.go 1148 the identity, subscribe and thread commands
@@ -1773,11 +1773,11 @@ internal/store/graph.go 1316 the dependency graph and its queries
 internal/store/hooks.go 1118 webhook parsing and the say shapes
 internal/store/peerasks.go 1239 peer asks, their answers and ask copies
 internal/store/peerbeads.go 1763 peer bead intake and fetching
-internal/store/peers.go 1703 peer records and their allowances
+internal/store/peers.go 1672 peer records and their allowances
 internal/store/peersend.go 1263 sending beads to peers and settling them
 internal/store/policy.go 1201 the permission gates and their rules
 internal/store/routing.go 3174 groups, routes and their config merges
-internal/store/runask.go 1211 run asks and their approval
+internal/store/runask.go 1139 run asks and their approval
 internal/store/runask_list.go 1223 ask cards, labels and preset reading
 internal/store/runask_more.go 1210 the user and crew-grant run-ask cards
 internal/store/runask_setup.go 1811 setup asks and their approval

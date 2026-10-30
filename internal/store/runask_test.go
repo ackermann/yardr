@@ -2,6 +2,7 @@ package store
 
 import (
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -140,7 +141,7 @@ func TestRunAskIsStoredInTheYardsForm(t *testing.T) {
 func TestRunAskRefusals(t *testing.T) {
 	// Sequential: the package's fake clock (via newAskYard).
 	y, _ := runYard(t)
-	const list = "--run takes a command of the list (" + "yardr peer allow <peer> --send <kinds> | --receive <kinds> | --mail-limit <n>, yardr peer intake <peer> --depot <depot> --flow <flow> [--limit <n>] [--default], yardr peer identity <peer> <crew> --source <source> --id <id>, yardr peer rm <name>, yardr source set <source> calls_per_hour=<n>|updates_per_hour=<n>, yardr source grant <source> read|<call>|--preset <preset> --group <group>|--crew <crew member> [--as <user>], yardr source add <file>, yardr source ignore <source> --rm <id>, yardr source check <source> --user <user>, yardr pack apply <name>, yardr hook add <name> --source <declared source> [--unknown unknown|allow|ignore], yardr subscribe <user> yardr [--done] [--where <key>=<value>], yardr user set <user> tell=<parts>, yardr user key <user> <source>, yardr user add <name>, yardr user rm <name>, yardr user invite <name> --email <address> [--role operator], yardr user uninvite <name>, yardr crew set <name> open_threads=<sources> | set_state=<sources> | peers=<peers>, yardr crew identity <name> --source <source> [--id <id>] [--key <key>], yardr user identity <user> --source <source> [--id <id>] [--key <key>], yardr settings set <key> <value>, yardr peer rename <old> <new>, yardr bead update <bead> --originator <user>, yardr timer rm <id>, yardr up, yardr crew restart <name> [--for <user>], yardr depot test <depot>, yardr depot base <depot> <base>, yardr call <source> <call> [param=value ...] [--as <user>]" + "): anything else is run directly, or typed by the operator in a terminal"
+	const list = "--run takes a command of the list (" + "yardr peer add <name> <invite>, yardr peer allow <peer> --send <kinds> | --receive <kinds> | --mail-limit <n>, yardr peer intake <peer> --depot <depot> --flow <flow> [--limit <n>] [--default], yardr peer identity <peer> <crew> --source <source> --id <id>, yardr peer rm <name>, yardr source set <source> calls_per_hour=<n>|updates_per_hour=<n>, yardr source grant <source> read|<call>|--preset <preset> --group <group>|--crew <crew member> [--as <user>], yardr source add <file>, yardr source ignore <source> --rm <id>, yardr source check <source> --user <user>, yardr pack apply <name>, yardr hook add <name> --source <declared source> [--unknown unknown|allow|ignore], yardr subscribe <user> yardr [--done] [--where <key>=<value>], yardr user set <user> tell=<parts>, yardr user key <user> <source>, yardr user add <name>, yardr user rm <name>, yardr user invite <name> --email <address> [--role operator], yardr user uninvite <name>, yardr crew set <name> open_threads=<sources> | set_state=<sources> | peers=<peers>, yardr crew identity <name> --source <source> [--id <id>] [--key <key>], yardr user identity <user> --source <source> [--id <id>] [--key <key>], yardr settings set <key> <value>, yardr peer rename <old> <new>, yardr bead update <bead> --originator <user>, yardr timer rm <id>, yardr up, yardr crew restart <name> [--for <user>], yardr depot test <depot>, yardr depot base <depot> <base>, yardr call <source> <call> [param=value ...] [--as <user>]" + "): anything else is run directly, or typed by the operator in a terminal"
 	for _, c := range []struct {
 		name  string
 		ask   func(a *Ask)
@@ -1219,6 +1220,165 @@ func TestRunAskPeerRm(t *testing.T) {
 		t.Fatal(err)
 	}
 	y.refusedStale(t, seq, "peer airy: not found")
+}
+
+// Linking a yard is a weighty card of class trust: it names the peer, the
+// yard and its key whole, and where this yard calls it or that it never
+// calls it, and the operator's weighed approval links exactly as the
+// terminal command does. Approving unweighed is refused, an approval
+// through the peer's own reach is refused, and a peer added under the
+// name since makes the card stale.
+func TestRunAskPeerAdd(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y, airyKey := runYard(t)
+	mkkey := func(name string) string {
+		t.Helper()
+		k, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), name+".key"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return yardkey.Public(k)
+	}
+	southKeyPath := filepath.Join(t.TempDir(), "south.key")
+	southKey, _, err := yardkey.Ensure(southKeyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, bare := yardkey.Public(southKey), mkkey("far")
+	y.SetYard(southKeyPath, "test")
+	ownInvite := yardkey.Invite{Name: "this-yard", Key: key}.String()
+	if _, err := y.AddAsk(y.ctx, y.bead, runAsk("peer add self "+ownInvite), "yardmaster"); !errors.Is(err, errOwnPeerInvite) {
+		t.Fatalf("asking to add this yard's invite = %v", err)
+	}
+	if _, err := y.AddPeer(y.ctx, Peer{Name: "self", Key: key}, "mckean"); !errors.Is(err, errOwnPeerInvite) {
+		t.Fatalf("adding this yard's own key = %v", err)
+	}
+	y.SetYard("", "test")
+	inviteURL := "https://[2001:db8::7]:8790/peer%2Fv1;flow=green"
+	invite := yardkey.Invite{Name: "south-yard", Key: key, URL: inviteURL}.String()
+
+	seq := y.ask(t, runAsk("peer add north "+invite), "yardmaster")
+	r := y.asked(t, seq)
+	run := *r.Ask.Run
+	want := AskRun{
+		Argv:        []string{"peer", "add", "north", invite},
+		Description: "Add another yard as a peer, from its invite",
+		Does: []string{
+			"links the yard south-yard as the peer north with the key " + key + ", called at " + inviteURL + ".",
+			"The link carries nothing until yardr peer allow north says what.",
+		},
+		Back:   "yardr peer rm north",
+		BackBy: "only the operator",
+		Seen:   map[string]string{"peer north": ""},
+	}
+	if !slices.Equal(run.Argv, want.Argv) || run.Description != want.Description || !slices.Equal(run.Does, want.Does) ||
+		run.Back != want.Back || run.BackBy != want.BackBy || !sameMap(run.Seen, want.Seen) {
+		t.Fatalf("the ask stores\n%+v\nwant\n%+v", run, want)
+	}
+	if want := []AskWeight{{Class: WeightTrust, Line: "widens who the yard listens to: a new peer, north, whose calls and mail then cross as the invite says"}}; !slices.Equal(r.Ask.Weight, want) {
+		t.Fatalf("the ask weighs %v, want %v", r.Ask.Weight, want)
+	}
+	card := r.Lines()
+	for _, line := range []string{
+		"      yardr peer add north " + invite,
+		"  what the command does: Add another yard as a peer, from its invite",
+		"  the yard says: " + want.Does[0],
+		"  the yard says: " + want.Does[1],
+		"  WEIGHTY · trust: widens who the yard listens to: a new peer, north, whose calls and mail then cross as the invite says",
+		"  only the operator can take it back: yardr peer rm north",
+	} {
+		if !slices.Contains(card, line) {
+			t.Errorf("the card lacks %q:\n%s", line, strings.Join(card, "\n"))
+		}
+	}
+
+	// Approving unweighed is refused, and the ask stays open.
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false, nil); err == nil ||
+		!strings.Contains(err.Error(), "ask 1 is weighty (trust): approve it where its weight is shown") {
+		t.Fatalf("approving unweighed = %v", err)
+	}
+	if r := y.asked(t, seq); r.State != AskOpen {
+		t.Fatalf("the ask is %s after a refused approval", r.State)
+	}
+
+	// A peer must not add its own link: an approval of the card through
+	// that peer's reach is refused, and the ask stays open.
+	y.refusedOpen(t, WithReach(y.ctx, "north"), seq, "and a peer must not add its own link")
+
+	// If this yard's key changes to the invite's key after the ask, the
+	// card is refused again at approval and nothing runs.
+	y.SetYard(southKeyPath, "test")
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true, nil); !errors.Is(err, errOwnPeerInvite) {
+		t.Fatalf("approving an invite that is now this yard's own = %v", err)
+	}
+	if r := y.asked(t, seq); r.State != AskOpen {
+		t.Fatalf("the ask is %s after its own invite was refused", r.State)
+	}
+	y.SetYard("", "test")
+
+	// The weighed approval links exactly as the terminal command does.
+	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if done.Result != "peer north added (it calls itself south-yard)" {
+		t.Fatalf("the approval printed %q", done.Result)
+	}
+	p, err := y.GetPeer(y.ctx, "north")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Key != key || p.URL != inviteURL || p.Calls != "south-yard" || len(p.Send) != 0 || len(p.Receive) != 0 {
+		t.Fatalf("the link after the approval = %+v", p)
+	}
+	evs, err := y.EventsOfKind(y.ctx, "peer_added", 10)
+	if err != nil || len(evs) != 2 {
+		t.Fatalf("peer_added events = %d, %v", len(evs), err)
+	}
+	if evs[1].Data["key"] != key || evs[1].Data["url"] != inviteURL {
+		t.Fatalf("peer_added says %+v", evs[1].Data)
+	}
+	y.approved(t, evs[1], seq)
+
+	// Without a URL the yard is never called: the card says so, and the
+	// approval links it with none.
+	seq = y.ask(t, runAsk("peer add south "+yardkey.Invite{Name: "far-yard", Key: bare}.String()), "yardmaster")
+	run = *y.asked(t, seq).Ask.Run
+	if want := "links the yard far-yard as the peer south with the key " + bare + ", never called: it calls this one and asks for what waits here."; run.Does[0] != want {
+		t.Fatalf("the card without a URL says %q, want %q", run.Does[0], want)
+	}
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true, nil); err != nil {
+		t.Fatal(err)
+	}
+	if p := y.peerOf(t, "south"); p.URL != "" {
+		t.Fatalf("the link without a URL calls %q", p.URL)
+	}
+
+	// Asking refuses what the command would refuse, with nothing stored.
+	airyInvite := yardkey.Invite{Name: "yardr", Key: airyKey}.String()
+	for _, c := range []struct{ command, want string }{
+		{"peer add north abc", `"abc" is no invite: want the line yardr peer invite prints (yardr-peer-1,<name>,<key>[,<url>])`},
+		{"peer add north " + invite, "peer north is added already; to replace it, remove it first (its waiting messages go with it)"},
+		{"peer add east " + airyInvite, "peer east: that key is peer airy's already"},
+		{"peer add North " + invite, `peer "North": use lowercase letters, digits, '.', '_' or '-' (starting with a letter or digit)`},
+	} {
+		if _, err := y.AddAsk(y.ctx, y.bead, runAsk(c.command), "yardmaster"); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("--run %q = %v, want %q", c.command, err, c.want)
+		}
+	}
+
+	// A peer added under the name since makes the card stale, and nothing
+	// runs.
+	westKey := mkkey("west")
+	westInvite := yardkey.Invite{Name: "west-yard", Key: westKey}.String()
+	seq = y.ask(t, runAsk("peer add west "+westInvite), "yardmaster")
+	if _, err := y.AddPeer(y.ctx, Peer{Name: "west", Key: westKey}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	y.refusedStale(t, seq, "was written when no peer was added under west: one was added since")
+	if _, err := y.GetPeer(y.ctx, "airy"); err != nil {
+		t.Fatalf("the refused approval unlinked airy: %v", err)
+	}
 }
 
 // A depot test and a depot base use the same permission check as PutDepot

@@ -216,8 +216,11 @@ What you do:
   Removing a link (`peer rm <name>`) is proposed this way too: one
   command in an ask, with why it is wanted in the context. The card
   names the link and what goes with it: its intakes, identities and
-  queued mail. Adding it back is `peer add` from a fresh invite, in a
-  terminal.
+  queued mail. Adding one (`peer add <name> <invite>`, from the invite
+  another yard gave) is proposed this way too: one command
+  in an ask, with why it is wanted in the context. The card names the
+  peer, the yard and its key, and where this yard calls it, or that it
+  never calls it.
   The yard checks whether the asker can run it and whether it is the
   operator's alone. For an operator-only command the yard can run from a
   card, ask it there; mail one it marks operator's alone in a fenced code

@@ -18,6 +18,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/yardkey"
 )
 
 // runYardCLI is a yard whose operator is the user jo, with the crew member
@@ -389,7 +390,7 @@ func TestBeadAskRunPeerIntakeAndIdentity(t *testing.T) {
 	for _, c := range []struct{ command, want string }{
 		{"peer intake airy --depot web --none", "needs no approval: run it yourself"},
 		{"peer identity airy mayor --source talk --rm", "peer identity with --rm is the operator's to type in a terminal"},
-		{"peer add north abc", "it is the operator's alone, typed in a terminal and never proposed as a run ask"},
+		{"peer add north abc", `"abc" is no invite: want the line yardr peer invite prints (yardr-peer-1,<name>,<key>[,<url>])`},
 		{"peer set airy --url http://airy.example:8790", "it is the operator's alone, typed in a terminal and never proposed as a run ask"},
 	} {
 		if _, err := y.as(t, "yardmaster", "ask", b.ID, "May I?", "--context", "why", "--run", c.command); err == nil || !strings.Contains(err.Error(), c.want) {
@@ -533,6 +534,103 @@ func TestBeadAskRunPeerRm(t *testing.T) {
 	}
 }
 
+// A crew member proposes linking a yard as a run ask: prime shows the card
+// with the invite's yard, key and URL and its trust weight, a crew member
+// running peer add directly is still refused, a peer added under the name
+// since makes it stale, and the operator's weighed approval links.
+func TestBeadAskRunPeerAdd(t *testing.T) {
+	t.Parallel()
+	key := airyKey(t)
+	y, b := runYardCLI(t, "mac", key)
+	ctx := context.Background()
+	k, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "south.key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	south := yardkey.Public(k)
+	local, _, err := yardkey.Ensure(y.a.cfg.PeerKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+	selfInvite := yardkey.Invite{Name: "this-yard", Key: yardkey.Public(local)}.String()
+	if _, err := y.as(t, "yardmaster", "ask", b.ID, "Link this yard?",
+		"--context", "the local key is not another yard", "--run", "peer add self "+selfInvite); err == nil ||
+		!strings.Contains(err.Error(), "that invite is this yard's own") {
+		t.Fatalf("asking to add this yard's invite = %v", err)
+	}
+	inviteURL := "https://[2001:db8::7]:8790/peer%2Fv1;flow=green"
+	invite := yardkey.Invite{Name: "south", Key: south, URL: inviteURL}.String()
+
+	out, err := y.as(t, "yardmaster", "ask", b.ID, "Link south?",
+		"--context", "its yard feeds us builds", "--run", "peer add north "+invite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "ask 1 on " + b.ID + " for jo: to approve, yardr peer add north " + invite + "\n"; out != want {
+		t.Fatalf("bead ask --run peer add printed %q, want %q", out, want)
+	}
+	shown, err := run(t, y.a.primeCmd(), "--bead", b.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"      yardr peer add north " + invite,
+		"  what the command does: Add another yard as a peer, from its invite",
+		"  the yard says: links the yard south as the peer north with the key " + south + ", called at " + inviteURL + ".",
+		"  the yard says: The link carries nothing until yardr peer allow north says what.",
+		"  WEIGHTY · trust: widens who the yard listens to: a new peer, north, whose calls and mail then cross as the invite says",
+		"  only the operator can take it back: yardr peer rm north",
+	} {
+		if !strings.Contains(shown, want+"\n") {
+			t.Errorf("prime lacks %q:\n%s", want, shown)
+		}
+	}
+
+	// A crew member running peer add directly is still refused.
+	y.a.actor = "yardmaster"
+	defer func() { y.a.actor = "jo" }()
+	if _, err := run(t, y.a.peerCmd(), "add", "north", invite); err == nil ||
+		!strings.Contains(err.Error(), "only the operator (jo) may add a peer; this is yardmaster") {
+		t.Fatalf("peer add as yardmaster = %v", err)
+	}
+	if _, err := y.st.GetPeer(ctx, "north"); err == nil {
+		t.Fatal("the refused add linked")
+	}
+
+	// A peer added under the name since makes it stale; nothing runs.
+	if _, err := y.st.AddPeer(ctx, store.Peer{Name: "north", Key: south}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.as(t, "jo", "answer", b.ID, "1", "--approve"); err == nil ||
+		!strings.Contains(err.Error(), "was written when no peer was added under north: one was added since") {
+		t.Fatalf("approving stale = %v", err)
+	}
+
+	// Asked again once the name stands free, the approval links.
+	if err := y.st.DeletePeer(ctx, "north", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.as(t, "yardmaster", "ask", b.ID, "Link south?",
+		"--context", "its yard feeds us builds", "--run", "peer add north "+invite); err != nil {
+		t.Fatal(err)
+	}
+	out, err = y.as(t, "jo", "answer", b.ID, "2", "--approve")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"jo approved it, and the yard ran it:\n",
+		"peer north added (it calls itself south)\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the approval printed %q, which lacks %q", out, want)
+		}
+	}
+	if p, err := y.st.GetPeer(ctx, "north"); err != nil || p.Calls != "south" || p.URL != inviteURL {
+		t.Fatalf("the link after the approval = %+v, %v", p, err)
+	}
+}
+
 // runCLI are the commands of internal/cli that the rows of the store's
 // list stand for, by the word a stored command begins with.
 func runCLI(a *app) map[string]*cobra.Command {
@@ -549,11 +647,17 @@ func runCLI(a *app) map[string]*cobra.Command {
 func TestRunListIsTheCLIs(t *testing.T) {
 	t.Parallel()
 	key := airyKey(t)
+	southKey, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "south.key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	southInvite := yardkey.Invite{Name: "south", Key: yardkey.Public(southKey), URL: "https://south.example.com"}.String()
 	addedFile := filepath.Join(t.TempDir(), "added.yaml")
 	if err := os.WriteFile(addedFile, []byte("name: added\nbase: https://added.example.com/v1\ncredential: { env: ADDED_TOKEN, header: \"Authorization: Bearer {credential}\" }\ncalls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	asks := map[string][]string{
+		"yardr peer add <name> <invite>": {"peer add north " + southInvite},
 		"yardr peer allow <peer> --send <kinds> | --receive <kinds> | --mail-limit <n>": {
 			"peer allow airy --mail-limit 300",
 			"peer allow airy --send mail --receive mail,ping",
@@ -1082,7 +1186,7 @@ func TestRunListIsTheCLIs(t *testing.T) {
 					hookRows = append(hookRows, map[string]any{"name": h.Name, "source": h.Source, "file": filepath.Base(h.SecretFile)})
 				}
 				var changes []map[string]any
-				for _, kind := range []string{"peer_allowed", "source_set", "source_granted", "subscribed", "user_set",
+				for _, kind := range []string{"peer_added", "peer_allowed", "source_set", "source_granted", "subscribed", "user_set",
 					"peer_renamed", "peer_removed", "user_added", "user_removed", "crew_defined", "crew_restart_requested", "setting_changed", "timer_removed", "originator_changed", "source_added", "hook_added", "identity_set", "identity_removed", "sender_unignored", "peer_intake", "peer_identity_set"} {
 					evs, err := y.st.EventsOfKind(ctx, kind, 10)
 					if err != nil {

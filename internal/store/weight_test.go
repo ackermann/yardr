@@ -230,7 +230,7 @@ calls:
 	}
 
 	// Every other row is routine whatever it is asked.
-	weighty := []string{"peer allow", "source set", "source grant", "source add", "pack apply", "hook add", "user key", "user add", "user invite", "crew set", "user identity", "depot test", "call"}
+	weighty := []string{"peer add", "peer allow", "source set", "source grant", "source add", "pack apply", "hook add", "user key", "user add", "user invite", "crew set", "user identity", "depot test", "call"}
 	for _, c := range runList {
 		if has := c.weigh != nil; has != slices.Contains(weighty, strings.Join(c.words, " ")) {
 			t.Errorf("the row %s weighs: %v", strings.Join(c.words, " "), has)

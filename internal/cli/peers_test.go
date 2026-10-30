@@ -44,6 +44,7 @@ func newCLIYard(t *testing.T, name string) *cliYard {
 		t.Fatal(err)
 	}
 	cfg := &config.Config{Home: home}
+	own.SetYard(cfg.PeerKey(), "test")
 	y := &cliYard{a: &app{st: st, actor: "jo", cfg: cfg}, st: st, own: own, home: home}
 	y.srv = httptest.NewServer(yards.NewReceiver(own, cfg.PeerKey(), nil).Handler())
 	t.Cleanup(y.srv.Close)

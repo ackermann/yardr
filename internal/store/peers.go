@@ -517,37 +517,6 @@ func loadPeerOf(tx *bolt.Tx, name, key string) (*Peer, error) {
 	return p, nil
 }
 
-// AddPeer records another yard as a peer. The link carries nothing until
-// AllowPeer says what. A name or a key that is a peer already is refused
-// (peerFree). Who a yard is linked with, and what it takes from them, is
-// the operator's to say (operatorOnly), here and in every change of a link
-// that widens it: not for a crew member's session to grant.
-func (s *Store) AddPeer(ctx context.Context, p Peer, actor string) (*Peer, error) {
-	p = Peer{Name: p.Name, Key: p.Key, URL: p.URL, Calls: p.Calls, Send: []string{}, Receive: []string{}, AddedAt: now()}
-	err := s.write(func(w *wtx) error {
-		// Alone: a link is whom the yard talks to.
-		if err := w.may(ctx, actor, ActAddPeer, Object{Kind: KindPeer, Name: p.Name}); err != nil {
-			return err
-		}
-		if err := peerFree(w.Tx, &p); err != nil {
-			return err
-		}
-		p.Since = w.Bucket(bEvents).Sequence()
-		if err := put(w.Tx, bPeers, p.Name, p); err != nil {
-			return err
-		}
-		data := map[string]any{"peer": p.Name, "key": p.Key}
-		if p.URL != "" {
-			data["url"] = p.URL
-		}
-		return w.event("", "peer_added", actor, data)
-	})
-	if err != nil {
-		return nil, err
-	}
-	return &p, nil
-}
-
 // outboxOf fills in what p's outbox holds.
 func outboxOf(tx *bolt.Tx, p *Peer) error {
 	p.Waiting, p.Failed, p.Error = 0, 0, ""

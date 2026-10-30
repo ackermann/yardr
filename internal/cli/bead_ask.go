@@ -174,6 +174,10 @@ of mailing the person a line to paste into a terminal. The
 command is written as it is typed, with or without the leading yardr, and is
 one of the list the yard runs from a card:
 
+  peer add <name> <invite>
+      the yard of the invite is linked as the peer: the card names the
+      yard, its key and where this yard calls it, or that this yard never
+      calls it; the link carries nothing until peer allow says what
   peer allow <peer> --send <kinds> | --receive <kinds> | --mail-limit <n>
       the link carries kinds each way (ask, bead, file, mail, ping,
       thread), and the card names what it carries in and out after and
@@ -309,21 +313,23 @@ operator's alone is refused as a run ask: what defines what the yard runs
 or whom it trusts (a command of a group or a source, who a peer sees and
 is trusted and reached as, a device, another yard paired or
 called elsewhere), what takes a file path, and what reaches another yard.
-Such a command is typed in a terminal. A card about a link (peer allow,
-peer intake, peer identity, peer rm) is approved from this yard, in a
-terminal or from a device paired with it, and an approval that arrives
-through the reach of the peer the card is about is refused: a peer does
-not widen its own link, say where its own beads go, say who its own crew
-is here or remove its own link. The subscription, the tell, the user's identity and the test
+Such a command is typed in a terminal. A link card (peer add, peer allow,
+peer intake, peer identity, peer rm) can be approved from this yard in a
+terminal or from a paired device when its weight permits. Peer add is
+always strong (trust): a paired device cannot approve it; hosted approval
+needs a fresh sign-in. Approval through a peer's own reach is refused: it
+cannot add, widen or remove its link, route its beads or identify its crew.
+The subscription, the tell, the user's identity and the test
 message to them are a user's own as they are the operator's, since a
 crew member does not decide what a person is told or who they are in
 a source: the ask is for that user or for the operator (--to), and
-the one asked approves it. The yard splits the command at spaces and nowhere else, so
-nothing is quoted: a quote, a backslash, ;, |, &, $ or a line break is
-refused, and a comma anywhere but in a list the command takes (the parts
-of tell=, the kinds peer allow carries, the grants crew set gives). A depot's
-test command goes beside --run, in --run-test "<command>", since it needs
-those characters. It checks the
+the one asked approves it. The yard splits the command at spaces and nowhere
+else: it never interprets quotes or shell punctuation. A peer-add invite
+stays one word and the yardkey invite reader validates all of it, including
+its URL; line breaks are refused. A comma is accepted only in a list the
+command takes or in the peer-add invite (the parts of tell=, the kinds peer
+allow carries, the grants crew set gives). A depot's test command goes beside --run, in --run-test "<command>", since it needs those
+characters. It checks the
 command against the yard as it stands, and refuses one the yard would
 refuse and one that would change nothing (a peer, source, group, crew
 member, user, setting, timer or bead the yard has not, a number out of
@@ -1496,80 +1502,4 @@ func (a *app) approveSetupKeep(c *cobra.Command, st store.API, id string, seq ui
 		fmt.Fprintf(w, "%s kept the standing account\n", a.who())
 		fmt.Fprintf(w, "%s approved it: %s\n", a.who(), done.Result)
 	})
-}
-
-// printAsk prints the ask seq of the bead id on w, as the confirmation of
-// the command that put or answered it. warn is where it says that the
-// yard's links could not be read (see trustMarks).
-func printAsk(w, warn io.Writer, ctx context.Context, st store.API, id string, seq uint64) {
-	if _, _, foreign := strings.Cut(id, "@"); foreign {
-		printForeignAsk(w, ctx, st, id, seq)
-		return
-	}
-	notes, err := st.Notes(ctx, id)
-	if err != nil {
-		fmt.Fprintf(w, "ask %d on %s\n", seq, id)
-		return
-	}
-	as := trustMarks(warn, ctx, st)
-	if as == nil {
-		as = map[string]string{}
-	}
-	for _, r := range store.ResolveAsks(notes, time.Now()) {
-		if r.Note.Seq == seq {
-			fmt.Fprintln(w, strings.Join(r.LinesMarked(as), "\n"))
-			return
-		}
-	}
-	fmt.Fprintf(w, "ask %d on %s\n", seq, id)
-}
-
-// printForeignAsk prints the ask seq of a bead@peer ref as the answer's
-// confirmation: the question with its state as this yard knows it. The
-// question stands on no bead of this yard, so there is no numbered text
-// for it here; the card is in the decisions UI. The question, To and
-// asker are the other yard's writer words, so each stands folded to one
-// line, as the local card's one-line slots do, and none starts a line of
-// its own.
-func printForeignAsk(w io.Writer, ctx context.Context, st store.API, id string, seq uint64) {
-	v, err := st.Bead(ctx, id)
-	if err != nil {
-		fmt.Fprintf(w, "ask %d on %s\n", seq, id)
-		return
-	}
-	for _, a := range v.Asks {
-		if a.Ask == seq {
-			fmt.Fprintf(w, "ask %d · %s · to %s · asked by %s\n%s\n",
-				a.Ask, a.State, store.OneLine(a.To), store.OneLine(a.Asker), store.OneLine(a.Question))
-			return
-		}
-	}
-	fmt.Fprintf(w, "ask %d on %s\n", seq, id)
-}
-
-// askState is the ask's state as words, "" when the bead cannot be read
-// now.
-func askState(ctx context.Context, st store.API, id string, seq uint64) string {
-	if _, _, foreign := strings.Cut(id, "@"); foreign {
-		v, err := st.Bead(ctx, id)
-		if err != nil {
-			return ""
-		}
-		for _, a := range v.Asks {
-			if a.Ask == seq {
-				return a.State
-			}
-		}
-		return ""
-	}
-	notes, err := st.Notes(ctx, id)
-	if err != nil {
-		return ""
-	}
-	for _, r := range store.ResolveAsks(notes, time.Now()) {
-		if r.Note.Seq == seq {
-			return r.State.String()
-		}
-	}
-	return ""
 }

@@ -476,6 +476,12 @@ func peerAllowWeight(w *wtx, run AskRun) ([]AskWeight, error) {
 	return []AskWeight{weighs(WeightTrust, strings.Join(says, "; "))}, nil
 }
 
+// peerAddWeight weighs a peer add: linking a yard is always trust, since
+// its calls and mail then cross as the invite says.
+func peerAddWeight(_ *wtx, run AskRun) ([]AskWeight, error) {
+	return []AskWeight{weighs(WeightTrust, fmt.Sprintf("a new peer, %s, whose calls and mail then cross as the invite says", run.Argv[2]))}, nil
+}
+
 // sourceLimitWeight weighs a source set of a limit: outside where it
 // raises the updates a caller can make in an hour, which is the lower of
 // the two caps, since each update is one of the calls too. Raising the

@@ -18,7 +18,6 @@ package store
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"slices"
 	"strconv"
@@ -353,8 +352,9 @@ type runCommand struct {
 	// not run inside one: the repository flows, by depot, of the depot the
 	// command names (wtx.repos). nil for a command whose card reads none.
 	ready func(ctx context.Context, s *Store, argv []string) (map[string]*RepoFlows, error)
-	// commas says a word of the command is a list with commas between, as
-	// the parts of tell= are. No other command takes the character.
+	// commas says a word of the command holds commas: a list with commas
+	// between, as the parts of tell= are, or the invite peer add takes.
+	// No other command takes the character.
 	commas bool
 }
 
@@ -367,6 +367,18 @@ type runCommand struct {
 // list (aloneList). A test holds each row to the command of internal/cli
 // it names.
 var runList = []runCommand{{
+	words:       []string{"peer", "add"},
+	use:         "yardr peer add <name> <invite>",
+	description: "Add another yard as a peer, from its invite",
+	parse:       parsePeerAdd,
+	check:       checkPeerAdd,
+	card:        (*wtx).peerAddCard,
+	stale:       (*wtx).peerAddStale,
+	weigh:       peerAddWeight,
+	run:         runPeerAdd,
+	link:        func(argv []string) ([]string, string) { return []string{argv[2]}, "add its own link" },
+	commas:      true,
+}, {
 	words:       []string{"peer", "allow"},
 	use:         "yardr peer allow <peer> --send <kinds> | --receive <kinds> | --mail-limit <n>",
 	description: "Set which messages a peer link carries and its mail limit",
@@ -677,90 +689,6 @@ var runList = []runCommand{{
 	stale:       (*wtx).depotBaseStale,
 	run:         runDepotBase,
 }}
-
-// RunCommands are the commands of the list, each as a refusal and the help
-// of yardr bead ask name it.
-func RunCommands() []string {
-	var uses []string
-	for _, c := range runList {
-		uses = append(uses, c.use)
-	}
-	return uses
-}
-
-// errNotRow is when the words name no row of the list: askedRun then
-// tries what is the operator's alone, and approveAsk refuses what the
-// yard did not write.
-var errNotRow = errors.New("is no command the yard runs from a card")
-
-// runNoneChar refuses a character no run command takes.
-func runNoneChar(c rune) error {
-	return fmt.Errorf("--run takes one yardr command of names, numbers and flags, split at spaces: %q is none of their characters, and nothing is quoted. A command that needs it is the operator's to type in a terminal", c)
-}
-
-// unknownRun refuses words that are no row of the list and nothing the
-// yard names as alone or the asker's own to run.
-func unknownRun() error {
-	return fmt.Errorf("--run takes a command of the list (%s): anything else is run directly, or typed by the operator in a terminal", strings.Join(RunCommands(), ", "))
-}
-
-// parseRun reads the command a run ask names, as its writer sent it, and
-// answers its row of the list with the command in its stored form. The
-// line is split at white space and nowhere else, and is read by nothing
-// after this: a character that no name, number or flag of the list has is
-// refused, so there is no quoting, and no second reading of the line.
-func parseRun(sent []string) (*runCommand, []string, error) {
-	c, argv, err := parseRow(sent)
-	if err == errNotRow {
-		return nil, nil, unknownRun()
-	}
-	return c, argv, err
-}
-
-// parseRow is parseRun for a row of the list, and errNotRow for anything
-// else: a command the asker may run themselves, one that is the
-// operator's alone, or none the yard runs from a card. askedRun tells
-// those apart; approveAsk only ever sees what askedRun stored.
-func parseRow(sent []string) (*runCommand, []string, error) {
-	line := strings.Join(sent, " ")
-	none := func(c rune) error {
-		return fmt.Errorf("--run takes one yardr command of names, numbers and flags, split at spaces: %q is none of their characters, and nothing is quoted. A command that needs it is the operator's to type in a terminal", c)
-	}
-	for _, c := range line {
-		switch {
-		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
-		case strings.ContainsRune(" \t._/=-", c):
-		case c == '@' || c == ':' || c == '+':
-			// A trust is a name at a peer, an address is a host and a
-			// port or holds a '+' (an invite's address): the row that
-			// reads them says which.
-		case c == ',':
-			// Held to the command that takes a list, below.
-		default:
-			return nil, nil, none(c)
-		}
-	}
-	comma := strings.ContainsRune(line, ',')
-	words := strings.Fields(line)
-	if len(words) > 0 && words[0] == "yardr" {
-		words = words[1:]
-	}
-	for i := range runList {
-		c := &runList[i]
-		if len(words) < len(c.words) || !slices.Equal(words[:len(c.words)], c.words) {
-			continue
-		}
-		if comma && !c.commas {
-			return nil, nil, none(',')
-		}
-		rest, err := c.parse(words[len(c.words):])
-		if err != nil {
-			return nil, nil, err
-		}
-		return c, append(slices.Clone(c.words), rest...), nil
-	}
-	return nil, nil, errNotRow
-}
 
 // askedRun checks the command a run ask for the user to proposes, written
 // by actor, and answers it as the ask stores it: the command in the yard's
