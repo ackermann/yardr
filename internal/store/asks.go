@@ -851,8 +851,8 @@ func (s *Store) addAnswer(ctx context.Context, id string, ans Answer, actor, rev
 			}
 		}
 		// A mapping ask's pick writes the identity it names, in this
-		// write, and the pick that writes or the decline ends the card by
-		// closing its bead. It runs after the answer is recorded, for two
+		// write, and the pick that writes, the let-in pick or the decline
+		// ends the card by closing its bead. It runs after the answer is recorded, for two
 		// reasons: the write that settles the sender closes the cards for
 		// it, and this card's ask must be answered by then, not taken back;
 		// and addNoted wrote row, which a close made before it would lose
@@ -1319,12 +1319,6 @@ func ResolveAsks(notes []Note, now time.Time) []ResolvedAsk {
 					}
 					r.State, current = AskAside, len(r.Answers)-1
 					r.ReturnAt = m.At.Add(LaterFor)
-				case isLetIn(r.Ask, a):
-					// Let in once delivers what the card held and
-					// leaves the card open for the sender's next
-					// message: the pick is recorded, but it answers
-					// nothing, so the ask stays as it was.
-					continue
 				default:
 					r.State, current = AskAnswered, len(r.Answers)-1
 				}
@@ -1336,16 +1330,6 @@ func ResolveAsks(notes []Note, now time.Time) []ResolvedAsk {
 		out = append(out, r)
 	}
 	return out
-}
-
-// isLetIn reports whether answer a picks let in once on the mapping
-// ask ask: the one pick that delivers what the card held without
-// answering it (answerMapping).
-func isLetIn(ask Ask, a Answer) bool {
-	if ask.Identity == nil || a.Option < 1 || a.Option > len(ask.Options) {
-		return false
-	}
-	return ask.Options[a.Option-1].Label == MappingLetIn
 }
 
 // laterBack reports whether a put-aside ask has come back: its 24 hours

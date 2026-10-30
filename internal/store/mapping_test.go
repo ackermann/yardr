@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"slices"
 	"strings"
 	"testing"
@@ -525,16 +526,145 @@ func TestClaimIdentityNobodyIgnores(t *testing.T) {
 	}
 }
 
+// Let in, once delivers what the card held as outside in arrival
+// order, writes no identity, answers the ask and closes the card's
+// bead: the sender stays unmapped, and their next message offers a
+// fresh card holding that message alone.
+func TestClaimIdentityLetInOnceClosesCard(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y := mappingYard(t)
+	first := holdTalk(t, y, "U999", "let in first")
+	holdTalk(t, y, "U999", "let in second")
+	if got := cardHeldCount(t, y, first.Bead); got != 2 {
+		t.Fatalf("the card holds %d messages, want 2", got)
+	}
+	if err := y.AnswerAsk(y.ctx, first.Bead, first.Ask, pickFor(t, y, first.Bead, MappingLetIn), "", "mckean", false); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := hookSpeakers(t, y), []string{SpeakerOutside, SpeakerOutside}; !slices.Equal(got, want) {
+		t.Fatalf("hook speakers after let in = %v, want %v", got, want)
+	}
+	events, err := y.Events(y.ctx, "", 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var held []Event
+	for _, event := range events {
+		if event.Kind == "hook" {
+			held = append(held, event)
+		}
+	}
+	if len(held) != 2 {
+		t.Fatalf("released events = %+v, want the two held deliveries", held)
+	}
+	for i, want := range []string{"let in first", "let in second"} {
+		if payload, err := y.HookPayload(y.ctx, held[i].Seq); err != nil || string(payload) != want {
+			t.Fatalf("released payload %d = %q, %v, want %q in arrival order", i, payload, err, want)
+		}
+	}
+	if holders, err := mappedTo(y, "talk", "U999"); err != nil || len(holders) != 0 {
+		t.Fatalf("U999 is mapped to %v after let in, %v, want nobody", holders, err)
+	}
+	if src, err := y.GetSource(y.ctx, "talk"); err != nil || len(src.Ignored) != 0 {
+		t.Fatalf("ignored after let in = %+v, %v, want none", src, err)
+	}
+	if d := wantDecided(t, y, first.Bead, "answered"); d.OptionLabel != MappingLetIn {
+		t.Fatalf("the card's answer = %+v, want the %q pick", d, MappingLetIn)
+	}
+	wantCardClosed(t, y, first.Bead, "let in once by mckean")
+	if got := cardHeldCount(t, y, first.Bead); got != 0 {
+		t.Fatalf("let-in card holds %d messages, want none", got)
+	}
+	if q := mappingQueue(t, y); len(q.Open) != 0 {
+		t.Fatalf("open asks after let in = %+v, want none", q.Open)
+	}
+	fresh := holdTalk(t, y, "U999", "fresh after let in")
+	if fresh.Bead == first.Bead {
+		t.Fatalf("the next delivery's card is the let-in one, %s", fresh.Bead)
+	}
+	wantCardOpen(t, y, fresh.Bead)
+	if got := cardHeldCount(t, y, fresh.Bead); got != 1 {
+		t.Fatalf("the fresh card holds %d messages, want 1", got)
+	}
+	if got := hookSpeakers(t, y); len(got) != 2 {
+		t.Fatalf("hook speakers after the fresh hold = %v, want the let-in two alone", got)
+	}
+	if err := y.AnswerAsk(y.ctx, fresh.Bead, fresh.Ask, pickFor(t, y, fresh.Bead, "ada"), "", "mckean", true); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := hookSpeakers(t, y), []string{SpeakerOutside, SpeakerOutside, "ada"}; !slices.Equal(got, want) {
+		t.Fatalf("hook speakers after the fresh card's pick = %v, want %v", got, want)
+	}
+	wantCardClosed(t, y, fresh.Bead, "U999 is ada in talk")
+}
+
+// A let-in pick recorded before let-in closed its card reads as that
+// card's answer, its held already delivered then: the ask leaves the
+// operator's open decisions and blocks no fresh card, its bead stands
+// open until the sender is settled or it is closed by hand, and it
+// still takes a newer pick, which ends it as that pick ends any card.
+func TestClaimIdentityLetInBeforeChangeStillAnswers(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y := mappingYard(t)
+	card := holdTalk(t, y, "U777", "before the change")
+	letIn := pickFor(t, y, card.Bead, MappingLetIn)
+	// The pick as the yard recorded it before the change: the answer
+	// note and the outside delivery, with no close of the bead.
+	err := y.write(func(w *wtx) error {
+		row, err := w.loadBead(card.Bead)
+		if err != nil {
+			return err
+		}
+		text, err := json.Marshal(Answer{Ask: card.Ask, Option: letIn})
+		if err != nil {
+			return err
+		}
+		if _, err := w.addNoted(row, NoteAnswer, string(text), "mckean"); err != nil {
+			return err
+		}
+		return w.deliverHeld(row.UUID, SpeakerOutside)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := hookSpeakers(t, y), []string{SpeakerOutside}; !slices.Equal(got, want) {
+		t.Fatalf("hook speakers from the old pick = %v, want %v", got, want)
+	}
+	wantCardOpen(t, y, card.Bead)
+	if d := wantDecided(t, y, card.Bead, "answered"); d.OptionLabel != MappingLetIn {
+		t.Fatalf("the old card's answer = %+v, want the %q pick", d, MappingLetIn)
+	}
+	if q := mappingQueue(t, y); len(q.Open) != 0 {
+		t.Fatalf("open asks with the old card decided = %+v, want none", q.Open)
+	}
+	fresh := holdTalk(t, y, "U777", "after the change")
+	if fresh.Bead == card.Bead {
+		t.Fatalf("the next delivery revived the old card, %s", fresh.Bead)
+	}
+	wantCardOpen(t, y, card.Bead)
+	wantCardOpen(t, y, fresh.Bead)
+	if err := y.AnswerAsk(y.ctx, card.Bead, card.Ask, pickFor(t, y, card.Bead, "ada"), "", "mckean", true); err != nil {
+		t.Fatal(err)
+	}
+	if u, err := y.GetUser(y.ctx, "ada"); err != nil || !u.IsIn("talk", "U777") {
+		t.Fatalf("ada after the old card's pick = %+v, %v, want U777 mapped in talk", u, err)
+	}
+	wantCardClosed(t, y, card.Bead, "U777 is ada in talk")
+	// Settling the sender ends the fresh card beside the old one, as
+	// it ends any card for that sender.
+	wantCardClosed(t, y, fresh.Bead, "U777 is ada in talk")
+	if got, want := hookSpeakers(t, y), []string{SpeakerOutside, "ada"}; !slices.Equal(got, want) {
+		t.Fatalf("hook speakers after settling = %v, want %v", got, want)
+	}
+}
+
 // A card for a sender mapped since (one from before a mapping ended its
-// cards) makes the someone-new and nobody picks stale too: no user is
-// added, nothing is ignored, and the card stays open.
+// cards) makes the someone-new, nobody and let-in picks stale too: no
+// user is added, nothing is ignored or delivered, and the card stays open.
 func TestClaimIdentityNewPicksAreStale(t *testing.T) {
 	// Sequential: the package's fake clock (via newAskYard).
 	y := mappingYard(t)
-	if created, err := y.ClaimIdentity(y.ctx, "talk", "U777", "C1", "hi"); err != nil || !created {
-		t.Fatalf("ClaimIdentity = %v, %v", created, err)
-	}
-	open := mappingQueue(t, y).Open[0]
+	open := holdTalk(t, y, "U777", "held before it went stale")
 	if _, err := y.AddUser(y.ctx, "bo", "mckean"); err != nil {
 		t.Fatal(err)
 	}
@@ -547,6 +677,15 @@ func TestClaimIdentityNewPicksAreStale(t *testing.T) {
 	}
 	if err := y.AnswerAsk(y.ctx, open.Bead, open.Ask, pickFor(t, y, open.Bead, MappingNobody), "", "mckean", false); err == nil || !strings.Contains(err.Error(), "names bo already") {
 		t.Fatalf("a stale nobody pick = %v, want a stale refusal", err)
+	}
+	if err := y.AnswerAsk(y.ctx, open.Bead, open.Ask, pickFor(t, y, open.Bead, MappingLetIn), "", "mckean", false); err == nil || !strings.Contains(err.Error(), "names bo already") {
+		t.Fatalf("a stale let-in pick = %v, want a stale refusal", err)
+	}
+	if got := cardHeldCount(t, y, open.Bead); got != 1 {
+		t.Fatalf("held deliveries after a stale pick = %d, want the held message untouched", got)
+	}
+	if got := hookSpeakers(t, y); len(got) != 0 {
+		t.Fatalf("hook speakers after a stale pick = %v, want no delivery", got)
 	}
 	if src, err := y.GetSource(y.ctx, "talk"); err != nil || len(src.Ignored) != 0 {
 		t.Fatalf("ignored after a stale pick = %+v, %v", src, err)

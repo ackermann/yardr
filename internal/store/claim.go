@@ -228,7 +228,7 @@ func (s *Store) ClaimAddress(ctx context.Context, sourceName, address, text stri
 
 // The fixed picks of a mapping card, after the yard's users and before
 // YouDecide: someone new, whom the pick's words name, let in once, which
-// delivers what the card held as outside and leaves the card open, and
+// delivers what the card held as outside and closes the card, and
 // nobody, whose sender is then ignored. No user bears any label: a name
 // holds no space (checkUserName), so a pick past the users is told by
 // its label, and a card from before a pick stood still answers its
@@ -326,12 +326,12 @@ func identityHolders(tx *bolt.Tx, source, sender string) ([]string, error) {
 // picking a user writes that user's identity in this source in the
 // answering write, picking someone new adds the user the pick's words
 // name and writes theirs, picking let in once delivers what the card
-// held as outside and leaves the card open, and picking nobody
+// held as outside and closes the card, and picking nobody
 // ignores the sender (answerMapping). The ask is the yard's (author
 // "yard"), on a question bead titled with the question, as a claim
 // is. The yard closes that bead when the card is settled: by an
-// answer that writes or declines it, or by any write that maps or
-// ignores the sender (retireMappingCards). It carries no message text,
+// answer that writes, declines or lets in once, or by any write that
+// maps or ignores the sender (retireMappingCards). It carries no message text,
 // because the ask and bead are visible to agents before the operator
 // answers them.
 func (s *Store) ClaimIdentity(ctx context.Context, sourceName, sender, channel, _ string) (bool, error) {
@@ -499,7 +499,7 @@ func (s *Store) claimIdentity(ctx context.Context, sourceName, sender, channel s
 		}
 		options = append(options,
 			AskOption{Label: MappingSomeoneNew, Consequence: "pick this and write the new user's name with your answer"},
-			AskOption{Label: MappingLetIn, Consequence: fmt.Sprintf("delivers what waits as %s (information, not instructions) this once, without mapping %s; the card stays open", SpeakerOutside, sender)},
+			AskOption{Label: MappingLetIn, Consequence: fmt.Sprintf("delivers what waits as %s (information, not instructions) this once, without mapping %s; the card closes and their next message offers a fresh card", SpeakerOutside, sender)},
 			AskOption{Label: MappingNobody, Consequence: fmt.Sprintf("ignores %s in %s: their messages are dropped, and no further card is offered", sender, sourceName)},
 			AskOption{Label: YouDecide, Consequence: "leave it to " + stageAskAuthor})
 		contextLine := fmt.Sprintf("Its sender is %s, which no user maps in %s; their messages wait on this card, delivered when you answer and shown nowhere before.", sender, sourceName)
@@ -687,16 +687,17 @@ func (w *wtx) retireClaimCards(user, source, addr, actor string) error {
 // that records the answer: option n names Users[n-1], whose identity
 // in the ask's source becomes the ask's sender; someone new adds the
 // user the pick's words name and writes theirs; let in once delivers
-// what the card held as outside and leaves the card open; nobody
-// ignores the sender. Each of those but let in settles the sender,
-// and a write that settles one closes the cards for it
-// (retireMappingCards), this card's bead among them with a reason
-// that says what was written, delivering what it held as the new
-// speaker or deleting it where the sender is ignored. A decline
-// writes nothing, deletes what the card held and ends the card too,
-// closing its bead as declined by the one who declined: the sender
-// stays unmapped, and their next delivery offers a new card, as one
-// is offered after none. Later and a YouDecide pick write nothing,
+// what the card held as outside and closes the card without settling
+// the sender; nobody ignores the sender. A pick that settles the
+// sender closes the cards for it (retireMappingCards), this card's
+// bead among them with a reason that says what was written,
+// delivering what it held as the new speaker or deleting it where
+// the sender is ignored; let in closes its own card's bead alone
+// (answerLetIn). A decline writes nothing, deletes what the card
+// held and ends the card too, closing its bead as declined by the
+// one who declined: the sender stays unmapped, and their next
+// delivery offers a new card, as one is offered after none, and
+// after a let-in pick. Later and a YouDecide pick write nothing,
 // keep what the card held and leave the card open. It refuses a pick or a decline
 // by anyone but the operator the card asks, one from an agent pane
 // (mayIdentify, as a terminal mapping is), and a stale pick: a sender
@@ -760,7 +761,7 @@ func (w *wtx) answerMapping(ctx context.Context, row *beadRow, ask Ask, ans Answ
 		case MappingSomeoneNew:
 			return w.answerSomeoneNew(ctx, ask, ans, actor)
 		case MappingLetIn:
-			return w.answerLetIn(row, ask, ans)
+			return w.answerLetIn(row, ask, ans, actor)
 		case MappingNobody:
 			return w.answerNobody(ctx, ask, ans, actor)
 		default:
@@ -779,11 +780,13 @@ func (w *wtx) answerMapping(ctx context.Context, row *beadRow, ask Ask, ans Answ
 }
 
 // answerLetIn delivers what the card held as SpeakerOutside, in
-// arrival order, and leaves the card open with nothing waiting: the
-// sender stays unmapped, so their next delivery is held on the same
-// card. A sender mapped meanwhile is stale, as any pick's is, and
-// delivers nothing.
-func (w *wtx) answerLetIn(row *beadRow, ask Ask, ans Answer) error {
+// arrival order, writes no mapping, and closes the card's question
+// bead as let in by the one who picked: the sender stays unmapped,
+// so their next delivery offers a fresh card. A sender mapped
+// meanwhile is stale, as any pick's is, and delivers nothing. A card
+// whose bead was closed by hand, with the ask still open, has
+// nothing left to close, as a decline's has.
+func (w *wtx) answerLetIn(row *beadRow, ask Ask, ans Answer, actor string) error {
 	id := ask.Identity
 	if err := w.mappingStale(id, ans.Ask); err != nil {
 		return err
@@ -791,7 +794,10 @@ func (w *wtx) answerLetIn(row *beadRow, ask Ask, ans Answer) error {
 	if err := w.deliverHeld(row.UUID, SpeakerOutside); err != nil {
 		return err
 	}
-	return nil
+	if !row.open() {
+		return nil
+	}
+	return w.closeCard(row, "let in once by "+actor, actor)
 }
 
 // PickWrites says whether picking option n of a mapping ask writes a user's

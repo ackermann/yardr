@@ -807,9 +807,8 @@ func heldFileDepot(t *testing.T) *depot {
 }
 
 // Let in, once delivers what the card held as outside, maps no
-// identity, and leaves the same card open: the sender's next
-// delivery is held on it again, and a later user pick delivers that
-// one as theirs.
+// identity, and closes the card: the sender's next delivery is held
+// on a fresh card, and a user pick on that one delivers it as theirs.
 func TestHeldDeliveryLetInOnce(t *testing.T) {
 	ctx := context.Background()
 	r := heldDepot(t)
@@ -829,20 +828,27 @@ func TestHeldDeliveryLetInOnce(t *testing.T) {
 	if u, err := r.st.GetUser(ctx, "ada"); err != nil || u.IsIn("talk", "U999") {
 		t.Fatalf("ada after let in = %+v, %v, want U999 unmapped", u, err)
 	}
-	open := heldCard(t, r, "U999")
-	if open.Bead != before.Bead || open.Identity.Held != 0 {
-		t.Fatalf("the card after let in = %+v, want the same card open holding none", open)
+	closed, err := r.st.GetBead(ctx, before.Bead)
+	if err != nil || closed.Status != "closed" || closed.CloseReason == nil || *closed.CloseReason != "let in once by op" {
+		reason := "no reason"
+		if closed.CloseReason != nil {
+			reason = *closed.CloseReason
+		}
+		t.Fatalf("the card bead after let in = %s with %q, %v, want closed as let in once by op", closed.Status, reason, err)
+	}
+	if q, err := r.st.UserAsks(ctx, "op", "op"); err != nil || len(q.Open) != 0 {
+		t.Fatalf("open asks after let in = %v, %v, want none", q, err)
 	}
 	r.now = r.now.Add(time.Second)
 	r.talk(t, "U999", "second let in")
-	if replay := heldCard(t, r, "U999"); replay.Identity.Held != 0 || len(r.hookEvents(t)) != 2 {
-		t.Fatalf("a redelivery after let in = %+v, %d hook events, want no new hold or event", replay.Identity, len(r.hookEvents(t)))
+	if q, err := r.st.UserAsks(ctx, "op", "op"); err != nil || len(q.Open) != 0 || len(r.hookEvents(t)) != 2 {
+		t.Fatalf("a redelivery after let in = %v, %v, %d hook events, want no new card or event", q, err, len(r.hookEvents(t)))
 	}
 	r.now = r.now.Add(time.Second)
 	r.talk(t, "U999", "held again")
 	again := heldCard(t, r, "U999")
-	if again.Bead != before.Bead || again.Identity.Held != 1 {
-		t.Fatalf("the card after the next delivery = %+v, want the same card holding 1", again)
+	if again.Bead == before.Bead || again.Identity.Held != 1 {
+		t.Fatalf("the card after the next delivery = %+v, want a fresh card holding 1", again)
 	}
 	if n := len(r.hookEvents(t)); n != 2 {
 		t.Fatalf("a delivery held after let in recorded: %d hook events", n)

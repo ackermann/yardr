@@ -1358,8 +1358,8 @@ pick's words adds that user and writes theirs the same way, and
 with empty, invalid or taken words the answer is refused, the card
 stays open, and what it held still waits. Let in, once delivers
 what waits as `outside`, as information and not instructions,
-without mapping the sender: the card stays open, and the sender's
-next message is held on it again. Picking nobody ignores the
+without mapping the sender, and closes the card: the sender's
+next message offers a fresh card holding that message. Picking nobody ignores the
 sender and deletes what the card held: their later messages are
 dropped without a second card under either unknown or allow, until
 the entry is removed or the sender is mapped. Declining deletes
@@ -1368,7 +1368,8 @@ offers again.
 
 A pick that writes closes the card's question bead, with the reason
 saying what was written (`U012AB3CD is ada in slack`, `U012AB3CD is
-ignored in slack`). A decline closes it as `declined by <user>`. Putting
+ignored in slack`). Let in, once closes it as `let in once by <user>`,
+and a decline closes it as `declined by <user>`. Putting
 a card aside and picking You decide leave it open, holding what
 waits. Settling the sender any other way ends their card the same
 way the pick it amounts to would: `yardr user identity` typed in a
@@ -2351,7 +2352,8 @@ them whole):
   anywhere: Slack takes its Request URL only in its own configuration.
   `--unknown unknown` holds a sender's messages on the operator's
   mapping card until answered; a user pick routes them as that user,
-  and `Let in, once` routes them as outside without mapping the sender.
+  and `Let in, once` routes them as outside without mapping the sender
+  and closes the card, so the sender's next message offers a fresh card.
   The app is created from the pack's manifest,
   which carries no event subscriptions and no Request URL, and once the
   hook stands the operator turns Event Subscriptions on in the browser

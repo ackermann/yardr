@@ -5096,7 +5096,7 @@ Read it again on every event that carries a bead, and on the events without one 
 
 ### `AnswerAsk`
 
-Answers an ask: picks an option with words alongside, or answers an ask with no options with words. It is what `yardr bead answer` does with an option or `--words`: words alone on an ask with options are refused, and go as a plain note instead. On a `bead@peer`, a question another yard asked, the answer is queued home for that yard instead of written as a note: only the person the question is for may give it, the link must carry `ask` out, and words alone on an ask with options are refused with the address to mail the asker at. A pick on a mapping ask (an ask of `Bead` with `identity`) that writes a user's identity, a user's pick or someone new's, is a weighty approval: the call is refused unless it says `weighed` ([weighty cards](#weighty-cards)), and the ask stays open. Nobody, let in once and you decide write no identity, and no other answer asks for the word. It answers nothing; the answer is then a `noted` event in the stream.
+Answers an ask: picks an option with words alongside, or answers an ask with no options with words. It is what `yardr bead answer` does with an option or `--words`: words alone on an ask with options are refused, and go as a plain note instead. On a `bead@peer`, a question another yard asked, the answer is queued home for that yard instead of written as a note: only the person the question is for may give it, the link must carry `ask` out, and words alone on an ask with options are refused with the address to mail the asker at. A pick on a mapping ask (an ask of `Bead` with `identity`) that writes a user's identity, a user's pick or someone new's, is a weighty approval: the call is refused unless it says `weighed` ([weighty cards](#weighty-cards)), and the ask stays open. Nobody and you decide write no identity; let in once writes none either, but it answers its ask, delivers what the card held as `outside` and closes the card, so the sender's next message offers a fresh card, and no other answer asks for the word. The call returns no data; its answer is then a `noted` event in the stream.
 
 | argument | type | |
 |---|---|---|
@@ -5385,7 +5385,9 @@ A weighty card is approved only by a call that says its person saw the
 weight. Each of those four calls takes `weighed`, a bool that is `false`
 when it is left out. `AnswerAsk` takes it for a pick on a mapping ask that
 writes a user's identity, a user's pick or someone new's; a pick of
-nobody, let in once or you decide writes none, and no other answer asks for it. Without
+nobody or you decide writes none, and neither does let in once, which
+answers and closes its card without writing one, and no other answer
+asks for it. Without
 `weighed` a weighty card is refused, before anything is written or run,
 with the code `error` and these words, in which the classes are the
 card's:
