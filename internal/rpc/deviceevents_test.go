@@ -82,6 +82,7 @@ var variableSites = map[string]struct {
 	"internal/cli/upgrade_flow.go":  {2, []string{"install_failed", "rolled_back"}},
 	"internal/dispatch/dispatch.go": {1, []string{"backoff", "unrouted", "no_runner", "capped", "bad_depot", "bad_flow", "bad_train", "wagon_without_train"}},
 	"internal/dispatch/limits.go":   {1, []string{"session_idle", "session_aged"}},
+	"internal/dispatch/owninput.go": {1, []string{"session_prompt_gave_up", "session_prompt_typed"}},
 	"internal/server/edge.go":       {1, []string{"edge_link_up", "edge_link_down"}},
 	"internal/store/beads.go": {2, []string{"unblocked", "reblocked", "updated", "originator_changed", "advanced", "closed", "reopened",
 		"held", "unheld", "released"}},
