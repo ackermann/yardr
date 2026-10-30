@@ -18,8 +18,8 @@ type AskCard struct {
 	// OnBead is whether the card stands on its bead's page: it then opens
 	// with the ask line and answers with the page's full form, giving and
 	// approving where the gate allows. Away from it the card opens with
-	// the head and answers with the row's form, which offers no giving or
-	// approving.
+	// the head and answers with the row's form, which offers no giving and
+	// approves a strong card alone (Approve).
 	OnBead bool
 	// Yard is the yard's name, Shade its chip shade (yardSlot): the head's
 	// dot stands in the yard's colour, a number and never inline style.
@@ -72,6 +72,9 @@ type AskCard struct {
 	Picks  bool
 	Words  bool
 	Answer bool
+	// Approve is whether a run or setup card's approval controls stand: its
+	// button, with the fields the card asks for (approvable).
+	Approve bool
 }
 
 // cardSecret is what a secret ask asks for, in the yard's words, with the
@@ -104,21 +107,52 @@ type cardSetup struct {
 }
 
 // cardSite is where a card stands: the yard for its head and sentences,
-// and the crew and users the viewing user may write to one of.
+// whether the window holds the gate a strong card is approved under, and
+// the crew and users the viewing user may write to one of.
 type cardSite struct {
 	Yard  string
 	Shade int
+	Gate  bool
 	Crew  []store.CrewMember
 	Users []store.User
 }
 
+// holdsGate reports whether this window can carry a strong card's approval:
+// a view with a gateway to sign in at, on a hosted yard. approveStrong asks
+// the same two things before it starts a sign-in, so the page offers the
+// control exactly where a click can go on; the click asks again. A yard
+// whose settings cannot be read holds none: the card then reads as it does
+// where there is no gate.
+func (s *Server) holdsGate(ctx context.Context) bool {
+	if s.jwt == nil {
+		return false
+	}
+	settings, err := s.st.Settings(ctx)
+	return err == nil && settings[store.HostedSetting] == "true"
+}
+
+// approvable is whether a run or setup card's approval controls stand
+// (design yardr-b7kz 3.2 point 7). A routine card approves on its bead's
+// page, as ever. A strong card — trust or code in its weight — approves
+// wherever it stands once the window holds the gate: the click goes to the
+// bead page's own handler, which starts the fresh sign-in. Any other
+// weighty card has no gate in any window, and a strong one has none where
+// the window holds no gate: both keep the line naming where they are
+// approved.
+func approvable(weight []store.AskWeight, onBead, gate bool) bool {
+	if len(weight) == 0 {
+		return onBead
+	}
+	return gate && store.StrongWeight(weight)
+}
+
 // cardSite reads where the request's cards stand: the yard's name and chip
-// shade, and the crew and users for the Ask about this link. The link
-// stands only where the view acts, so a view that acts as no user reads no
-// crew and no users.
+// shade, whether the window holds the gate, and the crew and users for the
+// Ask about this link. The link stands only where the view acts, so a view
+// that acts as no user reads no crew and no users.
 func (s *Server) cardSite(ctx context.Context) (cardSite, error) {
 	yard := s.yardName(ctx)
-	site := cardSite{Yard: yard, Shade: yardSlot(yard)}
+	site := cardSite{Yard: yard, Shade: yardSlot(yard), Gate: s.holdsGate(ctx)}
 	if s.acting(ctx) == "" {
 		return site, nil
 	}
@@ -158,6 +192,7 @@ func (p BeadPage) Card(a store.BeadAsk) AskCard {
 	}
 	out.Answer = out.Words && len(a.Options) == 0
 	out.Says = a.Run != nil || a.Setup != nil
+	out.Approve = (a.Run != nil || a.Setup != nil) && approvable(a.Weight, true, p.site.Gate)
 	if a.Secret != nil {
 		out.Secret = &cardSecret{Line: a.Secret.Line, Env: a.Secret.Env}
 	}
@@ -172,7 +207,9 @@ func (p BeadPage) Card(a store.BeadAsk) AskCard {
 
 // Card is the wait's ask reason as the ask partial renders it: away from
 // its bead's page, so with the head, and with the row's form, which offers
-// no giving or approving.
+// no giving and approves a strong card alone. The form posts to the bead's
+// handler, so the approval goes through the gate the bead page's does, and
+// the viewer lands on the bead page as after any answer from a row.
 func (w Waiting) Card(r Reason) AskCard {
 	out := AskCard{
 		Bead: w.Bead, Ask: r.Ask,
@@ -182,19 +219,20 @@ func (w Waiting) Card(r Reason) AskCard {
 		Context: r.Context, Options: r.Options, Recommend: r.Recommend, Why: r.RecommendWhy,
 		Mapping: r.Identity != nil, User: r.To,
 		Form: w.As != "", Rev: w.Revision, Action: "/beads/" + url.PathEscape(w.Bead),
-		Picks: len(r.Weight) == 0 || r.Identity == nil,
+		Picks: r.SetupPack == "" && (len(r.Weight) == 0 || r.Identity == nil),
 		Words: r.SecretLine == "",
 	}
 	out.Answer = out.Words && len(r.Options) == 0 && r.RunCommand == ""
 	out.Says = r.RunCommand != "" || r.SetupPack != ""
+	out.Approve = (r.RunCommand != "" || r.SetupPack != "") && approvable(r.Weight, false, w.site.Gate)
 	if r.SecretLine != "" {
 		out.Secret = &cardSecret{Line: r.SecretLine}
 	}
 	if r.RunCommand != "" {
-		out.Run = &cardRun{Command: r.RunCommand, Does: r.RunDoes, Back: r.RunBack, BackBy: r.RunBackBy}
+		out.Run = &cardRun{Command: r.RunCommand, Does: r.RunDoes, Back: r.RunBack, BackBy: r.RunBackBy, Ask: r.RunAsk}
 	}
 	if r.SetupPack != "" {
-		out.Setup = &cardSetup{Pack: r.SetupPack, Does: r.SetupDoes, Back: r.SetupBack, BackBy: r.SetupBackBy}
+		out.Setup = &cardSetup{Pack: r.SetupPack, Does: r.SetupDoes, Back: r.SetupBack, BackBy: r.SetupBackBy, Account: r.SetupAccount}
 	}
 	return out
 }

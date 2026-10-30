@@ -151,6 +151,13 @@ type Reason struct {
 	SetupDoes   []string          `json:"-"`
 	SetupBack   string            `json:"-"`
 	SetupBackBy string            `json:"-"`
+	// RunAsk are the names a run card's approval gives values for in the
+	// clear, SetupAccount the account names a setup card's approval takes
+	// unseen: the fields the card carries beside its approval, so a card
+	// that asks for them is not approved without them. HTML-only, as the
+	// options are.
+	RunAsk       []string `json:"-"`
+	SetupAccount []string `json:"-"`
 	// Weight is the card's weight, each class with the yard's line, as
 	// the yard weighed it when it wrote the card, absent on a routine
 	// card; Identity is what a mapping ask maps, absent on any other
@@ -645,6 +652,7 @@ func askReason(r store.ResolvedAsk) Reason {
 		out.RunDoes = r.Ask.Run.Does
 		out.RunBack = r.Ask.Run.Back
 		out.RunBackBy = r.Ask.Run.BackBy
+		out.RunAsk = r.Ask.Run.Ask
 	case r.Ask.Secret != nil:
 		// The yard's line, never the asker's words: what is asked for.
 		out.SecretLine = r.Ask.Secret.Line()
@@ -653,6 +661,7 @@ func askReason(r store.ResolvedAsk) Reason {
 		out.SetupDoes = r.Ask.Setup.Does
 		out.SetupBack = r.Ask.Setup.Back
 		out.SetupBackBy = r.Ask.Setup.BackBy
+		out.SetupAccount = r.Ask.Setup.Account
 	}
 	if r.Ask.Recommend >= 1 && r.Ask.Recommend <= len(r.Ask.Options) {
 		out.Recommend = r.Ask.Recommend

@@ -354,9 +354,12 @@ names the terminal command instead, where the card is given or picked,
 with Later and Decline staying as ever. The needs rows and the line's
 waits follow the page: a weighty card shows its weight first there too,
 a mapping card names the pick's terminal command instead of offering its
-picks, and the words stay with Later and Decline. A giving or a writing
-pick posted straight at the handler is still the yard's to refuse, in its
-own words, with nothing written. A bead in a stage that waits for
+picks, and the words stay with Later and Decline. A strong card — trust
+or code in its weight — is the exception on a hosted yard: the needs rows
+and the line's waits approve it as its bead's page does ([One
+bead](#one-bead)). A giving or a writing pick posted straight at the
+handler is still the yard's to refuse, in its own words, with nothing
+written. A bead in a stage that waits for
 the user sends on as `yardr review` offers it, with a note
 ([One bead](#one-bead)). The Previews page approves, refuses, stops and
 restarts as the user, through the socket's `ApprovePreview`,
@@ -1479,6 +1482,21 @@ window, and the return approves the card it was raised for and no other.
 One fresh sign-in witnesses several strong cards inside the window. A
 self-hosted yard approves strong cards at a terminal on the yard's
 machine, never on the page.
+
+The card is the same wherever it stands, and a strong card approves the
+same way from the needs rows on Home and from the waits on `/line` as on
+its bead's page. The button reads `Approve in <yard>`, beside the fields
+the card asks for (the values in the clear of a run card; a setup's
+presets, the account typed unseen and the candidate), and posts to the
+bead's own handler, so the sign-in and the approval are the bead page's
+own. The person lands on the bead's page afterwards, as after any answer
+given from a row: it shows the card answered and what the approval did,
+or the yard's reason when it refused. Where the view holds no gateway, or the
+yard is not hosted, a strong card shows no button anywhere and names the
+terminal command, as any weighty card does. A routine run or setup card
+approves on its bead's page alone, and a card that is weighty but neither
+trust nor code (a credential, a change outside the yard, a call as a
+user, or a widened read, taken alone) approves nowhere in the web.
 
 A note's files are what `yardr bead note --file` attached to it. Each
 image shows below the note's words, with those words as its alt text; each

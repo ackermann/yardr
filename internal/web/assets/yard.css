@@ -457,16 +457,19 @@ ul, ol { list-style: none; }
 /* An ask's answer, under a needs row, a wait's reason or its bead: the
    options as buttons, with Later and Decline. The buttons wrap instead of
    widening the page, and each is large enough to tap. Its text is 16px:
-   smaller, a phone enlarges the field on focus and the page with it. */
-.need-answer { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; white-space: normal; }
-.need-answer input[type="text"], .need-answer input[type="password"] { flex: 1 1 100%; min-width: 0; padding: 8px; background: var(--panel); color: var(--ink); border: 1px solid var(--hairline-strong); font: 16px/1.5 var(--mono); }
-.need-answer button { padding: 12px 16px; min-height: 44px; background: var(--panel); color: var(--dim); border: 1px solid var(--hairline-strong); overflow-wrap: anywhere; }
-.need-answer button:hover { color: var(--accent-hover); border-color: var(--accent-hover); }
+   smaller, a phone enlarges the field on focus and the page with it. A
+   setup card's approval, the presets to pick and the account to type, is
+   the same row. */
+.need-answer, .need-approve { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; white-space: normal; }
+.need-answer input[type="text"], .need-answer input[type="password"], .need-approve input[type="text"], .need-approve input[type="password"] { flex: 1 1 100%; min-width: 0; padding: 8px; background: var(--panel); color: var(--ink); border: 1px solid var(--hairline-strong); font: 16px/1.5 var(--mono); }
+.need-answer button, .need-approve button { padding: 12px 16px; min-height: 44px; background: var(--panel); color: var(--dim); border: 1px solid var(--hairline-strong); overflow-wrap: anywhere; }
+.need-answer button:hover, .need-approve button:hover { color: var(--accent-hover); border-color: var(--accent-hover); }
+.need-approve label { align-self: center; }
 /* Ask about this stands in the answer row where the viewing user may
    write to the asker: a link among the buttons, not one of them. */
 .need-answer .ask-about { align-self: center; }
 /* A needs row keeps one line for its link; the answer stands under it. */
-.needs li .need-answer { margin: 4px 0 8px; }
+.needs li .need-answer, .needs li .need-approve { margin: 4px 0 8px; }
 /* An asked row's ask, under its link: the context lines, the options with
    their consequences, and the labelled recommendation, as on the bead's
    page. The list keeps one line per row, so the ask takes its lines back;

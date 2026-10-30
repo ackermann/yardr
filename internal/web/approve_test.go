@@ -9,6 +9,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -175,9 +178,90 @@ func (y *approveYard) witness() string {
 	return ""
 }
 
+// approveSurfaces are the places a card stands: its bead's page, Home's
+// needs rows and the line's waits (whose right column is the same
+// partial). Each posts the card's answers to the bead's handler.
+var approveSurfaces = []struct {
+	name string
+	path func(bead string) string
+}{
+	{"the bead's page", func(bead string) string { return "/beads/" + bead }},
+	{"home", func(string) string { return "/" }},
+	{"the line", func(string) string { return "/line" }},
+}
+
+const (
+	// approveButton is the button a strong card's approval stands behind,
+	// in the yard these tests name depot.
+	approveButton = `<button type="submit" name="action" value="approve">Approve in depot</button>`
+	// noGateLine is what a weighty card says where its window holds no gate
+	// for it.
+	noGateLine = "This card is weighty and this window has no gate."
+)
+
+// surfaceBody is the page at path as the token's user reads it.
+func (y *approveYard) surfaceBody(path, token string) string {
+	y.t.Helper()
+	r := y.getNoFollow(path, token)
+	if r.status != http.StatusOK {
+		y.t.Fatalf("GET %s: %d: %s", path, r.status, r.body)
+	}
+	return r.body
+}
+
+// weighed is the classes the yard stored on the ask.
+func (y *approveYard) weighed(beadID string, seq uint64) []string {
+	y.t.Helper()
+	v, err := y.st.Bead(context.Background(), beadID, "jo")
+	must(y.t, err)
+	var out []string
+	for _, a := range v.Asks {
+		if a.Ask == seq {
+			for _, w := range a.Weight {
+				out = append(out, w.Class)
+			}
+		}
+	}
+	return out
+}
+
+// approveCRM is the source the weighty-card tests change: one read call
+// and the credential the yard holds under CRM_TOKEN. approveCRMList is it
+// with one more read call, which a standing grant of read reaches once a
+// declaration with it replaces crm's.
+const (
+	approveCRM     = "name: crm\nbase: https://crm.example.com/api\ncredential: { env: CRM_TOKEN }\ncalls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n"
+	approveCRMList = approveCRM + "  list: { kind: read, request: { method: GET, path: /lists } }\n"
+)
+
+// putCRM puts the source approveCRM on the yard, with a standing grant of
+// read to the yardmaster where grant is set.
+func (y *approveYard) putCRM(grant bool) {
+	y.t.Helper()
+	ctx := context.Background()
+	_, err := y.st.PutSource(ctx, "crm.yaml", approveCRM, "jo")
+	must(y.t, err)
+	if grant {
+		_, err = y.st.GrantSource(ctx, "crm", store.GrantRead, store.Grantee{Crew: "yardmaster"}, "", "jo")
+		must(y.t, err)
+	}
+}
+
+// askSetup asks for setupmail's setup for the yardmaster, as the yard's
+// first install of it: a credential, an outside and a code.
+func (y *approveYard) askSetup(beadID string) uint64 {
+	y.t.Helper()
+	seq, err := y.st.AddAsk(context.Background(), beadID, store.Ask{Question: "Set up setupmail for the yardmaster?", To: "jo",
+		Context: []string{"the yardmaster reads mail to work beads"},
+		Setup:   &store.AskSetup{Pack: "setupmail", To: []store.Grantee{{Crew: "yardmaster"}}}}, "yardmaster")
+	must(y.t, err)
+	return seq
+}
+
 // A routine run card approves on the bead page as it always was: the
 // button stands beside the card, the approval runs it, and the answer
-// claims no witness.
+// claims no witness. Home and the line leave a routine card's approval
+// where it is: they offer none.
 func TestWebApprovesARoutineRunCard(t *testing.T) {
 	t.Parallel()
 	y := newApproveYard(t, true)
@@ -208,6 +292,11 @@ func TestWebApprovesARoutineRunCard(t *testing.T) {
 	} {
 		if !strings.Contains(page.body, want) {
 			t.Errorf("the routine card lacks %q:\n%s", want, page.body)
+		}
+	}
+	for _, s := range approveSurfaces[1:] {
+		if body := y.surfaceBody(s.path(b.ID), tok); strings.Contains(body, `value="approve"`) {
+			t.Errorf("%s offers a routine card's approval:\n%s", s.name, body)
 		}
 	}
 	r := y.post("/beads/"+b.ID, tok, y.approveForm(b.ID, seq))
@@ -270,6 +359,65 @@ func TestWebStrongCardChallengeAndReturn(t *testing.T) {
 	r = y.getNoFollow(back, fresh)
 	if r.status != 200 || !strings.Contains(r.body, "used already") {
 		t.Fatalf("replaying the return: %d: %s", r.status, r.body)
+	}
+
+	const botDecl = `
+name: bot
+base: http://127.0.0.1:9
+credential: { env: BOT_TOKEN, header: "Authorization: Bearer {credential}" }
+calls:
+  setwebhook: { kind: update, params: { url: {type: string, max: 2048}, secret_token: {type: string, max: 256}, project: {type: string, pattern: "^[0-9]+$", max: 20} }, request: { method: POST, path: /setWebhook, body: { url: "{url}", secret_token: "{secret_token}", project: "{project}" } } }
+hook:
+  verify: { scheme: secret, signature: { header: X-Test-Secret } }
+  bodies: unique
+  normalize: [bot/normalize]
+  keys: [chat]
+  register: { call: setwebhook, url: url, secret: secret_token, ask: [project] }
+`
+	_, err = y.st.PutSource(ctx, "bot.yaml", botDecl, "jo")
+	must(t, err)
+	env := filepath.Join(t.TempDir(), "bot.env")
+	must(t, os.WriteFile(env, []byte("BOT_TOKEN=the-token\n"), 0o600))
+	_, err = y.st.SetSource(ctx, "bot", store.SourceEnvFile, env, "jo")
+	must(t, err)
+	must(t, y.st.SetSetting(ctx, store.HookPublicURLSetting, "https://yard.example/hooks", "jo"))
+	hookBead := y.bead("set the bot hook up")
+	hookAsk := y.askRun(hookBead.ID, "jo", "hook", "add", "bot", "--source", "bot")
+	if !slices.ContainsFunc(y.weighed(hookBead.ID, hookAsk), func(class string) bool {
+		return class == store.WeightTrust || class == store.WeightCode
+	}) {
+		t.Fatalf("the hook card weighs %v, want a strong class", y.weighed(hookBead.ID, hookAsk))
+	}
+	standing := y.token("jo@example.net")
+	for _, s := range approveSurfaces {
+		body := y.surfaceBody(s.path(hookBead.ID), standing)
+		for _, want := range []string{
+			`<input type="text" name="value-project" placeholder="project" aria-label="project">`,
+			approveButton,
+		} {
+			if !strings.Contains(body, want) {
+				t.Errorf("%s: hook card lacks %q:\n%s", s.name, want, body)
+			}
+		}
+	}
+	r = y.post("/beads/"+hookBead.ID, standing, y.approveForm(hookBead.ID, hookAsk))
+	if r.status != http.StatusSeeOther {
+		t.Fatalf("POST the hook approval: %d: %s", r.status, r.body)
+	}
+	loc, err = url.Parse(r.header.Get("Location"))
+	if err != nil || loc.Path != "/edge/reauth" {
+		t.Fatalf("the hook approval goes to %q, want the gateway re-authentication", r.header.Get("Location"))
+	}
+	missing := y.token("jo@example.net", authAt(time.Now().Add(5*time.Second)))
+	r = y.getNoFollow(loc.Query().Get("return_to"), missing)
+	if r.status != http.StatusOK || !strings.Contains(r.body, "asks for project in the clear") {
+		t.Fatalf("the hook return without project: %d: %s", r.status, r.body)
+	}
+	if got := y.askedState(hookBead.ID, hookAsk, "jo"); got != "open" {
+		t.Fatalf("the hook ask is %s after the refusal, want it open", got)
+	}
+	if _, err := y.st.GetHook(ctx, "bot"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("the refused approval made the hook: %v", err)
 	}
 }
 
@@ -356,6 +504,16 @@ func TestWebStrongCardStaysTerminalOffHosted(t *testing.T) {
 	b := y.bead("add a user")
 	seq := y.askRun(b.ID, "jo", "user", "add", "bob")
 	fresh := y.token("jo@example.net", authAt(time.Now()))
+	// The window holds no gate, so the card reads as any weighty card with
+	// none, wherever it stands: its line and its terminal command, and no
+	// control to approve it by.
+	for _, s := range approveSurfaces {
+		body := y.surfaceBody(s.path(b.ID), fresh)
+		if strings.Contains(body, `value="approve"`) || !strings.Contains(body, noGateLine) ||
+			!strings.Contains(body, "yardr bead answer "+b.ID+" "+strconv.FormatUint(seq, 10)+" --approve") {
+			t.Errorf("%s offers a strong card's approval off a hosted yard, or lacks its terminal command:\n%s", s.name, body)
+		}
+	}
 	r := y.post("/beads/"+b.ID, fresh, y.approveForm(b.ID, seq))
 	if r.status != 200 || !strings.Contains(r.body, "not approved in this window") ||
 		!strings.Contains(r.body, "at a terminal on the yard&#39;s machine") {
@@ -377,6 +535,11 @@ func TestWebStrongCardStaysTerminalOffHosted(t *testing.T) {
 	must(t, err)
 	rev, err := f.st.GetBead(ctx, bead.ID)
 	must(t, err)
+	for _, s := range approveSurfaces {
+		if body := f.get(s.path(bead.ID)).body; strings.Contains(body, `value="approve"`) || !strings.Contains(body, noGateLine) {
+			t.Errorf("%s with no gateway offers a strong card's approval, or lacks the line:\n%s", s.name, body)
+		}
+	}
 	r = f.postForm("/beads/"+bead.ID, url.Values{
 		"rev":    {rev.Revision},
 		"ask":    {strconv.FormatUint(n, 10)},
@@ -387,49 +550,184 @@ func TestWebStrongCardStaysTerminalOffHosted(t *testing.T) {
 	}
 }
 
-// A run card that is weighty but not strong keeps the window's no-gate
-// words: the page offers no approval, and a posted one is refused.
-func TestWebWeightyCardKeepsNoGate(t *testing.T) {
+// A card's approval stands wherever the card does, class by class. A
+// strong card (trust or code in its weight, alone or beside other classes)
+// reads "Approve in <yard>" on its bead's page, on Home and on the line,
+// and approving it from any of them starts the gateway re-authentication,
+// even for a session that signed in a moment ago; a weighty card with
+// neither class (credential, outside, as-user or reads alone) offers no
+// approval on any of them, keeps its line and its terminal command, and a
+// post at the handler is refused with the ask open and nothing run.
+func TestWebCardApprovalPerClassOfWeight(t *testing.T) {
 	t.Parallel()
-	y := newApproveYard(t, true)
-	ctx := context.Background()
-	_, err := y.st.PutSource(ctx, "crm.yaml",
-		"name: crm\nbase: https://crm.example.com/api\ncredential: { env: CRM_TOKEN }\ncalls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n", "jo")
-	must(t, err)
-	b := y.bead("call the CRM more often")
-	seq := y.askRun(b.ID, "jo", "source", "set", "crm", "updates_per_hour=6000")
-	v, err := y.st.Bead(ctx, b.ID, "jo")
-	must(t, err)
-	var classes []string
-	for _, a := range v.Asks {
-		if a.Ask == seq {
-			for _, w := range a.Weight {
-				classes = append(classes, w.Class)
+	const freshDecl = "name: fresh\nbase: https://fresh.example.com/v1\ncredential: { env: FRESH_TOKEN, header: \"Authorization: Bearer {credential}\" }\nthread:\n  reply: [fresh/thread, reply]\ncalls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n"
+	const freshThread = "#!/bin/sh\n# thread\n"
+	threadSum := sha256.Sum256([]byte(freshThread))
+	// askAs puts ask on the bead as the yardmaster.
+	askAs := func(y *approveYard, bead string, ask store.Ask) uint64 {
+		y.t.Helper()
+		ask.To, ask.Context = "jo", []string{"the work needs it"}
+		seq, err := y.st.AddAsk(context.Background(), bead, ask, "yardmaster")
+		must(y.t, err)
+		return seq
+	}
+	for _, c := range []struct {
+		name    string
+		classes []string
+		strong  bool
+		// ask puts the card on the bead and returns its number, with the
+		// fields its approval posts beside the usual three.
+		ask func(y *approveYard, bead string) (uint64, url.Values)
+		// refusal is what a withheld card's refused post says of its weight.
+		refusal string
+		// complete follows the sign-in's return and approves the card.
+		complete bool
+		// intact checks that nothing ran, before the return.
+		intact func(t *testing.T, y *approveYard)
+	}{
+		{name: "trust", classes: []string{store.WeightTrust}, strong: true, complete: true,
+			ask: func(y *approveYard, bead string) (uint64, url.Values) {
+				return y.askRun(bead, "jo", "user", "add", "bob"), nil
+			},
+			intact: func(t *testing.T, y *approveYard) {
+				if _, err := y.st.GetUser(context.Background(), "bob"); !errors.Is(err, store.ErrNotFound) {
+					t.Errorf("the challenge added the user: %v", err)
+				}
+			}},
+		{name: "code", classes: []string{store.WeightCode}, strong: true,
+			ask: func(y *approveYard, bead string) (uint64, url.Values) {
+				return askAs(y, bead, store.Ask{Question: "Add fresh?", Run: &store.AskRun{Argv: []string{"source add fresh.yaml"},
+					Carried: []store.AskSource{{Name: "fresh", Text: freshDecl,
+						Files: []store.AskFile{{Program: "fresh/thread", Text: freshThread, SHA256: hex.EncodeToString(threadSum[:])}}}}}}), nil
+			}},
+		{name: "code beside reads", classes: []string{store.WeightCode, store.WeightReads}, strong: true,
+			ask: func(y *approveYard, bead string) (uint64, url.Values) {
+				y.putCRM(true)
+				return askAs(y, bead, store.Ask{Question: "Replace crm?", Run: &store.AskRun{Argv: []string{"source add crm.yaml"},
+					Carried: []store.AskSource{{Name: "crm", Text: approveCRMList}}}}), nil
+			}},
+		{name: "credential, outside and code", classes: []string{store.WeightCredential, store.WeightOutside, store.WeightCode}, strong: true, complete: true,
+			ask: func(y *approveYard, bead string) (uint64, url.Values) {
+				servesSetupmail(y.own)
+				return y.askSetup(bead), url.Values{"option": {"2"}, "secret-SETUP_ACCOUNT": {"ops@example.com"}}
+			}},
+		{name: "credential", classes: []string{store.WeightCredential}, refusal: "weighty (credential)",
+			ask: func(y *approveYard, bead string) (uint64, url.Values) {
+				y.putCRM(false)
+				return askAs(y, bead, store.Ask{Question: "The API key for the CRM", Secret: &store.AskSecret{Source: "crm"}}),
+					url.Values{"action": {"give"}, "secret-CRM_TOKEN": {"s3cret"}}
+			}},
+		{name: "outside", classes: []string{store.WeightOutside}, refusal: "weighty (outside)",
+			ask: func(y *approveYard, bead string) (uint64, url.Values) {
+				y.putCRM(false)
+				return y.askRun(bead, "jo", "source", "set", "crm", "updates_per_hour=6000"), nil
+			},
+			intact: func(t *testing.T, y *approveYard) {
+				src, err := y.st.GetSource(context.Background(), "crm")
+				must(t, err)
+				if src.UpdatesPerHour != 0 {
+					t.Errorf("the refused approval raised the update limit to %d", src.UpdatesPerHour)
+				}
+			}},
+		{name: "as-user", classes: []string{store.WeightAsUser}, refusal: "weighty (as-user)",
+			ask: func(y *approveYard, bead string) (uint64, url.Values) {
+				y.putCRM(false)
+				return y.askRun(bead, "jo", "user", "identity", "sam", "--source", "crm", "--id", "7"), nil
+			}},
+		{name: "reads", classes: []string{store.WeightReads}, refusal: "weighty (reads)",
+			ask: func(y *approveYard, bead string) (uint64, url.Values) {
+				y.putCRM(true)
+				y.own.SetPackReader(func(ctx context.Context, name string, depot string, mappings store.Mappings, yard store.API) (*store.PackReading, error) {
+					if name != "crm-pack" {
+						return nil, errors.New("no pack " + name)
+					}
+					return &store.PackReading{Name: name, Kind: pack.KindSource, Label: "embedded in yardr test1", Build: "test1",
+						Sources: []store.AskSource{{Name: "crm", Text: approveCRMList}}}, nil
+				})
+				return askAs(y, bead, store.Ask{Question: "Apply crm-pack?", Run: &store.AskRun{Argv: []string{"pack apply crm-pack"}}}), nil
+			}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			y := newApproveYard(t, true)
+			b := y.bead(c.name)
+			seq, extra := c.ask(y, b.ID)
+			if got := y.weighed(b.ID, seq); !slices.Equal(got, c.classes) {
+				t.Fatalf("the card weighs %v, want %v", got, c.classes)
 			}
-		}
-	}
-	if len(classes) != 1 || classes[0] != store.WeightOutside {
-		t.Fatalf("raising the update limit weighs %v, want outside alone", classes)
-	}
-	tok := y.token("jo@example.net")
-	page := jwtGet(t, y.ts, "/beads/"+b.ID, web.DefaultJWTHeader, tok)
-	if page.status != 200 {
-		t.Fatalf("GET the bead: %d: %s", page.status, page.body)
-	}
-	if !strings.Contains(page.body, "this window has no gate") {
-		t.Fatalf("the weighty card names no gate: %s", page.body)
-	}
-	if strings.Contains(page.body, `value="approve"`) {
-		t.Fatalf("the weighty card shows an approve control: %s", page.body)
-	}
-	r := y.post("/beads/"+b.ID, tok, y.approveForm(b.ID, seq))
-	if r.status != 200 || !strings.Contains(r.body, "this window has no gate") {
-		t.Fatalf("POST the approval: %d: %s", r.status, r.body)
-	}
-	src, err := y.st.GetSource(ctx, "crm")
-	must(t, err)
-	if src.UpdatesPerHour != 0 {
-		t.Fatalf("the refused approval raised the update limit to %d", src.UpdatesPerHour)
+			// A session that signed in a moment ago: a standing login, which
+			// never approves a strong card.
+			tok := y.token("jo@example.net", authAt(time.Now()))
+			rev := y.revision(b.ID)
+			for _, s := range approveSurfaces {
+				body := y.surfaceBody(s.path(b.ID), tok)
+				// Wherever the card stands it answers to the bead's handler,
+				// from the revision it was drawn at.
+				for _, want := range []string{
+					`action="/beads/` + b.ID + `"`,
+					`<input type="hidden" name="rev" value="` + rev + `">`,
+					`<input type="hidden" name="ask" value="` + strconv.FormatUint(seq, 10) + `">`,
+				} {
+					if !strings.Contains(body, want) {
+						t.Errorf("%s: the card lacks %q:\n%s", s.name, want, body)
+					}
+				}
+				if c.strong {
+					if !strings.Contains(body, approveButton) || strings.Contains(body, noGateLine) {
+						t.Errorf("%s: the strong card is withheld, or says it has no gate:\n%s", s.name, body)
+					}
+					continue
+				}
+				if strings.Contains(body, `value="approve"`) || strings.Contains(body, `value="give"`) ||
+					strings.Contains(body, `type="password"`) || !strings.Contains(body, noGateLine) {
+					t.Errorf("%s: the weighty card offers a control, or lacks its line:\n%s", s.name, body)
+				}
+			}
+			form := y.approveForm(b.ID, seq)
+			for k, v := range extra {
+				form[k] = v
+			}
+			r := y.post("/beads/"+b.ID, tok, form)
+			if !c.strong {
+				if r.status != http.StatusOK || !strings.Contains(r.body, c.refusal) {
+					t.Fatalf("POST at the handler: %d: %s", r.status, r.body)
+				}
+			} else {
+				loc, err := url.Parse(r.header.Get("Location"))
+				if r.status != http.StatusSeeOther || err != nil || loc.Path != "/edge/reauth" {
+					t.Fatalf("POST the approval: %d %q, want the gateway re-authentication", r.status, r.header.Get("Location"))
+				}
+			}
+			if c.intact != nil {
+				c.intact(t, y)
+			}
+			if got := y.askedState(b.ID, seq, "jo"); got != "open" {
+				t.Fatalf("the ask is %s after the post, want it open", got)
+			}
+			if w := y.witness(); w != "" {
+				t.Fatalf("the post is witnessed %q, want none", w)
+			}
+			if !c.complete {
+				return
+			}
+			// The gateway authenticates after the challenge, and the return
+			// lands on the bead, where the answered card shows.
+			loc, _ := url.Parse(r.header.Get("Location"))
+			back := loc.Query().Get("return_to")
+			if want := "/beads/" + b.ID + "/fresh/" + strconv.FormatUint(seq, 10) + "/"; !strings.HasPrefix(back, want) {
+				t.Fatalf("the return is %q, want state bound to ask %d", back, seq)
+			}
+			fresh := y.token("jo@example.net", authAt(time.Now().Add(5*time.Second)))
+			if r := y.getNoFollow(back, fresh); r.status != http.StatusSeeOther || r.header.Get("Location") != "/beads/"+b.ID {
+				t.Fatalf("GET the return: %d %q: %s", r.status, r.header.Get("Location"), r.body)
+			}
+			if got := y.askedState(b.ID, seq, "jo"); got != "answered" {
+				t.Fatalf("the ask is %s after the return, want it answered", got)
+			}
+			if w := y.witness(); w != store.WitnessFreshSignIn {
+				t.Fatalf("the approval is witnessed %q, want a fresh sign-in", w)
+			}
+		})
 	}
 }
 
@@ -450,15 +748,13 @@ calls:
 
 const approveSetupMint = "#!/bin/sh\n# mint a token from the account\n"
 
-// A strong setup approves on the bead page as a run card does: the card
-// reads with the pack and the yard's sentences, the approval starts the
-// gateway re-authentication, and the return carries the setup out under
-// the fresh sign-in.
-func TestWebApprovesAStrongSetupCard(t *testing.T) {
-	t.Parallel()
-	y := newApproveYard(t, true)
+// servesSetupmail has the store read the one pack the setup tests apply:
+// setupmail, whose source mints its token from an account (a credential),
+// brings the mint command (code) and offers a preset that updates
+// (outside).
+func servesSetupmail(own *store.Store) {
 	sum := sha256.Sum256([]byte(approveSetupMint))
-	y.own.SetPackReader(func(ctx context.Context, name string, depot string, mappings store.Mappings, yard store.API) (*store.PackReading, error) {
+	own.SetPackReader(func(ctx context.Context, name string, depot string, mappings store.Mappings, yard store.API) (*store.PackReading, error) {
 		if name != "setupmail" {
 			return nil, errors.New("no pack " + name)
 		}
@@ -471,12 +767,20 @@ func TestWebApprovesAStrongSetupCard(t *testing.T) {
 				{Name: "drafts", Grants: []store.AskPresetGrant{{Source: "setupmail", Calls: []string{"search", "draft"}}}},
 			}}, nil
 	})
-	ctx := context.Background()
+}
+
+// A strong setup approves on the bead page as a run card does: the card
+// reads with the pack and the yard's sentences, the approval starts the
+// gateway re-authentication, and the return carries the setup out under
+// the fresh sign-in. Home and the line carry the same form: the presets,
+// the account typed unseen and the candidate, posting to the bead's
+// handler with no script, and no pick or note beside it.
+func TestWebApprovesAStrongSetupCard(t *testing.T) {
+	t.Parallel()
+	y := newApproveYard(t, true)
+	servesSetupmail(y.own)
 	b := y.bead("set up mail")
-	seq, err := y.st.AddAsk(ctx, b.ID, store.Ask{Question: "Set up setupmail for the yardmaster?", To: "jo",
-		Context: []string{"the yardmaster reads mail to work beads"},
-		Setup:   &store.AskSetup{Pack: "setupmail", To: []store.Grantee{{Crew: "yardmaster"}}}}, "yardmaster")
-	must(t, err)
+	seq := y.askSetup(b.ID)
 
 	tok := y.token("jo@example.net")
 	page := jwtGet(t, y.ts, "/beads/"+b.ID, web.DefaultJWTHeader, tok)
@@ -489,15 +793,63 @@ func TestWebApprovesAStrongSetupCard(t *testing.T) {
 	for _, want := range []string{
 		`<p class="ask-says">yardmaster says:</p>`,
 		`<p>When you approve, the yard applies the pack setupmail as jo, and nothing else:</p>`,
+		approveButton + `</form>`,
+		// On its bead's page the form answers in place.
+		`<form class="need-approve" method="post" action="/beads/` + b.ID + `" hx-post="/beads/` + b.ID + `" hx-target="#bead"`,
 	} {
 		if !strings.Contains(page.body, want) {
 			t.Errorf("the setup card lacks %q:\n%s", want, page.body)
 		}
 	}
+	for _, s := range approveSurfaces[1:] {
+		body := y.surfaceBody(s.path(b.ID), tok)
+		for _, want := range []string{
+			`<form class="need-approve" method="post" action="/beads/` + b.ID + `"><input type="hidden" name="rev"`,
+			`<input type="radio" name="option" value="1">read</label>`,
+			`<input type="radio" name="option" value="2">drafts</label>`,
+			`<input type="password" name="secret-SETUP_ACCOUNT" placeholder="SETUP_ACCOUNT" aria-label="SETUP_ACCOUNT" autocomplete="off">`,
+			`<input type="text" name="account" placeholder="Candidate source, or type above" aria-label="Candidate source">`,
+			approveButton + `</form>`,
+		} {
+			if !strings.Contains(body, want) {
+				t.Errorf("%s: the setup card lacks %q:\n%s", s.name, want, body)
+			}
+		}
+		// A preset is picked in the approval, never answered by a button,
+		// and a setup takes no words as a note.
+		for _, foreign := range []string{`<button type="submit" name="option"`, `value="send"`, `hx-target="#bead"`} {
+			if strings.Contains(body, foreign) {
+				t.Errorf("%s: the setup card carries %q:\n%s", s.name, foreign, body)
+			}
+		}
+	}
+	missing := y.bead("set up mail without account")
+	missingSeq := y.askSetup(missing.ID)
+	missingForm := y.approveForm(missing.ID, missingSeq)
+	missingForm.Set("option", "2")
+	r := y.post("/beads/"+missing.ID, y.token("jo@example.net"), missingForm)
+	if r.status != http.StatusSeeOther {
+		t.Fatalf("POST setup without account: %d: %s", r.status, r.body)
+	}
+	missingLoc, err := url.Parse(r.header.Get("Location"))
+	if err != nil || missingLoc.Path != "/edge/reauth" {
+		t.Fatalf("setup without account goes to %q, want the gateway re-authentication", r.header.Get("Location"))
+	}
+	missingFresh := y.token("jo@example.net", authAt(time.Now().Add(5*time.Second)))
+	r = y.getNoFollow(missingLoc.Query().Get("return_to"), missingFresh)
+	if r.status != http.StatusOK || !strings.Contains(r.body, "SETUP_ACCOUNT was not given") {
+		t.Fatalf("the setup return without account: %d: %s", r.status, r.body)
+	}
+	if got := y.askedState(missing.ID, missingSeq, "jo"); got != "open" {
+		t.Fatalf("the setup ask is %s after the refusal, want it open", got)
+	}
+	if _, err := y.st.GetSource(context.Background(), "setupmail"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("the refused setup wrote the source: %v", err)
+	}
 	form := y.approveForm(b.ID, seq)
 	form.Set("option", "2")
 	form.Set("secret-SETUP_ACCOUNT", "ops@example.com")
-	r := y.post("/beads/"+b.ID, tok, form)
+	r = y.post("/beads/"+b.ID, tok, form)
 	if r.status != http.StatusSeeOther {
 		t.Fatalf("POST the approval: %d: %s", r.status, r.body)
 	}

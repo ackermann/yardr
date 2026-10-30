@@ -3,10 +3,7 @@ package web_test
 import (
 	"context"
 	"crypto/ed25519"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -15,7 +12,6 @@ import (
 	"strings"
 	"testing"
 
-	"yardr.dev/yardr/internal/pack"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 	"yardr.dev/yardr/internal/web"
@@ -764,26 +760,27 @@ func TestHomeNeedsRunAskForgedQuestion(t *testing.T) {
 }
 
 // A setup card away from its bead's page reads as on it: the pack sentence,
-// the yard's sentences and the take-back. It offers no approval there.
+// the yard's sentences and the take-back. A view with no gateway holds no
+// gate for it, so it offers no approval there, and no preset pick or note
+// either: the presets are the approval's to choose from.
 func TestHomeSetupCard(t *testing.T) {
 	t.Parallel()
-	f := askFixture(t)
-	sum := sha256.Sum256([]byte(approveSetupMint))
-	f.own.SetPackReader(func(ctx context.Context, name string, depot string, mappings store.Mappings, yard store.API) (*store.PackReading, error) {
-		if name != "setupmail" {
-			return nil, errors.New("no pack " + name)
-		}
-		return &store.PackReading{Name: "setupmail", Kind: pack.KindSource,
-			Label: "embedded in yardr test1", Build: "test1",
-			Sources: []store.AskSource{{Name: "setupmail", Text: approveSetupDecl,
-				Files: []store.AskFile{{Program: "setup-mint", Text: approveSetupMint, SHA256: hex.EncodeToString(sum[:])}}}},
-			Presets: []store.AskPreset{
-				{Name: "read", Grants: []store.AskPresetGrant{{Source: "setupmail", Calls: []string{"search"}}}},
-				{Name: "drafts", Grants: []store.AskPresetGrant{{Source: "setupmail", Calls: []string{"search", "draft"}}}},
-			}}, nil
-	})
+	// A view that acts, so the answer row stands: the card's Later and
+	// Decline are there and nothing beside them offers its approval.
+	api, own := storetest.NewOwned(t)
+	home := filepath.Join(t.TempDir(), ".depot")
+	srv, err := web.NewServer(api, home, nil)
+	must(t, err)
+	ts := httptest.NewServer(srv)
+	t.Cleanup(func() { shut(ts) })
+	f := &fixture{t: t, st: api, own: own, ts: ts, home: home}
+	f.signIn(srv, srv.ActAs("mckean"))
 	ctx := context.Background()
-	_, err := f.st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "mckean")
+	must(t, func() error { _, err := api.AddUser(ctx, "mckean", "mckean"); return err }())
+	must(t, api.PutDepot(ctx, store.Depot{Name: "home", Base: "origin/main"}, "mckean"))
+	must(t, api.SetSetting(ctx, store.OperatorSetting, "mckean", "mckean"))
+	servesSetupmail(own)
+	_, err = api.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "mckean")
 	must(t, err)
 	b := askBead(t, f, "set up mail", "new")
 	seq := askOn(t, f, b.ID, store.Ask{Question: "Set up setupmail for the yardmaster?", To: "mckean",
@@ -796,13 +793,15 @@ func TestHomeSetupCard(t *testing.T) {
 		for _, want := range []string{
 			`<p class="ask-says">yardmaster says:</p>`,
 			`<p>When you approve, the yard applies the pack setupmail as mckean, and nothing else:</p>`,
+			noGateLine,
 			`Approve it with <code>yardr bead answer ` + b.ID + ` ` + strconv.FormatUint(seq, 10) + ` &lt;n&gt; --secret</code>`,
+			`<button type="submit" name="action" value="later">Later</button>`,
 		} {
 			if !strings.Contains(c.body, want) {
 				t.Errorf("%s lacks %q", c.name, want)
 			}
 		}
-		for _, foreign := range []string{`value="approve"`, `value="give"`, "need-approve"} {
+		for _, foreign := range []string{`value="approve"`, `value="give"`, "need-approve", `<button type="submit" name="option"`, `value="send"`} {
 			if strings.Contains(c.body, foreign) {
 				t.Errorf("%s offers %q", c.name, foreign)
 			}
