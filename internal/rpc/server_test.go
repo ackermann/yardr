@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -20,8 +19,8 @@ import (
 // says so for every other package's; it imports this one, so here it is
 // said again.
 func TestMain(m *testing.M) {
-	if config.Getenv(store.NoSyncEnv) == "" {
-		os.Setenv("YARDR_"+store.NoSyncEnv, "1")
+	if os.Getenv(store.NoSyncEnv) == "" {
+		os.Setenv(store.NoSyncEnv, "1")
 	}
 	os.Exit(m.Run())
 }

@@ -15,8 +15,6 @@ import (
 	"slices"
 	"strings"
 	"sync"
-
-	"yardr.dev/yardr/internal/config"
 )
 
 // RepoFlowDir holds a depot's flows in its repository:
@@ -196,7 +194,7 @@ func (r *RepoFlows) StrayStageFiles() []string {
 // role prompts outside a depot are files under the home. The store holds no
 // prose. Every depot following the flow reads the same files, and they are in
 // no depot, so no bead's branch can change them.
-func HomeStageDir(home, flow string) string { return filepath.Join(config.At(home).Flows(), flow) }
+func HomeStageDir(home, flow string) string { return filepath.Join(FlowsDir(home), flow) }
 
 // HomeStageFile reads the stage file of a store flow's stage from the
 // yard's home, as it is on disk; nil when there is none, or nothing in it.

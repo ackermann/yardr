@@ -10,23 +10,23 @@ import (
 // there are any, so validation cannot read a different file version.
 func validateSourceCallParams(d *source.Declaration, name string, params map[string]string, inputs map[string][]byte) error {
 	if inputs != nil {
-		return source.ValidateCallParamsWithInputs(d, name, params, inputs)
+		return source.ValidateCallParamsWithInputs(d, name, params, inputs, ReadSecretFile)
 	}
-	return source.ValidateCallParams(d, name, params)
+	return source.ValidateCallParams(d, name, params, ReadSecretFile)
 }
 
 // sourceCallRequest makes the network request outside the store write. A
 // run-ask's captured inputs go to the same request path as ordinary calls.
 func (s *Store) sourceCallRequest(ctx context.Context, d *source.Declaration, call *source.Call, params map[string]string, credential, key string, inputs map[string][]byte) (*source.Result, error) {
 	if len(call.Build) > 0 {
-		body, err := source.BuildBody(ctx, d, call.Name, params, credential, s.home)
+		body, err := source.BuildBody(ctx, d, call.Name, params, credential, s.home, ReadSecretFile)
 		if err != nil {
 			return nil, err
 		}
-		return source.DoKeyedBody(ctx, d, call.Name, params, credential, key, body)
+		return source.DoKeyedBody(ctx, d, call.Name, params, credential, key, body, ReadSecretFile)
 	}
 	if inputs != nil {
-		return source.DoKeyedWithInputs(ctx, d, call.Name, params, credential, key, inputs)
+		return source.DoKeyedWithInputs(ctx, d, call.Name, params, credential, key, inputs, ReadSecretFile)
 	}
-	return source.DoKeyed(ctx, d, call.Name, params, credential, key)
+	return source.DoKeyed(ctx, d, call.Name, params, credential, key, ReadSecretFile)
 }

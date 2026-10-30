@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 )
@@ -88,7 +87,7 @@ func TestCarrySetupDriftGrantsNewAndRevokesNothing(t *testing.T) {
 	if err != nil || src.Text != reading.Sources[0].Text {
 		t.Fatalf("the applied declaration is not the pack's")
 	}
-	f, err := config.ReadEnvFile(src.EnvFile)
+	f, err := store.ReadEnvFile(src.EnvFile)
 	if err != nil || source.Lookup(f.Env, "GOOGLE_ACCOUNT") != "ops@example.com" {
 		t.Fatalf("the kept account holds %+v, %v", f.Env, err)
 	}
@@ -153,7 +152,7 @@ func TestCarrySetupDriftTypingAnotherLeavesShared(t *testing.T) {
 	if mail.EnvFile != own {
 		t.Fatalf("google-mail points at %s, want its own %s", mail.EnvFile, own)
 	}
-	f, err := config.ReadEnvFile(own)
+	f, err := store.ReadEnvFile(own)
 	if err != nil || source.Lookup(f.Env, "GOOGLE_ACCOUNT") != "other@example.com" {
 		t.Fatalf("the source's own file holds %+v, %v", f.Env, err)
 	}
@@ -161,7 +160,7 @@ func TestCarrySetupDriftTypingAnotherLeavesShared(t *testing.T) {
 	if err != nil || drive.EnvFile == own {
 		t.Fatalf("the sibling points at %+v, %v", drive, err)
 	}
-	f, err = config.ReadEnvFile(drive.EnvFile)
+	f, err = store.ReadEnvFile(drive.EnvFile)
 	if err != nil || source.Lookup(f.Env, "GOOGLE_ACCOUNT") != "ops@example.com" {
 		t.Fatalf("the sibling's file holds %+v, %v", f.Env, err)
 	}

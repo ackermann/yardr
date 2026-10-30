@@ -61,7 +61,7 @@ func sourcesPart(ctx context.Context, cfg *config.Config, st store.API, try bool
 		granted := slices.ContainsFunc(grants, func(g store.SourceGrant) bool { return g.Source == d.Name })
 		told := slices.ContainsFunc(users, func(u store.User) bool { return u.Notify == d.Name })
 		// Looked at, not run: a mint is made only for a call below.
-		sel, credErr := d.SelectCredential(src.EnvFile, source.Read)
+		sel, credErr := d.SelectCredential(src.EnvFile, source.Read, store.ReadEnvFileEntries)
 		if credErr == nil && sel.Inputs != nil && len(src.Mint) == 0 {
 			credErr = &source.NoMintCommand{Source: d.Name}
 		}
@@ -83,7 +83,7 @@ func sourcesPart(ctx context.Context, cfg *config.Config, st store.API, try bool
 		} else if d.Credential != nil && d.Credential.UpdateEnv != "" && sel.Inputs == nil {
 			// A read call can still be made; only its updates lack one.
 			// A mint covers every kind, so this is static alone.
-			if _, err := d.SelectCredential(src.EnvFile, source.Update); err != nil {
+			if _, err := d.SelectCredential(src.EnvFile, source.Update, store.ReadEnvFileEntries); err != nil {
 				part.Notes = append(part.Notes, fmt.Sprintf("source %s: an update call of it cannot be made: %v", d.Name, err))
 			}
 		}
@@ -96,12 +96,12 @@ func sourcesPart(ctx context.Context, cfg *config.Config, st store.API, try bool
 			part.Notes = append(part.Notes, fmt.Sprintf("not tried: the file of source %s names no check call (check: <a read call without parameters>)", d.Name))
 		default:
 			call, _ := d.Call(d.Check)
-			cred, _, err := d.ReadCredential(ctx, src.EnvFile, src.Mint, source.Read)
+			cred, _, err := d.ReadCredential(ctx, src.EnvFile, src.Mint, source.Read, store.ReadEnvFileEntries)
 			if err != nil {
 				part.Notes = append(part.Notes, fmt.Sprintf("tried: source %s: its check call %s (%s) was not made: %v", d.Name, d.Check, call.Request.Line(), err))
 				break
 			}
-			res, err := source.Do(ctx, d, d.Check, nil, cred)
+			res, err := source.Do(ctx, d, d.Check, nil, cred, store.ReadSecretFile)
 			switch {
 			case err != nil:
 				part.Notes = append(part.Notes, fmt.Sprintf("tried: source %s: its check call %s (%s) got no answer: %v", d.Name, d.Check, call.Request.Line(), err))

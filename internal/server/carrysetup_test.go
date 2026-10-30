@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 )
@@ -90,7 +89,7 @@ func TestCarrySetupGoogleMail(t *testing.T) {
 		}
 	}
 	envFile := filepath.Join(home, "sources", "google-mail.env")
-	f, err := config.ReadEnvFile(envFile)
+	f, err := store.ReadEnvFile(envFile)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -299,7 +298,7 @@ func TestCarrySetupGrantsFailureStopsRest(t *testing.T) {
 			t.Fatalf("the record has no %q: %+v", want, rec)
 		}
 	}
-	f, err := config.ReadEnvFile(filepath.Join(home, "sources", "google-mail.env"))
+	f, err := store.ReadEnvFile(filepath.Join(home, "sources", "google-mail.env"))
 	if err != nil || source.Lookup(f.Env, "GOOGLE_ACCOUNT") != "ops@example.com" {
 		t.Fatalf("the account did not stand: %+v, %v", f, err)
 	}
@@ -333,7 +332,7 @@ func TestCarrySetupTakenUpAtNextStart(t *testing.T) {
 	if _, err := st.GetSource(ctx, "google-mail"); err != nil {
 		t.Fatal(err)
 	}
-	f, err := config.ReadEnvFile(filepath.Join(home, "sources", "google-mail.env"))
+	f, err := store.ReadEnvFile(filepath.Join(home, "sources", "google-mail.env"))
 	if err != nil || source.Lookup(f.Env, "GOOGLE_ACCOUNT") != "ops@example.com" {
 		t.Fatalf("the taken-up account = %+v, %v", f, err)
 	}
@@ -398,7 +397,7 @@ func TestCarrySetupLostValuesDoesNotReuseExistingAccount(t *testing.T) {
 	if _, err := st.SetSource(ctx, "google-mail", store.SourceEnvFile, file, "mckean"); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := config.WriteEnvFile(file, map[string]string{"GOOGLE_ACCOUNT": "old@example.com"}); err != nil {
+	if _, _, err := store.WriteEnvFile(file, map[string]string{"GOOGLE_ACCOUNT": "old@example.com"}); err != nil {
 		t.Fatal(err)
 	}
 	seq := askSetupApprove(t, st, bead, "google-mail", 1, setupMailValues(), store.Grantee{Crew: "yardmaster"})
@@ -411,7 +410,7 @@ func TestCarrySetupLostValuesDoesNotReuseExistingAccount(t *testing.T) {
 	if rec.State != store.CarryFailed || !strings.Contains(rec.Result, "Ask for it again") || !strings.Contains(rec.Result, "yardr source key google-mail GOOGLE_ACCOUNT") {
 		t.Fatalf("the record reused an older account: %+v", rec)
 	}
-	f, err := config.ReadEnvFile(file)
+	f, err := store.ReadEnvFile(file)
 	if err != nil || source.Lookup(f.Env, "GOOGLE_ACCOUNT") != "old@example.com" {
 		t.Fatalf("the existing account changed: %+v, %v", f, err)
 	}

@@ -282,7 +282,7 @@ func (h *Herdr) crewSessionEnv(ctx context.Context, r store.CrewMember, dir, use
 		return h.withHarnessKey(env, kind, h.operator(ctx), "crew member "+r.Name)
 	}
 	who := "crew member " + r.Name + " for " + user
-	f, err := config.ReadEnvFile(r.EnvFor(user))
+	f, err := store.ReadEnvFile(r.EnvFor(user))
 	if err != nil {
 		return nil, dispatch.Blocked(fmt.Errorf("%s: %w", who, err))
 	}
@@ -362,7 +362,7 @@ func harnessKey(log *slog.Logger, home, kind, user, who string) ([]string, error
 	if _, err := os.Lstat(path); errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
-	f, err := config.ReadEnvFile(path)
+	f, err := store.ReadEnvFile(path)
 	if err != nil {
 		return nil, dispatch.Blocked(fmt.Errorf("%s: the %s key of %s's login: %w", who, h.Kind, user, err))
 	}
@@ -392,7 +392,7 @@ func envFile(log *slog.Logger, cfg map[string]any, who string) ([]string, error)
 	if path == "" {
 		return nil, nil
 	}
-	f, err := config.ReadEnvFile(path)
+	f, err := store.ReadEnvFile(path)
 	if err != nil {
 		return nil, dispatch.Blocked(fmt.Errorf("%s: %w", who, err))
 	}
@@ -409,7 +409,7 @@ func envFile(log *slog.Logger, cfg map[string]any, who string) ([]string, error)
 // no KEY=VALUE) is Blocked, as a group's env_file is: the crew member must not
 // start without its credentials. Only key names are logged.
 func (h *Herdr) crewEnv(ctx context.Context, r store.CrewMember, dir string) ([]string, error) {
-	env, err := config.ReadCrewEnv(ctx, r.Name, dir, h.YardHome, r.Config)
+	env, err := config.ReadCrewEnv(ctx, r.Name, dir, h.YardHome, r.Config, store.ReadEnvFileEntries, store.ParseEnv)
 	if err != nil {
 		if ctx.Err() != nil {
 			// The daemon is stopping: nothing a human has to fix.

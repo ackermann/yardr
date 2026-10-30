@@ -16,7 +16,6 @@ import (
 	"testing"
 	"time"
 
-	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
@@ -163,7 +162,7 @@ func newTelemetryYard(t *testing.T) *telemetryYard {
 		s:       storetest.NewIn(t, home),
 		posthog: newPosthogStandIn(t),
 		log:     &lockedWriter{},
-		state:   config.At(home).TelemetryState(),
+		state:   store.TelemetryState(home),
 	}
 	y.d = y.dispatcher()
 	return y

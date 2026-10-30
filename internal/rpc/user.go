@@ -19,7 +19,6 @@ import (
 	"sync"
 	"time"
 
-	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/eta"
 	"yardr.dev/yardr/internal/store"
 )
@@ -452,12 +451,12 @@ func (u *UserServer) withholds(ctx context.Context) bool {
 const callHeld = "the yard could not do that; why is an operator's to read"
 
 // shapeUserErr is a user's request error as its device is answered it: whole,
-// but for a failure of the yard's own file (config.OperationalError) to a
+// but for a failure of the yard's own file (store.OperationalError) to a
 // device that is no operator's, which is told that it failed and not on
 // which file. A refusal reads whole, as does every error to a device of an
 // operator. The full words of a held error are logged, for the operator.
 func (u *UserServer) shapeUserErr(ctx context.Context, name string, err error) error {
-	var op *config.OperationalError
+	var op *store.OperationalError
 	if !u.withholds(ctx) || !errors.As(err, &op) {
 		return err
 	}
@@ -624,7 +623,7 @@ func (u *UserServer) giveSecret(ctx context.Context, id string, ask uint64, valu
 	held := u.withholds(ctx)
 	if held {
 		for _, name := range slices.Sorted(maps.Keys(values)) {
-			if why := config.EnvValueProblem(name, values[name]); why != "" {
+			if why := store.EnvValueProblem(name, values[name]); why != "" {
 				return nil, errors.New(why)
 			}
 		}
@@ -1726,7 +1725,7 @@ func (u *UserServer) userBlob(w http.ResponseWriter, r *http.Request) {
 // (callHeld), as for a call, and the full words are logged for the
 // operator. Any other error is answered as it is.
 func (u *UserServer) blobErr(w http.ResponseWriter, r *http.Request, err error) {
-	var op *config.OperationalError
+	var op *store.OperationalError
 	if u.withholds(r.Context()) && errors.As(err, &op) {
 		u.log.Warn("a file a device asked for could not be read", "err", err)
 		http.Error(w, callHeld, http.StatusInternalServerError)

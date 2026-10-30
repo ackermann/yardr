@@ -152,6 +152,9 @@ func (r *runner) serve(ctx context.Context) (string, bool, error) {
 	// How TelemetryShow and TelemetrySet turn the switch and preview the
 	// next request: the CLI's own functions, on this home's state file.
 	st.SetTelemetrySwitch(telemetry.Switch{})
+	// How the store recognises the daemon: the holder of this home's
+	// daemon lock.
+	st.SetDaemonChecker(config.DaemonChecker(c.Home))
 	// The carrying out of approved applies (carry.go): this start's
 	// boot takes up what an earlier one left, before it serves.
 	boot := newBoot()

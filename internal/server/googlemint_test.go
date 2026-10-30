@@ -125,10 +125,10 @@ func TestCarryGoogleMailSetsItsMint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state, err := d.CredentialState(src.EnvFile, src.Mint); err != nil || !strings.HasSuffix(state, ", minted with "+copyAt) {
+	if state, err := d.CredentialState(src.EnvFile, src.Mint, store.ReadEnvFileEntries); err != nil || !strings.HasSuffix(state, ", minted with "+copyAt) {
 		t.Fatalf("credential state = %q, %v", state, err)
 	}
-	token, state, err := d.ReadCredential(ctx, src.EnvFile, src.Mint, source.Read)
+	token, state, err := d.ReadCredential(ctx, src.EnvFile, src.Mint, source.Read, store.ReadEnvFileEntries)
 	if err != nil || token != "ya29.standin" || !strings.Contains(state, "minted, good until") {
 		t.Fatalf("the mint gave %q (%q), %v", token, state, err)
 	}

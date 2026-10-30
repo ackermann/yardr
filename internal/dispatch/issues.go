@@ -174,7 +174,7 @@ func (d *Dispatcher) credential(ctx context.Context, member, source string, decl
 		return "", err
 	}
 	names := hooks.CredentialNames(source, decl)
-	env, err := config.ReadCrewEnv(ctx, r.Name, r.Dir, d.Home, r.Config)
+	env, err := config.ReadCrewEnv(ctx, r.Name, r.Dir, d.Home, r.Config, store.ReadEnvFileEntries, store.ParseEnv)
 	if !env.Set() {
 		return "", fmt.Errorf("crew member %s has no env_file or env_command, where its %s is read from", member, names)
 	}

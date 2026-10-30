@@ -15,7 +15,6 @@ import (
 	"sync"
 	"testing"
 
-	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/packs"
 )
 
@@ -168,7 +167,7 @@ func TestHookRegisterMakesSecretAndCalls(t *testing.T) {
 		t.Errorf("register url = %v", hit.body["url"])
 	}
 	file := HookSecretFile(y.home, "bot")
-	secret, _, err := config.ReadSecretFile(file)
+	secret, _, err := ReadSecretFile(file)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -398,7 +397,7 @@ func TestHookRegisterPostHogDestination(t *testing.T) {
 	if fmt.Sprint(value("body")) != fmt.Sprint(wantBody) {
 		t.Errorf("destination body = %v, want %v", value("body"), wantBody)
 	}
-	secret, _, err := config.ReadSecretFile(HookSecretFile(y.home, "posthog"))
+	secret, _, err := ReadSecretFile(HookSecretFile(y.home, "posthog"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -641,7 +640,7 @@ func TestHookRegisterPostHogRetryChecksFirst(t *testing.T) {
 		if seen.posts != 1 || len(seen.functions) != 1 {
 			t.Fatalf("the lost answer committed %d functions in %d posts", len(seen.functions), seen.posts)
 		}
-		secret, _, err := config.ReadSecretFile(HookSecretFile(y.home, "posthog"))
+		secret, _, err := ReadSecretFile(HookSecretFile(y.home, "posthog"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -743,7 +742,7 @@ func TestHookRegisterFailureLeavesHookAndRetries(t *testing.T) {
 	if len(hits) != 1 {
 		t.Fatalf("register call made %d times", len(hits))
 	}
-	first, _, err := config.ReadSecretFile(HookSecretFile(y.home, "bot"))
+	first, _, err := ReadSecretFile(HookSecretFile(y.home, "bot"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -774,7 +773,7 @@ func TestHookRegisterMakesFreshSecretForReaddedHook(t *testing.T) {
 	if _, err := y.ApproveAsk(y.ctx, y.bead, firstAsk, "mckean", true, nil); err != nil {
 		t.Fatal(err)
 	}
-	first, _, err := config.ReadSecretFile(HookSecretFile(y.home, "bot"))
+	first, _, err := ReadSecretFile(HookSecretFile(y.home, "bot"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -785,7 +784,7 @@ func TestHookRegisterMakesFreshSecretForReaddedHook(t *testing.T) {
 	if _, err := y.ApproveAsk(y.ctx, y.bead, secondAsk, "mckean", true, nil); err != nil {
 		t.Fatal(err)
 	}
-	second, _, err := config.ReadSecretFile(HookSecretFile(y.home, "bot"))
+	second, _, err := ReadSecretFile(HookSecretFile(y.home, "bot"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -14,9 +14,6 @@ import (
 	"time"
 
 	bolt "go.etcd.io/bbolt"
-
-	"yardr.dev/yardr/internal/config"
-	"yardr.dev/yardr/internal/peer"
 )
 
 // A user is a person as a party of the yard: a name and an inbox, as a
@@ -72,7 +69,7 @@ type User struct {
 	// one with a notify key or an adapter that can; "" for none. EnvFile is
 	// the path of the file that holds the user's own address in it (and
 	// whatever else of theirs the source needs), read at each send under
-	// the rule of every env_file (config.ReadEnvFile). The store has the
+	// the rule of every env_file (ReadEnvFile). The store has the
 	// path and never what is in the file. See SetUser.
 	Notify  string `json:"notify,omitempty"`
 	EnvFile string `json:"env_file,omitempty"`
@@ -312,23 +309,26 @@ func (s *Store) daemonOr(ctx context.Context, tx *bolt.Tx, actor string, act Act
 	return s.may(ctx, tx, actor, act, obj)
 }
 
+// SetDaemonChecker tells the store how its owning process recognises the
+// daemon: whether a socket caller's pid holds the daemon lock. A store no
+// server owns has none: on it a call with a caller is refused the daemon's
+// writes, and a call with none is served as the owner's own.
+func (s *Store) SetDaemonChecker(check func(pid int) bool) { s.daemonCheck = check }
+
 // daemonOnly refuses a session-lifecycle write from any caller but the
 // daemon: method is the daemon's alone to make. The pane checks trust
 // what these writes record (paneSession, paneCrew), so a pane that could
 // make them could pass as another session or rewrite who a note is stored
 // as. A call with no caller (the owning process: tests, in-process use)
-// is served; over the socket the caller is the pid that holds the daemon
-// lock, verified by pid and start time as a stop verifies it (never a
-// bare pid), or the call is refused.
+// is served; over the socket the caller passes only where the owning
+// process's checker says it holds the daemon lock (SetDaemonChecker), or
+// the call is refused.
 func (s *Store) daemonOnly(ctx context.Context, method string) error {
 	pid := callerOf(ctx)
 	if pid <= 0 {
 		return nil
 	}
-	lock := config.At(s.home).DaemonLock()
-	holder := config.DaemonPID(lock)
-	start, recorded := config.DaemonStart(lock)
-	if holder != pid || !recorded || !peer.Alive(pid, start) {
+	if s.daemonCheck == nil || !s.daemonCheck(pid) {
 		return fmt.Errorf("%s is the daemon's alone", method)
 	}
 	return nil
@@ -557,12 +557,12 @@ func effectiveEnvFile(home string, u *User) (string, bool) {
 }
 
 // resolvedEnvFile is a path as the one file it names: a leading ~/ made
-// the home and the result made absolute and cleaned (config.ExpandPath),
+// the home and the result made absolute and cleaned (ExpandPath),
 // with a symbolic link evaluated where the file stands, so its spellings
 // and a link to it count as the one file. The comparison is on the
 // records, whether the file stands today or not.
 func resolvedEnvFile(path string) (string, error) {
-	p, err := config.ExpandPath(path)
+	p, err := ExpandPath(path)
 	if err != nil {
 		return "", err
 	}
@@ -650,7 +650,7 @@ func (w *wtx) clearUserCredential(name string, u *User) error {
 	if err != nil {
 		return err
 	}
-	if _, _, err := config.RemoveEnvNames(file, names); err != nil {
+	if _, _, err := RemoveEnvNames(file, names); err != nil {
 		return fmt.Errorf("user %s is not removed: their credential is not cleared from %s: %w", name, resolved, err)
 	}
 	return nil

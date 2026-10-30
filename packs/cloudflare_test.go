@@ -242,7 +242,7 @@ func TestCloudflareCallsAgainstTheStandin(t *testing.T) {
 		{"email_rules", map[string]string{"zone": cfZone}, "GET /zones/" + cfZone + "/email/routing/rules", "ada@example.com"},
 		{"email_addresses", map[string]string{"account": cfAccount}, "GET /accounts/" + cfAccount + "/email/routing/addresses", "ada@example.com"},
 	} {
-		res, err := source.Do(context.Background(), d, tc.call, tc.params, cfToken)
+		res, err := source.Do(context.Background(), d, tc.call, tc.params, cfToken, store.ReadSecretFile)
 		if err != nil {
 			t.Errorf("call %s: %v", tc.call, err)
 			continue
@@ -269,7 +269,7 @@ func TestCloudflareCallsAgainstTheStandin(t *testing.T) {
 	noTokenRead := &cloudflareStandin{t: t, scopes: []string{"Workers Scripts Edit", "Email Routing Addresses Read", "Email Routing Rules Edit", "Zone Read"}}
 	srv2 := httptest.NewServer(http.HandlerFunc(noTokenRead.handler))
 	defer srv2.Close()
-	res, err := source.Do(context.Background(), cloudflareDeclaration(t, srv2.URL), "token", map[string]string{"token_id": cfTokenID}, cfToken)
+	res, err := source.Do(context.Background(), cloudflareDeclaration(t, srv2.URL), "token", map[string]string{"token_id": cfTokenID}, cfToken, store.ReadSecretFile)
 	if err != nil {
 		t.Fatalf("token call without API Tokens Read: %v", err)
 	}
@@ -279,7 +279,7 @@ func TestCloudflareCallsAgainstTheStandin(t *testing.T) {
 	noAccounts := &cloudflareStandin{t: t, scopes: []string{"API Tokens Read", "Workers Scripts Edit", "Email Routing Addresses Read", "Email Routing Rules Edit", "Zone Read"}, failAccounts: true}
 	srv3 := httptest.NewServer(http.HandlerFunc(noAccounts.handler))
 	defer srv3.Close()
-	res, err = source.Do(context.Background(), cloudflareDeclaration(t, srv3.URL), "accounts", nil, cfToken)
+	res, err = source.Do(context.Background(), cloudflareDeclaration(t, srv3.URL), "accounts", nil, cfToken, store.ReadSecretFile)
 	if err != nil {
 		t.Fatalf("accounts call the stand-in refuses: %v", err)
 	}
@@ -305,7 +305,7 @@ func TestCloudflareUpdateCallsAgainstTheStandin(t *testing.T) {
 		t.Fatal(err)
 	}
 	res, err := source.Do(context.Background(), d, "worker_upload", map[string]string{
-		"account": cfAccount, "name": "mail-worker", "script": scriptFile}, cfToken)
+		"account": cfAccount, "name": "mail-worker", "script": scriptFile}, cfToken, store.ReadSecretFile)
 	if err != nil || !res.OK() {
 		t.Fatalf("worker_upload: %v, %+v", err, res)
 	}
@@ -325,7 +325,7 @@ func TestCloudflareUpdateCallsAgainstTheStandin(t *testing.T) {
 		t.Fatal(err)
 	}
 	res, err = source.Do(context.Background(), d, "worker_secret", map[string]string{
-		"account": cfAccount, "name": "mail-worker", "secret": "MAIL_KEY", "value": secretFile}, cfToken)
+		"account": cfAccount, "name": "mail-worker", "secret": "MAIL_KEY", "value": secretFile}, cfToken, store.ReadSecretFile)
 	if err != nil || !res.OK() {
 		t.Fatalf("worker_secret: %v, %+v", err, res)
 	}
@@ -341,14 +341,14 @@ func TestCloudflareUpdateCallsAgainstTheStandin(t *testing.T) {
 	}
 	call, _ := d.Call("worker_secret")
 	secretParams := map[string]string{"account": cfAccount, "name": "mail-worker", "secret": "MAIL_KEY", "value": secretFile}
-	inputs, err := call.ReadInputs(secretParams)
+	inputs, err := call.ReadInputs(secretParams, store.ReadSecretFile)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(secretFile, []byte("changed after the card\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	res, err = source.DoKeyedWithInputs(context.Background(), d, "worker_secret", secretParams, cfToken, "", inputs)
+	res, err = source.DoKeyedWithInputs(context.Background(), d, "worker_secret", secretParams, cfToken, "", inputs, store.ReadSecretFile)
 	if err != nil || !res.OK() {
 		t.Fatalf("worker_secret with captured input: %v, %+v", err, res)
 	}
@@ -366,7 +366,7 @@ func TestCloudflareUpdateCallsAgainstTheStandin(t *testing.T) {
 		{"email_rule_edit", map[string]string{"zone": cfZone, "rule": "rule1", "address": "ada@example.com", "worker": "mail-worker"},
 			"PUT /zones/" + cfZone + "/email/routing/rules/rule1"},
 	} {
-		res, err := source.Do(context.Background(), d, tc.call, tc.params, cfToken)
+		res, err := source.Do(context.Background(), d, tc.call, tc.params, cfToken, store.ReadSecretFile)
 		if err != nil || !res.OK() {
 			t.Fatalf("%s: %v, %+v", tc.call, err, res)
 			continue
@@ -381,12 +381,12 @@ func TestCloudflareUpdateCallsAgainstTheStandin(t *testing.T) {
 	}
 	tooLongAddress := strings.Repeat("a", 88) + "@x.y"
 	if _, err := source.Do(context.Background(), d, "email_rule", map[string]string{
-		"zone": cfZone, "address": tooLongAddress, "worker": "mail-worker"}, cfToken); err == nil ||
+		"zone": cfZone, "address": tooLongAddress, "worker": "mail-worker"}, cfToken, store.ReadSecretFile); err == nil ||
 		!strings.Contains(err.Error(), "at most 90") {
 		t.Errorf("email_rule with a long address: err %v, want the API's 90-character bound", err)
 	}
 	if _, err := source.Do(context.Background(), d, "email_rule_edit", map[string]string{
-		"zone": cfZone, "rule": strings.Repeat("a", 33), "address": "ada@example.com", "worker": "mail-worker"}, cfToken); err == nil ||
+		"zone": cfZone, "rule": strings.Repeat("a", 33), "address": "ada@example.com", "worker": "mail-worker"}, cfToken, store.ReadSecretFile); err == nil ||
 		!strings.Contains(err.Error(), "at most 32") {
 		t.Errorf("email_rule_edit with a long rule id: err %v, want the API's 32-character bound", err)
 	}
@@ -397,7 +397,7 @@ func TestCloudflareUpdateCallsAgainstTheStandin(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := source.Do(context.Background(), d, "worker_secret", map[string]string{
-		"account": cfAccount, "name": "mail-worker", "secret": "MAIL_KEY", "value": loose}, cfToken); err == nil ||
+		"account": cfAccount, "name": "mail-worker", "secret": "MAIL_KEY", "value": loose}, cfToken, store.ReadSecretFile); err == nil ||
 		!strings.Contains(err.Error(), "parameter value") || strings.Contains(err.Error(), secretValue) || strings.Contains(err.Error(), loose) {
 		t.Errorf("worker_secret with a loose file: err %v, want a refusal naming the parameter alone", err)
 	}

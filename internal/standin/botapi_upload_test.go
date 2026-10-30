@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"yardr.dev/yardr/internal/source"
+	"yardr.dev/yardr/internal/store"
 )
 
 // A declared document call, as the telegram pack's, against the stand-in's
@@ -42,7 +43,7 @@ calls:
 	if err := os.WriteFile(upload, []byte("the shed, measured\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	res, err := source.Do(context.Background(), d, "document", map[string]string{"chat": "987654321", "path": upload, "caption": "tonight's build"}, "123:ABC")
+	res, err := source.Do(context.Background(), d, "document", map[string]string{"chat": "987654321", "path": upload, "caption": "tonight's build"}, "123:ABC", store.ReadSecretFile)
 	if err != nil {
 		t.Fatal(err)
 	}

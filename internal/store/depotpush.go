@@ -30,7 +30,6 @@ import (
 	"regexp"
 	"strings"
 
-	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/source"
 )
 
@@ -483,7 +482,7 @@ func pushTokenStanding(home string, ps DepotPushSource) bool {
 	if file == "" {
 		file = source.EnvFile(home, ps.Name)
 	}
-	f, err := config.ReadEnvFile(file)
+	f, err := ReadEnvFile(file)
 	if err != nil {
 		return false
 	}

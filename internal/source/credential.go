@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
-
-	"yardr.dev/yardr/internal/config"
 )
 
 // ReadCredential reads the credential of d as a call of kind needs it: the
@@ -18,11 +16,12 @@ import (
 // state says in words where it is,
 // and for a minted token how long it is good, for showing, and never holds
 // the value; err says why there is none, with the command that sets it up.
-func (d *Declaration) ReadCredential(ctx context.Context, envFile string, mint []string, kind string) (value, state string, err error) {
+// readEnv is SelectCredential's.
+func (d *Declaration) ReadCredential(ctx context.Context, envFile string, mint []string, kind string, readEnv func(path string) (env []string, resolved string, err error)) (value, state string, err error) {
 	if d.Credential == nil {
 		return "", "none: the file names no credential", nil
 	}
-	sel, err := d.SelectCredential(envFile, kind)
+	sel, err := d.SelectCredential(envFile, kind, readEnv)
 	if err != nil {
 		return "", "", err
 	}
@@ -34,8 +33,8 @@ func (d *Declaration) ReadCredential(ctx context.Context, envFile string, mint [
 // their record names, read now, or the token its mint's inputs mint, with
 // mint, the command a mint of the source runs, and no scope. The precedence, the mint and what
 // state says are ReadCredential's; err says why there is none, with the
-// card that gives it.
-func (d *Declaration) ReadUserCredential(ctx context.Context, user, envFile string, mint []string, kind string) (value, state string, err error) {
+// card that gives it. readEnv is SelectCredential's.
+func (d *Declaration) ReadUserCredential(ctx context.Context, user, envFile string, mint []string, kind string, readEnv func(path string) (env []string, resolved string, err error)) (value, state string, err error) {
 	if d.Credential == nil {
 		return "", "none: the file names no credential", nil
 	}
@@ -43,7 +42,7 @@ func (d *Declaration) ReadUserCredential(ctx context.Context, user, envFile stri
 	if envFile == "" {
 		return "", "", fmt.Errorf("%s is not set for %s: %s", strings.Join(d.Credential.MintOrStatic(), " and "), user, card)
 	}
-	sel, err := d.SelectCredential(envFile, kind)
+	sel, err := d.SelectCredential(envFile, kind, readEnv)
 	if err != nil {
 		return "", "", fmt.Errorf("%s: %s", err, card)
 	}
@@ -69,11 +68,12 @@ func (d *Declaration) resolveSelected(ctx context.Context, sel *Selected, mint [
 // minted credential, the input names and the command that mints them (mint,
 // as MintArgv has it), which is not run to tell. err is the first that is
 // not, or a *NoMintCommand where a mint is set up but no command is.
-func (d *Declaration) CredentialState(envFile string, mint []string) (state string, err error) {
+// readEnv is SelectCredential's.
+func (d *Declaration) CredentialState(envFile string, mint []string, readEnv func(path string) (env []string, resolved string, err error)) (state string, err error) {
 	if d.Credential == nil {
 		return "none: the file names no credential", nil
 	}
-	sel, err := d.SelectCredential(envFile, Read)
+	sel, err := d.SelectCredential(envFile, Read, readEnv)
 	if err != nil {
 		return "", err
 	}
@@ -88,7 +88,7 @@ func (d *Declaration) CredentialState(envFile string, mint []string) (state stri
 	if d.Credential.UpdateEnv == "" {
 		return state, nil
 	}
-	update, err := d.SelectCredential(envFile, Update)
+	update, err := d.SelectCredential(envFile, Update, readEnv)
 	if err != nil {
 		return "", err
 	}
@@ -99,14 +99,14 @@ func (d *Declaration) CredentialState(envFile string, mint []string) (state stri
 // in the user's file, as CredentialState says it of the source's file: for
 // a minted credential the input names, without the mint command, which is
 // the source's and is said on its line. err is the first that is not, with
-// the card that gives it.
+// the card that gives it. readEnv is SelectCredential's.
 // userCredentialCard is the card that gives the user's credential in the
 // source: asked of them, or of the operator for them.
 func userCredentialCard(src, user string) string {
 	return fmt.Sprintf("yardr bead ask <bead> \"<question>\" --secret %s --as %s --context \"<where to get it>\" asks %s for it", src, user, user)
 }
 
-func (d *Declaration) UserCredentialState(user, file string) (string, error) {
+func (d *Declaration) UserCredentialState(user, file string, readEnv func(path string) (env []string, resolved string, err error)) (string, error) {
 	if d.Credential == nil {
 		return "none: the file names no credential", nil
 	}
@@ -114,7 +114,7 @@ func (d *Declaration) UserCredentialState(user, file string) (string, error) {
 	if file == "" {
 		return "", fmt.Errorf("%s is not set for %s: %s", strings.Join(d.Credential.MintOrStatic(), " and "), user, card)
 	}
-	sel, err := d.SelectCredential(file, Read)
+	sel, err := d.SelectCredential(file, Read, readEnv)
 	if err != nil {
 		return "", fmt.Errorf("%s: %s", err, card)
 	}
@@ -125,7 +125,7 @@ func (d *Declaration) UserCredentialState(user, file string) (string, error) {
 	if d.Credential.UpdateEnv == "" {
 		return state, nil
 	}
-	update, err := d.SelectCredential(file, Update)
+	update, err := d.SelectCredential(file, Update, readEnv)
 	if err != nil {
 		return "", fmt.Errorf("%s: %s", err, card)
 	}
@@ -155,8 +155,10 @@ type Selected struct {
 // SelectCredential reads envFile and applies the credential precedence for
 // a call of kind. It runs nothing: a mint is for the call. An error says
 // why neither way is set, with the file or the command that sets it up. A
-// file that names no credential selects nothing, without an error.
-func (d *Declaration) SelectCredential(envFile, kind string) (*Selected, error) {
+// file that names no credential selects nothing, without an error. readEnv
+// reads the file: the caller passes the store's reader, since source
+// cannot import the store for it (the store imports source).
+func (d *Declaration) SelectCredential(envFile, kind string, readEnv func(path string) (env []string, resolved string, err error)) (*Selected, error) {
 	if d.Credential == nil {
 		return &Selected{}, nil
 	}
@@ -172,19 +174,19 @@ func (d *Declaration) SelectCredential(envFile, kind string) (*Selected, error) 
 		// from a pane, so its way on is named too: this names no caller.
 		return nil, fmt.Errorf("%s is not set up: yardr source key %s gives %s, or yardr source set %s env_file=<file> names a file the operator keeps themselves; an agent asks from its pane: yardr bead ask <bead> \"<question>\" --secret %s --context \"<where to get it>\"", need, d.Name, sets, d.Name, d.Name)
 	}
-	f, err := config.ReadEnvFile(envFile)
+	env, file, err := readEnv(envFile)
 	if err != nil {
 		return nil, err
 	}
-	value, inputs, err := d.Credential.Select(d.Credential.EnvOf(kind), func(name string) string { return Lookup(f.Env, name) })
+	value, inputs, err := d.Credential.Select(d.Credential.EnvOf(kind), func(name string) string { return Lookup(env, name) })
 	if err != nil {
 		var missing *Missing
 		if errors.As(err, &missing) {
-			return nil, fmt.Errorf("env_file %s does not set %s", f.Path, missing.Names)
+			return nil, fmt.Errorf("env_file %s does not set %s", file, missing.Names)
 		}
-		return nil, fmt.Errorf("env_file %s: %w", f.Path, err)
+		return nil, fmt.Errorf("env_file %s: %w", file, err)
 	}
-	return &Selected{Value: value, Inputs: inputs, File: f.Path}, nil
+	return &Selected{Value: value, Inputs: inputs, File: file}, nil
 }
 
 // Lookup is the value of name in env, the KEY=VALUE lines of an env file:

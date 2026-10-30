@@ -40,7 +40,7 @@ import (
 func readKeys(d *source.Declaration, names []string, in io.Reader, typed func(prompt string) (string, error), as string) (map[string]string, error) {
 	values := map[string]string{}
 	if typed == nil {
-		env, err := config.ParseEnv(in, "standard input")
+		env, err := store.ParseEnv(in, "standard input")
 		if err != nil {
 			return nil, err
 		}
@@ -729,7 +729,7 @@ credential in it whether their file sets that. The value is never printed.
 				return err
 			}
 			told := slices.ContainsFunc(users, func(u store.User) bool { return u.Notify == d.Name })
-			state, credErr := d.CredentialState(src.EnvFile, src.Mint)
+			state, credErr := d.CredentialState(src.EnvFile, src.Mint, store.ReadEnvFileEntries)
 			if d.Credential != nil && src.EnvFileUnset != "" {
 				// A file where yardr source key writes one, which no
 				// setting names: a giving that was written and not
@@ -770,7 +770,7 @@ credential in it whether their file sets that. The value is never printed.
 				// the names, is said so with the card that gives one.
 				as = make(map[string]string, len(users))
 				for _, u := range users {
-					astate, err := d.UserCredentialState(u.Name, u.EnvFile)
+					astate, err := d.UserCredentialState(u.Name, u.EnvFile, store.ReadEnvFileEntries)
 					if err != nil {
 						astate = err.Error()
 					}
@@ -1132,10 +1132,10 @@ base= with nothing after it is the declaration's own base again.`,
 				if d.Credential == nil {
 					return fmt.Errorf("source %s: its declaration names no credential, so there is nothing an %s would set", d.Name, store.SourceEnvFile)
 				}
-				if value, err = config.ExpandPath(value); err != nil {
+				if value, err = store.ExpandPath(value); err != nil {
 					return err
 				}
-				state, err = d.CredentialState(value, src.Mint)
+				state, err = d.CredentialState(value, src.Mint, store.ReadEnvFileEntries)
 				if err != nil {
 					var noCommand *source.NoMintCommand
 					if !errors.As(err, &noCommand) {
@@ -1517,9 +1517,9 @@ process for it. Nothing of the request is written anywhere.`,
 			// With --as the credential looked at and read is the user's,
 			// from the file their record names, and the check call is made
 			// as them.
-			stateOf := func() (string, error) { return d.CredentialState(src.EnvFile, src.Mint) }
+			stateOf := func() (string, error) { return d.CredentialState(src.EnvFile, src.Mint, store.ReadEnvFileEntries) }
 			readOf := func(ctx context.Context) (string, string, error) {
-				return d.ReadCredential(ctx, src.EnvFile, src.Mint, source.Read)
+				return d.ReadCredential(ctx, src.EnvFile, src.Mint, source.Read, store.ReadEnvFileEntries)
 			}
 			saidAs := ""
 			if checkAs != "" {
@@ -1527,9 +1527,9 @@ process for it. Nothing of the request is written anywhere.`,
 				if err != nil {
 					return err
 				}
-				stateOf = func() (string, error) { return d.UserCredentialState(u.Name, u.EnvFile) }
+				stateOf = func() (string, error) { return d.UserCredentialState(u.Name, u.EnvFile, store.ReadEnvFileEntries) }
 				readOf = func(ctx context.Context) (string, string, error) {
-					return d.ReadUserCredential(ctx, u.Name, u.EnvFile, src.Mint, source.Read)
+					return d.ReadUserCredential(ctx, u.Name, u.EnvFile, src.Mint, source.Read, store.ReadEnvFileEntries)
 				}
 				saidAs = " as " + u.Name
 			}
@@ -1560,7 +1560,7 @@ process for it. Nothing of the request is written anywhere.`,
 					return fmt.Errorf("source %s: %w", d.Name, err)
 				}
 				state, out["credential"] = mstate, mstate
-				res, err := source.Do(c.Context(), d, d.Check, nil, cred)
+				res, err := source.Do(c.Context(), d, d.Check, nil, cred, store.ReadSecretFile)
 				if err != nil {
 					return err
 				}
@@ -1890,7 +1890,7 @@ func commandFileLine(f source.CommandFile) string {
 func usersHolding(d *source.Declaration, users []store.User) int {
 	n := 0
 	for _, u := range users {
-		if _, err := d.UserCredentialState(u.Name, u.EnvFile); err == nil {
+		if _, err := d.UserCredentialState(u.Name, u.EnvFile, store.ReadEnvFileEntries); err == nil {
 			n++
 		}
 	}

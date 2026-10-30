@@ -21,8 +21,6 @@ import (
 	"syscall"
 	"time"
 	"unicode/utf8"
-
-	"yardr.dev/yardr/internal/config"
 )
 
 // Timeout bounds one call, from the connection to the last byte of the
@@ -114,26 +112,30 @@ func StatusHint(status int, d *Declaration) string {
 // goes to is the credential's own value, held to the same rules, and no
 // error repeats any of it. An answer that is no JSON, such as the
 // "Accepted" Make's webhooks say, is a success without an answer, since
-// the endpoint is whatever the operator pointed the URL at.
-func Do(ctx context.Context, d *Declaration, name string, params map[string]string, credential string) (*Result, error) {
-	return DoKeyed(ctx, d, name, params, credential, "")
+// the endpoint is whatever the operator pointed the URL at. readSecret
+// reads a secret-file parameter from its file: the caller passes the
+// store's reader, since source cannot import the store for it (the store
+// imports source).
+func Do(ctx context.Context, d *Declaration, name string, params map[string]string, credential string, readSecret func(path string) (secret []byte, resolved string, err error)) (*Result, error) {
+	return DoKeyed(ctx, d, name, params, credential, "", readSecret)
 }
 
 // ValidateCallParams checks parameters against the named call without
 // making a request. A caller that must write something before making the
-// request can refuse bad values before that write.
-func ValidateCallParams(d *Declaration, name string, params map[string]string) error {
-	return ValidateCallParamsWithInputs(d, name, params, nil)
+// request can refuse bad values before that write. readSecret is Do's.
+func ValidateCallParams(d *Declaration, name string, params map[string]string, readSecret func(path string) (secret []byte, resolved string, err error)) error {
+	return ValidateCallParamsWithInputs(d, name, params, nil, readSecret)
 }
 
 // ValidateCallParamsWithInputs checks parameters against the named call,
 // using file-backed values already read by the caller where supplied.
-func ValidateCallParamsWithInputs(d *Declaration, name string, params map[string]string, inputs map[string][]byte) error {
+// readSecret is Do's.
+func ValidateCallParamsWithInputs(d *Declaration, name string, params map[string]string, inputs map[string][]byte, readSecret func(path string) (secret []byte, resolved string, err error)) error {
 	c, ok := d.Call(name)
 	if !ok {
 		return fmt.Errorf("source %s, call %s: the source has no call of that name", d.Name, name)
 	}
-	_, err := c.values(params, inputs)
+	_, err := c.values(params, inputs, readSecret)
 	return err
 }
 
@@ -142,26 +144,28 @@ func ValidateCallParamsWithInputs(d *Declaration, name string, params map[string
 // sent in it, and the service writes once however often it gets the key.
 // The key is the caller's to keep between two tries of what is one call to
 // it; "" sends none. credential is the value of the variable d names for
-// the call's kind (Credential.EnvOf).
-func DoKeyed(ctx context.Context, d *Declaration, name string, params map[string]string, credential, key string) (*Result, error) {
-	return doKeyed(ctx, d, name, params, credential, key, nil, nil)
+// the call's kind (Credential.EnvOf). readSecret is Do's.
+func DoKeyed(ctx context.Context, d *Declaration, name string, params map[string]string, credential, key string, readSecret func(path string) (secret []byte, resolved string, err error)) (*Result, error) {
+	return doKeyed(ctx, d, name, params, credential, key, nil, nil, readSecret)
 }
 
 // DoKeyedWithInputs is DoKeyed with file-backed inputs already read by the
 // caller. A run-ask approval uses it to send exactly the bytes its card
 // checked, even if the named files change while the request is made.
-func DoKeyedWithInputs(ctx context.Context, d *Declaration, name string, params map[string]string, credential, key string, inputs map[string][]byte) (*Result, error) {
-	return doKeyed(ctx, d, name, params, credential, key, nil, inputs)
+// readSecret is Do's.
+func DoKeyedWithInputs(ctx context.Context, d *Declaration, name string, params map[string]string, credential, key string, inputs map[string][]byte, readSecret func(path string) (secret []byte, resolved string, err error)) (*Result, error) {
+	return doKeyed(ctx, d, name, params, credential, key, nil, inputs, readSecret)
 }
 
 // DoKeyedBody is DoKeyed with body already built, rather than filled from
 // the call's template. The body is sent unchanged; nil sends no body. Path,
 // query, credential and key are filled and checked as DoKeyed fills them.
-func DoKeyedBody(ctx context.Context, d *Declaration, name string, params map[string]string, credential, key string, body json.RawMessage) (*Result, error) {
-	return doKeyed(ctx, d, name, params, credential, key, body, nil)
+// readSecret is Do's.
+func DoKeyedBody(ctx context.Context, d *Declaration, name string, params map[string]string, credential, key string, body json.RawMessage, readSecret func(path string) (secret []byte, resolved string, err error)) (*Result, error) {
+	return doKeyed(ctx, d, name, params, credential, key, body, nil, readSecret)
 }
 
-func doKeyed(ctx context.Context, d *Declaration, name string, params map[string]string, credential, key string, built json.RawMessage, inputs map[string][]byte) (*Result, error) {
+func doKeyed(ctx context.Context, d *Declaration, name string, params map[string]string, credential, key string, built json.RawMessage, inputs map[string][]byte, readSecret func(path string) (secret []byte, resolved string, err error)) (*Result, error) {
 	// Where the credential is the address, it is the secret of the call,
 	// and nothing said of the call repeats it or its host. where is how the
 	// messages below name the address, and hide takes it out of what the
@@ -211,7 +215,7 @@ func doKeyed(ctx context.Context, d *Declaration, name string, params map[string
 	if strings.ContainsFunc(key, func(r rune) bool { return r <= ' ' || r >= 0x7f }) {
 		return nil, fail(BadParam, 0, "the key of the update is no value of a header")
 	}
-	vals, err := c.values(params, inputs)
+	vals, err := c.values(params, inputs, readSecret)
 	if err != nil {
 		return nil, fail(BadParam, 0, "%v", err)
 	}
@@ -479,8 +483,8 @@ func (c *Call) ParamsWithDefaults(params map[string]string) (map[string]string, 
 
 // ReadInputs reads the file-backed values of a call once. Its bytes are for
 // in-memory request execution only: a caller must not store or show them.
-func (c *Call) ReadInputs(params map[string]string) (map[string][]byte, error) {
-	vals, err := c.values(params, nil)
+func (c *Call) ReadInputs(params map[string]string, readSecret func(path string) (secret []byte, resolved string, err error)) (map[string][]byte, error) {
+	vals, err := c.values(params, nil, readSecret)
 	if err != nil {
 		return nil, err
 	}
@@ -536,7 +540,7 @@ func readCallFile(path string, max int) ([]byte, int64, error) {
 
 // values reads params against the call's declaration. Its errors name the
 // parameter and what is wrong, never the value.
-func (c *Call) values(params map[string]string, inputs map[string][]byte) (map[string]value, error) {
+func (c *Call) values(params map[string]string, inputs map[string][]byte, readSecret func(path string) (secret []byte, resolved string, err error)) (map[string]value, error) {
 	for name := range params {
 		if _, ok := c.param(name); !ok {
 			return nil, fmt.Errorf("%s is no parameter of the call (it takes: %s)", strconv.Quote(name), or(strings.Join(c.names(), ", "), "none"))
@@ -622,7 +626,7 @@ func (c *Call) values(params map[string]string, inputs map[string][]byte) (map[s
 				}
 				v.secret = string(secret)
 			} else {
-				secret, _, err := config.ReadSecretFile(s)
+				secret, _, err := readSecret(s)
 				switch {
 				case err != nil:
 					return nil, fmt.Errorf("parameter %s is no secret file that can be read", p.Name)

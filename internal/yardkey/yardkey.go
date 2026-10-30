@@ -63,7 +63,7 @@ func bodySum(body []byte) string {
 // pair first when there is no file: once, so the key a yard gave out stays
 // its key. The file holds the seed, base64, and is read under the rule of
 // every file yardr reads a secret from (0600 or stricter, see
-// config.ReadSecretFile).
+// store.ReadSecretFile).
 func Ensure(path string) (key ed25519.PrivateKey, made bool, err error) {
 	key, err = store.Load(path)
 	if !errors.Is(err, fs.ErrNotExist) {

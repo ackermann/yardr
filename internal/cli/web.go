@@ -173,7 +173,7 @@ this machine. Both answers carry Retry-After.`,
 				if all, err = st.Settings(ctx); err != nil {
 					return err
 				}
-				as, asFrom = set.Effective(all)
+				as, asFrom = set.Effective(all, config.Getenv)
 			}
 			if as != "" {
 				if _, err := st.GetUser(ctx, as); err != nil {
@@ -497,7 +497,7 @@ func webJWTConfig(ctx context.Context, st store.API, all map[string]string, as, 
 		return none, webJWTMissing(store.WebJWTJWKSSetting, "the URL the keys are fetched from")
 	}
 	header, _ := store.SettingOf(store.WebJWTHeaderSetting)
-	headerValue, _ := header.Effective(all)
+	headerValue, _ := header.Effective(all, config.Getenv)
 	rawUsers := all[store.WebJWTUsersSetting]
 	if rawUsers == "" {
 		return none, webJWTMissing(store.WebJWTUsersSetting, "the email-to-user table")

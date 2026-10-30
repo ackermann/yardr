@@ -25,7 +25,6 @@ import (
 
 	bolt "go.etcd.io/bbolt"
 
-	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/source"
 )
 
@@ -175,10 +174,10 @@ func fileDigest(path string, max int) (string, int64, error) {
 // of the value would stand in the store for anyone who reads the card to
 // test guesses against, and a secret may be short enough to guess.
 func secretFileStamp(path string) (string, error) {
-	if _, _, err := config.ReadSecretFile(path); err != nil {
+	if _, _, err := ReadSecretFile(path); err != nil {
 		return "", err
 	}
-	p, err := config.ExpandPath(path)
+	p, err := ExpandPath(path)
 	if err != nil {
 		return "", err
 	}
@@ -252,7 +251,7 @@ func (w *wtx) sourceCallCard(argv []string, asking bool) (AskRun, error) {
 			Back: "a call that was made cannot be unmade", BackBy: "nobody", Seen: seenMap}, nil
 	}
 	if asking {
-		if err := source.ValidateCallParams(d, callName, params); err != nil {
+		if err := source.ValidateCallParams(d, callName, params, ReadSecretFile); err != nil {
 			return AskRun{}, err
 		}
 	}
@@ -479,7 +478,7 @@ func (w *wtx) prepareSourceCall(ctx context.Context, id string, seq uint64, acto
 	if err != nil {
 		return nil, err
 	}
-	inputs, err := call.ReadInputs(effective)
+	inputs, err := call.ReadInputs(effective, ReadSecretFile)
 	if err != nil {
 		return nil, fmt.Errorf("ask %d: %w. %s", seq, err, nothingRan)
 	}

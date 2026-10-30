@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/limits"
 	"yardr.dev/yardr/internal/store"
 )
@@ -88,7 +87,7 @@ func groupEnv(g store.Group) ([]string, error) {
 	if file == "" {
 		return nil, nil
 	}
-	f, err := config.ReadEnvFile(file)
+	f, err := store.ReadEnvFile(file)
 	if err != nil {
 		return nil, fmt.Errorf("group %s: %w", g.Name, err)
 	}

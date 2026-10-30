@@ -100,7 +100,7 @@ Each cross-concept verb is owned by exactly one interface:
 the store-as-leaf splits folded `shared` and `udiff` into `store`):
 
 - leaves, importing no internal package (5): `pairing`, `peer`, `rpc/clientgen`, `scripttest`, `version`.
-- store (1): `store`. Measured: 155 non-test Go files, a 296-method `store.API`, 3 internal imports — the 2 allow-listed edges and the peer exception under the rules. Shared types the leaf splits move stay in store itself: there is no separate types package.
+- store (1): `store`. Measured: 160 non-test Go files, a 296-method `store.API`, 2 internal imports — the 1 allow-listed edge and the peer exception under the rules. Shared types the leaf splits move stay in store itself: there is no separate types package.
 - services (26): `agents`, `bdp`, `chat`, `config`, `depotfile`, `diskkeep`, `edgelink`, `eta`, `flowdraw`, `flowdraw/gen`, `hooks`, `limits`, `notify`, `otel`, `pack`, `preview`, `rpc`, `rpc/gen`, `source`, `standin`, `storetest`, `telemetry`, `testload`, `web`, `yardkey`, `yards`. (`storetest` and `testload` are test-only helpers; `rpc/gen` and `flowdraw/gen` are generators.)
 - dispatch, runner, server (3): the control loop and the process owners.
 - cli (1): `cli`. Measured: imports 27 of the 36 internal packages.
@@ -114,8 +114,8 @@ allow table, each row naming the bead that removes it:
 (a) `internal/store` imports no `internal` package, except
 `internal/peer`, which stays: it is OS process code with no yard
 types, so the edge carries none of the coupling the rule is there to
-stop. Besides that one, today it imports 2 (`config`, `source`);
-each stands in the table until its split bead cuts it.
+stop. Besides that one, today it imports 1 (`source`);
+it stands in the table until its split bead cuts it.
 
 (b) A leaf imports no internal package.
 

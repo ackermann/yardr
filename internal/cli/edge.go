@@ -739,7 +739,7 @@ func (a *app) setupGoogleSource(ctx context.Context, st store.API, cfg *config.C
 	if file == "" {
 		file = source.EnvFile(cfg.Home, name)
 	}
-	f, err := config.ReadEnvFile(file)
+	f, err := store.ReadEnvFile(file)
 	account := ""
 	if err == nil {
 		account = source.Lookup(f.Env, "GOOGLE_ACCOUNT")

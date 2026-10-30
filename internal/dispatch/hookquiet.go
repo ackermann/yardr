@@ -151,14 +151,14 @@ func (d *Dispatcher) webhookBroken(ctx context.Context, h store.Hook) (broken st
 	}
 	// The probe goes to the source's chosen base, as a call does.
 	decl = decl.WithBase(src.Base)
-	cred, _, err := decl.ReadCredential(ctx, src.EnvFile, src.Mint, source.Read)
+	cred, _, err := decl.ReadCredential(ctx, src.EnvFile, src.Mint, source.Read, store.ReadEnvFileEntries)
 	if err != nil {
 		d.Log.Warn("quiet hooks", "hook", h.Name, "err", err)
 		return "", false
 	}
 	pctx, cancel := context.WithTimeout(ctx, webhookProbeTimeout)
 	defer cancel()
-	res, err := source.Do(pctx, decl, decl.Check, nil, cred)
+	res, err := source.Do(pctx, decl, decl.Check, nil, cred, store.ReadSecretFile)
 	if err != nil {
 		d.Log.Warn("quiet hooks", "hook", h.Name, "err", err)
 		return "", false

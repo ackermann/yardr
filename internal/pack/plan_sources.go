@@ -11,7 +11,6 @@ import (
 	"slices"
 	"strings"
 
-	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/hooks"
 	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
@@ -288,7 +287,7 @@ func KeyHolder(ctx context.Context, st store.API, decl *source.Declaration) (str
 		if path == "" {
 			continue
 		}
-		f, err := config.ReadEnvFile(path)
+		f, err := store.ReadEnvFile(path)
 		if err != nil {
 			continue
 		}
@@ -308,7 +307,7 @@ func credentialNeed(decl *source.Declaration, envFile string, mint []string) (n 
 	if decl.Credential == nil {
 		return n, false
 	}
-	state, err := decl.CredentialState(envFile, mint)
+	state, err := decl.CredentialState(envFile, mint, store.ReadEnvFileEntries)
 	switch {
 	case err == nil:
 		return Need{store.SourceEnvFile, "ok", state}, true

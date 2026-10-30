@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"yardr.dev/yardr/internal/source"
+	"yardr.dev/yardr/internal/store"
 )
 
 // The core sends a declared call's credential in the header the
@@ -46,7 +47,7 @@ func TestLinearPackDeclaredCallSendsTheCredential(t *testing.T) {
 	defer srv.Close()
 	d.Base = srv.URL
 	const cred = "lin_oauth_test"
-	res, err := source.Do(context.Background(), d, d.Check, nil, cred)
+	res, err := source.Do(context.Background(), d, d.Check, nil, cred, store.ReadSecretFile)
 	if err != nil {
 		t.Fatal(err)
 	}

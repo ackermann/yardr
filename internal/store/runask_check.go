@@ -18,7 +18,6 @@ import (
 
 	bolt "go.etcd.io/bbolt"
 
-	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/source"
 )
 
@@ -134,7 +133,7 @@ func (w *wtx) sourceCheckCard(argv []string, asking bool) (AskRun, error) {
 		return AskRun{}, fmt.Errorf("the source %s has no notify key, so its file names no call that tells a person", srcName)
 	}
 	env := d.Notify.AddressEnv
-	if _, err := d.CredentialState(src.EnvFile, d.MintArgv(w.home, src.MintCommand)); err != nil {
+	if _, err := d.CredentialState(src.EnvFile, d.MintArgv(w.home, src.MintCommand), ReadEnvFileEntries); err != nil {
 		return AskRun{}, fmt.Errorf("source %s: %w", srcName, err)
 	}
 	current, path, err := w.sourceCheckAddress(u, srcName, env)
@@ -180,7 +179,7 @@ func (w *wtx) sourceCheckAddress(u *User, srcName, env string) (current, path st
 	if u.EnvFile == "" {
 		return "", "", fmt.Errorf("user %s has no %s: yardr user key %s %s gives %s", u.Name, UserEnvFile, u.Name, srcName, env)
 	}
-	f, err := config.ReadEnvFile(u.EnvFile)
+	f, err := ReadEnvFile(u.EnvFile)
 	if err != nil {
 		return "", "", fmt.Errorf("user %s: %w", u.Name, err)
 	}
@@ -316,13 +315,13 @@ func (s *Store) approveSourceCheck(ctx context.Context, id string, seq uint64, a
 	// the declaration with the base setting in place of its own, so the
 	// credential, the mint and the request all go to one address.
 	job.d = job.d.WithBase(job.src.Base)
-	cred, _, err := job.d.ReadCredential(ctx, job.src.EnvFile, job.d.MintArgv(s.home, job.src.MintCommand), source.Update)
+	cred, _, err := job.d.ReadCredential(ctx, job.src.EnvFile, job.d.MintArgv(s.home, job.src.MintCommand), source.Update, ReadEnvFileEntries)
 	if err != nil {
 		return nil, fmt.Errorf("telling %s through %s failed: the test message was not sent: %v. Approve again to retry", job.user, job.d.Name, err)
 	}
 	title, text := SourceCheckMessage(job.src.Name, job.user)
 	call, _ := job.d.Call(job.d.Notify.Call)
-	res, err := source.Do(ctx, job.d, job.d.Notify.Call, job.d.TellParams(job.address, title, text, ""), cred)
+	res, err := source.Do(ctx, job.d, job.d.Notify.Call, job.d.TellParams(job.address, title, text, ""), cred, ReadSecretFile)
 	if err != nil {
 		var failed *source.CallError
 		answer := err.Error()

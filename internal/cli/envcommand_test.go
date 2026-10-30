@@ -47,7 +47,7 @@ func TestCrewAnswersWithAProvidersCredential(t *testing.T) {
 	// runner's TestStartCrewLoadsEnvCommand has it reach the pane).
 	t.Setenv("GITHUB_APP_ID", "")
 	t.Setenv("GITHUB_APP_PRIVATE_KEY_FILE", "")
-	env, err := config.ReadCrewEnv(ctx, "yardmaster", "", "", def.Config)
+	env, err := config.ReadCrewEnv(ctx, "yardmaster", "", "", def.Config, store.ReadEnvFileEntries, store.ParseEnv)
 	if err != nil {
 		t.Fatal(err)
 	}

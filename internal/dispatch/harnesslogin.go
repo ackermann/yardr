@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/agents"
-	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -373,11 +372,11 @@ func sameEnvFile(a, b string) bool {
 	if a == "" || b == "" {
 		return false
 	}
-	pa, err := config.ExpandPath(a)
+	pa, err := store.ExpandPath(a)
 	if err != nil {
 		return false
 	}
-	pb, err := config.ExpandPath(b)
+	pb, err := store.ExpandPath(b)
 	return err == nil && filepath.Clean(pa) == filepath.Clean(pb)
 }
 

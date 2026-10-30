@@ -13,8 +13,6 @@ import (
 	"context"
 	"fmt"
 	"time"
-
-	"yardr.dev/yardr/internal/config"
 )
 
 // TelemetryChange is what TelemetrySet did: the same object yardr
@@ -76,7 +74,7 @@ func (s *Store) SetTelemetrySwitch(sw TelemetrySwitch) { s.telemetry = sw }
 
 // telemetryState is where this yard keeps the install id and its consent
 // bookkeeping: the same file the CLI reads, beside the store.
-func (s *Store) telemetryState() string { return config.At(s.home).TelemetryState() }
+func (s *Store) telemetryState() string { return TelemetryState(s.home) }
 
 // TelemetryShow previews the install id and the exact request the daemon
 // would send from the current state, as yardr telemetry show prints it.

@@ -376,7 +376,7 @@ func runSetupCheck(ctx context.Context, seq uint64, job *setupCheck) error {
 	if job == nil {
 		return nil
 	}
-	res, err := source.Do(ctx, job.d, job.d.Check, nil, job.cred)
+	res, err := source.Do(ctx, job.d, job.d.Check, nil, job.cred, ReadSecretFile)
 	call, _ := job.d.Call(job.d.Check)
 	if err != nil {
 		return fmt.Errorf("ask %d: the check call %s (%s) failed: %v. Nothing was stored", seq, job.d.Check, call.Request.Line(), err)

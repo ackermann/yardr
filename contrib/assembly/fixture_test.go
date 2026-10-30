@@ -130,6 +130,7 @@ func serveTemplate(t *testing.T, home string) func() {
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
+	st.SetDaemonChecker(config.DaemonChecker(home))
 	// This template owns the home, so a socket file left behind is stale.
 	_ = os.Remove(cfg.Socket())
 	ln, err := net.Listen("unix", cfg.Socket())

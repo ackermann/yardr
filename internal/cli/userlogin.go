@@ -20,7 +20,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"yardr.dev/yardr/internal/agents"
-	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -230,7 +229,7 @@ func userLoginEnvAvailable(ctx context.Context, st store.API, home, path string,
 // loginPathIdentity resolves existing symlinks in the path and its parents,
 // while still naming the not-yet-created env file by its resolved parent.
 func loginPathIdentity(path string) (string, error) {
-	p, err := config.ExpandPath(path)
+	p, err := store.ExpandPath(path)
 	if err != nil {
 		return "", err
 	}

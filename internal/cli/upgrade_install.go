@@ -407,7 +407,7 @@ func upgradeRestoreOn(stored map[string]string, noRestore bool) bool {
 	if !ok {
 		return true
 	}
-	v, _ := set.Effective(stored)
+	v, _ := set.Effective(stored, config.Getenv)
 	return v != "false"
 }
 

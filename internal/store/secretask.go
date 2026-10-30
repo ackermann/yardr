@@ -32,7 +32,6 @@ import (
 	"strings"
 	"time"
 
-	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/source"
 )
 
@@ -885,7 +884,7 @@ func (w *wtx) giveCrewSecret(ctx context.Context, home string, sec *AskSecret, s
 		return err
 	}
 	k.src, k.crew, k.names = src, saved, names
-	resolved, renamed, err := config.WriteEnvFile(file, values)
+	resolved, renamed, err := WriteEnvFile(file, values)
 	k.file = resolved
 	k.renamed = k.renamed || renamed
 	if err != nil {
@@ -997,7 +996,7 @@ func (w *wtx) giveHarnessKey(ctx context.Context, home string, row *beadRow, ask
 		return err
 	}
 	k.harness, k.login, k.names = &h, operator, names
-	resolved, renamed, err := config.WriteEnvFile(file, values)
+	resolved, renamed, err := WriteEnvFile(file, values)
 	k.file = resolved
 	k.renamed = k.renamed || renamed
 	if err != nil {
@@ -1053,7 +1052,7 @@ func (w *wtx) giveLogin(s *Store, row *beadRow, ask uint64, sec *AskSecret, to s
 // the notes of the bead id, at the time at, and answers the ask, whose Secret
 // is what it asks for and whose To is who it is asked of. The names of values
 // are held to the ask's here and to the source's declaration by keySource or
-// keyUser; the values are the writer's to check (config.WriteEnvFile,
+// keyUser; the values are the writer's to check (WriteEnvFile,
 // loginValueError for a waiting login).
 func givable(id string, notes []Note, seq uint64, values map[string]string, at time.Time) (*Ask, error) {
 	var r *ResolvedAsk

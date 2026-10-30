@@ -750,7 +750,7 @@ type Hints struct {
 }
 
 // harnessEnvKey is a name of a variable: the env_file rule
-// (internal/config/envfile.go), for a file's own entries.
+// (internal/store/envfile.go), for a file's own entries.
 var harnessEnvKey = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 // Check finds what a harness file says that yardr cannot go by, and

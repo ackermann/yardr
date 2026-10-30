@@ -219,7 +219,7 @@ func (rc *Receiver) sourceCredential(ctx context.Context, d *source.Declaration)
 	if err != nil {
 		return "", err
 	}
-	cred, _, err := d.ReadCredential(ctx, src.EnvFile, src.Mint, source.Read)
+	cred, _, err := d.ReadCredential(ctx, src.EnvFile, src.Mint, source.Read, store.ReadEnvFileEntries)
 	if err != nil {
 		return "", err
 	}

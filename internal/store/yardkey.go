@@ -11,8 +11,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-
-	"yardr.dev/yardr/internal/config"
 )
 
 // The yard's key as the store keeps and checks it: the key file, what a
@@ -30,7 +28,7 @@ var ErrSignature = errors.New("not signed by the peer")
 // Load reads the yard's private key; fs.ErrNotExist when the yard has made
 // none. Errors name the file, never what it holds.
 func Load(path string) (ed25519.PrivateKey, error) {
-	b, p, err := config.ReadSecretFile(path)
+	b, p, err := ReadSecretFile(path)
 	if err != nil {
 		return nil, err
 	}

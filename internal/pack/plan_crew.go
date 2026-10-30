@@ -234,7 +234,7 @@ func (b *planner) needs(source, member string, exists bool, r store.CrewMember) 
 		h := hs[i]
 		out = append(out, Need{"hook", ok, fmt.Sprintf("hook %s (POST /hooks/%s)", h.Name, h.Name)})
 		// The rule the receiver holds the file to on every delivery.
-		if _, _, err := config.ReadSecretFile(h.SecretFile); err != nil {
+		if _, _, err := store.ReadSecretFile(h.SecretFile); err != nil {
 			out = append(out, Need{"secret_file", missing, err.Error()})
 		} else {
 			out = append(out, Need{"secret_file", ok, h.SecretFile})
@@ -260,7 +260,7 @@ func (b *planner) needs(source, member string, exists bool, r store.CrewMember) 
 		}
 		n := Need{"credential", missing, fmt.Sprintf("%s in crew member %s's env_file or from its env_command, to answer in %s", names, member, source)}
 		if exists {
-			env, err := config.ReadCrewEnv(b.ctx, r.Name, r.Dir, b.o.Home, r.Config)
+			env, err := config.ReadCrewEnv(b.ctx, r.Name, r.Dir, b.o.Home, r.Config, store.ReadEnvFileEntries, store.ParseEnv)
 			way, set := hooks.CredentialSet(source, env.Keys(), decl)
 			switch {
 			case !env.Set():

@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 )
@@ -71,7 +70,7 @@ func TestCarrySetupPickPointsEnvFile(t *testing.T) {
 	if mail.EnvFile != drive.EnvFile {
 		t.Fatalf("google-mail points at %s, want %s", mail.EnvFile, drive.EnvFile)
 	}
-	f, err := config.ReadEnvFile(mail.EnvFile)
+	f, err := store.ReadEnvFile(mail.EnvFile)
 	if err != nil || source.Lookup(f.Env, "GOOGLE_ACCOUNT") != "ops@example.com" {
 		t.Fatalf("the shared file holds %+v, %v", f.Env, err)
 	}
@@ -130,7 +129,7 @@ func TestCarrySetupGoogleDocsWritesOnceAndPointsBoth(t *testing.T) {
 		t.Fatal(err)
 	}
 	drain(t, st, home, "boot-one")
-	f, err := config.ReadEnvFile(want)
+	f, err := store.ReadEnvFile(want)
 	if err != nil || source.Lookup(f.Env, "GOOGLE_ACCOUNT") != "ops@example.com" {
 		t.Fatalf("the shared file holds %+v, %v", f.Env, err)
 	}
@@ -180,7 +179,7 @@ func TestCarrySetupTypingAnotherLeavesShared(t *testing.T) {
 	if mail.EnvFile != own {
 		t.Fatalf("google-mail points at %s, want its own %s", mail.EnvFile, own)
 	}
-	f, err := config.ReadEnvFile(own)
+	f, err := store.ReadEnvFile(own)
 	if err != nil || source.Lookup(f.Env, "GOOGLE_ACCOUNT") != "other@example.com" {
 		t.Fatalf("the source's own file holds %+v, %v", f.Env, err)
 	}
@@ -188,7 +187,7 @@ func TestCarrySetupTypingAnotherLeavesShared(t *testing.T) {
 	if err != nil || drive.EnvFile == own {
 		t.Fatalf("the sibling points at %+v, %v", drive, err)
 	}
-	f, err = config.ReadEnvFile(drive.EnvFile)
+	f, err = store.ReadEnvFile(drive.EnvFile)
 	if err != nil || source.Lookup(f.Env, "GOOGLE_ACCOUNT") != "ops@example.com" {
 		t.Fatalf("the sibling's file holds %+v, %v", f.Env, err)
 	}

@@ -50,7 +50,7 @@ func TestMain(m *testing.M) {
 	// every fuse here (testload.Scale): stripped with the rest it never
 	// reached one, and a landing on a loaded machine ran out of the idle
 	// box's 60 s (yardr-qx42).
-	noSync := config.Getenv(store.NoSyncEnv)
+	noSync := os.Getenv(store.NoSyncEnv)
 	testLoad := config.Getenv(testload.Env)
 	for _, kv := range os.Environ() {
 		k, _, _ := strings.Cut(kv, "=")
@@ -58,7 +58,7 @@ func TestMain(m *testing.M) {
 			os.Unsetenv(k)
 		}
 	}
-	os.Setenv("YARDR_"+store.NoSyncEnv, noSync)
+	os.Setenv(store.NoSyncEnv, noSync)
 	os.Setenv("YARDR_"+testload.Env, testLoad)
 	// Every server and daemon these tests start stops by itself when this
 	// binary is gone, however it ended: a kill runs no cleanup. That holds for

@@ -11,7 +11,6 @@ import (
 	"strings"
 	"testing"
 
-	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/peer"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
@@ -571,7 +570,7 @@ func TestKeySourceRefuses(t *testing.T) {
 		if b, _ := os.ReadFile(file); string(b) != body {
 			t.Errorf("%s: the env file changed: %q", name, b)
 		}
-		if _, err := os.Lstat(config.EnvFileNew(file)); !os.IsNotExist(err) {
+		if _, err := os.Lstat(store.EnvFileNew(file)); !os.IsNotExist(err) {
 			t.Errorf("%s: a second file was left: %v", name, err)
 		}
 		if src, err := st.GetSource(ctx, "crm"); err != nil || src.EnvFile != "" {

@@ -13,7 +13,6 @@ import (
 	"time"
 	"unicode"
 
-	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 )
@@ -136,7 +135,7 @@ func (rc *Receiver) serve(w http.ResponseWriter, r *http.Request) {
 	// The file is checked on every delivery, not only at `hook add`: it may
 	// have been loosened or replaced since. One that fails the rule is not
 	// used to verify anything.
-	secret, _, err := config.ReadSecretFile(h.SecretFile)
+	secret, _, err := store.ReadSecretFile(h.SecretFile)
 	if err != nil {
 		rc.block(r.Context(), h, err.Error())
 		rc.reject(w, h, name, "blocked", http.StatusServiceUnavailable, err)
@@ -501,7 +500,7 @@ func (rc *Receiver) hears(ctx context.Context, d *source.Declaration, env *Envel
 		if u.EnvFile == "" {
 			continue
 		}
-		f, err := config.ReadEnvFile(u.EnvFile)
+		f, err := store.ReadEnvFile(u.EnvFile)
 		if err != nil {
 			continue
 		}

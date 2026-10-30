@@ -9,8 +9,6 @@ import (
 	"testing"
 
 	bolt "go.etcd.io/bbolt"
-
-	"yardr.dev/yardr/internal/config"
 )
 
 const keyedFile = `name: crm
@@ -79,7 +77,7 @@ func TestKeySourceNotRecorded(t *testing.T) {
 	// What is left is the yard's own file failing under a committed write,
 	// not a refusal: marked, so a device that is no operator's is told
 	// that it failed and not on which file.
-	var op *config.OperationalError
+	var op *OperationalError
 	if !errors.As(err, &op) {
 		t.Fatalf("err = %v, want it marked as the yard's own file failing", err)
 	}
@@ -115,7 +113,7 @@ func TestKeySourceNotRecorded(t *testing.T) {
 	if n := sourceSetEvents(t, s); n != 1 {
 		t.Fatalf("%d source_set events, want 1", n)
 	}
-	if _, err := os.Lstat(config.EnvFileNew(file)); !os.IsNotExist(err) {
+	if _, err := os.Lstat(EnvFileNew(file)); !os.IsNotExist(err) {
 		t.Fatalf("a second file is left: %v", err)
 	}
 }
@@ -188,7 +186,7 @@ func TestKeySourceRunTwice(t *testing.T) {
 	if n := sourceSetEvents(t, s); n != 1 {
 		t.Fatalf("%d source_set events, want 1", n)
 	}
-	if _, err := os.Lstat(config.EnvFileNew(file)); !os.IsNotExist(err) {
+	if _, err := os.Lstat(EnvFileNew(file)); !os.IsNotExist(err) {
 		t.Fatalf("a second file is left: %v", err)
 	}
 }

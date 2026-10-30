@@ -21,7 +21,6 @@ import (
 	"strings"
 	"sync"
 
-	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/source"
 )
 
@@ -685,7 +684,7 @@ func (w *wtx) setupAccount(pack string, carried []AskSource, decls map[string]*s
 	if !standing || w.store == nil || w.store.home == "" || file == "" {
 		return account, file, false, nil, nil
 	}
-	f, err := config.ReadEnvFile(file)
+	f, err := ReadEnvFile(file)
 	if err != nil {
 		return account, file, false, append([]string{}, account...), nil
 	}
@@ -731,7 +730,7 @@ func (w *wtx) setupOwed(d *source.Declaration) (string, error) {
 	} else if !errors.Is(err, ErrNotFound) {
 		return "", err
 	}
-	f, err := config.ReadEnvFile(file)
+	f, err := ReadEnvFile(file)
 	if err != nil {
 		return "owed", nil
 	}
@@ -801,7 +800,7 @@ func (w *wtx) setupCandidates(carried []AskSource, decls map[string]*source.Decl
 		if file == "" {
 			file = source.EnvFile(w.store.home, src.Name)
 		}
-		f, err := config.ReadEnvFile(file)
+		f, err := ReadEnvFile(file)
 		if err != nil {
 			return nil
 		}

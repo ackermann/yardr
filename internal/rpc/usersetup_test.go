@@ -20,7 +20,6 @@ import (
 	"testing"
 	"time"
 
-	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/edgelink"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/yardkey"
@@ -1389,7 +1388,7 @@ calls:
 	secret := filepath.Join(dir, "linear.secret")
 	must(os.WriteFile(secret, []byte("whsec-0f-the-yard\n"), 0o600))
 	must(os.Chmod(secret, 0o644))
-	_, _, open := config.ReadSecretFile(secret)
+	_, _, open := store.ReadSecretFile(secret)
 	if open == nil || !strings.Contains(open.Error(), secret) {
 		t.Fatalf("reading a secret file that is open to others gave %v, want an error that names it", open)
 	}

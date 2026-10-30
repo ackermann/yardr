@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -31,7 +30,7 @@ func groupLoginEnv(ctx context.Context, st store.API, name string) ([]string, st
 	if file == "" {
 		return nil, "", fmt.Errorf("group %s names no env_file, so a login has no folder to land in: carry its login first (yardr group set %s env_file=<file>)", name, name)
 	}
-	f, err := config.ReadEnvFile(file)
+	f, err := store.ReadEnvFile(file)
 	if err != nil {
 		return nil, "", fmt.Errorf("group %s: %w", name, err)
 	}
@@ -53,7 +52,7 @@ func groupReadEnv(ctx context.Context, st store.API, name string) ([]string, sto
 	if file == "" {
 		return nil, *g, nil
 	}
-	f, err := config.ReadEnvFile(file)
+	f, err := store.ReadEnvFile(file)
 	if err != nil {
 		return nil, store.Group{}, fmt.Errorf("group %s: %w", name, err)
 	}
@@ -69,7 +68,7 @@ func groupFolderAccount(g store.Group) string {
 	if file == "" {
 		return ""
 	}
-	f, err := config.ReadEnvFile(file)
+	f, err := store.ReadEnvFile(file)
 	if err != nil {
 		return ""
 	}
@@ -111,7 +110,7 @@ func defaultClaudeAccount() string {
 // claudeAccountIn is the account the Claude login folder dir names, "" where
 // it names none.
 func claudeAccountIn(dir string) string {
-	p, err := config.ExpandPath(filepath.Join(dir, ".claude.json"))
+	p, err := store.ExpandPath(filepath.Join(dir, ".claude.json"))
 	if err != nil {
 		return ""
 	}

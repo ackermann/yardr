@@ -328,10 +328,10 @@ the last error when a try failed (see yardr hook add).`,
 }
 
 // secretPath resolves the secret file and checks it is one the receiver
-// will take (config.ReadSecretFile) and holds something, without ever
+// will take (store.ReadSecretFile) and holds something, without ever
 // showing what.
 func secretPath(path string) (string, error) {
-	secret, p, err := config.ReadSecretFile(path)
+	secret, p, err := store.ReadSecretFile(path)
 	if err != nil {
 		return "", fmt.Errorf("--secret-file: %w", err)
 	}

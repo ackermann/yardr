@@ -44,6 +44,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -54,8 +55,6 @@ import (
 
 	bolt "go.etcd.io/bbolt"
 	berrors "go.etcd.io/bbolt/errors"
-
-	"yardr.dev/yardr/internal/config"
 )
 
 var (
@@ -192,6 +191,11 @@ type Store struct {
 	// policy says who may do what (SetPolicy, policy.go); nil is
 	// CorePolicy.
 	policy Policy
+	// daemonCheck is whether a socket caller's pid is the daemon's
+	// (SetDaemonChecker, users.go); nil where no server owns the store,
+	// and a call with a caller on such a store is refused the daemon's
+	// writes.
+	daemonCheck func(pid int) bool
 	// writing counts the writes in flight (write). A read that has its
 	// answer already and would write only to record it (ResolveDevice's
 	// last use) looks at it: bbolt has the one writer, so such a write
@@ -229,19 +233,22 @@ type Store struct {
 // calls are in flight.
 func (s *Store) SetLogger(log *slog.Logger) { s.log.Store(log) }
 
-// NoSyncEnv names the variable that, set to 1, opens the store without
-// syncing each commit, and each growth of the file, to the disk. It is for tests: a commit's sync is some
-// 30ms on macOS and a test suite makes thousands, which was two thirds of
-// the suite's time (yardr-a9qf). A store opened so is whole after its process
-// dies, and can be lost when the machine does, so nothing but a test's
-// throwaway yard may run with it.
-const NoSyncEnv = "STORE_NOSYNC"
+// NoSyncEnv is the variable that, set to 1, opens the store without
+// syncing each commit, and each growth of the file, to the disk: the full
+// key, since the store cannot import config for the YARDR_ prefix, and
+// Open reads it where every test that opens a store counts on it. It is
+// for tests: a commit's sync is some 30ms on macOS and a test suite makes
+// thousands, which was two thirds of the suite's time (yardr-a9qf). A
+// store opened so is whole after its process dies, and can be lost when
+// the machine does, so nothing but a test's throwaway yard may run with
+// it. The root test pins it to the key config builds.
+const NoSyncEnv = "YARDR_STORE_NOSYNC"
 
 // Open opens (creating if needed) the store file. It fails with ErrLocked
 // if another process holds it, with ErrNewerSchema if a newer yardr wrote
 // it, and with ErrCounterIDs if it is from before beads had UUIDs.
 func Open(path string) (*Store, error) {
-	noSync := config.Getenv(NoSyncEnv) == "1"
+	noSync := os.Getenv(NoSyncEnv) == "1"
 	db, err := bolt.Open(path, 0o600, &bolt.Options{Timeout: time.Second, NoSync: noSync, NoGrowSync: noSync})
 	if errors.Is(err, berrors.ErrTimeout) {
 		return nil, fmt.Errorf("%s: %w", path, ErrLocked)

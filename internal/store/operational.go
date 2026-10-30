@@ -1,4 +1,4 @@
-package config
+package store
 
 // OperationalError marks a failure of the yard's own file under a call —
 // a disk or permission failure, a file open to others, a link where the

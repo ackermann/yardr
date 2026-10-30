@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 )
@@ -373,28 +374,28 @@ func TestStoreChecksSettings(t *testing.T) {
 
 	// What a setting is read as, and where that is from.
 	timers, _ := store.SettingOf("timer_limit")
-	if v, from := timers.Effective(nil); v != "5" || from != store.FromDefault {
+	if v, from := timers.Effective(nil, config.Getenv); v != "5" || from != store.FromDefault {
 		t.Errorf("unset timer_limit = %q from %q", v, from)
 	}
-	if v, from := timers.Effective(map[string]string{"timer_limit": "9"}); v != "9" || from != store.FromSet {
+	if v, from := timers.Effective(map[string]string{"timer_limit": "9"}, config.Getenv); v != "9" || from != store.FromSet {
 		t.Errorf("set timer_limit = %q from %q", v, from)
 	}
 	// A yard is not hosted until the provisioner says so, and no variable
 	// says it instead.
 	hosted, _ := store.SettingOf("hosted")
-	if v, from := hosted.Effective(nil); v != "false" || from != store.FromDefault {
+	if v, from := hosted.Effective(nil, config.Getenv); v != "false" || from != store.FromDefault {
 		t.Errorf("unset hosted = %q from %q", v, from)
 	}
-	if v, from := hosted.Effective(map[string]string{"hosted": "true"}); v != "true" || from != store.FromSet {
+	if v, from := hosted.Effective(map[string]string{"hosted": "true"}, config.Getenv); v != "true" || from != store.FromSet {
 		t.Errorf("set hosted = %q from %q", v, from)
 	}
 	t.Setenv("YARDR_HOOK_ADDR", "")
 	addr, _ := store.SettingOf("hook_addr")
-	if v, from := addr.Effective(map[string]string{"hook_addr": "127.0.0.1:8790"}); v != "127.0.0.1:8790" || from != store.FromSet {
+	if v, from := addr.Effective(map[string]string{"hook_addr": "127.0.0.1:8790"}, config.Getenv); v != "127.0.0.1:8790" || from != store.FromSet {
 		t.Errorf("set hook_addr = %q from %q", v, from)
 	}
 	t.Setenv("YARDR_HOOK_ADDR", "127.0.0.1:9001")
-	if v, from := addr.Effective(map[string]string{"hook_addr": "127.0.0.1:8790"}); v != "127.0.0.1:9001" || from != store.FromEnvironment {
+	if v, from := addr.Effective(map[string]string{"hook_addr": "127.0.0.1:8790"}, config.Getenv); v != "127.0.0.1:9001" || from != store.FromEnvironment {
 		t.Errorf("hook_addr under YARDR_HOOK_ADDR = %q from %q", v, from)
 	}
 	for _, tc := range []struct{ key, env, setting, value string }{
@@ -407,16 +408,16 @@ func TestStoreChecksSettings(t *testing.T) {
 		if !ok {
 			t.Fatalf("no setting %s", tc.key)
 		}
-		if v, from := setting.Effective(map[string]string{tc.key: tc.setting}); v != tc.setting || from != store.FromSet {
+		if v, from := setting.Effective(map[string]string{tc.key: tc.setting}, config.Getenv); v != tc.setting || from != store.FromSet {
 			t.Errorf("set %s = %q from %q", tc.key, v, from)
 		}
 		t.Setenv(tc.env, tc.value)
-		if v, from := setting.Effective(map[string]string{tc.key: tc.setting}); v != tc.value || from != store.FromEnvironment {
+		if v, from := setting.Effective(map[string]string{tc.key: tc.setting}, config.Getenv); v != tc.value || from != store.FromEnvironment {
 			t.Errorf("%s under %s = %q from %q", tc.key, tc.env, v, from)
 		}
 	}
 	note, _ := store.SettingOf("operator_note")
-	if v, from := note.Effective(nil); v != "" || from != "" {
+	if v, from := note.Effective(nil, config.Getenv); v != "" || from != "" {
 		t.Errorf("unset operator_note = %q from %q", v, from)
 	}
 }

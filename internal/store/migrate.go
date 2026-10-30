@@ -28,8 +28,6 @@ import (
 	"strings"
 
 	bolt "go.etcd.io/bbolt"
-
-	"yardr.dev/yardr/internal/config"
 )
 
 // schemaVersion 35 has routes without a priority: they are ranked by a named
@@ -614,7 +612,7 @@ func moveDir(home, old, name string) bool {
 // as it was (a leading ~ stays), and whether it was that directory or under
 // it.
 func movedPath(path, home, old, name string) (string, bool) {
-	full, err := config.ExpandPath(path)
+	full, err := ExpandPath(path)
 	if err != nil {
 		return path, false
 	}

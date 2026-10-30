@@ -11,7 +11,6 @@ import (
 	"strings"
 	"testing"
 
-	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/hooks"
 	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
@@ -101,7 +100,7 @@ hook:
 	if err != nil {
 		t.Fatal(err)
 	}
-	secret, _, err := config.ReadSecretFile(hook.SecretFile)
+	secret, _, err := store.ReadSecretFile(hook.SecretFile)
 	if err != nil {
 		t.Fatal(err)
 	}

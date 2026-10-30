@@ -9,8 +9,6 @@ import (
 	"strings"
 
 	bolt "go.etcd.io/bbolt"
-
-	"yardr.dev/yardr/internal/config"
 )
 
 // The settings of a user: the source that tells them outside the yard of
@@ -397,7 +395,7 @@ func (w *wtx) keyUser(ctx context.Context, home, name, srcName string, values ma
 		}
 	}
 	k.src, k.user, k.as, k.names = src, u, credential, names
-	resolved, renamed, err := config.WriteEnvFile(file, values)
+	resolved, renamed, err := WriteEnvFile(file, values)
 	k.file = resolved
 	k.renamed = k.renamed || renamed
 	if err != nil {

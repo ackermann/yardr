@@ -22,7 +22,7 @@ type etaTest struct {
 // callers stay sequential.
 func newETATest(t testing.TB) *etaTest {
 	t.Helper()
-	t.Setenv("YARDR_"+NoSyncEnv, "1")
+	t.Setenv(NoSyncEnv, "1")
 	y := &etaTest{now: time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)}
 	clock = func() time.Time { return y.now }
 	t.Cleanup(func() { clock = time.Now })
@@ -330,7 +330,7 @@ func TestETARestartKeepsCellsAndClocks(t *testing.T) {
 	// Sequential: the package's fake clock and process environment.
 	dir := t.TempDir()
 	path := filepath.Join(dir, "y.db")
-	t.Setenv("YARDR_"+NoSyncEnv, "1")
+	t.Setenv(NoSyncEnv, "1")
 	now := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
 	clock = func() time.Time { return now }
 	t.Cleanup(func() { clock = time.Now })
@@ -413,7 +413,7 @@ func TestETAMigrateFailedMarkerForLiveClaim(t *testing.T) {
 	// Sequential: process environment.
 	dir := t.TempDir()
 	path := filepath.Join(dir, "y.db")
-	t.Setenv("YARDR_"+NoSyncEnv, "1")
+	t.Setenv(NoSyncEnv, "1")
 	ctx := context.Background()
 	s, err := Open(path)
 	if err != nil {
@@ -556,7 +556,7 @@ func TestETASeedReplaysTheLog(t *testing.T) {
 	// Sequential: the package's fake clock and process environment.
 	dir := t.TempDir()
 	path := filepath.Join(dir, "y.db")
-	t.Setenv("YARDR_"+NoSyncEnv, "1")
+	t.Setenv(NoSyncEnv, "1")
 	now := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
 	clock = func() time.Time { return now }
 	t.Cleanup(func() { clock = time.Now })
@@ -759,7 +759,7 @@ func TestETASeedUsesDifficultyAtEachExit(t *testing.T) {
 	// Sequential: the package's fake clock and process environment.
 	dir := t.TempDir()
 	path := filepath.Join(dir, "y.db")
-	t.Setenv("YARDR_"+NoSyncEnv, "1")
+	t.Setenv(NoSyncEnv, "1")
 	now := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
 	clock = func() time.Time { return now }
 	t.Cleanup(func() { clock = time.Now })
@@ -858,7 +858,7 @@ func TestETASeedPairsLatestClaimAndResetsReopenedClock(t *testing.T) {
 	// Sequential: the package's fake clock and process environment.
 	dir := t.TempDir()
 	path := filepath.Join(dir, "y.db")
-	t.Setenv("YARDR_"+NoSyncEnv, "1")
+	t.Setenv(NoSyncEnv, "1")
 	clockAt := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
 	base := clockAt
 	y := &etaTest{now: clockAt}
@@ -1002,7 +1002,7 @@ func TestETAMigrateIgnoresFailureForDifferentBead(t *testing.T) {
 	// Sequential: the package's fake clock and process environment.
 	dir := t.TempDir()
 	path := filepath.Join(dir, "y.db")
-	t.Setenv("YARDR_"+NoSyncEnv, "1")
+	t.Setenv(NoSyncEnv, "1")
 	clockAt := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
 	clock = func() time.Time { return clockAt }
 	t.Cleanup(func() { clock = time.Now })

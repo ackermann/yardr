@@ -366,10 +366,10 @@ func (a *app) askTelemetry(ctx context.Context, cfg *config.Config) error {
 		return err
 	}
 	if on {
-		_, err = telemetry.On(ctx, st, cfg.TelemetryState(), a.who(), time.Now())
+		_, err = telemetry.On(ctx, st, store.TelemetryState(cfg.Home), a.who(), time.Now())
 		return err
 	}
-	_, err = telemetry.Off(ctx, st, cfg.TelemetryState(), a.who(), time.Now())
+	_, err = telemetry.Off(ctx, st, store.TelemetryState(cfg.Home), a.who(), time.Now())
 	return err
 }
 
@@ -1448,7 +1448,7 @@ func settingRows(home string, stored map[string]string) []settingRow {
 	var rows []settingRow
 	for _, k := range store.SettingKeys() {
 		set, _ := store.SettingOf(k)
-		v, from := set.Effective(stored)
+		v, from := set.Effective(stored, config.Getenv)
 		if from == "" {
 			// The defaults that are no one value, which the store's table
 			// cannot hold: they are this machine's and this home's.

@@ -29,6 +29,7 @@ func TestSocketServesTheDaemonsWritesToTheDaemonAlone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	st.SetDaemonChecker(config.DaemonChecker(home))
 	t.Cleanup(func() { st.Close(context.Background()) })
 	ctx := context.Background()
 

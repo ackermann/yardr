@@ -44,7 +44,7 @@ const loadFactorEnv = "DEPLOY_TEST_LOAD_FACTOR"
 // reaches what they start, the home is one with no yard in it, every server
 // they start stops with this binary, and one yardr is built for all of them.
 func TestMain(m *testing.M) {
-	noSync := config.Getenv(store.NoSyncEnv)
+	noSync := os.Getenv(store.NoSyncEnv)
 	testLoad := config.Getenv(testload.Env)
 	for _, kv := range os.Environ() {
 		k, _, _ := strings.Cut(kv, "=")
@@ -52,7 +52,7 @@ func TestMain(m *testing.M) {
 			os.Unsetenv(k)
 		}
 	}
-	os.Setenv("YARDR_"+store.NoSyncEnv, noSync)
+	os.Setenv(store.NoSyncEnv, noSync)
 	// The gate's race-leg factor is kept beside it: testload.Scale sizes
 	// every fuse here by it, and stripped with the rest it never reached one.
 	os.Setenv("YARDR_"+testload.Env, testLoad)

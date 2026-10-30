@@ -12,7 +12,6 @@ import (
 	"strings"
 
 	"yardr.dev/yardr/internal/agents"
-	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -23,7 +22,7 @@ import (
 func readLoginKeys(secret *store.AskSecret, in io.Reader, typed func(prompt string) (string, error)) (map[string]string, error) {
 	values := map[string]string{}
 	if typed == nil {
-		env, err := config.ParseEnv(in, "standard input")
+		env, err := store.ParseEnv(in, "standard input")
 		if err != nil {
 			return nil, err
 		}
@@ -69,7 +68,7 @@ func readLoginKeys(secret *store.AskSecret, in io.Reader, typed func(prompt stri
 func readHookKeys(secret *store.AskSecret, in io.Reader, typed func(prompt string) (string, error)) (map[string]string, error) {
 	values := map[string]string{}
 	if typed == nil {
-		env, err := config.ParseEnv(in, "standard input")
+		env, err := store.ParseEnv(in, "standard input")
 		if err != nil {
 			return nil, err
 		}
@@ -115,7 +114,7 @@ func readHarnessKeys(secret *store.AskSecret, in io.Reader, typed func(prompt st
 	}
 	values := map[string]string{}
 	if typed == nil {
-		env, err := config.ParseEnv(in, "standard input")
+		env, err := store.ParseEnv(in, "standard input")
 		if err != nil {
 			return nil, err
 		}

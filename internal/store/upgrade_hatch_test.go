@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 )
@@ -60,11 +61,11 @@ func TestUpgradeRestoreSetting(t *testing.T) {
 		t.Fatalf("settings = %v, %v", got, err)
 	}
 	set, _ := store.SettingOf(store.UpgradeRestoreSetting)
-	if v, _ := set.Effective(map[string]string{}); v != "true" {
+	if v, _ := set.Effective(map[string]string{}, config.Getenv); v != "true" {
 		t.Fatalf("unset reads as %q, want true", v)
 	}
 	t.Setenv("YARDR_UPGRADE_RESTORE", "true")
-	if v, from := set.Effective(got); v != "true" || from != store.FromEnvironment {
+	if v, from := set.Effective(got, config.Getenv); v != "true" || from != store.FromEnvironment {
 		t.Fatalf("env reads as %q from %q", v, from)
 	}
 }

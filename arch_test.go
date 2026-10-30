@@ -57,12 +57,11 @@ type allowEdge struct {
 	removeBy string
 }
 
-// allowImportEdges is the store's 2 remaining internal imports, one row
-// each naming its package and the bead that cuts it. The store's third,
+// allowImportEdges is the store's 1 remaining internal import, one row
+// naming its package and the bead that cuts it. The store's second,
 // internal/peer, is rule (a)'s permanent exception, not a row. No leaf
 // or cli edge breaks a rule today, so the table holds no other row.
 var allowImportEdges = []allowEdge{
-	{storePkg, internalPrefix + "config", "yardr-t8m6"},
 	{storePkg, internalPrefix + "source", "yardr-j8vt"},
 }
 

@@ -989,12 +989,12 @@ func TestOnboardingTelemetryYes(t *testing.T) {
 	if got, _ := st.Settings(ctx); got["telemetry"] != "true" {
 		t.Fatalf("settings = %v", got)
 	}
-	state, err := telemetry.LoadState(config.At(home).TelemetryState())
+	state, err := telemetry.LoadState(store.TelemetryState(home))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if state == nil || state.InstallID == "" {
-		t.Fatalf("no install id in %s", config.At(home).TelemetryState())
+		t.Fatalf("no install id in %s", store.TelemetryState(home))
 	}
 	// Either side of a UTC midnight the run crossed, eligible_from is the
 	// next UTC day after the consent: usually one date, never today's.

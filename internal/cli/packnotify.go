@@ -8,7 +8,6 @@ import (
 	"slices"
 	"strings"
 
-	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/pack"
 	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
@@ -90,12 +89,12 @@ func planNotify(ctx context.Context, st store.API, p *pack.Pack, depot string, e
 		if d.Credential == nil {
 			return nil, nil, nil, fmt.Errorf("--source-env %s=%s: the declaration names no credential, so there is nothing a file would set", name, file)
 		}
-		if file, err = config.ExpandPath(file); err != nil {
+		if file, err = store.ExpandPath(file); err != nil {
 			return nil, nil, nil, err
 		}
 		// As yardr source set checks it: the file is refused here, and a
 		// mint without its command is the next step, not a refusal.
-		if _, err := d.CredentialState(file, nil); err != nil {
+		if _, err := d.CredentialState(file, nil, store.ReadEnvFileEntries); err != nil {
 			var noCommand *source.NoMintCommand
 			if !errors.As(err, &noCommand) {
 				return nil, nil, nil, fmt.Errorf("--source-env %s=%s: %w", name, file, err)
@@ -124,12 +123,12 @@ func planNotify(ctx context.Context, st store.API, p *pack.Pack, depot string, e
 			return nil, nil, nil, fmt.Errorf("--notify %s=%s: no user %s (yardr user add %s)", user, name, user, user)
 		}
 		if file != "" {
-			if file, err = config.ExpandPath(file); err != nil {
+			if file, err = store.ExpandPath(file); err != nil {
 				return nil, nil, nil, err
 			}
 			// As yardr user set checks it: a file that is open to
 			// others, or does not set the address, is refused here.
-			f, err := config.ReadEnvFile(file)
+			f, err := store.ReadEnvFile(file)
 			if err != nil {
 				return nil, nil, nil, fmt.Errorf("--notify %s=%s: %w", user, name, err)
 			}
@@ -301,7 +300,7 @@ func sourceSetState(src *store.Source, home string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	state, err := d.CredentialState(src.EnvFile, d.MintArgv(home, src.MintCommand))
+	state, err := d.CredentialState(src.EnvFile, d.MintArgv(home, src.MintCommand), store.ReadEnvFileEntries)
 	if err != nil {
 		var noCommand *source.NoMintCommand
 		if !errors.As(err, &noCommand) {

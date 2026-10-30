@@ -22,7 +22,6 @@ import (
 	"strings"
 	"time"
 
-	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/hooks"
 	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
@@ -206,7 +205,7 @@ func userEnv(u *store.User, through string, names []string) (env map[string]stri
 		return nil, "", notSetUp("user %s has no %s: yardr user key %s %s gives %s",
 			u.Name, store.UserEnvFile, u.Name, through, strings.Join(names, " and "))
 	}
-	f, err := config.ReadEnvFile(u.EnvFile)
+	f, err := store.ReadEnvFile(u.EnvFile)
 	if err != nil {
 		return nil, "", notSetUp("user %s: %v", u.Name, err)
 	}
@@ -241,7 +240,7 @@ func (p declared) send(ctx context.Context, home string, env map[string]string, 
 	// The telling goes to the source's chosen base, the call and the
 	// image command alike.
 	p.d = p.d.WithBase(p.src.Base)
-	cred, _, err := p.d.ReadCredential(ctx, p.src.EnvFile, p.src.Mint, source.Update)
+	cred, _, err := p.d.ReadCredential(ctx, p.src.EnvFile, p.src.Mint, source.Update, store.ReadEnvFileEntries)
 	if err != nil {
 		return 0, notSetUp("source %s: %v", p.d.Name, err)
 	}
@@ -249,7 +248,7 @@ func (p declared) send(ctx context.Context, home string, env map[string]string, 
 		return p.sendImage(ctx, home, env, m, cred)
 	}
 	n := p.d.Notify
-	res, err := source.Do(ctx, p.d, n.Call, p.d.TellParams(env[n.AddressEnv], m.Title, m.Text, m.Link), cred)
+	res, err := source.Do(ctx, p.d, n.Call, p.d.TellParams(env[n.AddressEnv], m.Title, m.Text, m.Link), cred, store.ReadSecretFile)
 	if err != nil {
 		return 0, err
 	}

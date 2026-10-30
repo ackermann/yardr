@@ -31,7 +31,7 @@ var yardrBin string
 func TestMain(m *testing.M) {
 	// Nothing from a yardr (or git hook) running these tests may leak into
 	// the yardr, git and script they start, which inherit this environment.
-	noSync := config.Getenv(store.NoSyncEnv)
+	noSync := os.Getenv(store.NoSyncEnv)
 	testLoad := config.Getenv(testload.Env)
 	for _, kv := range os.Environ() {
 		k, _, _ := strings.Cut(kv, "=")
@@ -39,7 +39,7 @@ func TestMain(m *testing.M) {
 			os.Unsetenv(k)
 		}
 	}
-	os.Setenv("YARDR_"+store.NoSyncEnv, noSync)
+	os.Setenv(store.NoSyncEnv, noSync)
 	// The gate's race-leg factor is kept beside it: testload.Scale sizes
 	// every fuse here by it, and stripped with the rest it never reached one.
 	os.Setenv("YARDR_"+testload.Env, testLoad)

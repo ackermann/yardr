@@ -11,7 +11,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"io"
-	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/notify"
 	"yardr.dev/yardr/internal/store"
 )
@@ -322,11 +321,11 @@ the source. notify= drops what was still to be told.`,
 					return fmt.Errorf("%q: want %s=<source>, %s=<file>, %s=<%s> or %s=%s|%s, each once", arg, store.UserNotify, store.UserEnvFile, store.UserTell, strings.Join(store.TellParts, ","), store.UserRole, store.RoleOperator, store.RoleMember)
 				}
 				if key == store.UserEnvFile && value != "" {
-					if value, err = config.ExpandPath(value); err != nil {
+					if value, err = store.ExpandPath(value); err != nil {
 						return err
 					}
 					// Refused before it is kept, whatever it is to set.
-					if _, err := config.ReadEnvFile(value); err != nil {
+					if _, err := store.ReadEnvFile(value); err != nil {
 						return err
 					}
 				}
@@ -468,7 +467,7 @@ func userCredentials(ctx context.Context, st store.API, u *store.User) ([]string
 		if err != nil || d.Credential == nil {
 			continue
 		}
-		if _, err := d.UserCredentialState(u.Name, u.EnvFile); err == nil {
+		if _, err := d.UserCredentialState(u.Name, u.EnvFile, store.ReadEnvFileEntries); err == nil {
 			out = append(out, d.Name)
 		}
 	}

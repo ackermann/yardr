@@ -12,7 +12,7 @@ import (
 // past a thousand of another's, quiet only when its own gap has passed.
 func TestQuietGapsBusyHook(t *testing.T) {
 	// Sequential: the package's fake clock and process environment.
-	t.Setenv("YARDR_"+NoSyncEnv, "1")
+	t.Setenv(NoSyncEnv, "1")
 	at := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
 	clock = func() time.Time { return at }
 	t.Cleanup(func() { clock = time.Now })
@@ -71,7 +71,7 @@ func TestQuietGapsBusyHook(t *testing.T) {
 // whatever their silence.
 func TestQuietGapsSkipsUnreachedHook(t *testing.T) {
 	// Sequential: process environment and the quietScan window.
-	t.Setenv("YARDR_"+NoSyncEnv, "1")
+	t.Setenv(NoSyncEnv, "1")
 	quietScan = 10
 	t.Cleanup(func() { quietScan = 10000 })
 	s, err := Open(filepath.Join(t.TempDir(), "y.db"))

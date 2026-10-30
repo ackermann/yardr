@@ -1,9 +1,14 @@
 package main
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"yardr.dev/yardr/internal/store"
 )
 
 func TestGrowth(t *testing.T) {
@@ -69,5 +74,17 @@ func TestIsolatedHome(t *testing.T) {
 		if _, _, err := isolatedHome(); err == nil {
 			t.Errorf("YARDR_HOME=%q was taken for an isolated yard", home)
 		}
+	}
+}
+
+func TestOpenStoreNoSyncDoesNotLeak(t *testing.T) {
+	t.Setenv(store.NoSyncEnv, "")
+	s, err := openStore(filepath.Join(t.TempDir(), "yard.db"), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close(context.Background())
+	if got := os.Getenv(store.NoSyncEnv); got != "" {
+		t.Errorf("%s remains %q after opening the store", store.NoSyncEnv, got)
 	}
 }

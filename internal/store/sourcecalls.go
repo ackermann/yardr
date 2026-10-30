@@ -121,7 +121,7 @@ func (s *Store) hostedCredential(ctx context.Context, d *source.Declaration, src
 	if req.As != "" {
 		envFile = asFile
 	}
-	sel, err := d.SelectCredential(envFile, call.Kind)
+	sel, err := d.SelectCredential(envFile, call.Kind, ReadEnvFileEntries)
 	if err != nil {
 		return "", err
 	}
@@ -1243,9 +1243,9 @@ func (s *Store) CallSource(ctx context.Context, req SourceCall) (*SourceAnswer, 
 		// before any mint, so only the operator's call reaches here.
 		cred, err = s.hostedCredential(ctx, d, src, asFile, req, call, argv)
 	} else if req.As == "" {
-		cred, _, err = d.ReadCredential(ctx, src.EnvFile, src.mintIn(s.home), call.Kind)
+		cred, _, err = d.ReadCredential(ctx, src.EnvFile, src.mintIn(s.home), call.Kind, ReadEnvFileEntries)
 	} else {
-		cred, _, err = d.ReadUserCredential(ctx, req.As, asFile, src.mintIn(s.home), call.Kind)
+		cred, _, err = d.ReadUserCredential(ctx, req.As, asFile, src.mintIn(s.home), call.Kind, ReadEnvFileEntries)
 	}
 	if err != nil {
 		err = fmt.Errorf("source %s, call %s: %w", d.Name, call.Name, err)

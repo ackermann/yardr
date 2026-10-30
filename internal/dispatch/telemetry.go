@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 
-	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/telemetry"
 )
@@ -53,7 +52,7 @@ func (d *Dispatcher) telemetry(ctx context.Context) {
 	if !on {
 		return
 	}
-	path := config.At(d.Home).TelemetryState()
+	path := store.TelemetryState(d.Home)
 	state, err := telemetry.LoadState(path)
 	if err != nil {
 		fault("reading the state file", err)

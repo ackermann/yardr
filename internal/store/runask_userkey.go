@@ -16,7 +16,6 @@ import (
 	"slices"
 	"strings"
 
-	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/source"
 )
 
@@ -70,7 +69,7 @@ func (w *wtx) userKeyAddress(u *User, env string) (string, error) {
 			return "", err
 		}
 	}
-	f, err := config.ReadEnvFile(file)
+	f, err := ReadEnvFile(file)
 	if errors.Is(err, os.ErrNotExist) {
 		return "", nil
 	}

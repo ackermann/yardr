@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -103,30 +104,30 @@ func StringList(v any) []string {
 }
 
 // ReadCrewEnv reads the environment of crew member name from its settings
-// cfg: its env_file (ReadEnvFile) and what its env_command prints, the
-// command's value winning for a key in both. The command is run without a
-// shell, in dir (the crew member's directory; the yard's home when empty),
-// with the caller's environment plus the crew member's name and the yard's
-// home, its stdin closed, for at most EnvCommandTimeout. Its stdout is read
-// as an env_file is.
+// cfg: its env_file and what its env_command prints, the command's value
+// winning for a key in both. The command is run without a shell, in dir
+// (the crew member's directory; the yard's home when empty), with the
+// caller's environment plus the crew member's name and the yard's home,
+// its stdin closed, for at most EnvCommandTimeout. Its stdout is read as
+// an env_file is. readEnv reads the file and parseEnv the command's
+// output: the caller passes the store's readers, since config cannot
+// import the store for them (the store imports source, which imports
+// config).
 //
 // The result is never nil and says what each source set or why it was
 // refused; the error is the first of those. An error names the file or the
 // command, a line number, an exit status and the last lines of the
 // command's stderr: never its stdout, never a value.
-func ReadCrewEnv(ctx context.Context, name, dir, home string, cfg map[string]any) (*CrewEnv, error) {
+func ReadCrewEnv(ctx context.Context, name, dir, home string, cfg map[string]any, readEnv func(path string) (env []string, resolved string, err error), parseEnv func(r io.Reader, what string) ([]string, error)) (*CrewEnv, error) {
 	out := &CrewEnv{}
 	var file, cmd []string
 	if path, _ := cfg["env_file"].(string); path != "" {
-		out.File = path
-		if p, err := ExpandPath(path); err == nil {
-			out.File = p
-		}
-		f, err := ReadEnvFile(path)
+		env, resolved, err := readEnv(path)
+		out.File = resolved
 		if err != nil {
 			out.FileErr = err
 		} else {
-			file, out.FileKeys = f.Env, f.Keys()
+			file, out.FileKeys = env, envKeys(env)
 		}
 	}
 	if argv := StringList(cfg["env_command"]); len(argv) > 0 {
@@ -134,8 +135,8 @@ func ReadCrewEnv(ctx context.Context, name, dir, home string, cfg map[string]any
 		if dir == "" {
 			dir = home
 		}
-		cmd, out.CommandErr = runEnvCommand(ctx, argv, name, dir, home)
-		out.CommandKeys = (&EnvFile{Env: cmd}).Keys()
+		cmd, out.CommandErr = runEnvCommand(ctx, argv, name, dir, home, parseEnv)
+		out.CommandKeys = envKeys(cmd)
 	}
 	if err := firstErr(out.FileErr, out.CommandErr); err != nil {
 		return out, err
@@ -162,6 +163,17 @@ func firstErr(errs ...error) error {
 	return nil
 }
 
+// envKeys are the names env sets, for showing what a file or a command
+// set without showing a value.
+func envKeys(env []string) []string {
+	keys := make([]string, 0, len(env))
+	for _, kv := range env {
+		k, _, _ := strings.Cut(kv, "=")
+		keys = append(keys, k)
+	}
+	return keys
+}
+
 // EnvCommandMissing reports why the program of cfg's env_command cannot be
 // found from dir, without running it; nil when it can, or cfg names none.
 func EnvCommandMissing(dir string, cfg map[string]any) error {
@@ -178,7 +190,14 @@ func EnvCommandMissing(dir string, cfg map[string]any) error {
 // looked up on PATH.
 func envProgram(prog, dir string) (string, error) {
 	if prog == "~" || strings.HasPrefix(prog, "~/") {
-		return ExpandPath(prog)
+		// The leading-~/ rule, as store.ExpandPath has it: this package
+		// cannot import the store for it (the store imports source,
+		// which imports config). The root test pins the two together.
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		return filepath.Abs(filepath.Join(home, prog[1:]))
 	}
 	if strings.ContainsRune(prog, filepath.Separator) && !filepath.IsAbs(prog) && dir != "" {
 		return filepath.Join(dir, prog), nil
@@ -187,7 +206,7 @@ func envProgram(prog, dir string) (string, error) {
 }
 
 // runEnvCommand runs argv and reads its stdout as an env_file.
-func runEnvCommand(ctx context.Context, argv []string, member, dir, home string) ([]string, error) {
+func runEnvCommand(ctx context.Context, argv []string, member, dir, home string, parseEnv func(r io.Reader, what string) ([]string, error)) ([]string, error) {
 	what := "env_command " + strings.Join(argv, " ")
 	env := append(os.Environ(), Env("CREW", member)...)
 	if home != "" {

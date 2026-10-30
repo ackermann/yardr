@@ -21,8 +21,6 @@ import (
 	"unicode/utf8"
 
 	bolt "go.etcd.io/bbolt"
-
-	"yardr.dev/yardr/internal/config"
 )
 
 // A blob is a file mail or a bead's note carries: any bytes under the
@@ -435,24 +433,24 @@ func (s *Store) keepBlob(ref *BlobRef, data []byte) (*BlobRef, error) {
 	path := s.BlobPath(ref.Hash)
 	if existing, err := os.ReadFile(path); err == nil {
 		if !bytes.Equal(existing, data) {
-			return nil, &config.OperationalError{Err: fmt.Errorf("blob %s already exists with different bytes", ref.Hash)}
+			return nil, &OperationalError{Err: fmt.Errorf("blob %s already exists with different bytes", ref.Hash)}
 		}
 		at := time.Now()
 		if err := os.Chtimes(path, at, at); err != nil {
-			return nil, &config.OperationalError{Err: err}
+			return nil, &OperationalError{Err: err}
 		}
 		return ref, nil
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return nil, &config.OperationalError{Err: err}
+		return nil, &OperationalError{Err: err}
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return nil, &config.OperationalError{Err: err}
+		return nil, &OperationalError{Err: err}
 	}
 	// Whole or not at all: a reader never finds half a picture under the
 	// name of all of it.
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".put-*")
 	if err != nil {
-		return nil, &config.OperationalError{Err: err}
+		return nil, &OperationalError{Err: err}
 	}
 	_, err = tmp.Write(data)
 	if cerr := tmp.Close(); err == nil {
@@ -463,7 +461,7 @@ func (s *Store) keepBlob(ref *BlobRef, data []byte) (*BlobRef, error) {
 	}
 	if err != nil {
 		os.Remove(tmp.Name())
-		return nil, &config.OperationalError{Err: err}
+		return nil, &OperationalError{Err: err}
 	}
 	return ref, nil
 }
@@ -480,17 +478,17 @@ func (s *Store) Blob(hash string) (*BlobRef, error) {
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, fmt.Errorf("file %s: %w", hash, ErrNotFound)
 	} else if err != nil {
-		return nil, &config.OperationalError{Err: err}
+		return nil, &OperationalError{Err: err}
 	}
 	defer f.Close()
 	st, err := f.Stat()
 	if err != nil {
-		return nil, &config.OperationalError{Err: err}
+		return nil, &OperationalError{Err: err}
 	}
 	head := make([]byte, 512)
 	n, err := io.ReadFull(f, head)
 	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) && !errors.Is(err, io.EOF) {
-		return nil, &config.OperationalError{Err: err}
+		return nil, &OperationalError{Err: err}
 	}
 	return &BlobRef{Hash: hash, Type: blobType(head[:n]), Bytes: st.Size()}, nil
 }

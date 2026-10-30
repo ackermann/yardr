@@ -14,6 +14,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"yardr.dev/yardr/internal/peer"
 )
 
 // Only this file knows the prefix of yardr's variables.
@@ -290,6 +292,20 @@ func DaemonStart(lock string) (uint64, bool) {
 	return start, true
 }
 
+// DaemonChecker is whether pid is the daemon of home: the holder of its
+// lock, verified by pid and start time as a stop verifies it (never a
+// bare pid). The process that owns the store registers it there
+// (store.SetDaemonChecker), since the store cannot import config for the
+// check; a store no server owns has none.
+func DaemonChecker(home string) func(pid int) bool {
+	return func(pid int) bool {
+		lock := At(home).DaemonLock()
+		holder := DaemonPID(lock)
+		start, recorded := DaemonStart(lock)
+		return holder == pid && recorded && peer.Alive(pid, start)
+	}
+}
+
 // DaemonPass is the file the daemon stamps with its build and the time at
 // the end of every completed pass (see PassStamp).
 func (c *Config) DaemonPass() string { return filepath.Join(c.Home, "daemon.pass") }
@@ -335,10 +351,6 @@ func (c *Config) OTelExports() string { return filepath.Join(c.Home, "otelexport
 // OTelState is where yardr otel export keeps what it has sent.
 func (c *Config) OTelState() string { return filepath.Join(c.Home, "otel-export.json") }
 
-// TelemetryState is where yardr telemetry keeps the install id and its
-// consent bookkeeping (internal/telemetry).
-func (c *Config) TelemetryState() string { return filepath.Join(c.Home, "telemetry.json") }
-
 // Logs is where the yard keeps output from exec groups that have no log of
 // their own.
 func (c *Config) Logs() string { return filepath.Join(c.Home, "logs") }
@@ -358,10 +370,6 @@ func (c *Config) PackRoles(name string) string { return filepath.Join(c.Pack(nam
 
 // Roles is where a yard from before the packs kept its role prompts.
 func (c *Config) Roles() string { return filepath.Join(c.Home, "roles") }
-
-// Flows is where the home keeps the stage files of flows that no depot's
-// repository holds, a directory for each flow.
-func (c *Config) Flows() string { return filepath.Join(c.Home, "flows") }
 
 // Worktrees is where sessions get their worktrees, unless a depot says
 // otherwise.

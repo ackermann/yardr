@@ -933,7 +933,7 @@ func (e envSource) fields() map[string]any {
 // config.ReadCrewEnv), and the key names the two set together; home is
 // the yard's. A source that is refused sets none.
 func crewEnvSummary(ctx context.Context, r store.CrewMember, home string) ([]envSource, []string) {
-	env, _ := config.ReadCrewEnv(ctx, r.Name, r.Dir, home, r.Config)
+	env, _ := config.ReadCrewEnv(ctx, r.Name, r.Dir, home, r.Config, store.ReadEnvFileEntries, store.ParseEnv)
 	text := func(err error) string {
 		if err != nil {
 			return err.Error()
@@ -960,7 +960,7 @@ func crewEnvSummary(ctx context.Context, r store.CrewMember, home string) ([]env
 	for _, user := range envFor {
 		path := r.EnvFor(user)
 		var keys []string
-		f, err := config.ReadEnvFile(path)
+		f, err := store.ReadEnvFile(path)
 		if err == nil {
 			keys = f.Keys()
 		}

@@ -32,8 +32,8 @@ import (
 // opens its stores so, and hands the variable on to the yardr it starts.
 // YARDR_STORE_NOSYNC=0 in the environment of `go test` keeps the sync.
 func init() {
-	if config.Getenv(store.NoSyncEnv) == "" {
-		os.Setenv("YARDR_"+store.NoSyncEnv, "1")
+	if os.Getenv(store.NoSyncEnv) == "" {
+		os.Setenv(store.NoSyncEnv, "1")
 	}
 }
 
@@ -233,6 +233,7 @@ func Open(t testing.TB, path string) *store.Store {
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
+	s.SetDaemonChecker(config.DaemonChecker(filepath.Dir(path)))
 	t.Cleanup(func() { _ = s.Close(context.Background()) })
 	return s
 }

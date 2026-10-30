@@ -19,7 +19,6 @@ import (
 
 	bolt "go.etcd.io/bbolt"
 
-	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/source"
 )
 
@@ -325,7 +324,7 @@ func runHookAdd(ctx context.Context, w *wtx, argv []string, actor string, by *ap
 		return "", err
 	}
 	file := HookSecretFile(w.home, name)
-	secret, _, err := config.ReadSecretFile(file)
+	secret, _, err := ReadSecretFile(file)
 	if err != nil {
 		return "", fmt.Errorf("hook %s: give its signing secret on the hook's secret card for %s first: %w", name, name, err)
 	}
@@ -471,7 +470,7 @@ func (s *Store) approveHookRegister(ctx context.Context, id string, seq uint64, 
 			return finish(fmt.Sprintf("hook %s saved: POST /hooks/%s (%s); %s at %s already lists a webhook for %s, so %s was not called again", job.name, job.name, job.d.Name, check.Request.Line(), job.d.Address(), job.publicURL, reg.Call))
 		}
 	}
-	cred, _, err := job.d.ReadCredential(ctx, job.src.EnvFile, job.d.MintArgv(s.home, job.src.MintCommand), source.Update)
+	cred, _, err := job.d.ReadCredential(ctx, job.src.EnvFile, job.d.MintArgv(s.home, job.src.MintCommand), source.Update, ReadEnvFileEntries)
 	if err != nil {
 		return nil, fmt.Errorf("hook %s is in place, but registering it failed: the register call %s was not made: %v. Approve again to retry", job.name, reg.Call, err)
 	}
@@ -483,7 +482,7 @@ func (s *Store) approveHookRegister(ctx context.Context, id string, seq uint64, 
 		params[name] = job.values[name]
 	}
 	call, _ := job.d.Call(reg.Call)
-	res, err := source.Do(ctx, job.d, reg.Call, params, cred)
+	res, err := source.Do(ctx, job.d, reg.Call, params, cred, ReadSecretFile)
 	if err != nil {
 		var failed *source.CallError
 		answer := err.Error()
@@ -510,7 +509,7 @@ func (s *Store) checkHookRegister(ctx context.Context, job *hookRegisterJob) (bo
 	reg := job.d.Hook.Register
 	ex := reg.Existing
 	check, _ := job.d.Call(ex.Call)
-	cred, _, err := job.d.ReadCredential(ctx, job.src.EnvFile, job.d.MintArgv(s.home, job.src.MintCommand), source.Read)
+	cred, _, err := job.d.ReadCredential(ctx, job.src.EnvFile, job.d.MintArgv(s.home, job.src.MintCommand), source.Read, ReadEnvFileEntries)
 	if err != nil {
 		return false, check, fmt.Errorf("hook %s is in place, but the check whether its webhook stands failed: the check call %s was not made: %v. Approve again to retry", job.name, ex.Call, err)
 	}
@@ -523,7 +522,7 @@ func (s *Store) checkHookRegister(ctx context.Context, job *hookRegisterJob) (bo
 			params[p.Name] = job.values[p.Name]
 		}
 	}
-	res, err := source.Do(ctx, job.d, ex.Call, params, cred)
+	res, err := source.Do(ctx, job.d, ex.Call, params, cred, ReadSecretFile)
 	if err != nil {
 		var failed *source.CallError
 		answer := err.Error()
@@ -706,7 +705,7 @@ func (w *wtx) prepareHookRegister(ctx context.Context, id string, seq uint64, ac
 	writeSecret := true
 	if had {
 		var err error
-		secret, _, err = config.ReadSecretFile(file)
+		secret, _, err = ReadSecretFile(file)
 		switch {
 		case err == nil && len(secret) > 0:
 			// A retry keeps the secret belonging to the hook this ask added.
@@ -751,7 +750,7 @@ func (w *wtx) prepareHookRegister(ctx context.Context, id string, seq uint64, ac
 	for _, name := range reg.Ask {
 		params[name] = values[name]
 	}
-	if err := source.ValidateCallParams(d, reg.Call, params); err != nil {
+	if err := source.ValidateCallParams(d, reg.Call, params, ReadSecretFile); err != nil {
 		return nil, fmt.Errorf("hook %s: the register call parameters cannot be sent: %w. Nothing was registered", name, err)
 	}
 	// The check a retry makes is held the same way: what the approval
@@ -768,7 +767,7 @@ func (w *wtx) prepareHookRegister(ctx context.Context, id string, seq uint64, ac
 				checkParams[p.Name] = values[p.Name]
 			}
 		}
-		if err := source.ValidateCallParams(d, reg.Existing.Call, checkParams); err != nil {
+		if err := source.ValidateCallParams(d, reg.Existing.Call, checkParams, ReadSecretFile); err != nil {
 			return nil, fmt.Errorf("hook %s: the check call parameters cannot be sent: %w. Nothing was registered", name, err)
 		}
 	}

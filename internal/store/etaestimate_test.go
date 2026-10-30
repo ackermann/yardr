@@ -23,7 +23,7 @@ type etaTest struct {
 // stay sequential.
 func newETATest(t testing.TB) *etaTest {
 	t.Helper()
-	t.Setenv("YARDR_"+store.NoSyncEnv, "1")
+	t.Setenv(store.NoSyncEnv, "1")
 	y := &etaTest{now: time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)}
 	store.SetClockForTest(func() time.Time { return y.now })
 	t.Cleanup(func() { store.SetClockForTest(time.Now) })

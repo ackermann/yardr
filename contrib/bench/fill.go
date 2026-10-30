@@ -43,8 +43,8 @@ merged terminal
 // taken back at once, so that no server started later inherits it.
 func openStore(path string, noSync bool) (*store.Store, error) {
 	if noSync {
-		os.Setenv("YARDR_"+store.NoSyncEnv, "1")
-		defer os.Unsetenv("YARDR_" + store.NoSyncEnv)
+		os.Setenv(store.NoSyncEnv, "1")
+		defer os.Unsetenv(store.NoSyncEnv)
 	}
 	var s *store.Store
 	var err error

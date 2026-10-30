@@ -79,8 +79,9 @@ func oneValue(what string, out []byte) error {
 // credential, from its installed copy under home. The command receives the
 // typed parameters as {"params": ...}, the credential under the variable
 // the call's kind uses, and the declaration's base. Its refusal is a
-// CallError of BuildRefused; breakage is one of BuildFailed.
-func BuildBody(ctx context.Context, d *Declaration, name string, params map[string]string, credential, home string) (json.RawMessage, error) {
+// CallError of BuildRefused; breakage is one of BuildFailed. readSecret
+// is Do's.
+func BuildBody(ctx context.Context, d *Declaration, name string, params map[string]string, credential, home string, readSecret func(path string) (secret []byte, resolved string, err error)) (json.RawMessage, error) {
 	fail := func(reason, format string, args ...any) error {
 		return &CallError{Source: d.Name, Call: name, Reason: reason, msg: fmt.Sprintf(format, args...)}
 	}
@@ -105,7 +106,7 @@ func BuildBody(ctx context.Context, d *Declaration, name string, params map[stri
 			return nil, fail(NoCredential, "the value of %s has a control character in it, a line break perhaps: it is one line", d.Credential.EnvOf(c.Kind))
 		}
 	}
-	vals, err := c.values(params, nil)
+	vals, err := c.values(params, nil, readSecret)
 	if err != nil {
 		return nil, fail(BadParam, "%v", err)
 	}

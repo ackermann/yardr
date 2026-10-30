@@ -16,8 +16,6 @@ import (
 	"unicode"
 
 	bolt "go.etcd.io/bbolt"
-
-	"yardr.dev/yardr/internal/config"
 )
 
 // bSettings holds the yard's own defaults, key -> value (a JSON string),
@@ -171,7 +169,8 @@ type Setting struct {
 	// none, or when it is no one value (Help says what it is then).
 	Default string
 	// Env is the environment variable that is used instead of the setting
-	// where it is set, without its YARDR_ prefix (config.Getenv).
+	// where it is set, without its YARDR_ prefix, as Effective's getenv
+	// takes it.
 	Env string
 	// Check refuses a value the setting's readers would not take.
 	Check func(string) error
@@ -544,10 +543,11 @@ const (
 // where it is from: the environment variable that stands in for it, in the
 // environment of whoever asks (a server reads its own when it starts), else
 // what is set, else the default. Both are "" for a setting that is unset
-// and has no default.
-func (s Setting) Effective(stored map[string]string) (value, from string) {
+// and has no default. getenv reads the variable by its short name: the
+// caller passes the YARDR_* lookup, since the store cannot import config.
+func (s Setting) Effective(stored map[string]string, getenv func(string) string) (value, from string) {
 	if s.Env != "" {
-		if v := config.Getenv(s.Env); v != "" {
+		if v := getenv(s.Env); v != "" {
 			return v, FromEnvironment
 		}
 	}

@@ -22,6 +22,7 @@ import (
 	"yardr.dev/yardr/internal/pack"
 	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/source"
+	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/packs"
 )
 
@@ -558,7 +559,7 @@ func TestGoogleCallsAgainstTheStandin(t *testing.T) {
 			wantAnswer: `{"id":"` + eventID + `","summary":"Lunch with Bob","start":{"dateTime":"2026-10-25T12:00:00+02:00"},"end":{"dateTime":"2026-10-25T13:00:00+02:00"},"htmlLink":"https://www.google.com/calendar/event?eid=` + eventID + `"}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			res, err := source.Do(context.Background(), tc.d, tc.call, tc.params, "tok")
+			res, err := source.Do(context.Background(), tc.d, tc.call, tc.params, "tok", store.ReadSecretFile)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -701,7 +702,7 @@ func TestGoogleCallParamsRefused(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var failed *source.CallError
-			if _, err := source.Do(context.Background(), tc.d, tc.call, tc.params, "tok"); !errors.As(err, &failed) || failed.Reason != source.BadParam {
+			if _, err := source.Do(context.Background(), tc.d, tc.call, tc.params, "tok", store.ReadSecretFile); !errors.As(err, &failed) || failed.Reason != source.BadParam {
 				t.Fatalf("err = %v, want %s", err, source.BadParam)
 			} else if !strings.Contains(failed.Error(), tc.want) {
 				t.Fatalf("err = %v, want %q", failed, tc.want)
@@ -893,7 +894,7 @@ func TestGoogleMailDraftBuild(t *testing.T) {
 			if call == "" {
 				call = "draft"
 			}
-			body, err := source.BuildBody(context.Background(), d, call, tc.params, credential, home)
+			body, err := source.BuildBody(context.Background(), d, call, tc.params, credential, home, store.ReadSecretFile)
 			if tc.wantRefusal != "" {
 				var failed *source.CallError
 				if !errors.As(err, &failed) || failed.Reason != source.BuildRefused {
@@ -934,7 +935,7 @@ func TestGoogleMailDraftBuild(t *testing.T) {
 						t.Fatalf("threadId = %q, want %q", out.Message.ThreadID, tc.wantThread)
 					}
 				}
-				res, err := source.DoKeyedBody(context.Background(), d, call, tc.params, credential, "", body)
+				res, err := source.DoKeyedBody(context.Background(), d, call, tc.params, credential, "", body, store.ReadSecretFile)
 				wantStatus, wantWrite := http.StatusCreated, draftRequest{"POST", "/gmail/v1/users/me/drafts", ""}
 				if call == "draft_edit" {
 					wantStatus, wantWrite = http.StatusOK, draftRequest{"PUT", "/gmail/v1/users/me/drafts/" + draftID, ""}
@@ -996,7 +997,7 @@ func TestGoogleDocsWriteBuilds(t *testing.T) {
 			defer srv.Close()
 			docs := googleDeclaration(t, "google-docs.yaml", "https://docs.googleapis.com", srv.URL)
 			body, err := source.BuildBody(context.Background(), docs, "write",
-				map[string]string{"docId": standin.doc(tc.doc), "paragraphs": tc.paras}, "tok", writeHome(t))
+				map[string]string{"docId": standin.doc(tc.doc), "paragraphs": tc.paras}, "tok", writeHome(t), store.ReadSecretFile)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1068,7 +1069,7 @@ func TestGoogleDocsWriteRefusals(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			before := len(standin.requests())
 			_, err := source.BuildBody(context.Background(), docs, "write",
-				map[string]string{"docId": standin.doc(tc.doc), "paragraphs": tc.paras}, "tok", home)
+				map[string]string{"docId": standin.doc(tc.doc), "paragraphs": tc.paras}, "tok", home, store.ReadSecretFile)
 			var refused *source.CallError
 			if !errors.As(err, &refused) || refused.Reason != source.BuildRefused || !strings.Contains(err.Error(), tc.words) {
 				t.Fatalf("err = %v, want %s containing %q", err, source.BuildRefused, tc.words)
@@ -1093,12 +1094,12 @@ func TestGoogleDocsWriteRoundTrip(t *testing.T) {
 	paras := `[{"text":"Lunch places","style":"TITLE"},{"text":"Friday","style":"HEADING_1"},` +
 		`{"text":"We shipped the condiments.","style":"NORMAL_TEXT"},{"text":"Ada picks the place.","style":"NORMAL_TEXT"}]`
 	body, err := source.BuildBody(context.Background(), docs, "write",
-		map[string]string{"docId": standin.doc("empty"), "paragraphs": paras}, "tok", writeHome(t))
+		map[string]string{"docId": standin.doc("empty"), "paragraphs": paras}, "tok", writeHome(t), store.ReadSecretFile)
 	if err != nil {
 		t.Fatal(err)
 	}
 	res, err := source.DoKeyedBody(context.Background(), docs, "write",
-		map[string]string{"docId": standin.doc("empty"), "paragraphs": paras}, "tok", "", body)
+		map[string]string{"docId": standin.doc("empty"), "paragraphs": paras}, "tok", "", body, store.ReadSecretFile)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1148,7 +1149,7 @@ func TestGoogleDocsWriteHandsCurlNoToken(t *testing.T) {
 	docs := googleDeclaration(t, "google-docs.yaml", "https://docs.googleapis.com", srv.URL)
 	if _, err := source.BuildBody(context.Background(), docs, "write",
 		map[string]string{"docId": standin.doc("empty"), "paragraphs": `[{"text":"x","style":"TITLE"}]`},
-		"the-secret-token", writeHome(t)); err != nil {
+		"the-secret-token", writeHome(t), store.ReadSecretFile); err != nil {
 		t.Fatal(err)
 	}
 	recorded, err := os.ReadFile(argv)
@@ -1289,7 +1290,7 @@ func TestGoogleDocsReplaceBuilds(t *testing.T) {
 			if tc.all != "" {
 				params["all"] = tc.all
 			}
-			body, err := source.BuildBody(context.Background(), docs, "replace", params, "tok", replaceHome(t))
+			body, err := source.BuildBody(context.Background(), docs, "replace", params, "tok", replaceHome(t), store.ReadSecretFile)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1365,7 +1366,7 @@ func TestGoogleDocsReplaceRefusals(t *testing.T) {
 			if tc.all != "" {
 				params["all"] = tc.all
 			}
-			_, err := source.BuildBody(context.Background(), docs, "replace", params, "tok", home)
+			_, err := source.BuildBody(context.Background(), docs, "replace", params, "tok", home, store.ReadSecretFile)
 			var refused *source.CallError
 			if !errors.As(err, &refused) || refused.Reason != source.BuildRefused || !strings.Contains(err.Error(), tc.words) {
 				t.Fatalf("err = %v, want %s containing %q", err, source.BuildRefused, tc.words)
@@ -1404,11 +1405,11 @@ func TestGoogleDocsReplaceRoundTrip(t *testing.T) {
 	} {
 		before := len(standin.requests())
 		params := map[string]string{"docId": standin.doc(tc.doc), "find": "Lunch", "with": "Dinner"}
-		body, err := source.BuildBody(context.Background(), docs, "replace", params, "tok", home)
+		body, err := source.BuildBody(context.Background(), docs, "replace", params, "tok", home, store.ReadSecretFile)
 		if err != nil {
 			t.Fatal(err)
 		}
-		res, err := source.DoKeyedBody(context.Background(), docs, "replace", params, "tok", "", body)
+		res, err := source.DoKeyedBody(context.Background(), docs, "replace", params, "tok", "", body, store.ReadSecretFile)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1459,7 +1460,7 @@ func TestGoogleDocsReplaceHandsCurlNoToken(t *testing.T) {
 	docs := googleDeclaration(t, "google-docs.yaml", "https://docs.googleapis.com", srv.URL)
 	if _, err := source.BuildBody(context.Background(), docs, "replace",
 		map[string]string{"docId": standin.doc("one"), "find": "Lunch", "with": "Dinner"},
-		"the-secret-token", replaceHome(t)); err != nil {
+		"the-secret-token", replaceHome(t), store.ReadSecretFile); err != nil {
 		t.Fatal(err)
 	}
 	recorded, err := os.ReadFile(argv)

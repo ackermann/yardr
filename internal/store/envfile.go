@@ -1,4 +1,4 @@
-package config
+package store
 
 import (
 	"bufio"
@@ -65,6 +65,26 @@ func ReadEnvFile(path string) (*EnvFile, error) {
 		return nil, err
 	}
 	return &EnvFile{Path: p, Env: env}, nil
+}
+
+// ReadEnvFileEntries reads the env file at path as ReadEnvFile does, and
+// returns its entries and resolved path as plain values: the file reader
+// for the packages that cannot name EnvFile because they cannot import
+// the store (internal/source, which the store imports, and
+// internal/config, which source imports, so an edge back would be a
+// cycle). They ask for it as a func, and their callers pass this one. The
+// resolved path is reported even when the read fails, expanded where the
+// path expands, as the file a crew member's environment names is.
+func ReadEnvFileEntries(path string) (env []string, resolved string, err error) {
+	resolved = path
+	if p, err := ExpandPath(path); err == nil {
+		resolved = p
+	}
+	f, err := ReadEnvFile(path)
+	if err != nil {
+		return nil, resolved, err
+	}
+	return f.Env, f.Path, nil
 }
 
 // ParseEnv reads KEY=VALUE lines from r as an env file's are read, for a

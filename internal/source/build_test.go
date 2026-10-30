@@ -135,7 +135,7 @@ func TestBuildBodyBreakage(t *testing.T) {
 		}
 	}
 	run := func() error {
-		_, err := BuildBody(context.Background(), d, "write", map[string]string{"count": "2", "ok": "true", "mode": "fast"}, "write-token", home)
+		_, err := BuildBody(context.Background(), d, "write", map[string]string{"count": "2", "ok": "true", "mode": "fast"}, "write-token", home, noSecrets)
 		return err
 	}
 	for name, tc := range map[string]struct {
@@ -196,7 +196,7 @@ func TestBuildBodyHandsTypedParamsAndUpdateCredential(t *testing.T) {
 	t.Setenv("YARDR_SESSION", "not-for-a-build")
 	t.Setenv("CRM_UPDATE_TOKEN", "not-this-one")
 	params := map[string]string{"count": "2", "ok": "true", "mode": "fast"}
-	body, err := BuildBody(context.Background(), d, "write", params, "write-token", home)
+	body, err := BuildBody(context.Background(), d, "write", params, "write-token", home, noSecrets)
 	if err != nil || string(body) != `{"built":true}` {
 		t.Fatalf("BuildBody = %s, %v", body, err)
 	}
@@ -221,7 +221,7 @@ func TestBuildBodyHandsTypedParamsAndUpdateCredential(t *testing.T) {
 	}
 
 	write(`echo '3 matches; pass all=true to replace them all' >&2; exit 1`)
-	_, err = BuildBody(context.Background(), d, "write", params, "write-token", home)
+	_, err = BuildBody(context.Background(), d, "write", params, "write-token", home, noSecrets)
 	if reason(err) != BuildRefused || err.Error() != "source crm, call write: 3 matches; pass all=true to replace them all" {
 		t.Fatalf("refusal = %v", err)
 	}
@@ -253,7 +253,7 @@ func TestBuildBodyRedactsCredentialFromStderr(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			write(tc.command)
-			_, err := BuildBody(context.Background(), d, "write", params, "write-token", home)
+			_, err := BuildBody(context.Background(), d, "write", params, "write-token", home, noSecrets)
 			if reason(err) != tc.reason || strings.Contains(err.Error(), "write-token") {
 				t.Fatalf("BuildBody = %v; want %s without the credential", err, tc.reason)
 			}
@@ -284,7 +284,7 @@ func TestBuildBodyIsHandedNoCredentialThatIsTheAddress(t *testing.T) {
 		}
 	}
 	script(`cat > build-stdin; env > build-environment; printf '{"built":true}'`)
-	body, err := BuildBody(context.Background(), d, "send", map[string]string{"text": "hello"}, address, home)
+	body, err := BuildBody(context.Background(), d, "send", map[string]string{"text": "hello"}, address, home, noSecrets)
 	if err != nil || string(body) != `{"built":true}` {
 		t.Fatalf("BuildBody = %s, %v", body, err)
 	}
@@ -301,7 +301,7 @@ func TestBuildBodyIsHandedNoCredentialThatIsTheAddress(t *testing.T) {
 	// What the command says of a refusal is the command's own, and nothing
 	// of the address is in the error, which it was never handed.
 	script(`echo "no good" >&2; exit 1`)
-	_, err = BuildBody(context.Background(), d, "send", map[string]string{"text": "hello"}, address, home)
+	_, err = BuildBody(context.Background(), d, "send", map[string]string{"text": "hello"}, address, home, noSecrets)
 	if reason(err) != BuildRefused || addressLeak(err, address) != "" {
 		t.Fatalf("refusal = %v", err)
 	}

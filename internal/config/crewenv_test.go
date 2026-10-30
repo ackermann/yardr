@@ -1,4 +1,4 @@
-package config
+package config_test
 
 import (
 	"context"
@@ -10,6 +10,9 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/store"
 )
 
 // What the stand-in providers print as values: none may show in an error.
@@ -35,9 +38,9 @@ func providerT(t *testing.T, body string) string {
 // the tests of this package share, so none that sets it runs in parallel.
 func anHourToAnswer(t *testing.T) {
 	t.Helper()
-	old := EnvCommandTimeout
-	EnvCommandTimeout = time.Hour
-	t.Cleanup(func() { EnvCommandTimeout = old })
+	old := config.EnvCommandTimeout
+	config.EnvCommandTimeout = time.Hour
+	t.Cleanup(func() { config.EnvCommandTimeout = old })
 }
 
 // An env_command's stdout is read as an env_file: its entries are the
@@ -60,7 +63,7 @@ echo "ARGS=$#:$1:$2"
 echo "STDIN=$(cat | wc -c | tr -d ' ')"
 echo "noise" >&2`)
 	for name, cmd := range map[string]any{"string": p + " one $HOME", "list": []any{p, "one", "$HOME"}} {
-		env, err := ReadCrewEnv(context.Background(), "yardmaster", dir, "/y", map[string]any{"env_command": cmd})
+		env, err := config.ReadCrewEnv(context.Background(), "yardmaster", dir, "/y", map[string]any{"env_command": cmd}, store.ReadEnvFileEntries, store.ParseEnv)
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
@@ -76,12 +79,12 @@ echo "noise" >&2`)
 		}
 	}
 	// A crew member without a directory is asked for in the yard's home.
-	env, err := ReadCrewEnv(context.Background(), "yardmaster", "", dir, map[string]any{"env_command": p})
+	env, err := config.ReadCrewEnv(context.Background(), "yardmaster", "", dir, map[string]any{"env_command": p}, store.ReadEnvFileEntries, store.ParseEnv)
 	if err != nil || env.Get("PWD_OF") != dir {
 		t.Fatalf("in the home: %v, %v", env, err)
 	}
 	// Neither setting: nothing, and no error.
-	if env, err := ReadCrewEnv(context.Background(), "yardmaster", dir, "/y", map[string]any{}); err != nil || env.Set() || len(env.Env) != 0 {
+	if env, err := config.ReadCrewEnv(context.Background(), "yardmaster", dir, "/y", map[string]any{}, store.ReadEnvFileEntries, store.ParseEnv); err != nil || env.Set() || len(env.Env) != 0 {
 		t.Fatalf("no setting: %+v, %v", env, err)
 	}
 }
@@ -95,7 +98,7 @@ func TestCrewEnvCommandWinsOverFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := map[string]any{"env_file": file, "env_command": providerT(t, `echo "LINEAR_API_KEY=`+provided+`"; echo OTHER=x`)}
-	env, err := ReadCrewEnv(context.Background(), "yardmaster", "", "", cfg)
+	env, err := config.ReadCrewEnv(context.Background(), "yardmaster", "", "", cfg, store.ReadEnvFileEntries, store.ParseEnv)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +113,7 @@ func TestCrewEnvCommandWinsOverFile(t *testing.T) {
 	if err := os.Chmod(file, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	env, err = ReadCrewEnv(context.Background(), "yardmaster", "", "", cfg)
+	env, err = config.ReadCrewEnv(context.Background(), "yardmaster", "", "", cfg, store.ReadEnvFileEntries, store.ParseEnv)
 	if err == nil || !strings.Contains(err.Error(), "chmod 600") || len(env.Env) != 0 || env.FileErr == nil || env.CommandErr != nil {
 		t.Fatalf("refused file: %+v, %v", env, err)
 	}
@@ -183,7 +186,7 @@ func TestCrewEnvCommandFailures(t *testing.T) {
 			}()
 		}
 		start := time.Now()
-		env, err := ReadCrewEnv(ctx, "yardmaster", "", "", map[string]any{"env_command": tc.cmd})
+		env, err := config.ReadCrewEnv(ctx, "yardmaster", "", "", map[string]any{"env_command": tc.cmd}, store.ReadEnvFileEntries, store.ParseEnv)
 		if err == nil {
 			t.Errorf("%s: no error", name)
 			continue
@@ -211,12 +214,12 @@ func TestCrewEnvCommandFailures(t *testing.T) {
 // started by then is the machine's affair, so nothing of its stderr is
 // asked for here.
 func TestCrewEnvCommandTimeout(t *testing.T) {
-	old := EnvCommandTimeout
-	EnvCommandTimeout = 50 * time.Millisecond
-	t.Cleanup(func() { EnvCommandTimeout = old })
+	old := config.EnvCommandTimeout
+	config.EnvCommandTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { config.EnvCommandTimeout = old })
 	p := providerT(t, `echo "LINEAR_API_KEY=`+provided+`"; sleep 300`)
 	start := time.Now()
-	env, err := ReadCrewEnv(context.Background(), "yardmaster", "", "", map[string]any{"env_command": p})
+	env, err := config.ReadCrewEnv(context.Background(), "yardmaster", "", "", map[string]any{"env_command": p}, store.ReadEnvFileEntries, store.ParseEnv)
 	if err == nil || !strings.Contains(err.Error(), "env_command "+p+": no answer within 50ms") || strings.Contains(err.Error(), provided) {
 		t.Fatalf("err = %v", err)
 	}
@@ -232,16 +235,16 @@ func TestCrewEnvCommandTimeout(t *testing.T) {
 func TestEnvCommandMissing(t *testing.T) {
 	ran := filepath.Join(t.TempDir(), "ran")
 	p := providerT(t, "touch "+ran)
-	if err := EnvCommandMissing("", map[string]any{"env_command": p + " x"}); err != nil {
+	if err := config.EnvCommandMissing("", map[string]any{"env_command": p + " x"}); err != nil {
 		t.Errorf("there: %v", err)
 	}
-	if err := EnvCommandMissing(filepath.Dir(p), map[string]any{"env_command": "./provider"}); err != nil {
+	if err := config.EnvCommandMissing(filepath.Dir(p), map[string]any{"env_command": "./provider"}); err != nil {
 		t.Errorf("relative to the directory: %v", err)
 	}
-	if err := EnvCommandMissing("", map[string]any{}); err != nil {
+	if err := config.EnvCommandMissing("", map[string]any{}); err != nil {
 		t.Errorf("none: %v", err)
 	}
-	err := EnvCommandMissing("", map[string]any{"env_command": "yardr-no-such-provider --env"})
+	err := config.EnvCommandMissing("", map[string]any{"env_command": "yardr-no-such-provider --env"})
 	if err == nil || !strings.Contains(err.Error(), "env_command yardr-no-such-provider --env") {
 		t.Errorf("missing: %v", err)
 	}
@@ -273,7 +276,7 @@ func TestCrewEnvCommandKillsChildForkedAtTheLimit(t *testing.T) {
 			}
 			timeUp()
 		}()
-		_, err := ReadCrewEnv(ctx, "yardmaster", "", "", map[string]any{"env_command": p})
+		_, err := config.ReadCrewEnv(ctx, "yardmaster", "", "", map[string]any{"env_command": p}, store.ReadEnvFileEntries, store.ParseEnv)
 		if err == nil || !strings.Contains(err.Error(), "no answer before the caller's deadline") {
 			t.Fatalf("round %d: err = %v", round, err)
 		}

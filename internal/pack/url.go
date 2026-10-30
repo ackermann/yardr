@@ -13,6 +13,7 @@ import (
 
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/source"
+	"yardr.dev/yardr/internal/store"
 )
 
 // MaxURLFile bounds one file of a pack fetched by URL, a MiB. A pack is
@@ -82,13 +83,13 @@ type Header struct {
 
 // ReadAuth reads the credential name says: the file <home>/packs/<name>.auth,
 // which holds one header line such as "Authorization: Bearer ...". It is read
-// as a secret file is (config.ReadSecretFile): a regular file no one but its
+// as a secret file is (store.ReadSecretFile): a regular file no one but its
 // owner may read or write. Errors name the file or the name, never the value.
 func ReadAuth(home, name string) (Header, error) {
 	if !validName.MatchString(name) {
 		return Header{}, fmt.Errorf("auth %q: want a name of letters, digits, dots, dashes and underscores, starting with a letter or digit", name)
 	}
-	raw, path, err := config.ReadSecretFile(filepath.Join(config.At(home).Packs(), name+".auth"))
+	raw, path, err := store.ReadSecretFile(filepath.Join(config.At(home).Packs(), name+".auth"))
 	if err != nil {
 		return Header{}, err
 	}

@@ -40,7 +40,7 @@ import (
 //	worktrees  root for bead worktrees (default Herdr.WorktreeRoot)
 //	env_file   KEY=VALUE file (mode 0600 or stricter) whose entries go into
 //	           the agent's pane environment: outbound credentials, which
-//	           never belong in the store (see config.ReadEnvFile) nor on a
+//	           never belong in the store (see store.ReadEnvFile) nor on a
 //	           command line (see call)
 //	nice       the niceness the agent and all it starts run at, 0 to 19: the
 //	           pane's shell is set to it before the agent starts (see

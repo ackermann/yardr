@@ -12,7 +12,6 @@ import (
 
 	bolt "go.etcd.io/bbolt"
 
-	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/source"
 )
 
@@ -52,7 +51,7 @@ type Source struct {
 	Text string `json:"declaration"`
 	// EnvFile is the path of the file that sets the variable the
 	// declaration names (credential.env), read at each call under the rule
-	// of every env_file (config.ReadEnvFile). Empty until the operator
+	// of every env_file (ReadEnvFile). Empty until the operator
 	// sets it; PutSource keeps what the source has.
 	EnvFile string `json:"env_file,omitempty"`
 	// EnvFileUnset is the file at the path KeySource writes to for a
@@ -603,7 +602,7 @@ func (k *sourceKey) keyed(home string) *SourceKeyed {
 		return out
 	}
 	if d, err := k.src.Declaration(); err == nil {
-		out.State, err = d.CredentialState(k.src.EnvFile, d.MintArgv(home, k.src.MintCommand))
+		out.State, err = d.CredentialState(k.src.EnvFile, d.MintArgv(home, k.src.MintCommand), ReadEnvFileEntries)
 		if err != nil {
 			out.Missing = err.Error()
 		}
@@ -670,7 +669,7 @@ func (k *sourceKey) failed(err error) error {
 	if !k.renamed {
 		return err
 	}
-	return &config.OperationalError{Err: &KeyNotRecorded{Names: k.names, File: k.file, Err: err}}
+	return &OperationalError{Err: &KeyNotRecorded{Names: k.names, File: k.file, Err: err}}
 }
 
 // afterKeyRename fails a transaction after keySource renamed the file, for
@@ -708,7 +707,7 @@ func checkURLCredential(d *source.Declaration, name string, values map[string]st
 // one thing hold whatever fails: the store never says more than the file
 // holds. First the checks; then the setting and its event, put and not
 // committed; last the file, written beside itself and renamed into place
-// (config.WriteEnvFile). So an error up to the rename rolls the store back
+// (WriteEnvFile). So an error up to the rename rolls the store back
 // with the file as it was, and an env_file this call set is committed only
 // after the file with the names' lines is in place. The other way round is
 // not held: a commit that fails after the rename leaves the value in the
@@ -765,7 +764,7 @@ func (w *wtx) keySource(ctx context.Context, home, name string, values map[strin
 		}
 	}
 	k.src, k.names = src, names
-	resolved, renamed, err := config.WriteEnvFile(file, values)
+	resolved, renamed, err := WriteEnvFile(file, values)
 	k.file = resolved
 	k.renamed = k.renamed || renamed
 	if err != nil {

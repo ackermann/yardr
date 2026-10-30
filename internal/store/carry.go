@@ -30,7 +30,6 @@ import (
 	"time"
 
 	bolt "go.etcd.io/bbolt"
-	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/source"
 )
 
@@ -223,7 +222,7 @@ func (s *Store) KeySourceForSetup(ctx context.Context, bead string, ask uint64, 
 		if err := w.keySource(ctx, s.home, name, values, actor, &k); err != nil {
 			return err
 		}
-		f, err := config.ReadEnvFile(k.file)
+		f, err := ReadEnvFile(k.file)
 		if err != nil {
 			return fmt.Errorf("source %s: account file after writing: %w", name, err)
 		}

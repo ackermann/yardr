@@ -35,8 +35,6 @@ import (
 	"time"
 
 	bolt "go.etcd.io/bbolt"
-
-	"yardr.dev/yardr/internal/config"
 )
 
 // Note kinds for questions and their answers, beside note, journal and
@@ -886,10 +884,10 @@ func (s *Store) addAnswer(ctx context.Context, id string, ans Answer, actor, rev
 			// of the answer: marked, so a device that is no operator's
 			// is told that it failed and not on which file.
 			if repoErr != nil {
-				return &config.OperationalError{Err: repoErr}
+				return &OperationalError{Err: repoErr}
 			}
 			if homeErr != nil {
-				return &config.OperationalError{Err: homeErr}
+				return &OperationalError{Err: homeErr}
 			}
 			if _, err := w.move(row.UUID, actor, repo, home, nil, stagePick(move)); err != nil {
 				return err

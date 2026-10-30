@@ -24,7 +24,7 @@ type arrivalsTest struct {
 // so its callers stay sequential.
 func newArrivalsTest(t testing.TB) *arrivalsTest {
 	t.Helper()
-	t.Setenv("YARDR_"+store.NoSyncEnv, "1")
+	t.Setenv(store.NoSyncEnv, "1")
 	y := &arrivalsTest{now: time.Date(2099, 1, 1, 12, 0, 0, 0, time.UTC)}
 	store.SetClockForTest(func() time.Time { return y.now })
 	t.Cleanup(func() { store.SetClockForTest(time.Now) })

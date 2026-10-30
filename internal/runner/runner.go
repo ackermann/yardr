@@ -364,7 +364,7 @@ func declaredChecks(home string, decl *source.Declaration, src *store.Source, re
 	ctx := context.Background()
 	cred := ""
 	if decl.Credential != nil {
-		selected, err := decl.SelectCredential(src.EnvFile, source.Read)
+		selected, err := decl.SelectCredential(src.EnvFile, source.Read, store.ReadEnvFileEntries)
 		if err != nil {
 			return unavailable(err)
 		}

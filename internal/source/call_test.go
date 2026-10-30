@@ -21,6 +21,14 @@ import (
 	"time"
 )
 
+// noSecrets is the tests' stand-in for the store's secret reader, which
+// this package's tests cannot import (the store imports source). No test
+// declares a secret-file parameter, so it is never called; a call fails
+// the test that made it.
+func noSecrets(path string) ([]byte, string, error) {
+	return nil, "", errors.New("no secret files in this test")
+}
+
 // token is the credential of these tests. No error of a call may have it,
 // nor secretText, a parameter's value, nor customer, the number in it. The
 // number has seven digits because an error may name a stand-in's address,
@@ -132,7 +140,7 @@ var user30 = strings.Repeat("u", 30)
 func TestDoSendsTheCredentialInTheBody(t *testing.T) {
 	s := newStandin(t, jsonAnswer(`{"status":1,"request":"r-1"}`))
 	d := declared(t, pushover, "https://api.pushover.net/1", s.URL+"/1")
-	res, err := Do(context.Background(), d, "message", map[string]string{"user": user30, "title": "yardr", "text": "a bead entered decide"}, token)
+	res, err := Do(context.Background(), d, "message", map[string]string{"user": user30, "title": "yardr", "text": "a bead entered decide"}, token, noSecrets)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,7 +161,7 @@ func TestDoSendsTheCredentialInTheBody(t *testing.T) {
 	if _, has := body["url"]; has {
 		t.Fatalf("the optional link was not given and is in the body: %s", got[0].Body)
 	}
-	if _, err := Do(context.Background(), d, "message", map[string]string{"user": user30, "title": "t", "text": "x", "link": "https://yard.example/beads/1"}, token); err != nil {
+	if _, err := Do(context.Background(), d, "message", map[string]string{"user": user30, "title": "t", "text": "x", "link": "https://yard.example/beads/1"}, token, noSecrets); err != nil {
 		t.Fatal(err)
 	}
 	if got := s.got(); !strings.Contains(string(got[1].Body), `"url":"https://yard.example/beads/1"`) {
@@ -180,7 +188,7 @@ calls:
 	s := newStandin(t, jsonAnswer(`{"ok":true}`))
 	d := declared(t, file, "https://pathcred.example.com", s.URL)
 	const cred = "123456:ABC-def_123"
-	res, err := Do(context.Background(), d, "message", map[string]string{"chat": "987654321", "text": "hello"}, cred)
+	res, err := Do(context.Background(), d, "message", map[string]string{"chat": "987654321", "text": "hello"}, cred, noSecrets)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,7 +209,7 @@ calls:
 	// Without in_path the same path is refused when the call is made, as
 	// it is when the file is read, and the refusal names no credential.
 	d.Credential.InPath = false
-	_, err = Do(context.Background(), d, "message", map[string]string{"chat": "987654321", "text": "hello"}, cred)
+	_, err = Do(context.Background(), d, "message", map[string]string{"chat": "987654321", "text": "hello"}, cred, noSecrets)
 	if err == nil || reason(err) != BadParam || !strings.Contains(err.Error(), "credential.in_path: true") || strings.Contains(err.Error(), cred) {
 		t.Fatalf("without in_path: err = %v", err)
 	}
@@ -232,7 +240,7 @@ calls:
 `
 	s := newStandin(t, jsonAnswer(`[ {"id": 1, "name": "A", "secret": "s"}, {"id": 2, "name": "B", "plan": "paid"} ]`))
 	d := declared(t, file, "https://crm.example.com/api", s.URL+"/api")
-	res, err := Do(context.Background(), d, "find", map[string]string{"id": "a/b c?", "limit": "20", "plan": "paid"}, token)
+	res, err := Do(context.Background(), d, "find", map[string]string{"id": "a/b c?", "limit": "20", "plan": "paid"}, token, noSecrets)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,7 +260,7 @@ calls:
 	if strings.Contains(string(got.Body), token) || strings.Contains(got.URI, token) {
 		t.Fatal("the credential is outside its header")
 	}
-	if _, err := Do(context.Background(), d, "find", map[string]string{"id": "a", "limit": "20", "enabled": "true"}, token); err != nil {
+	if _, err := Do(context.Background(), d, "find", map[string]string{"id": "a", "limit": "20", "enabled": "true"}, token, noSecrets); err != nil {
 		t.Fatal(err)
 	}
 	if got := s.got()[1]; string(got.Body) != `{"enabled":true,"limit":20,"list":["a",3],"say":"for a"}` {
@@ -317,7 +325,7 @@ calls:
 	if err := os.WriteFile(upload, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	res, err := Do(context.Background(), d, "document", map[string]string{"chat": "987654321", "path": upload, "caption": "the shed from the north"}, token)
+	res, err := Do(context.Background(), d, "document", map[string]string{"chat": "987654321", "path": upload, "caption": "the shed from the north"}, token, noSecrets)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -336,7 +344,7 @@ calls:
 	if parts := uploadParts(t, got[0]); !slices.Equal(parts, want) {
 		t.Fatalf("parts = %+v, want %+v", parts, want)
 	}
-	if _, err := Do(context.Background(), d, "document", map[string]string{"chat": "987654321", "path": upload}, token); err != nil {
+	if _, err := Do(context.Background(), d, "document", map[string]string{"chat": "987654321", "path": upload}, token, noSecrets); err != nil {
 		t.Fatal(err)
 	}
 	if parts := uploadParts(t, s.got()[1]); !slices.Equal(parts, want[1:]) {
@@ -361,7 +369,7 @@ calls:
       body: { file: "{path}", limit: "{limit}", open: "{open}", meta: { tag: "{tag}" }, note: "for {tag}" }
 `
 	d = declared(t, typed, "https://typed.example.com", s.URL)
-	if _, err := Do(context.Background(), d, "upload", map[string]string{"path": upload, "limit": "20", "open": "true", "tag": "x"}, ""); err != nil {
+	if _, err := Do(context.Background(), d, "upload", map[string]string{"path": upload, "limit": "20", "open": "true", "tag": "x"}, "", noSecrets); err != nil {
 		t.Fatal(err)
 	}
 	want = []uploadPart{
@@ -380,7 +388,7 @@ calls:
 	if err := os.WriteFile(tricky, []byte("file"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Do(context.Background(), d, "upload", map[string]string{"path": tricky, "limit": "20", "open": "true", "tag": "x"}, ""); err != nil {
+	if _, err := Do(context.Background(), d, "upload", map[string]string{"path": tricky, "limit": "20", "open": "true", "tag": "x"}, "", noSecrets); err != nil {
 		t.Fatal(err)
 	}
 	trickyBody := string(s.got()[3].Body)
@@ -389,17 +397,17 @@ calls:
 	}
 	call, _ := d.Call("upload")
 	params := map[string]string{"path": upload, "limit": "20", "open": "true", "tag": "x"}
-	inputs, err := call.ReadInputs(params)
+	inputs, err := call.ReadInputs(params, noSecrets)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(upload, []byte("changed after the card"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := ValidateCallParamsWithInputs(d, "upload", params, inputs); err != nil {
+	if err := ValidateCallParamsWithInputs(d, "upload", params, inputs, noSecrets); err != nil {
 		t.Fatalf("validation of the captured upload after its path changed: %v", err)
 	}
-	if _, err := DoKeyedWithInputs(context.Background(), d, "upload", params, "", "", inputs); err != nil {
+	if _, err := DoKeyedWithInputs(context.Background(), d, "upload", params, "", "", inputs, noSecrets); err != nil {
 		t.Fatal(err)
 	}
 	if parts := uploadParts(t, s.got()[4]); !slices.Equal(parts, want) {
@@ -440,7 +448,7 @@ calls:
 		{dir, "parameter path is no file that can be read"},
 		{big, "parameter path is 9 bytes, and at most 8"},
 	} {
-		_, err := Do(context.Background(), d, "document", map[string]string{"chat": "987654321", "path": tc.path}, "")
+		_, err := Do(context.Background(), d, "document", map[string]string{"chat": "987654321", "path": tc.path}, "", noSecrets)
 		if reason(err) != BadParam || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("path %q: err = %v, want %q", tc.path, err, tc.want)
 		}
@@ -453,7 +461,7 @@ calls:
 		t.Fatalf("a refused call was sent: %+v", got)
 	}
 	// At the bound it goes.
-	if _, err := Do(context.Background(), d, "document", map[string]string{"chat": "987654321", "path": ok}, ""); err != nil {
+	if _, err := Do(context.Background(), d, "document", map[string]string{"chat": "987654321", "path": ok}, "", noSecrets); err != nil {
 		t.Fatal(err)
 	}
 	if got := s.got(); len(got) != 1 {
@@ -497,7 +505,7 @@ func TestTelegramDocumentSendsAFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	big.Close()
-	_, err = Do(context.Background(), d, "document", map[string]string{"chat": "987654321", "path": big.Name()}, "123:ABC")
+	_, err = Do(context.Background(), d, "document", map[string]string{"chat": "987654321", "path": big.Name()}, "123:ABC", noSecrets)
 	if reason(err) != BadParam || !strings.Contains(err.Error(), "parameter path is 52428801 bytes, and at most 52428800") {
 		t.Fatalf("over 50 MB: err = %v", err)
 	}
@@ -509,7 +517,7 @@ func TestTelegramDocumentSendsAFile(t *testing.T) {
 	if err := os.WriteFile(small, []byte("the shed, measured\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	res, err := Do(context.Background(), d, "document", map[string]string{"chat": "987654321", "path": small, "caption": "tonight's build"}, "123:ABC")
+	res, err := Do(context.Background(), d, "document", map[string]string{"chat": "987654321", "path": small, "caption": "tonight's build"}, "123:ABC", noSecrets)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -539,7 +547,7 @@ func TestDoFollowsNoRedirect(t *testing.T) {
 			http.Redirect(w, r, elsewhere.URL+"/1/messages.json", status)
 		})
 		d := declared(t, pushover, "https://api.pushover.net/1", s.URL+"/1")
-		res, err := Do(context.Background(), d, "message", map[string]string{"user": user30, "title": "t", "text": secretText}, token)
+		res, err := Do(context.Background(), d, "message", map[string]string{"user": user30, "title": "t", "text": secretText}, token, noSecrets)
 		var ce *CallError
 		if !errors.As(err, &ce) || ce.Reason != Redirect || ce.Status != status || res != nil {
 			t.Fatalf("%d: Do = %+v, %v; want it refused as a redirect", status, res, err)
@@ -573,7 +581,7 @@ func TestCleanTakesNoPortForTheSecret(t *testing.T) {
 		http.Redirect(w, r, elsewhere.URL+"/1/messages.json", http.StatusPermanentRedirect)
 	})
 	d := declared(t, pushover, "https://api.pushover.net/1", s.URL+"/1")
-	_, err := Do(context.Background(), d, "message", map[string]string{"user": user30, "title": "t", "text": secretText}, token)
+	_, err := Do(context.Background(), d, "message", map[string]string{"user": user30, "title": "t", "text": secretText}, token, noSecrets)
 	if reason(err) != Redirect || !strings.Contains(err.Error(), strings.TrimPrefix(s.URL, "http://")) || !strings.Contains(err.Error(), "4711") {
 		t.Fatalf("err = %v; want a refused redirect that names %s", err, s.URL)
 	}
@@ -602,23 +610,23 @@ calls:
 	s := newStandin(t, func(w http.ResponseWriter, _ *http.Request) { io.WriteString(w, answer(size)) })
 	d := declared(t, file, "https://big.example.com", s.URL)
 
-	res, err := Do(context.Background(), d, "all", nil, "")
+	res, err := Do(context.Background(), d, "all", nil, "", noSecrets)
 	if reason(err) != TooLarge || res != nil {
 		t.Fatalf("Do = %+v, %v; want too_large", res, err)
 	}
 	if !strings.Contains(err.Error(), "over the call's bound of 65536") || !strings.Contains(err.Error(), "refused, not cut") {
 		t.Fatalf("the error does not name the cause: %v", err)
 	}
-	if res, err := Do(context.Background(), d, "raised", nil, ""); err != nil || len(res.Answer) != len(answer(size)) {
+	if res, err := Do(context.Background(), d, "raised", nil, "", noSecrets); err != nil || len(res.Answer) != len(answer(size)) {
 		t.Fatalf("with answer.max raised: %v", err)
 	}
-	if res, err := Do(context.Background(), d, "picked", nil, ""); err != nil || string(res.Answer) != `{"id":7}` {
+	if res, err := Do(context.Background(), d, "picked", nil, "", noSecrets); err != nil || string(res.Answer) != `{"id":7}` {
 		t.Fatalf("with a select that brings it under the bound: %+v, %v", res, err)
 	}
 
 	size = AnswerLimit + 1
 	for _, call := range []string{"all", "raised", "picked"} {
-		_, err := Do(context.Background(), d, call, nil, "")
+		_, err := Do(context.Background(), d, call, nil, "", noSecrets)
 		if reason(err) != TooLarge || !strings.Contains(err.Error(), "the most yardr reads of one") {
 			t.Fatalf("%s, over what is read at all: %v", call, err)
 		}
@@ -635,20 +643,20 @@ func TestDoAnswers(t *testing.T) {
 		io.WriteString(w, body)
 	})
 	d := declared(t, crm, "https://crm.example.com/api/v2", s.URL)
-	if _, err := Do(context.Background(), d, "ping", nil, token); reason(err) != NotJSON || !strings.Contains(err.Error(), "answered 200 with what is no JSON") {
+	if _, err := Do(context.Background(), d, "ping", nil, token, noSecrets); reason(err) != NotJSON || !strings.Contains(err.Error(), "answered 200 with what is no JSON") {
 		t.Fatalf("not JSON: %v", err)
 	}
 	status, body = 401, `{"error":"bad token `+token+`"}`
-	res, err := Do(context.Background(), d, "ping", nil, token)
+	res, err := Do(context.Background(), d, "ping", nil, token, noSecrets)
 	if err != nil || res.Status != 401 || res.OK() || res.Answer != nil {
 		t.Fatalf("a 401 = %+v, %v", res, err)
 	}
 	status, body = 500, "<html>down</html>"
-	if res, err := Do(context.Background(), d, "ping", nil, token); err != nil || res.Status != 500 || res.Answer != nil {
+	if res, err := Do(context.Background(), d, "ping", nil, token, noSecrets); err != nil || res.Status != 500 || res.Answer != nil {
 		t.Fatalf("a 500 = %+v, %v", res, err)
 	}
 	status, body = 204, ""
-	if res, err := Do(context.Background(), d, "ping", nil, token); err != nil || !res.OK() || res.Answer != nil {
+	if res, err := Do(context.Background(), d, "ping", nil, token, noSecrets); err != nil || !res.OK() || res.Answer != nil {
 		t.Fatalf("a 204 = %+v, %v", res, err)
 	}
 }
@@ -662,7 +670,7 @@ func TestDoTimesOut(t *testing.T) {
 	defer close(release)
 	d := declared(t, pushover, "https://api.pushover.net/1", s.URL)
 	start := time.Now()
-	_, err := Do(context.Background(), d, "message", map[string]string{"user": user30, "title": "t", "text": secretText}, token)
+	_, err := Do(context.Background(), d, "message", map[string]string{"user": user30, "title": "t", "text": secretText}, token, noSecrets)
 	if reason(err) != TimedOut || !strings.Contains(err.Error(), "nothing within 100ms") {
 		t.Fatalf("err = %v", err)
 	}
@@ -677,7 +685,7 @@ func TestDoTimesOut(t *testing.T) {
 	params := map[string]string{"user": user30, "title": "t", "text": secretText}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	_, err = Do(ctx, d, "message", params, token)
+	_, err = Do(ctx, d, "message", params, token, noSecrets)
 	if reason(err) != TimedOut || !strings.Contains(err.Error(), "nothing within the caller's 1s") {
 		t.Fatalf("caller-cut err = %v", err)
 	}
@@ -710,7 +718,7 @@ func TestDoUnreachable(t *testing.T) {
 	s := newStandin(t, jsonAnswer(`{}`))
 	d := declared(t, crm, "https://crm.example.com/api/v2", s.URL)
 	s.Close()
-	_, err := Do(context.Background(), d, "customer", map[string]string{"id": customer}, token)
+	_, err := Do(context.Background(), d, "customer", map[string]string{"id": customer}, token, noSecrets)
 	if reason(err) != Unreachable || !strings.Contains(err.Error(), "no answer from "+strings.TrimPrefix(s.URL, "http://")) {
 		t.Fatalf("err = %v", err)
 	}
@@ -745,19 +753,19 @@ func TestDoRefusesParameters(t *testing.T) {
 		{with("priority", "2"), `"priority" is no parameter of the call (it takes: user, title, text, link)`},
 		{with("text", "\xff\xfe"), "parameter text is no text"},
 	} {
-		_, err := Do(context.Background(), d, "message", tc.params, token)
+		_, err := Do(context.Background(), d, "message", tc.params, token, noSecrets)
 		if reason(err) != BadParam || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("want %q: %v", tc.want, err)
 		}
 		clean(t, err)
 	}
-	if _, err := Do(context.Background(), d, "massage", ok, token); reason(err) != NoCall {
+	if _, err := Do(context.Background(), d, "massage", ok, token, noSecrets); reason(err) != NoCall {
 		t.Errorf("a call the file does not have: %v", err)
 	}
-	if _, err := Do(context.Background(), d, "message", ok, ""); reason(err) != NoCredential || !strings.Contains(err.Error(), "does not set PUSHOVER_TOKEN") {
+	if _, err := Do(context.Background(), d, "message", ok, "", noSecrets); reason(err) != NoCredential || !strings.Contains(err.Error(), "does not set PUSHOVER_TOKEN") {
 		t.Errorf("no credential: %v", err)
 	}
-	if _, err := Do(context.Background(), d, "message", ok, token+"\nX-Injected: 1"); reason(err) != NoCredential {
+	if _, err := Do(context.Background(), d, "message", ok, token+"\nX-Injected: 1", noSecrets); reason(err) != NoCredential {
 		t.Errorf("a credential of two lines: %v", err)
 	}
 
@@ -765,14 +773,14 @@ func TestDoRefusesParameters(t *testing.T) {
 	c := declared(t, crm, "https://crm.example.com/api/v2", s.URL+"/api/v2")
 	c.Calls[1].Params[0].Pattern, c.Calls[1].Params[0].re = "", nil
 	for value, want := range map[string]string{"..": `makes a ".." segment`, ".": `makes a "." segment`, "": "parameter id is empty, and it is part of the path"} {
-		if _, err := Do(context.Background(), c, "customer", map[string]string{"id": value}, token); reason(err) != BadParam || !strings.Contains(err.Error(), want) {
+		if _, err := Do(context.Background(), c, "customer", map[string]string{"id": value}, token, noSecrets); reason(err) != BadParam || !strings.Contains(err.Error(), want) {
 			t.Errorf("id %q: %v", value, err)
 		}
 	}
 	if got := s.got(); len(got) != 0 {
 		t.Fatalf("a refused call was sent: %+v", got)
 	}
-	if _, err := Do(context.Background(), c, "customer", map[string]string{"id": "../../admin"}, token); err != nil {
+	if _, err := Do(context.Background(), c, "customer", map[string]string{"id": "../../admin"}, token, noSecrets); err != nil {
 		t.Fatal(err)
 	}
 	if got := s.got(); len(got) != 1 || got[0].URI != "/api/v2/customers/..%2F..%2Fadmin" {
@@ -785,11 +793,11 @@ func TestDoRefusesParameters(t *testing.T) {
 // elsewhere, are refused before anything is sent.
 func TestDoRefusesPlainHTTPToAnotherMachine(t *testing.T) {
 	d := &Declaration{Name: "x", Base: "http://192.0.2.1:9", Calls: []Call{{Name: "ping", Kind: Read, Request: Request{Method: "GET", Path: "/"}, Answer: Answer{Max: AnswerMax}}}}
-	if _, err := Do(context.Background(), d, "ping", nil, ""); reason(err) != Refused || !strings.Contains(err.Error(), "plain http to 192.0.2.1, which is not this machine") {
+	if _, err := Do(context.Background(), d, "ping", nil, "", noSecrets); reason(err) != Refused || !strings.Contains(err.Error(), "plain http to 192.0.2.1, which is not this machine") {
 		t.Fatalf("err = %v", err)
 	}
 	d.Base = "ftp://127.0.0.1"
-	if _, err := Do(context.Background(), d, "ping", nil, ""); reason(err) != Refused {
+	if _, err := Do(context.Background(), d, "ping", nil, "", noSecrets); reason(err) != Refused {
 		t.Fatalf("ftp: %v", err)
 	}
 	if err := loopbackOnly("tcp4", "192.0.2.1:80", nil); err == nil {
@@ -816,28 +824,28 @@ func TestDoKeyedSendsTheKeyWithAnUpdate(t *testing.T) {
 	ctx := context.Background()
 	d := declared(t, keyed, "https://crm.example.com/api/v2", srv.URL)
 	note := map[string]string{"id": "7", "text": "called"}
-	if _, err := DoKeyed(ctx, d, "note", note, "write-tok", "k-1"); err != nil {
+	if _, err := DoKeyed(ctx, d, "note", note, "write-tok", "k-1", noSecrets); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := DoKeyed(ctx, d, "customer", map[string]string{"id": "7"}, token, "k-2"); err != nil {
+	if _, err := DoKeyed(ctx, d, "customer", map[string]string{"id": "7"}, token, "k-2", noSecrets); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Do(ctx, d, "note", note, "write-tok"); err != nil {
+	if _, err := Do(ctx, d, "note", note, "write-tok", noSecrets); err != nil {
 		t.Fatal(err)
 	}
 	plain := declared(t, crm, "https://crm.example.com/api/v2", srv.URL)
-	if _, err := DoKeyed(ctx, plain, "note", note, token, "k-3"); err != nil {
+	if _, err := DoKeyed(ctx, plain, "note", note, token, "k-3", noSecrets); err != nil {
 		t.Fatal(err)
 	}
 	want := []string{"POST Bearer write-tok k-1", "GET Bearer " + token + " ", "POST Bearer write-tok ", "POST Bearer " + token + " "}
 	if strings.Join(keys, "|") != strings.Join(want, "|") {
 		t.Fatalf("sent = %q, want %q", keys, want)
 	}
-	if _, err := DoKeyed(ctx, d, "note", note, "write-tok", "k\r\nX-Other: 1"); reason(err) != BadParam || len(keys) != len(want) {
+	if _, err := DoKeyed(ctx, d, "note", note, "write-tok", "k\r\nX-Other: 1", noSecrets); reason(err) != BadParam || len(keys) != len(want) {
 		t.Fatalf("a key with a line break = %v, sent %q", err, keys)
 	}
 	// Without the credential of an update, the error names its variable.
-	if _, err := DoKeyed(ctx, d, "note", note, "", "k-4"); reason(err) != NoCredential || !strings.Contains(err.Error(), "CRM_WRITE_TOKEN") {
+	if _, err := DoKeyed(ctx, d, "note", note, "", "k-4", noSecrets); reason(err) != NoCredential || !strings.Contains(err.Error(), "CRM_WRITE_TOKEN") {
 		t.Fatalf("no credential = %v", err)
 	}
 }
@@ -891,7 +899,7 @@ func TestDoSendsToTheCredentialThatIsTheAddress(t *testing.T) {
 		"/h%2Fx/" + hookSecret,
 		"/",
 	} {
-		res, err := Do(ctx, d, "send", map[string]string{"text": "hello"}, s.URL+path)
+		res, err := Do(ctx, d, "send", map[string]string{"text": "hello"}, s.URL+path, noSecrets)
 		if err != nil {
 			t.Fatalf("%s: %v", path, err)
 		}
@@ -905,21 +913,21 @@ func TestDoSendsToTheCredentialThatIsTheAddress(t *testing.T) {
 		}
 	}
 	// No path at all in the address is the path /, which a request has.
-	if _, err := Do(ctx, d, "ping", nil, s.URL); err != nil {
+	if _, err := Do(ctx, d, "ping", nil, s.URL, noSecrets); err != nil {
 		t.Fatal(err)
 	}
 	if got := s.got(); got[len(got)-1].URI != "/" {
 		t.Fatalf("an address with no path = %+v", got[len(got)-1])
 	}
 	// The call's own query follows the address, which has none.
-	if _, err := Do(ctx, d, "tagged", map[string]string{"tag": "a b&c"}, s.URL+"/hooks/"+hookSecret); err != nil {
+	if _, err := Do(ctx, d, "tagged", map[string]string{"tag": "a b&c"}, s.URL+"/hooks/"+hookSecret, noSecrets); err != nil {
 		t.Fatal(err)
 	}
 	if got := s.got(); got[len(got)-1].URI != "/hooks/"+hookSecret+"?tag=a+b%26c" || string(got[len(got)-1].Body) != `{"a":1}` {
 		t.Fatalf("a call with a query = %+v", got[len(got)-1])
 	}
 	// A body built by the call's command is sent unchanged.
-	if _, err := DoKeyedBody(ctx, d, "send", map[string]string{"text": "x"}, s.URL+"/hooks/"+hookSecret, "", json.RawMessage(`{"built":[1,2]}`)); err != nil {
+	if _, err := DoKeyedBody(ctx, d, "send", map[string]string{"text": "x"}, s.URL+"/hooks/"+hookSecret, "", json.RawMessage(`{"built":[1,2]}`), noSecrets); err != nil {
 		t.Fatal(err)
 	}
 	if got := s.got(); got[len(got)-1].URI != "/hooks/"+hookSecret || string(got[len(got)-1].Body) != `{"built":[1,2]}` {
@@ -953,7 +961,7 @@ func TestDoReadsTheAnswerOfACredentialThatIsTheAddress(t *testing.T) {
 		{500, "<html>down</html>", "", false, false, false},
 	} {
 		status, body = tc.status, tc.body
-		res, err := Do(context.Background(), d, "send", map[string]string{"text": "hello"}, address)
+		res, err := Do(context.Background(), d, "send", map[string]string{"text": "hello"}, address, noSecrets)
 		if err != nil {
 			t.Fatalf("%d %q: %v", tc.status, tc.body, err)
 		}
@@ -983,7 +991,7 @@ func TestDoRefusesACredentialThatIsNotAnAddress(t *testing.T) {
 		{"https:///" + hookSecret, "is no address"},
 		{"https://hooks.example.com:" + hookSecret + "/x", "is no address"},
 	} {
-		_, err := Do(context.Background(), d, "send", map[string]string{"text": "hello"}, tc.value)
+		_, err := Do(context.Background(), d, "send", map[string]string{"text": "hello"}, tc.value, noSecrets)
 		if reason(err) != Refused || !strings.Contains(err.Error(), "the value of WEBHOOK_URL "+tc.want) {
 			t.Errorf("%q: err = %v, want %q", tc.value, err, tc.want)
 			continue
@@ -992,10 +1000,10 @@ func TestDoRefusesACredentialThatIsNotAnAddress(t *testing.T) {
 			t.Errorf("%q: the error repeats the value: %v", tc.value, err)
 		}
 	}
-	if _, err := Do(context.Background(), d, "send", map[string]string{"text": "hello"}, ""); reason(err) != NoCredential || !strings.Contains(err.Error(), "does not set WEBHOOK_URL") {
+	if _, err := Do(context.Background(), d, "send", map[string]string{"text": "hello"}, "", noSecrets); reason(err) != NoCredential || !strings.Contains(err.Error(), "does not set WEBHOOK_URL") {
 		t.Errorf("no credential: %v", err)
 	}
-	if _, err := Do(context.Background(), d, "send", map[string]string{"text": "hello"}, s.URL+"/"+hookSecret+"\nHost: elsewhere"); reason(err) != NoCredential || strings.Contains(err.Error(), hookSecret) {
+	if _, err := Do(context.Background(), d, "send", map[string]string{"text": "hello"}, s.URL+"/"+hookSecret+"\nHost: elsewhere", noSecrets); reason(err) != NoCredential || strings.Contains(err.Error(), hookSecret) {
 		t.Errorf("a credential of two lines: %v", err)
 	}
 	if got := s.got(); len(got) != 0 {
@@ -1013,7 +1021,7 @@ func TestDoSaysNoAddressOfACredentialThatIsTheAddress(t *testing.T) {
 	gone := newStandin(t, jsonAnswer(`{}`))
 	address := gone.URL + "/hooks/" + hookSecret
 	gone.Close()
-	_, err := Do(context.Background(), d, "send", params, address)
+	_, err := Do(context.Background(), d, "send", params, address, noSecrets)
 	if reason(err) != Unreachable || !strings.Contains(err.Error(), "no answer from the credential's URL: ") {
 		t.Fatalf("unreachable: %v", err)
 	}
@@ -1026,7 +1034,7 @@ func TestDoSaysNoAddressOfACredentialThatIsTheAddress(t *testing.T) {
 		http.Redirect(w, r, elsewhere.URL+"/hooks/"+hookSecret, http.StatusFound)
 	})
 	address = moved.URL + "/hooks/" + hookSecret
-	_, err = Do(context.Background(), d, "send", params, address)
+	_, err = Do(context.Background(), d, "send", params, address, noSecrets)
 	if reason(err) != Redirect || !strings.Contains(err.Error(), "the credential's URL answered 302, a redirect: yardr follows none") {
 		t.Fatalf("redirect: %v", err)
 	}
@@ -1044,7 +1052,7 @@ func TestDoSaysNoAddressOfACredentialThatIsTheAddress(t *testing.T) {
 		io.WriteString(w, `{"pad":"`+strings.Repeat("x", AnswerLimit)+`"}`)
 	})
 	address = big.URL + "/hooks/" + hookSecret
-	_, err = Do(context.Background(), d, "send", params, address)
+	_, err = Do(context.Background(), d, "send", params, address, noSecrets)
 	if reason(err) != TooLarge {
 		t.Fatalf("too large: %v", err)
 	}

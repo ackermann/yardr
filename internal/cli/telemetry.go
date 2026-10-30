@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/telemetry"
 )
 
@@ -47,7 +48,7 @@ forgets it, and the next on mints a new one.
 			if err != nil {
 				return err
 			}
-			change, err := telemetry.On(c.Context(), st, cfg.TelemetryState(), a.who(), time.Now())
+			change, err := telemetry.On(c.Context(), st, store.TelemetryState(cfg.Home), a.who(), time.Now())
 			if err != nil {
 				return err
 			}
@@ -78,7 +79,7 @@ it, and the next on mints a new one.
 			if err != nil {
 				return err
 			}
-			change, err := telemetry.Off(c.Context(), st, cfg.TelemetryState(), a.who(), time.Now())
+			change, err := telemetry.Off(c.Context(), st, store.TelemetryState(cfg.Home), a.who(), time.Now())
 			if err != nil {
 				return err
 			}
@@ -107,7 +108,7 @@ To have this yard's data deleted, send the project this install id.`,
 			if err != nil {
 				return err
 			}
-			preview, err := telemetry.Show(c.Context(), st, cfg.TelemetryState(), time.Now())
+			preview, err := telemetry.Show(c.Context(), st, store.TelemetryState(cfg.Home), time.Now())
 			if err != nil {
 				return err
 			}

@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 )
@@ -223,7 +222,7 @@ func (c *carrier) carrySetupAccountPicked(ctx context.Context, rec *store.Carry,
 	if file == "" {
 		file = source.EnvFile(c.home, rec.Account)
 	}
-	f, err := config.ReadEnvFile(file)
+	f, err := store.ReadEnvFile(file)
 	if err != nil {
 		return "", fmt.Sprintf("pack %s is applied, but the candidate %s no longer holds %s as carded: its file is not read. Ask for the account again (%s), or type it with %s in a terminal, then grant the preset's calls: %s.",
 			setup.Pack, rec.Account, names, setupSecretAsk(rec.Bead, srcs[0]), setupKeyCommand(srcs[0], setup.Account),
@@ -311,7 +310,7 @@ func (c *carrier) carrySetupAccountTyped(ctx context.Context, rec *store.Carry, 
 	}
 	// What stands is verified, never trusted: every name given is read
 	// back from the file the write reports.
-	f, err := config.ReadEnvFile(keyed.File)
+	f, err := store.ReadEnvFile(keyed.File)
 	if err != nil {
 		return "", fmt.Sprintf("pack %s is applied, but the account %s does not stand in %s after the write: %v. Finish it with %s in a terminal, then grant the preset's calls: %s.",
 			setup.Pack, names, keyed.File, err, setupKeyCommand(src, setup.Account),
@@ -369,7 +368,7 @@ func (c *carrier) carrySetupAccountMissing(ctx context.Context, rec *store.Carry
 		if first == "" {
 			first = keyed.File
 		}
-		f, err := config.ReadEnvFile(keyed.File)
+		f, err := store.ReadEnvFile(keyed.File)
 		if err != nil {
 			return "", fmt.Sprintf("pack %s is applied, but the account %s does not stand in %s after the write: %v. Finish it with %s in a terminal, then grant the preset's calls: %s.",
 				setup.Pack, names, keyed.File, err, setupKeyCommand(src, setup.Account),
@@ -473,7 +472,7 @@ func (c *carrier) carrySetupPointSiblings(ctx context.Context, rec *store.Carry,
 // the file stands. Two spellings and a link to the file count as the one
 // file; a path that does not resolve counts as itself.
 func setupResolvedFile(path string) string {
-	p, err := config.ExpandPath(path)
+	p, err := store.ExpandPath(path)
 	if err != nil {
 		return path
 	}
@@ -499,7 +498,7 @@ func (c *carrier) setupAccountStands(ctx context.Context, src string, names []st
 	if file == "" {
 		file = source.EnvFile(c.home, src)
 	}
-	f, err := config.ReadEnvFile(file)
+	f, err := store.ReadEnvFile(file)
 	if err != nil {
 		return "", false
 	}
