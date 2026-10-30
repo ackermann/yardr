@@ -90,6 +90,17 @@ type Result struct {
 // OK reports whether the service answered with a success.
 func (r *Result) OK() bool { return r.Status >= 200 && r.Status < 300 }
 
+// StatusHint says what a status of a check call most likely means.
+func StatusHint(status int, d *Declaration) string {
+	if (status == 401 || status == 403) && d.Credential != nil {
+		if d.Credential.Minted() {
+			return ": the service does not take its credential (minted from " + strings.Join(d.Credential.Mint, " and ") + ", or " + d.Credential.Env + ")"
+		}
+		return ": the service does not take what " + d.Credential.Env + " is set to"
+	}
+	return ""
+}
+
 // Do makes the call name of d with params, each a parameter's value as a
 // command line gives it, and credential, the value of the variable d names
 // ("" for a declaration that names none). It is the one place a declared

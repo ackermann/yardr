@@ -1751,7 +1751,7 @@ internal/cli/ops.go 1833 the server, daemon, depot, group, route and session com
 internal/cli/pack.go 2203 pack loading, import planning and its question rounds
 internal/cli/peers.go 1567 the peer identity, intake and ping commands
 internal/cli/routereport.go 1513 the route report and its rendering
-internal/cli/sourcecmd.go 2242 the source command and its builtin checks
+internal/cli/sourcecmd.go 2231 the source command and its builtin checks
 internal/cli/subscriptions.go 1148 the identity, subscribe and thread commands
 internal/cli/updown.go 1302 yard up and down with their handoffs
 internal/cli/users.go 1056 the user command, inboxes and conversations
@@ -1779,7 +1779,7 @@ internal/store/routing.go 3174 groups, routes and their config merges
 internal/store/runask.go 1139 run asks and their approval
 internal/store/runask_list.go 1223 ask cards, labels and preset reading
 internal/store/runask_more.go 1210 the user and crew-grant run-ask cards
-internal/store/runask_setup.go 1811 setup asks and their approval
+internal/store/runask_setup.go 1538 the setup ask, its card, and the carrying record
 internal/store/secretask.go 1094 secret asks and harness key files
 internal/store/settings.go 1118 yard settings and their checks
 internal/store/sourcecalls.go 1300 source grants and callables

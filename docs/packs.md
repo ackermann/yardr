@@ -1831,7 +1831,9 @@ preset rendered against what the grantee holds, calls held marked held
 and calls the preset would add marked new, a new read call under a
 standing read grant reading covered with no grant needed and a new update
 call waiting on its preset. Picking a preset grants what it names past
-what is held, and revokes nothing.
+what is held, and revokes nothing. A typed account is tried with the
+source's check call before it is stored, where the file names one; a
+refused check refuses the answer and stores nothing.
 
 What a stage means in such a source is not the integration pack's to say:
 that is the flow pack's, the one the depot follows. The seam between the

@@ -884,7 +884,8 @@ commands the source names use that selected URL.
   sends the default value. The YAML value has the parameter's type and is
   checked against its pattern, length or enum values when the file is read.
 - **Who calls one**: `yardr source check`, `yardr doctor --try` (the same
-  check call, of every source), the daemon for a source a user
+  check call, of every source), a setup card (the typed account, before
+  anything is stored), the daemon for a source a user
   names as their notify and for the webhook of a hook that hears a
   person's chat back ([subscriptions.md](subscriptions.md#a-quiet-hook)),
   and the server for `yardr call`, a call by a

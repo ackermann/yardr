@@ -106,7 +106,7 @@ func sourcesPart(ctx context.Context, cfg *config.Config, st store.API, try bool
 			case err != nil:
 				part.Notes = append(part.Notes, fmt.Sprintf("tried: source %s: its check call %s (%s) got no answer: %v", d.Name, d.Check, call.Request.Line(), err))
 			case !res.OK():
-				part.Notes = append(part.Notes, fmt.Sprintf("tried: source %s: its check call %s (%s) was answered %d%s", d.Name, d.Check, call.Request.Line(), res.Status, statusHint(res.Status, d)))
+				part.Notes = append(part.Notes, fmt.Sprintf("tried: source %s: its check call %s (%s) was answered %d%s", d.Name, d.Check, call.Request.Line(), res.Status, source.StatusHint(res.Status, d)))
 			default:
 				tried = true
 				part.Notes = append(part.Notes, fmt.Sprintf("tried: source %s: its check call %s (%s) was answered %d in %dms", d.Name, d.Check, call.Request.Line(), res.Status, res.Took.Milliseconds()))

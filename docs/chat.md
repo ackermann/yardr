@@ -596,8 +596,16 @@ the account GOOGLE_ACCOUNT: already given for google-drive (GOOGLE_ACCOUNT=ops@e
 ```
 
 There is no silent reuse, not even with a single match: the answer
-names a candidate or types another. The yard then applies the pack,
-takes the account, and grants the preset picked, as the operator.
+names a candidate or types another. Where the source names a check
+call, the typed account is tried with it before anything is stored, as
+`yardr source check` tries it after: a refused check refuses the answer
+with the check's words and stores nothing, and the card stays open to
+be answered again. A taken candidate, an account whose source names no
+check, and an account that is a mint's inputs are stored without one:
+the first is already stored, the second has nothing to try with, and
+the third's token is minted only once the pack is in the yard. The yard
+then applies the pack, takes the account, and grants the preset picked,
+as the operator.
 Until the server finishes it the ask reads as being carried out, then
 as ran or failed:
 

@@ -1567,7 +1567,7 @@ process for it. Nothing of the request is written anywhere.`,
 				call, _ := d.Call(d.Check)
 				out["sent"], out["call"], out["status"], out["ms"], out["bytes"] = true, d.Check, res.Status, res.Took.Milliseconds(), res.Bytes
 				if !res.OK() {
-					return fmt.Errorf("source %s: the check call %s (%s)%s was answered %d%s", d.Name, d.Check, call.Request.Line(), saidAs, res.Status, statusHint(res.Status, d))
+					return fmt.Errorf("source %s: the check call %s (%s)%s was answered %d%s", d.Name, d.Check, call.Request.Line(), saidAs, res.Status, source.StatusHint(res.Status, d))
 				}
 				// The check call's selection is what setup may read: a
 				// successful check shows the selected top-level fields the
@@ -1949,17 +1949,6 @@ func checkField(raw json.RawMessage) string {
 		return s
 	}
 	return string(raw)
-}
-
-// statusHint says what a status of a check call most likely means.
-func statusHint(status int, d *source.Declaration) string {
-	if (status == 401 || status == 403) && d.Credential != nil {
-		if d.Credential.Minted() {
-			return ": the service does not take its credential (minted from " + strings.Join(d.Credential.Mint, " and ") + ", or " + d.Credential.Env + ")"
-		}
-		return ": the service does not take what " + d.Credential.Env + " is set to"
-	}
-	return ""
 }
 
 // paramLine is a parameter in a line of yardr source show.

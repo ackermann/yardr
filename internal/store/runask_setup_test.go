@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
@@ -713,6 +715,185 @@ func TestSetupApprovalRejectsInvalidAccountValues(t *testing.T) {
 				t.Error("an invalid value was kept in memory")
 			}
 		})
+	}
+}
+
+// A static credential with a check call, for what a setup card tries
+// before it stores: the base is the test's stand-in.
+func setupCheckedDecl(base string) string {
+	return "name: setupchecked\nbase: " + base + `
+credential: { env: CHECKED_TOKEN, header: "Authorization: Bearer {credential}" }
+check: ping
+calls:
+  ping: { kind: read, request: { method: GET, path: /ping } }
+`
+}
+
+func setupCheckedPack(base string) *setupPack {
+	return &setupPack{label: "embedded in yardr test1", build: "test1",
+		sources: []setupSource{{name: "setupchecked", text: setupCheckedDecl(base)}},
+		presets: []AskPreset{
+			{Name: "read", Grants: []AskPresetGrant{{Source: "setupchecked", Calls: []string{"read"}}}},
+		}}
+}
+
+// A minted credential with a check call, for what a setup card does
+// where the typed account is the mint's inputs, not a token: the base
+// is the test's stand-in.
+func setupCheckedMintDecl(base string) string {
+	return "name: setupchecked\nbase: " + base + `
+credential:
+  env: CHECKED_TOKEN
+  header: "Authorization: Bearer {credential}"
+  mint: [CHECKED_ACCOUNT]
+  mint_command: [setup-mint]
+check: ping
+calls:
+  ping: { kind: read, request: { method: GET, path: /ping } }
+`
+}
+
+func setupCheckedMintPack(base string) *setupPack {
+	return &setupPack{label: "embedded in yardr test1", build: "test1",
+		sources: []setupSource{{name: "setupchecked", text: setupCheckedMintDecl(base), files: map[string]string{"setup-mint": setupMint}}},
+		presets: []AskPreset{
+			{Name: "read", Grants: []AskPresetGrant{{Source: "setupchecked", Calls: []string{"read"}}}},
+		}}
+}
+
+// setupCheckedStandin is the service a checked setup card tries its
+// typed credential against: it records each request's bearer and answers
+// status until the test changes it.
+func setupCheckedStandin(t *testing.T, bearers *[]string, status *int) string {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		*bearers = append(*bearers, r.Header.Get("Authorization"))
+		if *status != http.StatusOK {
+			w.WriteHeader(*status)
+			_, _ = w.Write([]byte(`{"ok":false}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL
+}
+
+// A setup card whose source names a check tries the typed credential
+// with it before anything is stored: a refused check refuses the answer
+// with the check's words, stores nothing, and leaves the card open to be
+// answered again.
+func TestSetupCheckRefusesBeforeStoring(t *testing.T) {
+	var bearers []string
+	status := http.StatusForbidden
+	y, _ := runYard(t)
+	y.setSetupPack(setupCheckedPack(setupCheckedStandin(t, &bearers, &status)))
+	seq := y.ask(t, setupAsk(), "yardmaster")
+	_, err := y.ApproveSetup(y.ctx, y.bead, seq, 1, map[string]string{"CHECKED_TOKEN": "wrong-token"}, "", "mckean", true)
+	want := "ask " + strconv.FormatUint(seq, 10) + ": the check call ping (GET /ping) was answered 403: the service does not take what CHECKED_TOKEN is set to. Nothing was stored"
+	if err == nil || err.Error() != want {
+		t.Fatalf("a refused check was approved or refused otherwise: %v, want %q", err, want)
+	}
+	if strings.Contains(err.Error(), "wrong-token") {
+		t.Errorf("the refusal repeats the typed value: %v", err)
+	}
+	if len(bearers) != 1 || bearers[0] != "Bearer wrong-token" {
+		t.Errorf("the check ran with %v, want one call with the typed credential", bearers)
+	}
+	if rec, err := y.CarryOf(y.ctx, y.bead, seq); err != nil || rec != nil {
+		t.Errorf("a refused check left a carrying record: %+v, %v", rec, err)
+	}
+	if got := y.asked(t, seq); got.State != AskOpen {
+		t.Errorf("a refused check left the ask %s, want it open", got.State)
+	}
+	if _, ok := y.takeSetupSecret(carryKey(y.bead, seq)); ok {
+		t.Error("a refused check kept the typed value in memory")
+	}
+	// The card stays open to be answered again: the same card with a
+	// passing check stores.
+	status = http.StatusOK
+	done := y.approveSetup(t, seq, 1, map[string]string{"CHECKED_TOKEN": "good-token"}, "mckean")
+	if len(done.Given) != 1 || done.Given[0] != "CHECKED_TOKEN" {
+		t.Errorf("the second answer gave %v", done.Given)
+	}
+}
+
+// A check the service never answers refuses the same way: with the
+// check's words, nothing stored, the card open.
+func TestSetupCheckUnansweredRefuses(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	url := srv.URL
+	srv.Close() // nothing answers now: the closed port refuses the check
+	y, _ := runYard(t)
+	y.setSetupPack(setupCheckedPack(url))
+	seq := y.ask(t, setupAsk(), "yardmaster")
+	_, err := y.ApproveSetup(y.ctx, y.bead, seq, 1, map[string]string{"CHECKED_TOKEN": "typed-token"}, "", "mckean", true)
+	head := "ask " + strconv.FormatUint(seq, 10) + ": the check call ping (GET /ping) failed: source setupchecked, call ping: "
+	if err == nil || !strings.HasPrefix(err.Error(), head) || !strings.HasSuffix(err.Error(), ". Nothing was stored") {
+		t.Fatalf("an unanswered check was approved or refused otherwise: %v, want it headed %q and ending %q", err, head, ". Nothing was stored")
+	}
+	if strings.Contains(err.Error(), "typed-token") {
+		t.Errorf("the refusal repeats the typed value: %v", err)
+	}
+	if rec, err := y.CarryOf(y.ctx, y.bead, seq); err != nil || rec != nil {
+		t.Errorf("an unanswered check left a carrying record: %+v, %v", rec, err)
+	}
+	if got := y.asked(t, seq); got.State != AskOpen {
+		t.Errorf("an unanswered check left the ask %s, want it open", got.State)
+	}
+	if _, ok := y.takeSetupSecret(carryKey(y.bead, seq)); ok {
+		t.Error("an unanswered check kept the typed value in memory")
+	}
+}
+
+// The same card with a check that passes stores the secret as today:
+// the preset is approved, the carry record stands, and the typed value
+// is handed to the server's memory for the account's write.
+func TestSetupCheckPassStoresAsToday(t *testing.T) {
+	var bearers []string
+	status := http.StatusOK
+	y, _ := runYard(t)
+	y.setSetupPack(setupCheckedPack(setupCheckedStandin(t, &bearers, &status)))
+	seq := y.ask(t, setupAsk(), "yardmaster")
+	done := y.approveSetup(t, seq, 1, map[string]string{"CHECKED_TOKEN": "good-token"}, "mckean")
+	if done.Pack != "setupmail" || done.Preset != "read" || done.Result != CarryPending {
+		t.Fatalf("the approval recorded %+v", done)
+	}
+	if len(done.Given) != 1 || done.Given[0] != "CHECKED_TOKEN" {
+		t.Errorf("the approval gave %v", done.Given)
+	}
+	if len(bearers) != 1 || bearers[0] != "Bearer good-token" {
+		t.Errorf("the check ran with %v, want one call with the typed credential", bearers)
+	}
+	rec, err := y.CarryOf(y.ctx, y.bead, seq)
+	if err != nil || rec == nil || rec.State != CarryApproved {
+		t.Fatalf("the carrying record = %+v, %v", rec, err)
+	}
+	values, ok := y.takeSetupSecret(carryKey(y.bead, seq))
+	if !ok || values["CHECKED_TOKEN"] != "good-token" {
+		t.Errorf("the handed values = %v, %v", values, ok)
+	}
+}
+
+// A card whose typed account is a mint's inputs is stored as today,
+// with no check call: the token is minted only once the pack is in the
+// yard. The stand-in refuses every check, so a call would refuse this.
+func TestSetupCheckMintedStoredAsToday(t *testing.T) {
+	var bearers []string
+	status := http.StatusForbidden
+	y, _ := runYard(t)
+	y.setSetupPack(setupCheckedMintPack(setupCheckedStandin(t, &bearers, &status)))
+	seq := y.ask(t, setupAsk(), "yardmaster")
+	done := y.approveSetup(t, seq, 1, map[string]string{"CHECKED_ACCOUNT": "ops@example.com"}, "mckean")
+	if len(done.Given) != 1 || done.Given[0] != "CHECKED_ACCOUNT" {
+		t.Errorf("the approval gave %v", done.Given)
+	}
+	if len(bearers) != 0 {
+		t.Errorf("the card checked a minted account with %v, want no check call", bearers)
+	}
+	if rec, err := y.CarryOf(y.ctx, y.bead, seq); err != nil || rec == nil || rec.State != CarryApproved {
+		t.Fatalf("the carrying record = %+v, %v", rec, err)
 	}
 }
 
