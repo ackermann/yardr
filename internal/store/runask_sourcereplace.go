@@ -13,8 +13,6 @@ package store
 
 import (
 	"fmt"
-	"slices"
-	"strings"
 
 	"yardr.dev/yardr/internal/source"
 )
@@ -102,31 +100,17 @@ func (w *wtx) sourceReplaceStale(seq uint64, name string, was, now AskRun) error
 	return w.staleSource(seq, name, was, now)
 }
 
-// stillGrantedLines is a line to each call the declaration now changes of
-// the one it replaces that somebody holds by its name, for the card of a
-// replacement of either row (packOneSourceDoes). A grant by name was given
-// for the call as it was, and an update that now writes something else is
-// still theirs to make, which the diff of the calls does not say. A grant
-// of read holds no call by its name: Widened says who it reaches. The
-// sentence and the order of holders are the terminal's (stillGranted in
-// internal/cli, which the store cannot import).
+// stillGrantedLines is StillGranted as the card of a replacement of
+// either row prints it (packOneSourceDoes), each line ended with the
+// period a card's lines end with.
 func stillGrantedLines(was, now *source.Declaration, grants []SourceGrant) []string {
-	var out []string
-	for _, c := range now.Calls {
-		old, had := was.Call(c.Name)
-		if !had || SameCall(*old, c) {
-			continue
-		}
-		var who []string
-		for _, g := range grants {
-			if slices.Contains(g.Calls, c.Name) {
-				who = append(who, g.Holder())
-			}
-		}
-		if len(who) > 0 {
-			out = append(out, fmt.Sprintf("the changed call %s (%s) is still granted by its name to %s (yardr source revoke %s %s takes it back).",
-				c.Name, c.Kind, strings.Join(who, ", "), now.Name, c.Name))
-		}
+	lines := StillGranted(was, now, grants)
+	if len(lines) == 0 {
+		return nil
+	}
+	out := make([]string, len(lines))
+	for i, l := range lines {
+		out[i] = l + "."
 	}
 	return out
 }

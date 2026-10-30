@@ -322,7 +322,8 @@ func TestCallsOfASourceThePackDoesNotDeclare(t *testing.T) {
 
 // A declaration that replaces the yard's and adds a read call widens what
 // a grant of read reaches, with nobody asked: the plan says who gets which
-// call that way. An added update reaches nobody.
+// call that way. An added update reaches nobody. A call it changes that
+// somebody holds by its name names that holder.
 func TestAReplacedDeclarationShowsWhoReadNowReaches(t *testing.T) {
 	st, o := yard(t)
 	dir := writePack(t, callsFiles(smallCalls, crm))
@@ -342,18 +343,24 @@ func TestAReplacedDeclarationShowsWhoReadNowReaches(t *testing.T) {
 	if _, err := st.GrantSource(ctx, "crm", "read", store.Grantee{Crew: "yardmaster"}, "ada", "ada"); err != nil {
 		t.Fatal(err)
 	}
-	if d := declared(t, build(t, st, load(t, dir), o), "crm"); d.Reaches != nil {
-		t.Fatalf("an unchanged declaration reaches %+v", d.Reaches)
+	if _, err := st.GrantSource(ctx, "crm", "note", store.Grantee{Group: "web-builders"}, "", "me"); err != nil {
+		t.Fatal(err)
+	}
+	if d := declared(t, build(t, st, load(t, dir), o), "crm"); d.Reaches != nil || len(d.StillGranted) != 0 {
+		t.Fatalf("an unchanged declaration reaches %+v, still grants %q", d.Reaches, d.StillGranted)
 	}
 
 	wider := crm + "  orders: { kind: read, request: { method: GET, path: /orders } }\n  close: { kind: update, request: { method: POST, path: /close } }\n"
+	wider = strings.Replace(wider, `path: "/customers/{id}/notes"`, `path: "/customers/{id}/remarks"`, 1)
 	d := declared(t, build(t, st, load(t, writePack(t, callsFiles(smallCalls, wider))), o), "crm")
 	if d.Action != pack.Change || d.Reaches == nil || !slices.Equal(d.Reaches.Calls, []string{"orders"}) ||
 		!slices.Equal(d.Reaches.Who, []pack.ReachHolder{
 			{Grantee: store.Grantee{Crew: "yardmaster"}, As: "ada"},
 			{Grantee: store.Grantee{Group: "web-builders"}},
-		}) {
-		t.Fatalf("declared = %+v, reaches %+v", d, d.Reaches)
+		}) || !slices.Equal(d.StillGranted, []string{
+		"the changed call note (update) is still granted by its name to group web-builders (yardr source revoke crm note takes it back)",
+	}) {
+		t.Fatalf("declared = %+v, reaches %+v, still granted %q", d, d.Reaches, d.StillGranted)
 	}
 
 	// With nobody holding read, a new read call reaches nobody.
@@ -365,5 +372,13 @@ func TestAReplacedDeclarationShowsWhoReadNowReaches(t *testing.T) {
 	}
 	if d := declared(t, build(t, st, load(t, writePack(t, callsFiles(smallCalls, wider))), o), "crm"); d.Reaches != nil {
 		t.Fatalf("reaches %+v with no grant of read", d.Reaches)
+	}
+
+	// With nobody holding a changed call by its name, none is named.
+	if _, err := st.RevokeSource(ctx, "crm", "note", store.Grantee{Group: "web-builders"}, "", "me"); err != nil {
+		t.Fatal(err)
+	}
+	if d := declared(t, build(t, st, load(t, writePack(t, callsFiles(smallCalls, wider))), o), "crm"); len(d.StillGranted) != 0 {
+		t.Fatalf("still grants %q with no grant by name", d.StillGranted)
 	}
 }

@@ -2046,31 +2046,10 @@ func asSuffix(g store.SourceGrant) string {
 	return " as " + g.As
 }
 
-// stillGranted says who holds, by its name, a call the replaced declaration
-// changes: the grant was given for the call as it was, and an update that
-// now writes something else is still theirs to make. A line per call.
+// stillGranted says who holds, by its name, a call the replaced
+// declaration changes, in the store's words. A line per call.
 func stillGranted(was, now *source.Declaration, grants []store.SourceGrant) []string {
-	if was == nil {
-		return nil
-	}
-	var out []string
-	for _, c := range now.Calls {
-		old, had := was.Call(c.Name)
-		if !had || sameCall(*old, c) {
-			continue
-		}
-		var who []string
-		for _, g := range grants {
-			if slices.Contains(g.Calls, c.Name) {
-				who = append(who, g.Holder())
-			}
-		}
-		if len(who) > 0 {
-			out = append(out, fmt.Sprintf("the changed call %s (%s) is still granted by its name to %s (yardr source revoke %s %s takes it back)",
-				c.Name, c.Kind, strings.Join(who, ", "), now.Name, c.Name))
-		}
-	}
-	return out
+	return store.StillGranted(was, now, grants)
 }
 
 // grantedCall is who may make the call c under grants, each with the word

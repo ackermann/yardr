@@ -390,7 +390,8 @@ func TestPackApplyOnlyTheOperatorGrantsCalls(t *testing.T) {
 }
 
 // A pack whose declaration adds a read call to the one the yard has says in
-// its plan who gets the call through a grant of read given before.
+// its plan who gets the call through a grant of read given before, and one
+// that changes an update call held by its name says who still holds it.
 func TestPackPlanShowsWhoReadNowReaches(t *testing.T) {
 	t.Parallel()
 	dir, _ := deskPack(t)
@@ -401,6 +402,9 @@ func TestPackPlanShowsWhoReadNowReaches(t *testing.T) {
 	if _, err := a.st.GrantSource(context.Background(), "crm", "read", store.Grantee{Group: "web-builders"}, "ada", "ada"); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := a.st.GrantSource(context.Background(), "crm", "note", store.Grantee{Group: "web-builders"}, "", "me"); err != nil {
+		t.Fatal(err)
+	}
 	if out, err := run(t, a.packCmd(), append([]string{"apply", dir, "--depot", "web", "--yes", "--calls", "builders=crm:read"}, deskFlags...)...); err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
@@ -409,7 +413,11 @@ func TestPackPlanShowsWhoReadNowReaches(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(file, append(text, "  orders: { kind: read, request: { method: GET, path: /orders } }\n"...), 0o644); err != nil {
+	moved := strings.Replace(string(text), `path: "/customers/{id}/notes"`, `path: "/customers/{id}/remarks"`, 1)
+	if moved == string(text) {
+		t.Fatal("the declaration has no note path to move")
+	}
+	if err := os.WriteFile(file, []byte(moved+"  orders: { kind: read, request: { method: GET, path: /orders } }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	out, err := run(t, a.packCmd(), append([]string{"check", dir, "--depot", "web"}, deskFlags[:2]...)...)
@@ -417,8 +425,9 @@ func TestPackPlanShowsWhoReadNowReaches(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"  change           crm\n                     call orders: (none) -> (read) GET /orders\n",
+		"  change           crm\n                     call note: (update) POST /customers/{id}/notes -> (update) POST /customers/{id}/remarks\n                     call orders: (none) -> (read) GET /orders\n",
 		"  through their grant of read, group web-builders, group web-builders as ada would then call: orders (nobody is asked: read covers the read calls a later file adds; yardr source revoke crm read takes it back)\n",
+		"  the changed call note (update) is still granted by its name to group web-builders (yardr source revoke crm note takes it back)\n",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("pack check lacks %q:\n%s", want, out)
