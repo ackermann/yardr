@@ -6,9 +6,6 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
-
-	"yardr.dev/yardr/internal/pairing"
-	"yardr.dev/yardr/internal/yardkey"
 )
 
 // pairHost is a yard with a pairing to open, at a time the test sets.
@@ -18,15 +15,15 @@ type pairHost struct {
 	at  time.Time
 }
 
-// newPairHost sets the package's fake clock and shortens pairing.Stretch,
+// newPairHost sets the package's fake clock and shortens Stretch,
 // so its callers stay sequential.
 func newPairHost(t *testing.T) *pairHost {
 	t.Helper()
 	h := &pairHost{at: time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)}
 	clock = func() time.Time { return h.at }
-	stretch := pairing.Stretch
-	pairing.Stretch = 16
-	t.Cleanup(func() { clock, pairing.Stretch = time.Now, stretch })
+	stretch := Stretch
+	Stretch = 16
+	t.Cleanup(func() { clock, Stretch = time.Now, stretch })
 	var err error
 	if h.Store, err = Open(filepath.Join(t.TempDir(), "y.db")); err != nil {
 		t.Fatal(err)
@@ -38,11 +35,7 @@ func newPairHost(t *testing.T) *pairHost {
 
 func newPublicKey(t *testing.T) string {
 	t.Helper()
-	k, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "peer.key"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return yardkey.Public(k)
+	return Public(newKey(t))
 }
 
 func (h *pairHost) open(t *testing.T) (*PairingCode, string) {
@@ -51,27 +44,27 @@ func (h *pairHost) open(t *testing.T) (*PairingCode, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	code, _ := pairing.CleanCode(p.Code)
+	code, _ := CleanCode(p.Code)
 	return p, code
 }
 
 // call is the calling yard's two messages, as its side makes them.
-func (h *pairHost) call(code, name, key string) (pairing.Transcript, error) {
+func (h *pairHost) call(code, name, key string) (Transcript, error) {
 	ctx := context.Background()
-	me := pairing.Party{Nonce: pairing.NewNonce(), Name: name, Key: key}
-	t := pairing.Transcript{Commit: pairing.Commit(me), Joiner: me}
-	k := pairing.Key(code, t.Commit)
-	offer, err := h.PairHello(ctx, pairing.NewHello(k, me))
+	me := Party{Nonce: NewNonce(), Name: name, Key: key}
+	t := Transcript{Commit: Commit(me), Joiner: me}
+	k := PairingKey(code, t.Commit)
+	offer, err := h.PairHello(ctx, NewHello(k, me))
 	if err != nil {
 		return t, err
 	}
 	t.Host = offer.Party
-	_, err = h.PairReveal(ctx, pairing.NewReveal(k, t))
+	_, err = h.PairReveal(ctx, NewReveal(k, t))
 	return t, err
 }
 
 func reason(err error) string {
-	var no *pairing.Refused
+	var no *Refused
 	if errors.As(err, &no) {
 		return no.Reason
 	}
@@ -97,28 +90,28 @@ func (h *pairHost) refusals(t *testing.T) []Event {
 // has run out, the pairing has ended as timed out, and the yard opens
 // another.
 func TestPairingCodeExpires(t *testing.T) {
-	// Sequential: the package's fake clock and pairing.Stretch (via newPairHost).
+	// Sequential: the package's fake clock and Stretch (via newPairHost).
 	h := newPairHost(t)
 	ctx := context.Background()
 	opened, code := h.open(t)
-	if got := opened.Expires.Sub(h.at); got != pairing.TTL || pairing.TTL != 10*time.Minute {
+	if got := opened.Expires.Sub(h.at); got != TTL || TTL != 10*time.Minute {
 		t.Fatalf("the code is good for %s", got)
 	}
 	laptop := newPublicKey(t)
 
-	h.at = h.at.Add(pairing.TTL - time.Second)
+	h.at = h.at.Add(TTL - time.Second)
 	if p, err := h.GetPairing(ctx, opened.ID); err != nil || p.State != PairOpened {
 		t.Fatalf("a second before it runs out: %+v, %v", p, err)
 	}
 	h.at = h.at.Add(time.Second)
-	if _, err := h.call(code, "laptop", laptop); reason(err) != pairing.TimedOut {
+	if _, err := h.call(code, "laptop", laptop); reason(err) != TimedOut {
 		t.Fatalf("a call with a code that ran out = %v", err)
 	}
 	p, err := h.GetPairing(ctx, opened.ID)
-	if err != nil || p.State != PairEnded || p.Reason != pairing.TimedOut {
+	if err != nil || p.State != PairEnded || p.Reason != TimedOut {
 		t.Fatalf("the pairing = %+v, %v", p, err)
 	}
-	if evs := h.refusals(t); len(evs) != 1 || evs[0].Data["reason"] != pairing.TimedOut || evs[0].Data["pairing"] != opened.ID {
+	if evs := h.refusals(t); len(evs) != 1 || evs[0].Data["reason"] != TimedOut || evs[0].Data["pairing"] != opened.ID {
 		t.Fatalf("refusals = %+v", evs)
 	}
 	if ps, _ := h.Peers(ctx); len(ps) != 0 {
@@ -129,7 +122,7 @@ func TestPairingCodeExpires(t *testing.T) {
 	if again.ID == opened.ID || code2 == code {
 		t.Fatalf("the second pairing = %+v", again)
 	}
-	if _, err := h.call(code, "laptop", laptop); reason(err) != pairing.WrongCode {
+	if _, err := h.call(code, "laptop", laptop); reason(err) != WrongCode {
 		t.Fatalf("the first pairing's code at the second = %v", err)
 	}
 }
@@ -138,7 +131,7 @@ func TestPairingCodeExpires(t *testing.T) {
 // call, whatever was left of the code's ten. When they run out with one
 // yes, or two, missing, nothing is saved.
 func TestPairingConfirmTimesOut(t *testing.T) {
-	// Sequential: the package's fake clock and pairing.Stretch (via newPairHost).
+	// Sequential: the package's fake clock and Stretch (via newPairHost).
 	h := newPairHost(t)
 	ctx := context.Background()
 	opened, code := h.open(t)
@@ -150,25 +143,25 @@ func TestPairingConfirmTimesOut(t *testing.T) {
 		t.Fatal(err)
 	}
 	p, _ := h.GetPairing(ctx, opened.ID)
-	if p.State != PairCalled || p.Expires.Sub(h.at) != pairing.ConfirmTTL || p.Check != tr.Check() {
+	if p.State != PairCalled || p.Expires.Sub(h.at) != ConfirmTTL || p.Check != tr.Check() {
 		t.Fatalf("after the call: %+v", p)
 	}
 	// Past the code's ten minutes, within the five to confirm.
 	h.at = h.at.Add(4 * time.Minute)
-	if out, err := h.PairConfirmed(ctx, tr.Session(), true); err != nil || out.State != pairing.Waiting {
+	if out, err := h.PairConfirmed(ctx, tr.Session(), true); err != nil || out.State != Waiting {
 		t.Fatalf("the caller's yes = %+v, %v", out, err)
 	}
 	h.at = h.at.Add(time.Minute)
-	if p, err := h.PairAnswer(ctx, opened.ID, true, "jo"); err != nil || p.State != PairEnded || p.Reason != pairing.TimedOut {
+	if p, err := h.PairAnswer(ctx, opened.ID, true, "jo"); err != nil || p.State != PairEnded || p.Reason != TimedOut {
 		t.Fatalf("the host's yes after the time ran out = %+v, %v", p, err)
 	}
-	if out, err := h.PairConfirmed(ctx, tr.Session(), true); err != nil || out.State != pairing.Ended || out.Reason != pairing.TimedOut {
+	if out, err := h.PairConfirmed(ctx, tr.Session(), true); err != nil || out.State != Ended || out.Reason != TimedOut {
 		t.Fatalf("the caller is told %+v, %v", out, err)
 	}
 	if ps, _ := h.Peers(ctx); len(ps) != 0 {
 		t.Fatalf("peers = %+v", ps)
 	}
-	if evs := h.refusals(t); len(evs) != 1 || evs[0].Data["reason"] != pairing.TimedOut || evs[0].Data["calls"] != "laptop" {
+	if evs := h.refusals(t); len(evs) != 1 || evs[0].Data["reason"] != TimedOut || evs[0].Data["calls"] != "laptop" {
 		t.Fatalf("refusals = %+v", evs)
 	}
 }
@@ -178,7 +171,7 @@ func TestPairingConfirmTimesOut(t *testing.T) {
 // confirming is done without it. A later call with the code takes an
 // earlier one's place until one has revealed itself.
 func TestPairingForgetsTheCode(t *testing.T) {
-	// Sequential: the package's fake clock and pairing.Stretch (via newPairHost).
+	// Sequential: the package's fake clock and Stretch (via newPairHost).
 	h := newPairHost(t)
 	ctx := context.Background()
 	_, code := h.open(t)
@@ -193,10 +186,10 @@ func TestPairingForgetsTheCode(t *testing.T) {
 	}
 
 	// Two first messages: the second takes the first's place.
-	first := pairing.Party{Nonce: pairing.NewNonce(), Name: "laptop", Key: newPublicKey(t)}
-	t1 := pairing.Transcript{Commit: pairing.Commit(first), Joiner: first}
-	k1 := pairing.Key(code, t1.Commit)
-	offer, err := h.PairHello(ctx, pairing.NewHello(k1, first))
+	first := Party{Nonce: NewNonce(), Name: "laptop", Key: newPublicKey(t)}
+	t1 := Transcript{Commit: Commit(first), Joiner: first}
+	k1 := PairingKey(code, t1.Commit)
+	offer, err := h.PairHello(ctx, NewHello(k1, first))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,7 +202,7 @@ func TestPairingForgetsTheCode(t *testing.T) {
 	if held() {
 		t.Fatal("the code is held after a yard has revealed itself")
 	}
-	if _, err := h.PairReveal(ctx, pairing.NewReveal(k1, t1)); reason(err) != pairing.Used {
+	if _, err := h.PairReveal(ctx, NewReveal(k1, t1)); reason(err) != Used {
 		t.Fatalf("the first call's second message = %v", err)
 	}
 	if p, _ := h.GetPairing(ctx, ""); p.Key != second || p.Check != t2.Check() || p.Tries != 0 {
@@ -225,8 +218,8 @@ func TestPairingForgetsTheCode(t *testing.T) {
 		t.Fatalf("PairClose = %v; the code is held: %v", err, held())
 	}
 	h.open(t)
-	for range pairing.MaxTries {
-		if _, err := h.call("ZZZZZZZZ", "laptop", second); reason(err) != pairing.WrongCode {
+	for range MaxTries {
+		if _, err := h.call("ZZZZZZZZ", "laptop", second); reason(err) != WrongCode {
 			t.Fatal(err)
 		}
 	}
@@ -239,14 +232,14 @@ func TestPairingForgetsTheCode(t *testing.T) {
 // for is no message, from one who knows the code or not; a name that is no
 // peer's name ends the pairing with the way out.
 func TestPairingReveal(t *testing.T) {
-	// Sequential: the package's fake clock and pairing.Stretch (via newPairHost).
+	// Sequential: the package's fake clock and Stretch (via newPairHost).
 	h := newPairHost(t)
 	ctx := context.Background()
 	_, code := h.open(t)
-	me := pairing.Party{Nonce: pairing.NewNonce(), Name: "laptop", Key: newPublicKey(t)}
-	tr := pairing.Transcript{Commit: pairing.Commit(me), Joiner: me}
-	k := pairing.Key(code, tr.Commit)
-	offer, err := h.PairHello(ctx, pairing.NewHello(k, me))
+	me := Party{Nonce: NewNonce(), Name: "laptop", Key: newPublicKey(t)}
+	tr := Transcript{Commit: Commit(me), Joiner: me}
+	k := PairingKey(code, tr.Commit)
+	offer, err := h.PairHello(ctx, NewHello(k, me))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -254,18 +247,18 @@ func TestPairingReveal(t *testing.T) {
 	// Another key than was committed to, under the same commitment.
 	swapped := tr
 	swapped.Joiner.Key = newPublicKey(t)
-	if _, err := h.PairReveal(ctx, pairing.NewReveal(k, swapped)); err == nil || reason(err) != "" {
+	if _, err := h.PairReveal(ctx, NewReveal(k, swapped)); err == nil || reason(err) != "" {
 		t.Fatalf("a reveal of another key = %v", err)
 	}
 	if p, _ := h.GetPairing(ctx, ""); p.State != PairOpened || p.Tries != 1 {
 		t.Fatalf("the pairing = %+v", p)
 	}
 	// Made without the code.
-	if _, err := h.PairReveal(ctx, pairing.NewReveal(pairing.Key("ZZZZZZZZ", tr.Commit), tr)); reason(err) != pairing.WrongCode {
+	if _, err := h.PairReveal(ctx, NewReveal(PairingKey("ZZZZZZZZ", tr.Commit), tr)); reason(err) != WrongCode {
 		t.Fatalf("a reveal without the code = %v", err)
 	}
 	// The honest one is still taken.
-	if _, err := h.PairReveal(ctx, pairing.NewReveal(k, tr)); err != nil {
+	if _, err := h.PairReveal(ctx, NewReveal(k, tr)); err != nil {
 		t.Fatal(err)
 	}
 	if err := h.PairClose(ctx, "", "jo"); err != nil {
@@ -273,20 +266,20 @@ func TestPairingReveal(t *testing.T) {
 	}
 
 	_, code = h.open(t)
-	if _, err := h.call(code, "Jo/Laptop", newPublicKey(t)); reason(err) != pairing.BadName {
+	if _, err := h.call(code, "Jo/Laptop", newPublicKey(t)); reason(err) != BadName {
 		t.Fatalf("a call by a yard named Jo/Laptop = %v", err)
 	}
-	if p, _ := h.GetPairing(ctx, ""); p.State != PairEnded || p.Reason != pairing.BadName || p.Detail == "" {
+	if p, _ := h.GetPairing(ctx, ""); p.State != PairEnded || p.Reason != BadName || p.Detail == "" {
 		t.Fatalf("the pairing = %+v", p)
 	}
 	// The calling side logs only reasons a pairing ends for.
-	if err := h.PairRefused(ctx, pairing.Declined, "north", "jo"); err != nil {
+	if err := h.PairRefused(ctx, Declined, "north", "jo"); err != nil {
 		t.Fatal(err)
 	}
 	if err := h.PairRefused(ctx, "K7QM-2XPD", "north", "jo"); err == nil {
 		t.Fatal("PairRefused took a reason that is none")
 	}
-	if err := h.PairRefused(ctx, pairing.Declined, "a b\n", "jo"); err == nil {
+	if err := h.PairRefused(ctx, Declined, "a b\n", "jo"); err == nil {
 		t.Fatal("PairRefused took a name that is none")
 	}
 }

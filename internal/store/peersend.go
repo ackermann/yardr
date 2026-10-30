@@ -11,8 +11,6 @@ import (
 	"time"
 
 	bolt "go.etcd.io/bbolt"
-
-	"yardr.dev/yardr/internal/yardkey"
 )
 
 // This file is the sending side of a bead worked by another yard
@@ -256,11 +254,11 @@ func (s *Store) yardKey() string {
 	if s.yardKeyFile == "" {
 		return ""
 	}
-	k, err := yardkey.Load(s.yardKeyFile)
+	k, err := Load(s.yardKeyFile)
 	if err != nil {
 		return ""
 	}
-	return yardkey.Public(k)
+	return Public(k)
 }
 
 // PeerStay is a stay a bead had at a peer before a sending that was not

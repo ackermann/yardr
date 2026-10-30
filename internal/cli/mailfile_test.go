@@ -204,7 +204,7 @@ func TestMailFileToAPeer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := api.AddPeer(ctx, store.Peer{Name: "north", Key: yardkey.Public(k), URL: "http://north.test"}, "jo"); err != nil {
+	if _, err := api.AddPeer(ctx, store.Peer{Name: "north", Key: store.Public(k), URL: "http://north.test"}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	png := filepath.Join(t.TempDir(), "shed.png")
@@ -227,7 +227,7 @@ func TestMailFileToAPeer(t *testing.T) {
 	nothing("a link that sends no file")
 	mustAs(t, st, "jo", "peer", "allow", "north", "--send", "file")
 	refusedAs(t, st, "jo", "peer north has not said what its yardr understands", "mail", "yardmaster@north", "look", "--file", png)
-	if err := s.PeerHeard(ctx, "north", yardkey.Public(k), &store.PeerSays{Understands: []string{"mail", "ping"}, Yardr: "v1.2.3"}); err != nil {
+	if err := s.PeerHeard(ctx, "north", store.Public(k), &store.PeerSays{Understands: []string{"mail", "ping"}, Yardr: "v1.2.3"}); err != nil {
 		t.Fatal(err)
 	}
 	refusedAs(t, st, "jo", "peer north: its yardr (v1.2.3) does not understand file, so mail to it carries no file until it is upgraded",
@@ -239,7 +239,7 @@ func TestMailFileToAPeer(t *testing.T) {
 		t.Fatalf("doctor's peers = %+v, %v", part, err)
 	}
 
-	if err := s.PeerHeard(ctx, "north", yardkey.Public(k), store.Says("v1.3.0")); err != nil {
+	if err := s.PeerHeard(ctx, "north", store.Public(k), store.Says("v1.3.0")); err != nil {
 		t.Fatal(err)
 	}
 	if part, _ := peerPart(ctx, cfg, st); strings.Contains(strings.Join(part.Notes, "\n"), "file") {
@@ -274,7 +274,7 @@ func TestMailPageToAPeer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := api.AddPeer(ctx, store.Peer{Name: "north", Key: yardkey.Public(k), URL: "http://north.test"}, "jo"); err != nil {
+	if _, err := api.AddPeer(ctx, store.Peer{Name: "north", Key: store.Public(k), URL: "http://north.test"}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	html := "<!DOCTYPE html><html><head><title>the shed</title></head><body><h1>the shed</h1></body></html>"
@@ -297,13 +297,13 @@ func TestMailPageToAPeer(t *testing.T) {
 		"mail", "yardmaster@north", "look", "--file", page)
 	nothing("a link that sends no file")
 	mustAs(t, st, "jo", "peer", "allow", "north", "--send", "file")
-	if err := s.PeerHeard(ctx, "north", yardkey.Public(k), &store.PeerSays{Understands: []string{"mail", "ping"}, Yardr: "v1.2.3"}); err != nil {
+	if err := s.PeerHeard(ctx, "north", store.Public(k), &store.PeerSays{Understands: []string{"mail", "ping"}, Yardr: "v1.2.3"}); err != nil {
 		t.Fatal(err)
 	}
 	refusedAs(t, st, "jo", "peer north: its yardr (v1.2.3) does not understand file, so mail to it carries no file until it is upgraded",
 		"mail", "yardmaster@north", "look", "--file", page)
 	nothing("a peer that does not understand file")
-	if err := s.PeerHeard(ctx, "north", yardkey.Public(k), store.Says("v1.3.0")); err != nil {
+	if err := s.PeerHeard(ctx, "north", store.Public(k), store.Says("v1.3.0")); err != nil {
 		t.Fatal(err)
 	}
 	// Over this yard's own cap: refused naming the page, after the put,

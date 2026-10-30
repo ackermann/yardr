@@ -786,7 +786,7 @@ func TestUserAsksTellsTheSetupToTheOperatorAlone(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		edge := store.Edge{URL: "https://my.yardr.dev", Key: yardkey.Public(key), Handle: "jo", Name: "edgeyard"}
+		edge := store.Edge{URL: "https://my.yardr.dev", Key: store.Public(key), Handle: "jo", Name: "edgeyard"}
 		if err := y.st.SetSetting(ctx, store.EdgeSetting, edge.String(), "jo"); err != nil {
 			t.Fatal(err)
 		}
@@ -1753,7 +1753,7 @@ func TestUserOtherCallsTellNoFileOrCommandToADeviceThatIsNotTheOperators(t *test
 	key, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "north.key"))
 	must(err)
 	const northURL = "http://10.0.0.5:8790"
-	_, err = y.st.AddPeer(ctx, store.Peer{Name: "north", Key: yardkey.Public(key), URL: northURL}, "jo")
+	_, err = y.st.AddPeer(ctx, store.Peer{Name: "north", Key: store.Public(key), URL: northURL}, "jo")
 	must(err)
 	_, err = y.st.AllowPeer(ctx, "north", store.PeerAllow{Send: []string{store.PeerPing}}, "jo")
 	must(err)

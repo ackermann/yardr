@@ -33,7 +33,7 @@ func paneYard(t *testing.T) (*store.Store, *store.Bead) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.AddPeer(ctx, store.Peer{Name: "airy", Key: yardkey.Public(k)}, "jo"); err != nil {
+	if _, err := s.AddPeer(ctx, store.Peer{Name: "airy", Key: store.Public(k)}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.PutDepot(ctx, store.Depot{Name: "yard", Base: "origin/main"}, "jo"); err != nil {

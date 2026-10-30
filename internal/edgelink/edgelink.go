@@ -17,7 +17,7 @@
 //
 // The calls, all under the edge's origin:
 //
-//	GET  /edge/key        the edge's public key as yardkey.Public writes it,
+//	GET  /edge/key        the edge's public key as store.Public writes it,
 //	                      as plain text. Not signed.
 //	POST /edge/enrol      {"key": <the yard's key>, "name": <its name>}.
 //	                      Answered {"code", "expires"} (RFC 3339, shown to
@@ -55,7 +55,7 @@
 // A request carries the yard's key, the time and the signature in the
 // Yardr-Peer-* headers, as between peers. An answer carries its signature
 // in Yardr-Peer-Signature, made with the edge's key over its status, the
-// request's signature and its body (yardkey.SignResponse). An answer that
+// request's signature and its body (store.SignResponse). An answer that
 // is not so signed is anyone's, whatever it says. A refusal is a 4xx with
 // {"refused": <reason>}, signed too.
 //
@@ -208,7 +208,7 @@ func (c *Client) Key(ctx context.Context) (string, error) {
 	if len(text) > maxAnswer {
 		key = ""
 	}
-	if _, err := yardkey.ParsePublic(key); err != nil {
+	if _, err := store.ParsePublic(key); err != nil {
 		return "", fmt.Errorf("what answers at %s%s is no edge's key: %w", c.URL, KeyPath, err)
 	}
 	return key, nil
@@ -246,7 +246,7 @@ func (c *Client) call(ctx context.Context, edgeKey string, yard ed25519.PrivateK
 			return 0, nil, err
 		}
 		ts, reqSig := yardkey.SignRequest(yard, edgeKey, http.MethodPost, path, at, body)
-		req.Header.Set(yardkey.HeaderKey, yardkey.Public(yard))
+		req.Header.Set(yardkey.HeaderKey, store.Public(yard))
 		req.Header.Set(yardkey.HeaderTime, ts)
 		req.Header.Set(yardkey.HeaderSig, reqSig)
 		req.Header.Set("Content-Type", "application/json")
@@ -263,7 +263,7 @@ func (c *Client) call(ctx context.Context, edgeKey string, yard ed25519.PrivateK
 		if len(answer) > maxAnswer {
 			return 0, nil, fmt.Errorf("the answer of %s is larger than %d bytes", c.URL, maxAnswer)
 		}
-		if yardkey.VerifyResponse(edgeKey, resp.StatusCode, reqSig, resp.Header.Get(yardkey.HeaderSig), answer) == nil {
+		if store.VerifyResponse(edgeKey, resp.StatusCode, reqSig, resp.Header.Get(yardkey.HeaderSig), answer) == nil {
 			return resp.StatusCode, answer, nil
 		}
 		// A signed answer went out above, whatever it names: replay-full is the
@@ -339,7 +339,7 @@ type Enrolment struct {
 // itself name, with the edge whose key is edgeKey: the first call, which the
 // edge answers with a code. The caller shows the code and Waits.
 func (c *Client) Enrol(ctx context.Context, edgeKey string, yard ed25519.PrivateKey, name string) (*Enrolment, error) {
-	body, err := json.Marshal(map[string]string{"key": yardkey.Public(yard), "name": name})
+	body, err := json.Marshal(map[string]string{"key": store.Public(yard), "name": name})
 	if err != nil {
 		return nil, err
 	}
@@ -469,7 +469,7 @@ func (c *Client) MintGoogle(ctx context.Context, edgeKey string, yard ed25519.Pr
 // MemberAdd is one yard's invite report to the edge: the yard it names,
 // the invited address, the yard user the membership acts as and the
 // approving operator who invited. YardKey is the reporting yard's key as
-// yardkey.Public writes it, a second wall behind the signature.
+// store.Public writes it, a second wall behind the signature.
 type MemberAdd struct {
 	YardHandle string `json:"yard_handle"`
 	YardName   string `json:"yard_name"`

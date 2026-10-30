@@ -10,7 +10,6 @@ import (
 	"sync"
 	"testing"
 
-	"yardr.dev/yardr/internal/pairing"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -77,7 +76,7 @@ func TestCallerUnderBasePath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	code, err := pairing.CleanCode(opened.Code)
+	code, err := store.CleanCode(opened.Code)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +90,7 @@ func TestCallerUnderBasePath(t *testing.T) {
 		t.Fatalf("the pairing is at host %q, link %q, want the base %q", called.Host.URL, called.URL, base)
 	}
 	out, err := c.caller().PairAnswer(ctx, called, true)
-	if err != nil || out.State != pairing.Waiting {
+	if err != nil || out.State != store.Waiting {
 		t.Fatalf("the confirm under a base path = %+v, %v", out, err)
 	}
 

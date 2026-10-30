@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"yardr.dev/yardr/internal/store"
-	"yardr.dev/yardr/internal/yardkey"
 )
 
 // GoogleMintSources are the sources the hosted mint mints for, with the
@@ -55,7 +54,7 @@ func CheckGoogleMintSource(source string) error {
 // connect would fetch. The answer's token is the caller's to discard,
 // check or hold; nothing here checks its scopes (MissingGoogleScopes).
 func MintGoogleThrough(ctx context.Context, st store.API, peerKey string, hc *http.Client, addr, account string) (*GoogleMint, error) {
-	yard, err := yardkey.Load(peerKey)
+	yard, err := store.Load(peerKey)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, fmt.Errorf("this yard has no key, so it can sign nothing: connect it first (yardr edge connect <url> makes the pair)")

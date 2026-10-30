@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
-
-	"yardr.dev/yardr/internal/yardkey"
 )
 
 func TestPeerBeadEarlierWithEqualArrivalTimes(t *testing.T) {
@@ -38,11 +36,8 @@ func TestPeerBeadLimit(t *testing.T) {
 	}
 	defer s.Close(context.Background())
 	ctx := context.Background()
-	k, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "north.key"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.AddPeer(ctx, Peer{Name: "north", Key: yardkey.Public(k)}, "jo"); err != nil {
+	k := newKey(t)
+	if _, err := s.AddPeer(ctx, Peer{Name: "north", Key: Public(k)}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	// The link takes beads and has no intake: each is refused, and counted.
@@ -54,7 +49,7 @@ func TestPeerBeadLimit(t *testing.T) {
 		t.Helper()
 		n++
 		body, _ := json.Marshal(PeerBeadMessage{V: PeerBeadVersion, Bead: "web-1", Stage: "build", Title: "Add the export"})
-		got, err := s.PeerReceive(ctx, "north", yardkey.Public(k), []PeerMessage{{ID: fmt.Sprintf("b%d", n), Kind: PeerBead, Body: body}})
+		got, err := s.PeerReceive(ctx, "north", Public(k), []PeerMessage{{ID: fmt.Sprintf("b%d", n), Kind: PeerBead, Body: body}})
 		if err != nil {
 			t.Fatal(err)
 		}

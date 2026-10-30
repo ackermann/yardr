@@ -18,7 +18,6 @@ import (
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/standin"
 	"yardr.dev/yardr/internal/store"
-	"yardr.dev/yardr/internal/yardkey"
 )
 
 // roundTripFunc is the transport of a test's client: what it does with a
@@ -67,13 +66,13 @@ func mustEdge(t *testing.T, st store.API, hc *http.Client, args ...string) (stri
 // has one.
 func yardKeyOf(t *testing.T, st store.API) (string, bool) {
 	t.Helper()
-	key, err := yardkey.Load(config.At(yardEnv(t, st)["YARDR_HOME"]).PeerKey())
+	key, err := store.Load(config.At(yardEnv(t, st)["YARDR_HOME"]).PeerKey())
 	if errors.Is(err, fs.ErrNotExist) {
 		return "", false
 	} else if err != nil {
 		t.Fatal(err)
 	}
-	return yardkey.Public(key), true
+	return store.Public(key), true
 }
 
 func settingsOf(t *testing.T, st store.API) map[string]string {
@@ -772,7 +771,7 @@ func TestEdgeConnectWhenHookPublicURLCannotBeWritten(t *testing.T) {
 func TestEdgeSettingIsCheckedAndAlone(t *testing.T) {
 	t.Parallel()
 	st := userYard(t)
-	key := yardkey.Public(func() ed25519.PrivateKey { _, k, _ := ed25519.GenerateKey(rand.Reader); return k }())
+	key := store.Public(func() ed25519.PrivateKey { _, k, _ := ed25519.GenerateKey(rand.Reader); return k }())
 	good := store.Edge{URL: "https://my.yardr.dev", Key: key, Handle: "mckean", Name: "airy"}
 	mustAs(t, st, "jo", "settings", "set", store.EdgeSetting, good.String())
 	if got := edgeSetting(t, st); got != good {

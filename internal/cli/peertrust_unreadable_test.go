@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"yardr.dev/yardr/internal/store"
-	"yardr.dev/yardr/internal/yardkey"
 )
 
 // unreadableTrusts is a store whose links cannot be read: Peers fails,
@@ -87,7 +86,7 @@ func TestAskConfirmationMarksForeignAnswerWhenTrustsUnreadable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.AddPeer(ctx, store.Peer{Name: "a", Key: yardkey.Public(key)}, "me"); err != nil {
+	if _, err := st.AddPeer(ctx, store.Peer{Name: "a", Key: store.Public(key)}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := st.AllowPeer(ctx, "a", store.PeerAllow{Send: []string{store.PeerAsk}}, "me"); err != nil {

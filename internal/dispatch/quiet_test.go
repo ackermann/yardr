@@ -100,7 +100,7 @@ func (y *quietYard) putGroups(t *testing.T) {
 	ctx := context.Background()
 	key, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "airy.key"))
 	must(t, err)
-	_, err = y.s.AddPeer(ctx, store.Peer{Name: "airy", Key: yardkey.Public(key)}, "me")
+	_, err = y.s.AddPeer(ctx, store.Peer{Name: "airy", Key: store.Public(key)}, "me")
 	must(t, err)
 	_, err = y.s.AllowPeer(ctx, "airy", store.PeerAllow{Send: []string{store.PeerBead}}, "me")
 	must(t, err)

@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"yardr.dev/yardr/internal/pairing"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -206,20 +205,20 @@ func TestDevicePairWrongCodeFiveTimes(t *testing.T) {
 			t.Errorf("POST %s %s = %d %s, want 400", PairPath, body, status, answer)
 		}
 	}
-	for try := 1; try <= pairing.MaxTries; try++ {
+	for try := 1; try <= store.MaxTries; try++ {
 		if status, body := y.redeem(t, wrong(code)); status != http.StatusForbidden || body != `{"refused":"wrong_code"}` {
 			t.Fatalf("wrong code %d = %d %s, want 403 wrong_code", try, status, body)
 		}
 	}
 	// No device in the yard, and no pairing: nothing is under /user/.
 	if status, body := y.redeem(t, code); status != http.StatusNotFound || strings.Contains(body, "yardr-dev-") {
-		t.Errorf("the right code after %d wrong ones = %d %s, want 404", pairing.MaxTries, status, body)
+		t.Errorf("the right code after %d wrong ones = %d %s, want 404", store.MaxTries, status, body)
 	}
 	if devices, err := y.st.Devices(context.Background(), ""); err != nil || len(devices) != 0 {
 		t.Fatalf("devices = %+v, %v", devices, err)
 	}
 	ended := eventsOfKind(t, y.st, "device_pair_refused")
-	if len(ended) != 1 || ended[0].Data["reason"] != pairing.WrongCode || ended[0].Data["wrong_codes"] != float64(pairing.MaxTries) ||
+	if len(ended) != 1 || ended[0].Data["reason"] != store.WrongCode || ended[0].Data["wrong_codes"] != float64(store.MaxTries) ||
 		ended[0].Data["user"] != "jo" || ended[0].Data["device"] != "phone" {
 		t.Fatalf("device_pair_refused = %+v", ended)
 	}
@@ -227,11 +226,11 @@ func TestDevicePairWrongCodeFiveTimes(t *testing.T) {
 	// Four wrong ones leave the code good, and another pairing may be opened
 	// once this one has ended.
 	code = y.open(t, "jo", "phone")
-	for try := 1; try < pairing.MaxTries; try++ {
+	for try := 1; try < store.MaxTries; try++ {
 		y.redeem(t, wrong(code))
 	}
 	if status, body := y.redeem(t, code); status != http.StatusOK {
-		t.Errorf("the right code after %d wrong ones = %d %s", pairing.MaxTries-1, status, body)
+		t.Errorf("the right code after %d wrong ones = %d %s", store.MaxTries-1, status, body)
 	}
 }
 
@@ -298,11 +297,11 @@ func TestDevicePairPresenter(t *testing.T) {
 		refused(try.what, status, body)
 	}
 	if status, body := y.redeemAs(t, code, "sam@example.net"); status != http.StatusUnauthorized || strings.Contains(body, "yardr-dev-") {
-		t.Errorf("sam's code after %d refusals = %d %s, want 401", pairing.MaxTries, status, body)
+		t.Errorf("sam's code after %d refusals = %d %s, want 401", store.MaxTries, status, body)
 	}
 	devices(1)
 	ended := eventsOfKind(t, y.st, "device_pair_refused")
-	if len(ended) != 1 || ended[0].Data["reason"] != pairing.WrongCode || ended[0].Data["wrong_codes"] != float64(pairing.MaxTries) ||
+	if len(ended) != 1 || ended[0].Data["reason"] != store.WrongCode || ended[0].Data["wrong_codes"] != float64(store.MaxTries) ||
 		ended[0].Data["user"] != "sam" || ended[0].Data["device"] != "laptop" {
 		t.Fatalf("device_pair_refused = %+v", ended)
 	}
@@ -371,23 +370,23 @@ func TestDevicePairPresenter(t *testing.T) {
 	devices(6)
 }
 
-// A code runs out after pairing.TTL: it is good a second before, and after
+// A code runs out after store.TTL: it is good a second before, and after
 // it the path is gone and no device is added.
 func TestDevicePairCodeRunsOut(t *testing.T) {
 	y := newPairYard(t)
 	code := y.open(t, "jo", "phone")
-	y.late.Store(int64(pairing.TTL + time.Second))
+	y.late.Store(int64(store.TTL + time.Second))
 	if status, body := y.redeem(t, code); status != http.StatusNotFound || strings.Contains(body, "yardr-dev-") {
-		t.Errorf("the code after %s = %d %s, want 404", pairing.TTL, status, body)
+		t.Errorf("the code after %s = %d %s, want 404", store.TTL, status, body)
 	}
 	if devices, err := y.st.Devices(context.Background(), ""); err != nil || len(devices) != 0 {
 		t.Fatalf("devices = %+v, %v", devices, err)
 	}
-	if ended := eventsOfKind(t, y.st, "device_pair_refused"); len(ended) != 1 || ended[0].Data["reason"] != pairing.TimedOut {
+	if ended := eventsOfKind(t, y.st, "device_pair_refused"); len(ended) != 1 || ended[0].Data["reason"] != store.TimedOut {
 		t.Fatalf("device_pair_refused = %+v", ended)
 	}
 	code = y.open(t, "jo", "phone")
-	y.late.Add(int64(pairing.TTL - time.Second))
+	y.late.Add(int64(store.TTL - time.Second))
 	if status, body := y.redeem(t, code); status != http.StatusOK {
 		t.Errorf("the code a second before it runs out = %d %s", status, body)
 	}

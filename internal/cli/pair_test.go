@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/hooks"
-	"yardr.dev/yardr/internal/pairing"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -26,9 +25,9 @@ import (
 // is called, and its server has said it listens where its receiver does.
 func pairYards(t *testing.T) (north, laptop *cliYard) {
 	t.Helper()
-	old, stretch := pairPoll, pairing.Stretch
-	pairPoll.host, pairPoll.caller, pairing.Stretch = 5*time.Millisecond, 5*time.Millisecond, 16
-	t.Cleanup(func() { pairPoll, pairing.Stretch = old, stretch })
+	old, stretch := pairPoll, store.Stretch
+	pairPoll.host, pairPoll.caller, store.Stretch = 5*time.Millisecond, 5*time.Millisecond, 16
+	t.Cleanup(func() { pairPoll, store.Stretch = old, stretch })
 	north, laptop = newCLIYard(t, "north"), newCLIYard(t, "laptop")
 	said(t, north.a.cfg, hooks.Listener{Addr: strings.TrimPrefix(north.srv.URL, "http://"), From: hooks.FromSetting})
 	return north, laptop
@@ -215,7 +214,7 @@ func TestPeerPair(t *testing.T) {
 	if out, err := north.peer(t, "pair", "--end"); err != nil || !strings.Contains(out, "the pairing is ended") {
 		t.Fatalf("pair --end = %q, %v", out, err)
 	}
-	if p, err := north.st.GetPairing(context.Background(), opened.ID); err != nil || p.State != store.PairEnded || p.Reason != pairing.Closed {
+	if p, err := north.st.GetPairing(context.Background(), opened.ID); err != nil || p.State != store.PairEnded || p.Reason != store.Closed {
 		t.Fatalf("the pairing after --end = %+v, %v", p, err)
 	}
 }
@@ -267,7 +266,7 @@ func TestPeerPairJSON(t *testing.T) {
 		Pairing, Code, Address, Command string
 		Expires                         time.Time
 	}
-	if err := dec.Decode(&opened); err != nil || opened.Code == "" || opened.Address != north.srv.URL || opened.Pairing == "" || time.Until(opened.Expires) > pairing.TTL {
+	if err := dec.Decode(&opened); err != nil || opened.Code == "" || opened.Address != north.srv.URL || opened.Pairing == "" || time.Until(opened.Expires) > store.TTL {
 		t.Fatalf("the first document = %+v, %v\n%s", opened, err, out)
 	}
 	results := map[string]paired{}
@@ -421,7 +420,7 @@ func TestPeerPairAPeerAlready(t *testing.T) {
 	if ps := peersOf(t, laptop); len(ps) != 2 || len(peersOf(t, north)) != 1 {
 		t.Fatalf("peers: north %+v, laptop %+v", peersOf(t, north), ps)
 	}
-	if evs := eventsOf(t, laptop, "peer_pair_refused"); len(evs) != 1 || evs[0].Data["reason"] != pairing.AlreadyPeer {
+	if evs := eventsOf(t, laptop, "peer_pair_refused"); len(evs) != 1 || evs[0].Data["reason"] != store.AlreadyPeer {
 		t.Fatalf("laptop's refusals = %+v", evs)
 	}
 	asked.Store(0)
@@ -497,7 +496,7 @@ func TestPeerPairCallFails(t *testing.T) {
 	if hostErr == nil || !strings.Contains(hostErr.Error(), "the pairing was ended"+nothingSaved) || !strings.Contains(out, "a wrong code was tried (1 of 5)") {
 		t.Fatalf("the host = %v\n%s", hostErr, out)
 	}
-	if evs := eventsOf(t, laptop, "peer_pair_refused"); len(evs) != 1 || evs[0].Data["reason"] != pairing.WrongCode {
+	if evs := eventsOf(t, laptop, "peer_pair_refused"); len(evs) != 1 || evs[0].Data["reason"] != store.WrongCode {
 		t.Fatalf("laptop's refusals = %+v", evs)
 	}
 }

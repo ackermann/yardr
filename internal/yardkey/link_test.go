@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"testing"
 	"time"
+
+	"yardr.dev/yardr/internal/store"
 )
 
 // seeded is the key whose seed is the 32 bytes first, first+1, ...: the
@@ -43,7 +45,7 @@ func TestLinkWireFormatIsTheEdges(t *testing.T) {
 	if got := SignLink(yard, yn, en); got != yardLink {
 		t.Errorf("the hello signs as %s", got)
 	}
-	if err := VerifyLink(Public(edge), yn, en, edgeLink); err != nil {
+	if err := VerifyLink(store.Public(edge), yn, en, edgeLink); err != nil {
 		t.Errorf("the edge's pinned challenge: %v", err)
 	}
 	if got := Session(yn, en); got != session {
@@ -61,7 +63,7 @@ func TestLinkWireFormatIsTheEdges(t *testing.T) {
 	if got := SignFrame(edge, f); got != frameSig {
 		t.Errorf("the frame signs as %s", got)
 	}
-	if err := VerifyFrame(Public(edge), f, frameSig); err != nil {
+	if err := VerifyFrame(store.Public(edge), f, frameSig); err != nil {
 		t.Errorf("the edge's pinned frame: %v", err)
 	}
 }
@@ -75,24 +77,24 @@ func TestVerifyLinkRefusesAnotherKeyOrNonce(t *testing.T) {
 		yn[i], en[i] = byte(i), byte(100+i)
 	}
 	sig := SignLink(edge, yn, en)
-	if err := VerifyLink(Public(edge), yn, en, sig); err != nil {
+	if err := VerifyLink(store.Public(edge), yn, en, sig); err != nil {
 		t.Fatalf("the challenge as signed: %v", err)
 	}
-	if VerifyLink(Public(other), yn, en, sig) == nil {
+	if VerifyLink(store.Public(other), yn, en, sig) == nil {
 		t.Error("verifies for another key")
 	}
-	if VerifyLink(Public(edge), yn, en, SignLink(other, yn, en)) == nil {
+	if VerifyLink(store.Public(edge), yn, en, SignLink(other, yn, en)) == nil {
 		t.Error("another key's signature verifies as the edge's")
 	}
-	if VerifyLink(Public(edge), en, yn, sig) == nil {
+	if VerifyLink(store.Public(edge), en, yn, sig) == nil {
 		t.Error("verifies with the nonces swapped")
 	}
 	yn2 := append([]byte(nil), yn...)
 	yn2[0] ^= 1
-	if VerifyLink(Public(edge), yn2, en, sig) == nil {
+	if VerifyLink(store.Public(edge), yn2, en, sig) == nil {
 		t.Error("verifies over another yard nonce")
 	}
-	if VerifyLink(Public(edge), yn[:16], en, SignLink(edge, yn[:16], en)) == nil {
+	if VerifyLink(store.Public(edge), yn[:16], en, SignLink(edge, yn[:16], en)) == nil {
 		t.Error("a short nonce verifies")
 	}
 }
@@ -106,18 +108,18 @@ func TestLinkAndRequestSignaturesDoNotCross(t *testing.T) {
 		yn[i], en[i] = byte(i), byte(100+i)
 	}
 	at := time.Unix(1792486800, 0)
-	ts, reqSig := SignRequest(yard, Public(edge), "GET", "/edge/link", at, nil)
-	if VerifyLink(Public(yard), yn, en, reqSig) == nil {
+	ts, reqSig := SignRequest(yard, store.Public(edge), "GET", "/edge/link", at, nil)
+	if VerifyLink(store.Public(yard), yn, en, reqSig) == nil {
 		t.Error("a request's signature verifies as a link's")
 	}
 	linkSig := SignLink(yard, yn, en)
-	if VerifyRequest(Public(yard), Public(edge), "GET", "/edge/link", ts, linkSig, nil, at) == nil {
+	if VerifyRequest(store.Public(yard), store.Public(edge), "GET", "/edge/link", ts, linkSig, nil, at) == nil {
 		t.Error("a link's signature verifies as a request's")
 	}
 	// Nor a frame's as either: its label is its own.
 	f := Frame{Session: Session(yn, en), Seq: 1, ID: "r-1", Method: "GET", Path: "/edge/link", Header: map[string][]string{}, Received: "2026-10-20T09:14:03Z"}
 	frameSig := SignFrame(yard, f)
-	if VerifyLink(Public(yard), yn, en, frameSig) == nil || VerifyRequest(Public(yard), Public(edge), "GET", "/edge/link", ts, frameSig, nil, at) == nil {
+	if VerifyLink(store.Public(yard), yn, en, frameSig) == nil || VerifyRequest(store.Public(yard), store.Public(edge), "GET", "/edge/link", ts, frameSig, nil, at) == nil {
 		t.Error("a frame's signature verifies as a link's or a request's")
 	}
 }
@@ -130,7 +132,7 @@ func TestVerifyFrameCoversEveryField(t *testing.T) {
 		Header: map[string][]string{"X-Hub-Signature-256": {"sha256=abc"}, "X-Github-Delivery": {"d-1"}},
 		Body:   []byte("{}"), Received: "2026-10-20T09:14:03Z"}
 	sig := SignFrame(edge, base)
-	if err := VerifyFrame(Public(edge), base, sig); err != nil {
+	if err := VerifyFrame(store.Public(edge), base, sig); err != nil {
 		t.Fatalf("the frame as signed: %v", err)
 	}
 	for name, change := range map[string]func(*Frame){
@@ -151,7 +153,7 @@ func TestVerifyFrameCoversEveryField(t *testing.T) {
 	} {
 		f := base
 		change(&f)
-		if VerifyFrame(Public(edge), f, sig) == nil {
+		if VerifyFrame(store.Public(edge), f, sig) == nil {
 			t.Errorf("a frame whose %s changed after signing verifies", name)
 		}
 	}
@@ -191,7 +193,7 @@ func TestVerifyFrameRefusesWhatCouldSignAsAnother(t *testing.T) {
 		"header value": func() Frame { f := base; f.Header = map[string][]string{"A": {"b\nc:d"}}; return f }(),
 		"header name":  func() Frame { f := base; f.Header = map[string][]string{"A:b": {"c"}}; return f }(),
 	} {
-		if VerifyFrame(Public(edge), f, SignFrame(edge, f)) == nil {
+		if VerifyFrame(store.Public(edge), f, SignFrame(edge, f)) == nil {
 			t.Errorf("a %s with a break verifies", name)
 		}
 	}
@@ -215,7 +217,7 @@ func TestVerifyFrameRefusesHeaderNamesThatDifferOnlyInCase(t *testing.T) {
 	if HeaderDigest(changed.Header) != HeaderDigest(base.Header) {
 		t.Fatal("the case split should preserve the current header digest")
 	}
-	if err := VerifyFrame(Public(edge), changed, sig); err == nil {
+	if err := VerifyFrame(store.Public(edge), changed, sig); err == nil {
 		t.Fatal("a header split across case-insensitive names verified")
 	}
 }

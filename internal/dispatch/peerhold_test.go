@@ -27,7 +27,7 @@ type asked struct {
 // wait, as y's daemon asks; the answer comes on the channel.
 func (y *peerYard) ask(t *testing.T, ctx context.Context, peer string, clock *peerClock, wait time.Duration) <-chan asked {
 	t.Helper()
-	key, err := yardkey.Load(y.d.PeerKey)
+	key, err := store.Load(y.d.PeerKey)
 	must(t, err)
 	p, err := y.api.GetPeer(ctx, peer)
 	must(t, err)
@@ -97,13 +97,13 @@ func untilQuiet(t *testing.T, y *peerYard) {
 // so the asker takes it. It counts the questions it hears.
 func oldPeer(t *testing.T, a *peerYard) (*httptest.Server, *atomic.Int64) {
 	t.Helper()
-	key, err := yardkey.Load(a.d.PeerKey)
+	key, err := store.Load(a.d.PeerKey)
 	must(t, err)
 	asked := &atomic.Int64{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		asked.Add(1)
 		answer := []byte(`{"messages":[]}`)
-		w.Header().Set(yardkey.HeaderSig, yardkey.SignResponse(key, http.StatusOK, r.Header.Get(yardkey.HeaderSig), answer))
+		w.Header().Set(yardkey.HeaderSig, store.SignResponse(key, http.StatusOK, r.Header.Get(yardkey.HeaderSig), answer))
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(answer)
 	}))

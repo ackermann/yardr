@@ -1,20 +1,15 @@
-package pairing
+package store
 
 import (
 	"strings"
 	"testing"
 	"time"
-
-	"yardr.dev/yardr/internal/yardkey"
 )
 
-func party(t *testing.T, name, url string) Party {
+func pairParty(t *testing.T, name, url string) Party {
 	t.Helper()
-	k, _, err := yardkey.Ensure(t.TempDir() + "/peer.key")
-	if err != nil {
-		t.Fatal(err)
-	}
-	return Party{Nonce: NewNonce(), Name: name, Key: yardkey.Public(k), URL: url}
+	k := newKey(t)
+	return Party{Nonce: NewNonce(), Name: name, Key: Public(k), URL: url}
 }
 
 // A code is eight characters of an alphabet without look-alikes, and is
@@ -58,16 +53,16 @@ func TestCode(t *testing.T) {
 func TestExchange(t *testing.T) {
 	defer func(n int) { Stretch = n }(Stretch)
 	Stretch = 10
-	joiner, host := party(t, "laptop", ""), party(t, "north", "http://10.0.0.5:8790")
+	joiner, host := pairParty(t, "laptop", ""), pairParty(t, "north", "http://10.0.0.5:8790")
 	code, _ := CleanCode(NewCode())
 
-	jk := Key(code, Commit(joiner))
+	jk := PairingKey(code, Commit(joiner))
 	hello := NewHello(jk, joiner)
-	hk := Key(code, hello.Commit)
+	hk := PairingKey(code, hello.Commit)
 	if knows, err := hello.Check(hk); err != nil || !knows {
 		t.Fatalf("hello: %v, %v", knows, err)
 	}
-	offer := NewOffer(hk, hello.Commit, host)
+	offer := NewPairingOffer(hk, hello.Commit, host)
 	if knows, err := offer.Check(jk, hello.Commit); err != nil || !knows {
 		t.Fatalf("offer: %v, %v", knows, err)
 	}
@@ -87,7 +82,7 @@ func TestExchange(t *testing.T) {
 	}
 
 	// Another code: each message is told apart, and none is an error.
-	other := Key("00000000", hello.Commit)
+	other := PairingKey("00000000", hello.Commit)
 	if knows, err := hello.Check(other); err != nil || knows {
 		t.Errorf("hello under another code: %v, %v", knows, err)
 	}
@@ -99,13 +94,13 @@ func TestExchange(t *testing.T) {
 	}
 	// The key is the commitment's too: the same code under another
 	// commitment makes another key.
-	if string(Key(code, Commit(party(t, "laptop", "")))) == string(jk) {
+	if string(PairingKey(code, Commit(pairParty(t, "laptop", "")))) == string(jk) {
 		t.Error("one key for two commitments")
 	}
 
 	// A joiner that reveals another key than it committed to.
 	swapped := mine
-	swapped.Joiner.Key = party(t, "x", "").Key
+	swapped.Joiner.Key = pairParty(t, "x", "").Key
 	if _, knows, err := NewReveal(jk, swapped).Check(hk, host); err == nil || !knows {
 		t.Errorf("a reveal of another key = %v, %v; want an error from one who knows the code", knows, err)
 	}
@@ -128,9 +123,9 @@ func TestExchange(t *testing.T) {
 	// What is no message is an error, whoever sent it.
 	for name, err := range map[string]error{
 		"hello without a commitment": second(Hello{MAC: hello.MAC}.Check(hk)),
-		"offer without a URL":        second(NewOffer(hk, hello.Commit, Party{Nonce: host.Nonce, Name: host.Name, Key: host.Key}).Check(jk, hello.Commit)),
-		"offer with a bad name":      second(NewOffer(hk, hello.Commit, Party{Nonce: host.Nonce, Name: "a\nb", Key: host.Key, URL: host.URL}).Check(jk, hello.Commit)),
-		"offer with a short nonce":   second(NewOffer(hk, hello.Commit, Party{Nonce: "AAAA", Name: host.Name, Key: host.Key, URL: host.URL}).Check(jk, hello.Commit)),
+		"offer without a URL":        second(NewPairingOffer(hk, hello.Commit, Party{Nonce: host.Nonce, Name: host.Name, Key: host.Key}).Check(jk, hello.Commit)),
+		"offer with a bad name":      second(NewPairingOffer(hk, hello.Commit, Party{Nonce: host.Nonce, Name: "a\nb", Key: host.Key, URL: host.URL}).Check(jk, hello.Commit)),
+		"offer with a short nonce":   second(NewPairingOffer(hk, hello.Commit, Party{Nonce: "AAAA", Name: host.Name, Key: host.Key, URL: host.URL}).Check(jk, hello.Commit)),
 	} {
 		if err == nil {
 			t.Errorf("%s: no error", name)
@@ -147,7 +142,7 @@ func TestKeyIsStretched(t *testing.T) {
 		t.Fatalf("Stretch = %d", Stretch)
 	}
 	start := time.Now()
-	Key("K7QM2XPD", NewNonce())
+	PairingKey("K7QM2XPD", NewNonce())
 	if d := time.Since(start); d < 5*time.Millisecond {
 		t.Fatalf("a key took %s", d)
 	}

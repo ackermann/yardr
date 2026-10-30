@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
-
-	"yardr.dev/yardr/internal/yardkey"
 )
 
 // A yard takes PeerEventLimit bead events from one peer within an hour,
@@ -27,11 +25,8 @@ func TestPeerEventLimit(t *testing.T) {
 	}
 	defer s.Close(context.Background())
 	ctx := context.Background()
-	k, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "north.key"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.AddPeer(ctx, Peer{Name: "north", Key: yardkey.Public(k)}, "jo"); err != nil {
+	k := newKey(t)
+	if _, err := s.AddPeer(ctx, Peer{Name: "north", Key: Public(k)}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.AllowPeer(ctx, "north", PeerAllow{Receive: []string{PeerThread}}, "jo"); err != nil {
@@ -42,7 +37,7 @@ func TestPeerEventLimit(t *testing.T) {
 		t.Helper()
 		n++
 		body, _ := json.Marshal(PeerEventMessage{V: 1, Bead: "web-0wzb", Event: PeerEventHeld, Stage: "build", Held: true, At: at})
-		got, err := s.PeerReceive(ctx, "north", yardkey.Public(k), []PeerMessage{{ID: fmt.Sprintf("e%d", n), Kind: PeerBeadEvent, Re: "nope", Body: body}})
+		got, err := s.PeerReceive(ctx, "north", Public(k), []PeerMessage{{ID: fmt.Sprintf("e%d", n), Kind: PeerBeadEvent, Re: "nope", Body: body}})
 		if err != nil {
 			t.Fatal(err)
 		}

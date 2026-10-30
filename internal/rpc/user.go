@@ -22,7 +22,6 @@ import (
 
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/eta"
-	"yardr.dev/yardr/internal/pairing"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -810,16 +809,16 @@ func (u *UserServer) pair(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		d, err = u.redeem(r, asked.Code)
 	}
-	var no *pairing.Refused
+	var no *store.Refused
 	switch {
-	case errors.As(err, &no) && no.Reason == pairing.NoPairing:
+	case errors.As(err, &no) && no.Reason == store.NoPairing:
 		// It ended between the look and the call: the path is gone.
 		http.NotFound(w, r)
 		return
 	case errors.As(err, &no):
 		u.log.Warn("a device's pairing call refused", "reason", no.Reason)
 		status := http.StatusConflict
-		if no.Reason == pairing.WrongCode {
+		if no.Reason == store.WrongCode {
 			status = http.StatusForbidden
 		}
 		w.Header().Set("Content-Type", "application/json")

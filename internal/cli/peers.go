@@ -85,8 +85,8 @@ every time.`,
 			if err != nil {
 				return err
 			}
-			return a.out(c.OutOrStdout(), map[string]any{"key": yardkey.Public(k), "file": cfg.PeerKey(), "made": made}, func(w io.Writer) {
-				fmt.Fprintln(w, yardkey.Public(k))
+			return a.out(c.OutOrStdout(), map[string]any{"key": store.Public(k), "file": cfg.PeerKey(), "made": made}, func(w io.Writer) {
+				fmt.Fprintln(w, store.Public(k))
 			})
 		},
 	}
@@ -139,7 +139,7 @@ yardr peer allow says what. A name or key that is a peer already is refused:
 remove the peer first to replace it.`,
 		RunE: func(c *cobra.Command, args []string) error {
 			ctx := c.Context()
-			inv, err := yardkey.ParseInvite(args[1])
+			inv, err := store.ParseInvite(args[1])
 			if err != nil {
 				return err
 			}
@@ -1302,25 +1302,25 @@ func sendWarnings(p store.Peer, kinds []string) []string {
 
 // invite is this yard's invite: its name, its public key (made now if it
 // has none) and url, where it can be reached, when given.
-func invite(ctx context.Context, cfg *config.Config, st store.API, url string) (yardkey.Invite, error) {
+func invite(ctx context.Context, cfg *config.Config, st store.API, url string) (store.Invite, error) {
 	k, _, err := yardkey.Ensure(cfg.PeerKey())
 	if err != nil {
-		return yardkey.Invite{}, err
+		return store.Invite{}, err
 	}
 	all, err := st.Settings(ctx)
 	if err != nil {
-		return yardkey.Invite{}, err
+		return store.Invite{}, err
 	}
-	inv := yardkey.Invite{Name: runner.YardName(cfg.Home, all), Key: yardkey.Public(k)}
+	inv := store.Invite{Name: runner.YardName(cfg.Home, all), Key: store.Public(k)}
 	if url != "" {
-		if inv.URL, err = yardkey.CleanURL(url); err != nil {
-			return yardkey.Invite{}, fmt.Errorf("--url: %w", err)
+		if inv.URL, err = store.CleanURL(url); err != nil {
+			return store.Invite{}, fmt.Errorf("--url: %w", err)
 		}
 	}
 	// Read back as the other side will read it: a yard name the invite
 	// cannot carry is said here, not there.
-	if _, err := yardkey.ParseInvite(inv.String()); err != nil {
-		return yardkey.Invite{}, fmt.Errorf("%w; give the yard a name an invite can carry: %s settings set name <name>", err, yardrAt(cfg.Home))
+	if _, err := store.ParseInvite(inv.String()); err != nil {
+		return store.Invite{}, fmt.Errorf("%w; give the yard a name an invite can carry: %s settings set name <name>", err, yardrAt(cfg.Home))
 	}
 	return inv, nil
 }
@@ -1355,7 +1355,7 @@ func (a *app) ping(ctx context.Context, cfg *config.Config, st store.API, name s
 	if err != nil {
 		return nil, err
 	}
-	if _, err := yardkey.Load(cfg.PeerKey()); errors.Is(err, fs.ErrNotExist) {
+	if _, err := store.Load(cfg.PeerKey()); errors.Is(err, fs.ErrNotExist) {
 		return nil, fmt.Errorf("this yard has no key, so it can sign nothing: %s peer key", yardrAt(cfg.Home))
 	}
 	// From before the ping is queued, so a pong that is quick is not missed.
@@ -1551,7 +1551,7 @@ func peerPart(ctx context.Context, cfg *config.Config, st store.API) (optionalPa
 		return part, err
 	}
 	part.Notes = append(part.Notes, landings...)
-	if _, err := yardkey.Load(cfg.PeerKey()); errors.Is(err, fs.ErrNotExist) {
+	if _, err := store.Load(cfg.PeerKey()); errors.Is(err, fs.ErrNotExist) {
 		part.Notes = append(part.Notes, fmt.Sprintf("this yard has no key, so it signs nothing and its peers cannot know it: %s peer key", yardr))
 	} else if err != nil {
 		part.Notes = append(part.Notes, "this yard's key cannot be used, so nothing is sent to or taken from its peers: "+err.Error())

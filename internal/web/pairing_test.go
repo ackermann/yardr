@@ -17,7 +17,6 @@ import (
 
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/web"
-	"yardr.dev/yardr/internal/yardkey"
 )
 
 // pairingYard serves a yard in JWT mode where ada and bob are signed in,
@@ -38,7 +37,7 @@ func pairingYard(t *testing.T) (f *fixture, ada, bob string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	edge := store.Edge{URL: "https://my.yardr.dev", Key: yardkey.Public(key), Handle: "mckean", Name: "edgeyard"}
+	edge := store.Edge{URL: "https://my.yardr.dev", Key: store.Public(key), Handle: "mckean", Name: "edgeyard"}
 	if err := f.st.SetSetting(ctx, store.EdgeSetting, edge.String(), "me"); err != nil {
 		t.Fatal(err)
 	}
@@ -194,7 +193,7 @@ func TestPairingPageOpensShowsAndEnds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	edge := store.Edge{URL: "https://my.yardr.dev", Key: yardkey.Public(key), Handle: "mckean"}
+	edge := store.Edge{URL: "https://my.yardr.dev", Key: store.Public(key), Handle: "mckean"}
 	if err := f.st.SetSetting(ctx, store.EdgeSetting, edge.String(), "me"); err != nil {
 		t.Fatal(err)
 	}

@@ -867,7 +867,7 @@ func TestUserSettingsTellsADeviceThePromisedSettingsAlone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	set(store.EdgeSetting, store.Edge{URL: "https://edge.example.com", Key: yardkey.Public(key), Handle: "south"}.String())
+	set(store.EdgeSetting, store.Edge{URL: "https://edge.example.com", Key: store.Public(key), Handle: "south"}.String())
 
 	told := map[string]string{store.OperatorSetting: "jo", store.FilesMaxSetting: files, store.BlobMaxSetting: "16777216"}
 	check("set", "sam's device", settings(tablet.Token), told)

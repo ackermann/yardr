@@ -41,7 +41,7 @@ func linkedTo(t *testing.T, a *app, name string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.st.AddPeer(context.Background(), store.Peer{Name: name, Key: yardkey.Public(k)}, "me"); err != nil {
+	if _, err := a.st.AddPeer(context.Background(), store.Peer{Name: name, Key: store.Public(k)}, "me"); err != nil {
 		t.Fatal(err)
 	}
 }

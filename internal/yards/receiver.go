@@ -211,7 +211,7 @@ func (rc *Receiver) verify(w http.ResponseWriter, r *http.Request) (*from, bool)
 	}
 	// Without a key of its own the yard can sign no answer, and has given
 	// no one a key to add it by.
-	key, err := yardkey.Load(rc.key)
+	key, err := store.Load(rc.key)
 	if err != nil {
 		return unauthorized("", "no_key", err)
 	}
@@ -222,7 +222,7 @@ func (rc *Receiver) verify(w http.ResponseWriter, r *http.Request) (*from, bool)
 		return nil, false
 	}
 	sig := r.Header.Get(yardkey.HeaderSig)
-	err = yardkey.VerifyRequest(p.Key, yardkey.Public(key), r.Method, r.URL.RequestURI(), r.Header.Get(yardkey.HeaderTime), sig, body, rc.now())
+	err = yardkey.VerifyRequest(p.Key, store.Public(key), r.Method, r.URL.RequestURI(), r.Header.Get(yardkey.HeaderTime), sig, body, rc.now())
 	if err != nil {
 		return unauthorized(p.Name, "unauthorized", err)
 	}
@@ -574,7 +574,7 @@ func (rc *Receiver) answer(w http.ResponseWriter, f *from, code int, v any) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set(yardkey.HeaderSig, yardkey.SignResponse(f.key, code, f.sig, body))
+	w.Header().Set(yardkey.HeaderSig, store.SignResponse(f.key, code, f.sig, body))
 	w.WriteHeader(code)
 	_, _ = w.Write(body)
 }

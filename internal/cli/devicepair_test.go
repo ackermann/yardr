@@ -17,12 +17,10 @@ import (
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/edgelink"
 	"yardr.dev/yardr/internal/hooks"
-	"yardr.dev/yardr/internal/pairing"
 	"yardr.dev/yardr/internal/rpc"
 	"yardr.dev/yardr/internal/standin"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
-	"yardr.dev/yardr/internal/yardkey"
 )
 
 // devicePairYard is userYard with a listener that serves the devices of its
@@ -108,7 +106,7 @@ func TestDevicePairCommand(t *testing.T) {
 	out = mustAs(t, st, "jo", "user", "device", "pair", "ada", "laptop", "--url", "https://mac.example.net/", "--qr", "--json")
 	if err := json.Unmarshal([]byte(out), &opened); err != nil || opened.User != "ada" || opened.Device != "laptop" || opened.Pairing == "" ||
 		opened.Address != "https://mac.example.net" || opened.Yard != "" || opened.QR != "https://mac.example.net#"+opened.Code ||
-		time.Until(opened.Expires) > pairing.TTL || time.Until(opened.Expires) < pairing.TTL-time.Minute || strings.Contains(out, "█") {
+		time.Until(opened.Expires) > store.TTL || time.Until(opened.Expires) < store.TTL-time.Minute || strings.Contains(out, "█") {
 		t.Fatalf("device pair --json: %+v, %v\n%s", opened, err, out)
 	}
 	if out := mustAs(t, st, "jo", "user", "device", "pair", "--end"); out != "the pairing for the device laptop of ada is ended: its code is good for nothing\n" {
@@ -223,7 +221,7 @@ func TestDevicePairOverTheLinkWithNoListener(t *testing.T) {
 	refusedAs(t, st, "jo", "this yard has no listener, so no device can call it with a code: ", "user", "device", "pair", "jo", "phone")
 
 	sayLink(t, cfg, edgelink.State{URL: srv.URL, Handle: "mckean", Up: true, Since: time.Now(), Ups: 1})
-	yard, err := yardkey.Load(cfg.PeerKey())
+	yard, err := store.Load(cfg.PeerKey())
 	if err != nil {
 		t.Fatal(err)
 	}

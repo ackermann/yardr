@@ -7,8 +7,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-
-	"yardr.dev/yardr/internal/yardkey"
 )
 
 // runYard is an ask yard whose operator is mckean, with the crew member
@@ -20,11 +18,8 @@ func runYard(t *testing.T) (*askYard, string) {
 	if err := y.SetSetting(y.ctx, OperatorSetting, "mckean", "mckean"); err != nil {
 		t.Fatal(err)
 	}
-	k, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "airy.key"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	key := yardkey.Public(k)
+	k := newKey(t)
+	key := Public(k)
 	if _, err := y.AddPeer(y.ctx, Peer{Name: "airy", Key: key, Calls: "yardr"}, "mckean"); err != nil {
 		t.Fatal(err)
 	}
@@ -1204,11 +1199,8 @@ func TestRunAskPeerRm(t *testing.T) {
 	if err := y.DeletePeer(y.ctx, "airy", "mckean"); err != nil {
 		t.Fatal(err)
 	}
-	k, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "airy-again.key"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := y.AddPeer(y.ctx, Peer{Name: "airy", Key: yardkey.Public(k), Calls: "yardr"}, "mckean"); err != nil {
+	k := newKey(t)
+	if _, err := y.AddPeer(y.ctx, Peer{Name: "airy", Key: Public(k), Calls: "yardr"}, "mckean"); err != nil {
 		t.Fatal(err)
 	}
 	y.refusedStale(t, seq, "was written when the link with airy was another: it was removed and made again since")
@@ -1233,20 +1225,14 @@ func TestRunAskPeerAdd(t *testing.T) {
 	y, airyKey := runYard(t)
 	mkkey := func(name string) string {
 		t.Helper()
-		k, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), name+".key"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		return yardkey.Public(k)
+		k := newKey(t)
+		return Public(k)
 	}
 	southKeyPath := filepath.Join(t.TempDir(), "south.key")
-	southKey, _, err := yardkey.Ensure(southKeyPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	key, bare := yardkey.Public(southKey), mkkey("far")
+	southKey := newKeyFile(t, southKeyPath)
+	key, bare := Public(southKey), mkkey("far")
 	y.SetYard(southKeyPath, "test")
-	ownInvite := yardkey.Invite{Name: "this-yard", Key: key}.String()
+	ownInvite := Invite{Name: "this-yard", Key: key}.String()
 	if _, err := y.AddAsk(y.ctx, y.bead, runAsk("peer add self "+ownInvite), "yardmaster"); !errors.Is(err, errOwnPeerInvite) {
 		t.Fatalf("asking to add this yard's invite = %v", err)
 	}
@@ -1255,7 +1241,7 @@ func TestRunAskPeerAdd(t *testing.T) {
 	}
 	y.SetYard("", "test")
 	inviteURL := "https://[2001:db8::7]:8790/peer%2Fv1;flow=green"
-	invite := yardkey.Invite{Name: "south-yard", Key: key, URL: inviteURL}.String()
+	invite := Invite{Name: "south-yard", Key: key, URL: inviteURL}.String()
 
 	seq := y.ask(t, runAsk("peer add north "+invite), "yardmaster")
 	r := y.asked(t, seq)
@@ -1342,7 +1328,7 @@ func TestRunAskPeerAdd(t *testing.T) {
 
 	// Without a URL the yard is never called: the card says so, and the
 	// approval links it with none.
-	seq = y.ask(t, runAsk("peer add south "+yardkey.Invite{Name: "far-yard", Key: bare}.String()), "yardmaster")
+	seq = y.ask(t, runAsk("peer add south "+Invite{Name: "far-yard", Key: bare}.String()), "yardmaster")
 	run = *y.asked(t, seq).Ask.Run
 	if want := "links the yard far-yard as the peer south with the key " + bare + ", never called: it calls this one and asks for what waits here."; run.Does[0] != want {
 		t.Fatalf("the card without a URL says %q, want %q", run.Does[0], want)
@@ -1355,7 +1341,7 @@ func TestRunAskPeerAdd(t *testing.T) {
 	}
 
 	// Asking refuses what the command would refuse, with nothing stored.
-	airyInvite := yardkey.Invite{Name: "yardr", Key: airyKey}.String()
+	airyInvite := Invite{Name: "yardr", Key: airyKey}.String()
 	for _, c := range []struct{ command, want string }{
 		{"peer add north abc", `"abc" is no invite: want the line yardr peer invite prints (yardr-peer-1,<name>,<key>[,<url>])`},
 		{"peer add north " + invite, "peer north is added already; to replace it, remove it first (its waiting messages go with it)"},
@@ -1370,7 +1356,7 @@ func TestRunAskPeerAdd(t *testing.T) {
 	// A peer added under the name since makes the card stale, and nothing
 	// runs.
 	westKey := mkkey("west")
-	westInvite := yardkey.Invite{Name: "west-yard", Key: westKey}.String()
+	westInvite := Invite{Name: "west-yard", Key: westKey}.String()
 	seq = y.ask(t, runAsk("peer add west "+westInvite), "yardmaster")
 	if _, err := y.AddPeer(y.ctx, Peer{Name: "west", Key: westKey}, "mckean"); err != nil {
 		t.Fatal(err)
@@ -1529,11 +1515,8 @@ func TestRunAskPeerSet(t *testing.T) {
 	if err := y.DeletePeer(y.ctx, "airy", "mckean"); err != nil {
 		t.Fatal(err)
 	}
-	k, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "airy-again.key"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := y.AddPeer(y.ctx, Peer{Name: "airy", Key: yardkey.Public(k), URL: "https://airy.example.com", Calls: "yardr"}, "mckean"); err != nil {
+	k := newKey(t)
+	if _, err := y.AddPeer(y.ctx, Peer{Name: "airy", Key: Public(k), URL: "https://airy.example.com", Calls: "yardr"}, "mckean"); err != nil {
 		t.Fatal(err)
 	}
 	y.refusedStale(t, seq, "was written when the link with airy was another: it was removed and made again since")

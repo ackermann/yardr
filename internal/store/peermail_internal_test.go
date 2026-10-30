@@ -10,8 +10,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"yardr.dev/yardr/internal/yardkey"
 )
 
 // A yard takes PeerMailLimit mails from one peer within an hour, counted
@@ -29,11 +27,8 @@ func TestPeerMailLimit(t *testing.T) {
 	}
 	defer s.Close(context.Background())
 	ctx := context.Background()
-	k, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "north.key"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.AddPeer(ctx, Peer{Name: "north", Key: yardkey.Public(k)}, "jo"); err != nil {
+	k := newKey(t)
+	if _, err := s.AddPeer(ctx, Peer{Name: "north", Key: Public(k)}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.PutCrew(ctx, CrewMember{Name: "yardmaster", Runner: "herdr"}, "jo"); err != nil {
@@ -47,7 +42,7 @@ func TestPeerMailLimit(t *testing.T) {
 		t.Helper()
 		n++
 		body, _ := json.Marshal(peerMail{To: to, From: "yardmaster", Text: "hi"})
-		got, err := s.PeerReceive(ctx, "north", yardkey.Public(k), []PeerMessage{{ID: fmt.Sprintf("m%d", n), Kind: PeerMail, Body: body}})
+		got, err := s.PeerReceive(ctx, "north", Public(k), []PeerMessage{{ID: fmt.Sprintf("m%d", n), Kind: PeerMail, Body: body}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -126,11 +121,8 @@ func TestPeerMailLimitIsToldAndSet(t *testing.T) {
 	}
 	defer s.Close(context.Background())
 	ctx := context.Background()
-	k, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "airy.key"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.AddPeer(ctx, Peer{Name: "airy", Key: yardkey.Public(k)}, "jo"); err != nil {
+	k := newKey(t)
+	if _, err := s.AddPeer(ctx, Peer{Name: "airy", Key: Public(k)}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"yardmaster", "hidden"} {
@@ -149,7 +141,7 @@ func TestPeerMailLimitIsToldAndSet(t *testing.T) {
 		t.Helper()
 		n++
 		body, _ := json.Marshal(peerMail{To: to, From: "mckean", Text: text})
-		got, err := s.PeerReceive(ctx, "airy", yardkey.Public(k), []PeerMessage{{ID: fmt.Sprintf("m%d", n), Kind: PeerMail, Body: body}})
+		got, err := s.PeerReceive(ctx, "airy", Public(k), []PeerMessage{{ID: fmt.Sprintf("m%d", n), Kind: PeerMail, Body: body}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -209,7 +201,7 @@ func TestPeerMailLimitIsToldAndSet(t *testing.T) {
 		t.Fatalf("%d lines for names the link does not expose", got)
 	}
 	// A body that is no mail, or names a sender that is none, fills no inbox.
-	if got, err := s.PeerReceive(ctx, "airy", yardkey.Public(k), []PeerMessage{{ID: "x1", Kind: PeerMail, Body: json.RawMessage(`"no mail"`)}}); err != nil || got[0].Refused != RefusedRate {
+	if got, err := s.PeerReceive(ctx, "airy", Public(k), []PeerMessage{{ID: "x1", Kind: PeerMail, Body: json.RawMessage(`"no mail"`)}}); err != nil || got[0].Refused != RefusedRate {
 		t.Fatalf("no mail over the limit = %+v, %v", got, err)
 	}
 	if got := len(told("yardmaster")) + len(told("ada")); got != 2 {
@@ -271,7 +263,7 @@ func TestPeerMailLimitIsToldAndSet(t *testing.T) {
 		data := []byte("\x89PNG\r\n\x1a\n" + fmt.Sprintf("picture %d", i))
 		sum := sha256.Sum256(data)
 		body, _ := json.Marshal(peerFile{BlobRef: BlobRef{Hash: hex.EncodeToString(sum[:]), Type: "image/png", Bytes: int64(len(data))}, Data: data})
-		got, err := s.PeerReceive(ctx, "airy", yardkey.Public(k), []PeerMessage{{ID: fmt.Sprintf("f%d", i), Kind: PeerFile, Body: body}})
+		got, err := s.PeerReceive(ctx, "airy", Public(k), []PeerMessage{{ID: fmt.Sprintf("f%d", i), Kind: PeerFile, Body: body}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -304,10 +296,7 @@ func mailLinked(t *testing.T) (a, b *linked, key map[string][]byte) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { s.Close(context.Background()) })
-		k, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), name+".key"))
-		if err != nil {
-			t.Fatal(err)
-		}
+		k := newKey(t)
 		key[name] = k
 		if err := s.SetSetting(ctx, OperatorSetting, "jo", "jo"); err != nil {
 			t.Fatal(err)
@@ -315,7 +304,7 @@ func mailLinked(t *testing.T) (a, b *linked, key map[string][]byte) {
 		if _, err := s.AddUser(ctx, "mckean", "jo"); err != nil {
 			t.Fatal(err)
 		}
-		return &linked{Store: s, name: name, key: yardkey.Public(k)}
+		return &linked{Store: s, name: name, key: Public(k)}
 	}
 	a, b = open("a"), open("b")
 	for _, l := range [][2]*linked{{a, b}, {b, a}} {
@@ -443,7 +432,7 @@ func TestPeerMailLimitReachesSenderByPull(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	res, err := b.PeerPulled(ctx, "a", PeerBatch{RequestSig: "req-1", Signature: yardkey.SignResponse(key["a"], 200, "req-1", body), Body: body})
+	res, err := b.PeerPulled(ctx, "a", PeerBatch{RequestSig: "req-1", Signature: SignResponse(key["a"], 200, "req-1", body), Body: body})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -488,11 +477,8 @@ func TestPeerRefusedReadsABareReason(t *testing.T) {
 	}
 	defer s.Close(context.Background())
 	ctx := context.Background()
-	k, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "north.key"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.AddPeer(ctx, Peer{Name: "north", Key: yardkey.Public(k)}, "jo"); err != nil {
+	k := newKey(t)
+	if _, err := s.AddPeer(ctx, Peer{Name: "north", Key: Public(k)}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	err = s.write(func(w *wtx) error {
@@ -526,7 +512,7 @@ func TestPeerRefusedReadsABareReason(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.PeerPulled(ctx, "north", PeerBatch{RequestSig: "req-1", Signature: yardkey.SignResponse(k, 200, "req-1", body), Body: body, Told: []uint64{4}}); err != nil {
+	if _, err := s.PeerPulled(ctx, "north", PeerBatch{RequestSig: "req-1", Signature: SignResponse(k, 200, "req-1", body), Body: body, Told: []uint64{4}}); err != nil {
 		t.Fatal(err)
 	}
 	if p, err := s.GetPeer(ctx, "north"); err != nil || len(p.Refused) != 0 {

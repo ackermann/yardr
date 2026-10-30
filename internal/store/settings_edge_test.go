@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"yardr.dev/yardr/internal/store"
-	"yardr.dev/yardr/internal/yardkey"
 )
 
 func edgeKey(t *testing.T) string {
@@ -16,7 +15,7 @@ func edgeKey(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return yardkey.Public(key)
+	return store.Public(key)
 }
 
 // The edge's address is its origin: https, or http to this machine alone for

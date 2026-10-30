@@ -65,7 +65,7 @@ func TestYardsSayWhatTheyUnderstand(t *testing.T) {
 		if err := json.Unmarshal(body, &answer); err != nil || answer.Says == nil || !reflect.DeepEqual(answer.Says.Understands, store.PeerKinds) {
 			t.Errorf("%s: b answered %d %s, which does not say what it understands", name, resp.StatusCode, body)
 		}
-		if err := yardkey.VerifyResponse(b.pub(), resp.StatusCode, r.sig, resp.Header.Get(yardkey.HeaderSig), body); err != nil {
+		if err := store.VerifyResponse(b.pub(), resp.StatusCode, r.sig, resp.Header.Get(yardkey.HeaderSig), body); err != nil {
 			t.Errorf("%s: what b says is not under its signature: %v", name, err)
 		}
 	}
@@ -190,7 +190,7 @@ func oldYard(t *testing.T, y *yard, from *yard, page string) (*httptest.Server, 
 		} else if r.URL.Query().Get("after") == "" {
 			t.Errorf("a question without after: %s", r.URL.RequestURI())
 		}
-		w.Header().Set(yardkey.HeaderSig, yardkey.SignResponse(y.key, http.StatusOK, sig, answer))
+		w.Header().Set(yardkey.HeaderSig, store.SignResponse(y.key, http.StatusOK, sig, answer))
 		_, _ = w.Write(answer)
 	}))
 	t.Cleanup(srv.Close)

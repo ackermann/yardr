@@ -36,10 +36,12 @@ const (
 // leafPkgs is every internal package that imports no internal package:
 // the page's leaves layer, measured at f75abf88 minus shared and udiff,
 // which yardr-g1sf folded into store, and minus agents, which yardr-8nca
-// made import store for the harness types. A leaf that gains an internal
-// import fails rule (b) below; a rename updates this list with it.
+// made import store for the harness types, and plus pairing, which
+// yardr-rxk9 left with the pairing paths alone. A leaf that gains an
+// internal import fails rule (b) below; a rename updates this list with it.
 var leafPkgs = []string{
 	peerPkg,
+	internalPrefix + "pairing",
 	internalPrefix + "rpc/clientgen",
 	internalPrefix + "scripttest",
 	internalPrefix + "version",
@@ -55,15 +57,13 @@ type allowEdge struct {
 	removeBy string
 }
 
-// allowImportEdges is the store's 4 remaining internal imports, one row
-// each naming its package and the bead that cuts it. The store's fifth,
+// allowImportEdges is the store's 2 remaining internal imports, one row
+// each naming its package and the bead that cuts it. The store's third,
 // internal/peer, is rule (a)'s permanent exception, not a row. No leaf
 // or cli edge breaks a rule today, so the table holds no other row.
 var allowImportEdges = []allowEdge{
 	{storePkg, internalPrefix + "config", "yardr-t8m6"},
-	{storePkg, internalPrefix + "pairing", "yardr-rxk9"},
 	{storePkg, internalPrefix + "source", "yardr-j8vt"},
-	{storePkg, internalPrefix + "yardkey", "yardr-rxk9"},
 }
 
 // TestImportRules runs go list over the repository and checks every

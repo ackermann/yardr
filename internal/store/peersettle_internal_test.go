@@ -9,8 +9,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"yardr.dev/yardr/internal/yardkey"
 )
 
 // settles are the settles that wait for peer, each as "<settled> <bead>
@@ -452,18 +450,15 @@ func TestSettleForNoAskDropped(t *testing.T) {
 	}
 
 	// A foreign ask of another link is not this peer's to settle.
-	k, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "east.key"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := y.AddPeer(y.ctx, Peer{Name: "east", Key: yardkey.Public(k)}, "jo"); err != nil {
+	k := newKey(t)
+	if _, err := y.AddPeer(y.ctx, Peer{Name: "east", Key: Public(k)}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := y.AllowPeer(y.ctx, "east", PeerAllow{Receive: []string{PeerAsk}}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	y.foreign(t, "a2", linksAsk())
-	got, err := y.PeerReceive(y.ctx, "east", yardkey.Public(k), []PeerMessage{y.settle("a2", "yd-links", 3, SettledAnswered)})
+	got, err := y.PeerReceive(y.ctx, "east", Public(k), []PeerMessage{y.settle("a2", "yd-links", 3, SettledAnswered)})
 	if err != nil || got[0].Refused != "" {
 		t.Fatalf("east's settle = %+v, %v", got, err)
 	}
@@ -521,17 +516,14 @@ func pair(t *testing.T) (a, b *linked) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { s.Close(context.Background()) })
-		k, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), name+".key"))
-		if err != nil {
-			t.Fatal(err)
-		}
+		k := newKey(t)
 		if err := s.SetSetting(ctx, OperatorSetting, "jo", "jo"); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := s.AddUser(ctx, "mckean", "jo"); err != nil {
 			t.Fatal(err)
 		}
-		return &linked{Store: s, name: name, key: yardkey.Public(k)}
+		return &linked{Store: s, name: name, key: Public(k)}
 	}
 	a, b = open("a"), open("b")
 	for _, l := range [][2]*linked{{a, b}, {b, a}} {
@@ -606,17 +598,14 @@ func linkCopy(t *testing.T, a *linked, name string) *linked {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { s.Close(context.Background()) })
-	k, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), name+".key"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	k := newKey(t)
 	if err := s.SetSetting(ctx, OperatorSetting, "jo", "jo"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.AddUser(ctx, "mckean", "jo"); err != nil {
 		t.Fatal(err)
 	}
-	c := &linked{Store: s, name: name, key: yardkey.Public(k)}
+	c := &linked{Store: s, name: name, key: Public(k)}
 	for _, l := range [][2]*linked{{a, c}, {c, a}} {
 		if _, err := l[0].AddPeer(ctx, Peer{Name: l[1].name, Key: l[1].key}, "jo"); err != nil {
 			t.Fatal(err)

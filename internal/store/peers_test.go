@@ -39,7 +39,7 @@ func newPeerYardOn(t *testing.T, url string, api store.API, own *store.Store) *p
 	if err != nil {
 		t.Fatal(err)
 	}
-	y := &peerYard{api: api, own: own, ctx: context.Background(), north: k, key: yardkey.Public(k)}
+	y := &peerYard{api: api, own: own, ctx: context.Background(), north: k, key: store.Public(k)}
 	if _, err := api.AddPeer(y.ctx, store.Peer{Name: "north", Key: y.key, URL: url, Calls: "the-north"}, "jo"); err != nil {
 		t.Fatal(err)
 	}
@@ -96,18 +96,18 @@ func TestPeerAddListRemove(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, peer := range map[string]store.Peer{
-		"is added already":      {Name: "north", Key: yardkey.Public(other)},
+		"is added already":      {Name: "north", Key: store.Public(other)},
 		"is peer north's":       {Name: "south", Key: y.key},
 		"no yard's public key":  {Name: "south", Key: "nope"},
-		"use lowercase letters": {Name: "South Yard", Key: yardkey.Public(other)},
-		"want http://host:port": {Name: "south", Key: yardkey.Public(other), URL: "ftp://x"},
+		"use lowercase letters": {Name: "South Yard", Key: store.Public(other)},
+		"want http://host:port": {Name: "south", Key: store.Public(other), URL: "ftp://x"},
 	} {
 		if _, err := y.api.AddPeer(y.ctx, peer, "jo"); err == nil || !strings.Contains(err.Error(), name) {
 			t.Errorf("AddPeer(%+v) = %v, want %q", peer, err, name)
 		}
 	}
 	// What an invite may claim of what the link carries is not taken.
-	if p, err := y.api.AddPeer(y.ctx, store.Peer{Name: "south", Key: yardkey.Public(other), Send: []string{"ping"}, Receive: []string{"ping"}, Pulled: 9}, "jo"); err != nil || len(p.Send)+len(p.Receive) != 0 || p.Pulled != 0 {
+	if p, err := y.api.AddPeer(y.ctx, store.Peer{Name: "south", Key: store.Public(other), Send: []string{"ping"}, Receive: []string{"ping"}, Pulled: 9}, "jo"); err != nil || len(p.Send)+len(p.Receive) != 0 || p.Pulled != 0 {
 		t.Fatalf("a peer added with kinds = %+v, %v", p, err)
 	}
 	if ps, err := y.api.Peers(y.ctx); err != nil || len(ps) != 2 || ps[0].Name != "north" || ps[1].Name != "south" {
@@ -566,7 +566,7 @@ func TestPeerPulled(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		return store.PeerBatch{RequestSig: "req-1", Signature: yardkey.SignResponse(key, 200, "req-1", body), Body: body}
+		return store.PeerBatch{RequestSig: "req-1", Signature: store.SignResponse(key, 200, "req-1", body), Body: body}
 	}
 	m1, m2 := ping("m1"), ping("m2")
 	m1.Seq, m2.Seq = 4, 7

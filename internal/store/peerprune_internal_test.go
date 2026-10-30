@@ -9,8 +9,6 @@ import (
 	"time"
 
 	bolt "go.etcd.io/bbolt"
-
-	"yardr.dev/yardr/internal/yardkey"
 )
 
 // pruneYard is a store whose clock the test moves, linked with north, which
@@ -34,11 +32,8 @@ func newPruneYard(t *testing.T) *pruneYard {
 	}
 	t.Cleanup(func() { s.Close(context.Background()) })
 	y.Store = s
-	k, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "north.key"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	y.key = yardkey.Public(k)
+	k := newKey(t)
+	y.key = Public(k)
 	ctx := context.Background()
 	if _, err := s.AddPeer(ctx, Peer{Name: "north", Key: y.key, URL: "http://north.test"}, "jo"); err != nil {
 		t.Fatal(err)

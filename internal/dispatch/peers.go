@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/store"
-	"yardr.dev/yardr/internal/yardkey"
 	"yardr.dev/yardr/internal/yards"
 )
 
@@ -90,7 +89,7 @@ func (d *Dispatcher) peers(ctx context.Context) error {
 	}
 	// Read every pass, as a hook's secret is on every delivery: the file
 	// may have been made, or loosened, since.
-	key, err := yardkey.Load(d.PeerKey)
+	key, err := store.Load(d.PeerKey)
 	if err != nil {
 		if msg := err.Error(); msg != d.peerKeyErr {
 			d.peerKeyErr = msg
@@ -250,7 +249,7 @@ func (d *Dispatcher) pullOnce(ctx context.Context, key, url string) (name string
 	}
 	name = ps[i].Name
 	// The pass says what is wrong with the key, once (peers).
-	own, err := yardkey.Load(d.PeerKey)
+	own, err := store.Load(d.PeerKey)
 	if err != nil {
 		return name, d.PeerPoll, nil
 	}

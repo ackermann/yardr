@@ -86,7 +86,7 @@ func (c *Caller) do(ctx context.Context, p store.Peer, method, path string, body
 		return 0, nil, "", "", err
 	}
 	ts, reqSig := yardkey.SignRequest(c.Key, p.Key, method, path, now(), body)
-	req.Header.Set(yardkey.HeaderKey, yardkey.Public(c.Key))
+	req.Header.Set(yardkey.HeaderKey, store.Public(c.Key))
 	req.Header.Set(yardkey.HeaderTime, ts)
 	req.Header.Set(yardkey.HeaderSig, reqSig)
 	// No connection is kept for the next request: a pooled one reused after
@@ -121,7 +121,7 @@ func (c *Caller) do(ctx context.Context, p store.Peer, method, path string, body
 		return 0, nil, "", "", fmt.Errorf("peer %s: %w", p.Name, ErrHoldCapped)
 	}
 	sig = resp.Header.Get(yardkey.HeaderSig)
-	if err := yardkey.VerifyResponse(p.Key, resp.StatusCode, reqSig, sig, answer); err != nil {
+	if err := store.VerifyResponse(p.Key, resp.StatusCode, reqSig, sig, answer); err != nil {
 		// What an unsigned answer says is anyone's text: only its status
 		// is passed on.
 		return 0, nil, "", "", fmt.Errorf("peer %s answered %d, %w: this yard is not a peer of it there, the clocks are more than %s apart, or something between the two answered",

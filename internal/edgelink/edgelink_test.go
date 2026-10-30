@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/standin"
+	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/yardkey"
 )
 
@@ -104,7 +105,7 @@ func TestEnrolIsSignedToTheFetchedKeyAtEachCallsOwnMoment(t *testing.T) {
 		t.Fatalf("the edge took %d enrolling calls, want the first and three more while the person approved", len(calls))
 	}
 	for i, call := range calls {
-		if call.Key != yardkey.Public(yard) || call.Name != "laptop" {
+		if call.Key != store.Public(yard) || call.Name != "laptop" {
 			t.Errorf("call %d came from %q as %q, want this yard's key and name", i, call.Key, call.Name)
 		}
 		if want := fmt.Sprint(clk.Peek().Add(time.Duration(i-3) * time.Minute).Unix()); call.Time != want {
@@ -119,7 +120,7 @@ func answersSigned(t *testing.T, key ed25519.PrivateKey, status int, v any) *htt
 	t.Helper()
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := json.Marshal(v)
-		w.Header().Set(yardkey.HeaderSig, yardkey.SignResponse(key, status, r.Header.Get(yardkey.HeaderSig), body))
+		w.Header().Set(yardkey.HeaderSig, store.SignResponse(key, status, r.Header.Get(yardkey.HeaderSig), body))
 		w.WriteHeader(status)
 		w.Write(body)
 	}))
@@ -135,7 +136,7 @@ func TestEnrolTakesACodeWhateverItsExpiryIs(t *testing.T) {
 	for name, expires := range map[string]any{"seconds": 600, "words": "soon", "null": nil, "a time": "2026-10-20T09:24:03Z"} {
 		srv := answersSigned(t, edgeKey, http.StatusOK, map[string]any{"code": "WQ4F-7K2M", "expires": expires})
 		c := &Client{URL: srv.URL, HTTP: srv.Client()}
-		en, err := c.Enrol(context.Background(), yardkey.Public(edgeKey), newKey(t), "laptop")
+		en, err := c.Enrol(context.Background(), store.Public(edgeKey), newKey(t), "laptop")
 		if err != nil || en.Code != "WQ4F-7K2M" {
 			t.Errorf("%s: Enrol = %+v, %v; want the code taken", name, en, err)
 			continue
@@ -146,7 +147,7 @@ func TestEnrolTakesACodeWhateverItsExpiryIs(t *testing.T) {
 	}
 	srv := answersSigned(t, edgeKey, http.StatusOK, map[string]any{"code": "WQ4F-7K2M"})
 	c := &Client{URL: srv.URL, HTTP: srv.Client()}
-	if en, err := c.Enrol(context.Background(), yardkey.Public(edgeKey), newKey(t), "laptop"); err != nil || en.Code == "" || !en.Expires.IsZero() {
+	if en, err := c.Enrol(context.Background(), store.Public(edgeKey), newKey(t), "laptop"); err != nil || en.Code == "" || !en.Expires.IsZero() {
 		t.Errorf("Enrol, with no expiry at all = %+v, %v", en, err)
 	}
 }
@@ -306,7 +307,7 @@ func TestKeyRefusesWhatIsNoKey(t *testing.T) {
 	t.Parallel()
 	for name, answer := range map[string]string{
 		"a page":        "<html>Welcome</html>",
-		"a JSON object": `{"key":"` + yardkey.Public(newKey(t)) + `"}`,
+		"a JSON object": `{"key":"` + store.Public(newKey(t)) + `"}`,
 		"too short":     "AAAA",
 		"nothing":       "",
 		"too big":       strings.Repeat("A", maxAnswer+1),
@@ -370,7 +371,7 @@ func TestEnrolRefusalsAndAnswersItDoesNotRead(t *testing.T) {
 		"a word that shows as none": {naming("\u202e\u009b"), "answered 401, not signed with the key this yard pinned: " + clocksAndKey},
 	} {
 		c := &Client{URL: tc.srv.URL, HTTP: tc.srv.Client()}
-		_, err := c.Enrol(context.Background(), yardkey.Public(edgeKey), newKey(t), "laptop")
+		_, err := c.Enrol(context.Background(), store.Public(edgeKey), newKey(t), "laptop")
 		if err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%s: Enrol = %v, want %q", name, err, tc.want)
 		}
@@ -381,7 +382,7 @@ func TestEnrolRefusalsAndAnswersItDoesNotRead(t *testing.T) {
 	gone := signed(http.StatusGone, map[string]string{"refused": "expired"})
 	c := &Client{URL: gone.URL, HTTP: gone.Client()}
 	var refused *Refused
-	if _, err := c.Enrol(context.Background(), yardkey.Public(edgeKey), newKey(t), "laptop"); !errors.As(err, &refused) || refused.Status != http.StatusGone || refused.Reason != "expired" {
+	if _, err := c.Enrol(context.Background(), store.Public(edgeKey), newKey(t), "laptop"); !errors.As(err, &refused) || refused.Status != http.StatusGone || refused.Reason != "expired" {
 		t.Errorf("Enrol, refused with 410 = %v, want a *Refused with the status and the reason", err)
 	}
 }
@@ -451,7 +452,7 @@ func TestDrop(t *testing.T) {
 	if err := c.Drop(context.Background(), edge.PublicKey(), yard); err != nil {
 		t.Fatalf("Drop = %v", err)
 	}
-	if got := edge.State().Drops; len(got) != 1 || got[0] != yardkey.Public(yard) {
+	if got := edge.State().Drops; len(got) != 1 || got[0] != store.Public(yard) {
 		t.Errorf("the edge was asked to drop %v, want this yard's key", got)
 	}
 	for _, tc := range []struct {
@@ -494,12 +495,12 @@ func TestMintGoogleAsksSignedAndReadsTheAnswer(t *testing.T) {
 		t.Errorf("MintGoogle expires_at = %q (%v), want about an hour out", m.ExpiresAt, err)
 	}
 	mints := edge.State().Mints
-	if len(mints) != 1 || mints[0].Key != yardkey.Public(yard) || mints[0].Account != "ada@example.com" || mints[0].Time == "" || mints[0].Sig == "" {
+	if len(mints) != 1 || mints[0].Key != store.Public(yard) || mints[0].Account != "ada@example.com" || mints[0].Time == "" || mints[0].Sig == "" {
 		t.Errorf("the edge took %+v, want the one call as this yard for ada@example.com", mints)
 	}
 	// Signed to another key, the call is not taken: what answers is no
 	// answer by the key this yard meant.
-	if _, err := c.MintGoogle(context.Background(), yardkey.Public(newKey(t)), yard, "ada@example.com"); !errors.Is(err, ErrUnsigned) {
+	if _, err := c.MintGoogle(context.Background(), store.Public(newKey(t)), yard, "ada@example.com"); !errors.Is(err, ErrUnsigned) {
 		t.Errorf("MintGoogle, signed to another key = %v, want ErrUnsigned", err)
 	}
 }
@@ -540,7 +541,7 @@ func TestMintGoogleRefusalsAndAnswersItDoesNotRead(t *testing.T) {
 	edgeKey := newKey(t)
 	bad := answersSigned(t, edgeKey, http.StatusOK, []string{"token"})
 	c2 := &Client{URL: bad.URL, HTTP: bad.Client()}
-	if _, err := c2.MintGoogle(context.Background(), yardkey.Public(edgeKey), yard, "ada@example.com"); err == nil || !strings.Contains(err.Error(), "no JSON object") {
+	if _, err := c2.MintGoogle(context.Background(), store.Public(edgeKey), yard, "ada@example.com"); err == nil || !strings.Contains(err.Error(), "no JSON object") {
 		t.Errorf("MintGoogle, answered with no object = %v, want it refused", err)
 	}
 }
@@ -663,14 +664,14 @@ func TestMintGoogleSignsAgainWhenRefusedAsAReplay(t *testing.T) {
 				w.Header().Set(RefusalHeader, tc.word)
 			}
 			if tc.signed {
-				w.Header().Set(yardkey.HeaderSig, yardkey.SignResponse(edgeKey, tc.status, r.Header.Get(yardkey.HeaderSig), body))
+				w.Header().Set(yardkey.HeaderSig, store.SignResponse(edgeKey, tc.status, r.Header.Get(yardkey.HeaderSig), body))
 			}
 			w.WriteHeader(tc.status)
 			w.Write(body)
 		}))
 		t.Cleanup(answering.Close)
 		c := &Client{URL: answering.URL, HTTP: answering.Client()}
-		_, err := c.MintGoogle(context.Background(), yardkey.Public(edgeKey), yard, "ada@example.com")
+		_, err := c.MintGoogle(context.Background(), store.Public(edgeKey), yard, "ada@example.com")
 		switch {
 		case tc.signed && (!errors.As(err, &refused) || refused.Status != tc.status):
 			t.Errorf("%s: MintGoogle = %v, want the edge's signed refusal, %d", name, err, tc.status)
@@ -691,27 +692,27 @@ func TestMemberAddAndRemoveAskSigned(t *testing.T) {
 	edge, srv := edgeAt(t)
 	c := &Client{URL: srv.URL, HTTP: srv.Client()}
 	yard := newKey(t)
-	add := MemberAdd{YardHandle: "mckean", YardName: "edgeyard", Email: "eve@example.net", YardUser: "eve", InvitedBy: "mckean", YardKey: yardkey.Public(yard)}
+	add := MemberAdd{YardHandle: "mckean", YardName: "edgeyard", Email: "eve@example.net", YardUser: "eve", InvitedBy: "mckean", YardKey: store.Public(yard)}
 	if err := c.MemberAdd(context.Background(), edge.PublicKey(), yard, add); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.MemberRemove(context.Background(), edge.PublicKey(), yard, MemberRemove{YardHandle: "mckean", YardName: "edgeyard", Email: "eve@example.net", YardKey: yardkey.Public(yard)}); err != nil {
+	if err := c.MemberRemove(context.Background(), edge.PublicKey(), yard, MemberRemove{YardHandle: "mckean", YardName: "edgeyard", Email: "eve@example.net", YardKey: store.Public(yard)}); err != nil {
 		t.Fatal(err)
 	}
 	// No membership stands now, so the edge answers 404, which lands.
-	if err := c.MemberRemove(context.Background(), edge.PublicKey(), yard, MemberRemove{YardHandle: "mckean", YardName: "edgeyard", Email: "eve@example.net", YardKey: yardkey.Public(yard)}); err != nil {
+	if err := c.MemberRemove(context.Background(), edge.PublicKey(), yard, MemberRemove{YardHandle: "mckean", YardName: "edgeyard", Email: "eve@example.net", YardKey: store.Public(yard)}); err != nil {
 		t.Fatalf("a second removal = %v, want it landed as 404", err)
 	}
 	st := edge.State()
-	if len(st.MemberAdds) != 1 || st.MemberAdds[0].Key != yardkey.Public(yard) || st.MemberAdds[0].YardHandle != "mckean" ||
+	if len(st.MemberAdds) != 1 || st.MemberAdds[0].Key != store.Public(yard) || st.MemberAdds[0].YardHandle != "mckean" ||
 		st.MemberAdds[0].YardName != "edgeyard" || st.MemberAdds[0].Email != "eve@example.net" || st.MemberAdds[0].YardUser != "eve" ||
-		st.MemberAdds[0].InvitedBy != "mckean" || st.MemberAdds[0].YardKey != yardkey.Public(yard) || st.MemberAdds[0].Time == "" || st.MemberAdds[0].Sig == "" {
+		st.MemberAdds[0].InvitedBy != "mckean" || st.MemberAdds[0].YardKey != store.Public(yard) || st.MemberAdds[0].Time == "" || st.MemberAdds[0].Sig == "" {
 		t.Errorf("the edge took adds %+v, want the one signed report as this yard", st.MemberAdds)
 	}
-	if len(st.MemberRemoves) != 2 || st.MemberRemoves[0].Email != "eve@example.net" || st.MemberRemoves[0].YardKey != yardkey.Public(yard) {
+	if len(st.MemberRemoves) != 2 || st.MemberRemoves[0].Email != "eve@example.net" || st.MemberRemoves[0].YardKey != store.Public(yard) {
 		t.Errorf("the edge took removes %+v", st.MemberRemoves)
 	}
-	if err := c.MemberAdd(context.Background(), yardkey.Public(newKey(t)), yard, add); !errors.Is(err, ErrUnsigned) {
+	if err := c.MemberAdd(context.Background(), store.Public(newKey(t)), yard, add); !errors.Is(err, ErrUnsigned) {
 		t.Errorf("MemberAdd, signed to another key = %v, want ErrUnsigned", err)
 	}
 }
@@ -723,7 +724,7 @@ func TestMemberRefusals(t *testing.T) {
 	edge, srv := edgeAt(t)
 	c := &Client{URL: srv.URL, HTTP: srv.Client()}
 	yard := newKey(t)
-	add := MemberAdd{YardHandle: "mckean", YardName: "edgeyard", Email: "eve@example.net", YardUser: "eve", InvitedBy: "mckean", YardKey: yardkey.Public(yard)}
+	add := MemberAdd{YardHandle: "mckean", YardName: "edgeyard", Email: "eve@example.net", YardUser: "eve", InvitedBy: "mckean", YardKey: store.Public(yard)}
 	for _, tc := range []struct {
 		status int
 		reason string
@@ -739,7 +740,7 @@ func TestMemberRefusals(t *testing.T) {
 		if !errors.As(err, &refused) || refused.Status != tc.status || refused.Reason != tc.reason {
 			t.Errorf("MemberAdd, refused %d = %v, want a *Refused with its words", tc.status, err)
 		}
-		err = c.MemberRemove(context.Background(), edge.PublicKey(), yard, MemberRemove{YardHandle: "mckean", YardName: "edgeyard", Email: "eve@example.net", YardKey: yardkey.Public(yard)})
+		err = c.MemberRemove(context.Background(), edge.PublicKey(), yard, MemberRemove{YardHandle: "mckean", YardName: "edgeyard", Email: "eve@example.net", YardKey: store.Public(yard)})
 		if !errors.As(err, &refused) || refused.Status != tc.status {
 			t.Errorf("MemberRemove, refused %d = %v", tc.status, err)
 		}

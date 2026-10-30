@@ -45,7 +45,7 @@ func newSendingYard(t *testing.T) (*peerYard, string) {
 	if err := y.api.PutGroup(y.ctx, store.Group{Name: "at-north", Runner: store.PeerRunner, Limit: 2, Config: map[string]any{"peer": "north"}}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	return y, yardkey.Public(k)
+	return y, store.Public(k)
 }
 
 // send creates a bead in build, claims it for at-north as the dispatcher

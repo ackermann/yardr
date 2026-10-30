@@ -240,7 +240,7 @@ func (a *app) edgeConnect(c *cobra.Command, address, as string) error {
 	if err != nil {
 		return err
 	}
-	a.progress(w, warn, "This yard's key: %s", keyLabel(yardkey.Public(yard)))
+	a.progress(w, warn, "This yard's key: %s", keyLabel(store.Public(yard)))
 
 	en, err := client.Enrol(ctx, edgeKey, yard, name)
 	if err != nil {
@@ -249,7 +249,7 @@ func (a *app) edgeConnect(c *cobra.Command, address, as string) error {
 	if a.json {
 		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
-		first := map[string]any{"edge": addr, "edge_key": edgeKey, "yard_key": yardkey.Public(yard), "name": name}
+		first := map[string]any{"edge": addr, "edge_key": edgeKey, "yard_key": store.Public(yard), "name": name}
 		if en.Code != "" {
 			first["code"], first["connect_url"] = en.Code, addr+"/connect"
 			if !en.Expires.IsZero() {
@@ -387,7 +387,7 @@ and does not call the edge.`,
 // dropRow asks the edge to drop its row for this yard, with the key the yard
 // pinned, and says why not when it could not.
 func (a *app) dropRow(ctx context.Context, cfg *config.Config, e store.Edge) string {
-	yard, err := yardkey.Load(cfg.PeerKey())
+	yard, err := store.Load(cfg.PeerKey())
 	if err != nil {
 		return err.Error()
 	}

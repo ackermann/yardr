@@ -10,10 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"yardr.dev/yardr/internal/pairing"
 	"yardr.dev/yardr/internal/peer"
 	"yardr.dev/yardr/internal/store"
-	"yardr.dev/yardr/internal/yardkey"
 )
 
 // A device pairing is opened by whoever adds a device and by nobody else:
@@ -92,17 +90,17 @@ func TestDevicePairOneAtATime(t *testing.T) {
 		t.Fatalf("DevicePairClose as ada = %v", err)
 	}
 	ended, err := api.DevicePairClose(ctx, "jo")
-	if err != nil || ended.State != store.PairEnded || ended.Reason != pairing.Closed || ended.Device != "phone" {
+	if err != nil || ended.State != store.PairEnded || ended.Reason != store.Closed || ended.Device != "phone" {
 		t.Fatalf("DevicePairClose = %+v, %v", ended, err)
 	}
-	var no *pairing.Refused
-	if _, err := own.DevicePairRedeem(ctx, opened.Code); !errors.As(err, &no) || no.Reason != pairing.NoPairing {
+	var no *store.Refused
+	if _, err := own.DevicePairRedeem(ctx, opened.Code); !errors.As(err, &no) || no.Reason != store.NoPairing {
 		t.Fatalf("the code of an ended pairing = %v", err)
 	}
 	if _, err := api.DevicePairClose(ctx, "jo"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("DevicePairClose with none open = %v", err)
 	}
-	if got, _ := api.EventsOfKind(ctx, "device_pair_refused", 10); len(got) != 1 || got[0].Actor != "jo" || got[0].Data["reason"] != pairing.Closed {
+	if got, _ := api.EventsOfKind(ctx, "device_pair_refused", 10); len(got) != 1 || got[0].Actor != "jo" || got[0].Data["reason"] != store.Closed {
 		t.Fatalf("device_pair_refused = %+v", got)
 	}
 	if _, err := api.DevicePairOpen(ctx, "bob", "phone", "jo"); err != nil {
@@ -126,7 +124,7 @@ func TestDevicePairState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	edge := store.Edge{URL: "https://my.yardr.dev", Key: yardkey.Public(key), Handle: "mckean", Name: "edgeyard"}
+	edge := store.Edge{URL: "https://my.yardr.dev", Key: store.Public(key), Handle: "mckean", Name: "edgeyard"}
 	if err := api.SetSetting(ctx, store.EdgeSetting, edge.String(), "jo"); err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +132,7 @@ func TestDevicePairState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d := opened.Expires.Sub(time.Now()); d <= 9*time.Minute || d > pairing.TTL {
+	if d := opened.Expires.Sub(time.Now()); d <= 9*time.Minute || d > store.TTL {
 		t.Fatalf("the code runs out in %v, want ten minutes", d)
 	}
 	got, err := api.DevicePairState(ctx)
@@ -174,7 +172,7 @@ func TestDevicePairNotAdded(t *testing.T) {
 	t.Parallel()
 	api, own := deviceYard(t)
 	ctx := context.Background()
-	var no *pairing.Refused
+	var no *store.Refused
 	for what, spoil := range map[string]func() error{
 		"the user was removed": func() error { return api.DeleteUser(ctx, "ada", "jo") },
 		"the name was taken": func() error {
@@ -196,7 +194,7 @@ func TestDevicePairNotAdded(t *testing.T) {
 		if d, err := own.DevicePairRedeem(ctx, opened.Code); d != nil || !errors.As(err, &no) || no.Reason != store.DeviceNotAdded {
 			t.Errorf("%s: the code = %+v, %v", what, d, err)
 		}
-		if d, err := own.DevicePairRedeem(ctx, opened.Code); d != nil || !errors.As(err, &no) || no.Reason != pairing.NoPairing {
+		if d, err := own.DevicePairRedeem(ctx, opened.Code); d != nil || !errors.As(err, &no) || no.Reason != store.NoPairing {
 			t.Errorf("%s: the code again = %+v, %v", what, d, err)
 		}
 	}
@@ -220,7 +218,7 @@ func TestDevicePairRedeemBy(t *testing.T) {
 	t.Parallel()
 	api, own := deviceYard(t)
 	ctx := context.Background()
-	var no *pairing.Refused
+	var no *store.Refused
 	notThe := func(code string) string {
 		if strings.HasPrefix(code, "0") {
 			return "1" + code[1:]
@@ -245,7 +243,7 @@ func TestDevicePairRedeemBy(t *testing.T) {
 		t.Fatalf("no code, presented by bob = %+v, %v, want an error that is no refusal", d, err)
 	}
 	for _, presenter := range []string{"bob", "", "jo", "carol"} {
-		refused("ada's code presented by "+presenter, opened.Code, presenter, pairing.WrongCode)
+		refused("ada's code presented by "+presenter, opened.Code, presenter, store.WrongCode)
 	}
 	d, err := own.DevicePairRedeemBy(ctx, opened.Code, "ada")
 	if err != nil || d.User != "ada" || d.Name != "phone" || d.CreatedBy != "ada" {
@@ -258,13 +256,13 @@ func TestDevicePairRedeemBy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	refused("a code that is not bob's presented by bob", notThe(opened.Code), "bob", pairing.WrongCode)
-	for try := 2; try <= pairing.MaxTries; try++ {
-		refused("bob's code presented by ada", opened.Code, "ada", pairing.WrongCode)
+	refused("a code that is not bob's presented by bob", notThe(opened.Code), "bob", store.WrongCode)
+	for try := 2; try <= store.MaxTries; try++ {
+		refused("bob's code presented by ada", opened.Code, "ada", store.WrongCode)
 	}
-	refused("bob's code after the fifth", opened.Code, "bob", pairing.NoPairing)
+	refused("bob's code after the fifth", opened.Code, "bob", store.NoPairing)
 	ended, _ := api.EventsOfKind(ctx, "device_pair_refused", 10)
-	if len(ended) != 1 || ended[0].Data["reason"] != pairing.WrongCode || ended[0].Data["wrong_codes"] != float64(pairing.MaxTries) || ended[0].Data["user"] != "bob" {
+	if len(ended) != 1 || ended[0].Data["reason"] != store.WrongCode || ended[0].Data["wrong_codes"] != float64(store.MaxTries) || ended[0].Data["user"] != "bob" {
 		t.Fatalf("device_pair_refused = %+v", ended)
 	}
 	if list, _ := api.Devices(ctx, ""); len(list) != 1 || list[0].User != "ada" {
@@ -279,7 +277,7 @@ func TestDevicePairRedeemBy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d, err := own.DevicePairRedeemUnmapped(ctx, opened.Code, mapped); d != nil || !errors.As(err, &no) || no.Reason != pairing.WrongCode {
+	if d, err := own.DevicePairRedeemUnmapped(ctx, opened.Code, mapped); d != nil || !errors.As(err, &no) || no.Reason != store.WrongCode {
 		t.Fatalf("bob's code, bob mapped = %+v, %v, want wrong_code", d, err)
 	}
 	d, err = own.DevicePairRedeem(ctx, opened.Code)
@@ -290,7 +288,7 @@ func TestDevicePairRedeemBy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d, err := own.DevicePairRedeemUnmapped(ctx, notThe(opened.Code), mapped); d != nil || !errors.As(err, &no) || no.Reason != pairing.WrongCode {
+	if d, err := own.DevicePairRedeemUnmapped(ctx, notThe(opened.Code), mapped); d != nil || !errors.As(err, &no) || no.Reason != store.WrongCode {
 		t.Fatalf("a code that is not ada's, ada unmapped = %+v, %v, want wrong_code", d, err)
 	}
 	d, err = own.DevicePairRedeemUnmapped(ctx, opened.Code, mapped)
@@ -311,7 +309,7 @@ func TestDevicePairRedeemBy(t *testing.T) {
 	if err != nil || d.User != "ada" || d.Name != "laptop" {
 		t.Fatalf("ada's code with an empty mapping = %+v, %v", d, err)
 	}
-	if d, err := own.DevicePairRedeemUnmapped(ctx, opened.Code, mapped); d != nil || !errors.As(err, &no) || no.Reason != pairing.NoPairing {
+	if d, err := own.DevicePairRedeemUnmapped(ctx, opened.Code, mapped); d != nil || !errors.As(err, &no) || no.Reason != store.NoPairing {
 		t.Fatalf("ada's code after it was used = %+v, %v, want no pairing", d, err)
 	}
 	if list, _ := api.Devices(ctx, ""); len(list) != 4 {
@@ -334,8 +332,8 @@ func TestDevicePairOpenSelf(t *testing.T) {
 	if opened.State != store.PairOpened || opened.User != "ada" || opened.Device != "phone" || len(opened.Code) != 9 {
 		t.Fatalf("opened = %+v", opened)
 	}
-	if until := time.Until(opened.Expires); until > pairing.TTL || until < pairing.TTL-time.Minute {
-		t.Fatalf("the pairing runs out in %v, want about %v", until, pairing.TTL)
+	if until := time.Until(opened.Expires); until > store.TTL || until < store.TTL-time.Minute {
+		t.Fatalf("the pairing runs out in %v, want about %v", until, store.TTL)
 	}
 	if got, _ := api.EventsOfKind(ctx, "device_pair_opened", 10); len(got) != 1 || got[0].Actor != "ada" {
 		t.Fatalf("device_pair_opened = %+v, want one by ada", got)
@@ -389,7 +387,7 @@ func TestDevicePairSelfOneAtATime(t *testing.T) {
 		t.Fatalf("the operator's pairing over one's own = %v", err)
 	}
 	ended, err := api.DevicePairCloseSelf(ctx, "ada")
-	if err != nil || ended.State != store.PairEnded || ended.Reason != pairing.Closed || ended.Device != "phone" {
+	if err != nil || ended.State != store.PairEnded || ended.Reason != store.Closed || ended.Device != "phone" {
 		t.Fatalf("DevicePairCloseSelf = %+v, %v", ended, err)
 	}
 	if _, err := api.DevicePairCloseSelf(ctx, "ada"); !errors.Is(err, store.ErrNotFound) {

@@ -190,14 +190,14 @@ func TestCarryUninviteReportsBeforeUserGoes(t *testing.T) {
 	if err := st.InviteTeammate(ctx, "eve", "eve@example.net", store.RoleMember, "mckean"); err != nil {
 		t.Fatal(err)
 	}
-	yard, err := yardkey.Load(config.At(home).PeerKey())
+	yard, err := store.Load(config.At(home).PeerKey())
 	if err != nil {
 		t.Fatal(err)
 	}
 	settings, _ := st.Settings(ctx)
 	edgeRow, _, _ := store.EdgeOf(settings)
 	client := &edgelink.Client{URL: srv.URL, HTTP: srv.Client()}
-	if err := client.MemberAdd(ctx, edgeRow.Key, yard, edgelink.MemberAdd{YardHandle: "mckean", YardName: "edgeyard", Email: "eve@example.net", YardUser: "eve", InvitedBy: "mckean", YardKey: yardkey.Public(yard)}); err != nil {
+	if err := client.MemberAdd(ctx, edgeRow.Key, yard, edgelink.MemberAdd{YardHandle: "mckean", YardName: "edgeyard", Email: "eve@example.net", YardUser: "eve", InvitedBy: "mckean", YardKey: store.Public(yard)}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := st.AddDevice(ctx, "eve", "phone", "mckean"); err != nil {

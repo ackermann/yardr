@@ -15,8 +15,6 @@ import (
 	"time"
 
 	bolt "go.etcd.io/bbolt"
-
-	"yardr.dev/yardr/internal/yardkey"
 )
 
 // Two yards are linked when the operator of each has added the other as a
@@ -191,7 +189,7 @@ const (
 // the operator, and the key alone tells whose a request is.
 type Peer struct {
 	Name string `json:"name"`
-	// Key is its public key (yardkey.Public).
+	// Key is its public key (Public).
 	Key string `json:"key"`
 	// URL is where it can be called; empty for a yard that cannot be, which
 	// calls this one and asks for what waits.
@@ -1397,7 +1395,7 @@ func (s *Store) PeerPostAnswered(ctx context.Context, name string, answer PeerAn
 		if err != nil {
 			return nil, err
 		}
-		if err := yardkey.VerifyResponse(p.Key, answer.Status, answer.RequestSig, answer.Signature, answer.Body); err != nil {
+		if err := VerifyResponse(p.Key, answer.Status, answer.RequestSig, answer.Signature, answer.Body); err != nil {
 			return nil, fmt.Errorf("peer %s: %w", name, err)
 		}
 		var reply struct {
@@ -1454,7 +1452,7 @@ func (s *Store) PeerPulled(ctx context.Context, name string, b PeerBatch) (*Peer
 		if err != nil {
 			return nil, err
 		}
-		if err := yardkey.VerifyResponse(p.Key, 200, b.RequestSig, b.Signature, b.Body); err != nil {
+		if err := VerifyResponse(p.Key, 200, b.RequestSig, b.Signature, b.Body); err != nil {
 			return nil, fmt.Errorf("peer %s: %w", name, err)
 		}
 		page = PeerPage{}

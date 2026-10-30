@@ -521,7 +521,7 @@ func TestWebServeJWTModeServes(t *testing.T) {
 		case <-time.After(10 * time.Second):
 			t.Fatal("web serve opened no edge link")
 		}
-		if link.Header.Get("Yardr-Link-Role") != "web" || link.Header.Get(yardkey.HeaderKey) != yardkey.Public(yardKey) {
+		if link.Header.Get("Yardr-Link-Role") != "web" || link.Header.Get(yardkey.HeaderKey) != store.Public(yardKey) {
 			t.Fatalf("web upgrade headers = %v", link.Header)
 		}
 		request := func(path, token string) standin.EdgeAnswer {

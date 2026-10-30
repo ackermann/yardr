@@ -389,7 +389,7 @@ func (l *Link) once(ctx context.Context) (upFor time.Duration, reason, detail st
 	}
 	ts, sig := yardkey.SignRequest(l.Key, l.Edge.Key, http.MethodGet, LinkPath, time.Now(), nil)
 	h := http.Header{}
-	h.Set(yardkey.HeaderKey, yardkey.Public(l.Key))
+	h.Set(yardkey.HeaderKey, store.Public(l.Key))
 	h.Set(yardkey.HeaderTime, ts)
 	h.Set(yardkey.HeaderSig, sig)
 	h.Set(NonceHeader, yardkey.EncodeNonce(yardNonce))

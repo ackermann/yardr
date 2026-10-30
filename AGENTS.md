@@ -72,7 +72,7 @@ it lists every exported name with its comment, faster than grepping.
   decides nothing about what is told.
 - `otel`: trace context plus a hand-written OTLP/HTTP exporter; no SDK.
 - `pack`: reading, checking, planning and applying packs.
-- `pairing`: the short-code handshake two yards pair with; no store, no HTTP.
+- `pairing`: the pairing request paths under the peers' listener; a leaf.
 - `peer`: who is on the other end of a unix socket (pid, process tree), so
   the store recognises a call from a session's pane.
 - `preview`: the yard's preview supervisor (part of `yardr server`): starts
@@ -108,8 +108,8 @@ it lists every exported name with its comment, faster than grepping.
   an exec group's command, the quiet run).
 - `web`: the browser UI: server-rendered pages plus htmx; routes in
   `server.go`, CSS/JS in `assets/`.
-- `yardkey`: a yard's keypair, invites, and peer signatures; no
-  store, no HTTP servers.
+- `yardkey`: making the yard's keypair and the request, link and frame
+  signatures over the store's key types; no HTTP servers.
 - `yards`: talking to peer yards (caller and receiver sides).
 
 ## Where to start

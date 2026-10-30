@@ -5,8 +5,6 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
-
-	"yardr.dev/yardr/internal/yardkey"
 )
 
 // A bead whose stay at a peer ended but whose outcome the settler has not
@@ -23,15 +21,10 @@ func TestPeerSentSettlesAcrossClose(t *testing.T) {
 		t.Fatal(err)
 	}
 	keyFile := filepath.Join(t.TempDir(), "peer.key")
-	if _, _, err := yardkey.Ensure(keyFile); err != nil {
-		t.Fatal(err)
-	}
-	north, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "north.key"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	newKeyFile(t, keyFile)
+	north := newKey(t)
 	s.SetYard(keyFile, "test")
-	if _, err := s.AddPeer(ctx, Peer{Name: "north", Key: yardkey.Public(north)}, "jo"); err != nil {
+	if _, err := s.AddPeer(ctx, Peer{Name: "north", Key: Public(north)}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.PutDepot(ctx, Depot{Name: "web", Base: "origin/main"}, "jo"); err != nil {

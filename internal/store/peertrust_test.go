@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"yardr.dev/yardr/internal/store"
-	"yardr.dev/yardr/internal/yardkey"
 )
 
 // northSays is what north says of itself with the names it exposes, each a
@@ -188,7 +187,7 @@ func TestTrustGoesWithItsEnds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	batch := store.PeerBatch{RequestSig: "req-1", Signature: yardkey.SignResponse(y.north, 200, "req-1", body), Body: body}
+	batch := store.PeerBatch{RequestSig: "req-1", Signature: store.SignResponse(y.north, 200, "req-1", body), Body: body}
 	if res, err := y.api.PeerPulled(y.ctx, "north", batch); err != nil || len(res.Taken) != 1 || res.Taken[0].Refused != "" {
 		t.Fatalf("PeerPulled = %+v, %v", res, err)
 	}

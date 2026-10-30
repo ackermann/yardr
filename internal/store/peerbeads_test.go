@@ -256,7 +256,7 @@ func TestPeerArrive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.api.AddPeer(y.ctx, store.Peer{Name: "south", Key: yardkey.Public(south)}, "jo"); err != nil {
+	if _, err := y.api.AddPeer(y.ctx, store.Peer{Name: "south", Key: store.Public(south)}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := y.api.AllowPeer(y.ctx, "south", store.PeerAllow{Send: []string{"bead"}}, "jo"); err != nil {
@@ -978,7 +978,7 @@ func TestPeerBeadPulled(t *testing.T) {
 	y := newBeadYard(t)
 	page := func(ms ...store.PeerMessage) store.PeerBatch {
 		body, _ := json.Marshal(store.PeerPage{Messages: ms})
-		return store.PeerBatch{RequestSig: "req-1", Signature: yardkey.SignResponse(y.north, 200, "req-1", body), Body: body}
+		return store.PeerBatch{RequestSig: "req-1", Signature: store.SignResponse(y.north, 200, "req-1", body), Body: body}
 	}
 	a, b := beadMsg("p1", "web-1", nil), beadMsg("p2", "web-1", nil)
 	a.Seq, b.Seq = 4, 5

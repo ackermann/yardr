@@ -12,7 +12,6 @@ import (
 
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
-	"yardr.dev/yardr/internal/yardkey"
 )
 
 const depotPushCLIDecl = `name: github
@@ -50,7 +49,7 @@ func depotPushCLIYard(t *testing.T) (store.API, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	edge := store.Edge{URL: "https://my.yardr.dev", Key: yardkey.Public(key), Handle: "mckean", Name: "edgeyard"}
+	edge := store.Edge{URL: "https://my.yardr.dev", Key: store.Public(key), Handle: "mckean", Name: "edgeyard"}
 	if err := st.SetSetting(ctx, store.EdgeSetting, edge.String(), "mckean"); err != nil {
 		t.Fatal(err)
 	}

@@ -18,7 +18,6 @@ import (
 	"yardr.dev/yardr/internal/eta"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
-	"yardr.dev/yardr/internal/yardkey"
 )
 
 // run executes c with args, returning its stdout and error. A command left
@@ -1113,7 +1112,7 @@ func TestBeadShowMarksTrustedNoteAuthor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.AddPeer(ctx, store.Peer{Name: "south", Key: yardkey.Public(key)}, "me"); err != nil {
+	if _, err := st.AddPeer(ctx, store.Peer{Name: "south", Key: store.Public(key)}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	p, err := st.GetPeer(ctx, "south")

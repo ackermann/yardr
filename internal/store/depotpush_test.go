@@ -9,8 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"yardr.dev/yardr/internal/yardkey"
 )
 
 const depotPushDecl = `name: github
@@ -81,7 +79,7 @@ func depotPushYard(t *testing.T) *askYard {
 	if err != nil {
 		t.Fatal(err)
 	}
-	edge := Edge{URL: "https://my.yardr.dev", Key: yardkey.Public(key), Handle: "mckean", Name: "edgeyard"}
+	edge := Edge{URL: "https://my.yardr.dev", Key: Public(key), Handle: "mckean", Name: "edgeyard"}
 	if err := y.SetSetting(y.ctx, EdgeSetting, edge.String(), "mckean"); err != nil {
 		t.Fatal(err)
 	}

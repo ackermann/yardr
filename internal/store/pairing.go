@@ -9,13 +9,10 @@ import (
 	"time"
 
 	bolt "go.etcd.io/bbolt"
-
-	"yardr.dev/yardr/internal/pairing"
-	"yardr.dev/yardr/internal/yardkey"
 )
 
 // A pairing links two yards from a short code one operator reads to the
-// other (docs/peers.md, internal/pairing). The yard that shows the code is
+// other (docs/peers.md, pairing_messages.go). The yard that shows the code is
 // the host: its side is here, in the process that owns the store, because
 // that is where the other yard's calls arrive.
 //
@@ -130,20 +127,20 @@ func (s *Store) endPairing(ctx context.Context, p *hostPairing, reason, detail, 
 func (s *Store) pairing(ctx context.Context) *hostPairing {
 	p := s.pair.cur
 	if p != nil && (p.State == PairOpened || p.State == PairCalled) && !now().Before(p.Expires) {
-		s.endPairing(ctx, p, pairing.TimedOut, "", "yard")
+		s.endPairing(ctx, p, TimedOut, "", "yard")
 	}
 	return p
 }
 
 // cleanURL holds p's URL to where a yard can be called and keeps it in the
-// one form (yardkey.CleanURL); none is a yard that is never called. It is
+// one form (CleanURL); none is a yard that is never called. It is
 // the one check of a peer's URL: what an add refuses, a later change of the
 // URL refuses in the same words (SetPeerURL).
 func (p *Peer) cleanURL() error {
 	if p.URL == "" {
 		return nil
 	}
-	u, err := yardkey.CleanURL(p.URL)
+	u, err := CleanURL(p.URL)
 	if err != nil {
 		return fmt.Errorf("peer %s: %w", p.Name, err)
 	}
@@ -159,7 +156,7 @@ func peerFree(tx *bolt.Tx, p *Peer) error {
 	if err := checkName("peer", p.Name); err != nil {
 		return err
 	}
-	if _, err := yardkey.ParsePublic(p.Key); err != nil {
+	if _, err := ParsePublic(p.Key); err != nil {
 		return fmt.Errorf("peer %s: %w", p.Name, err)
 	}
 	if err := p.cleanURL(); err != nil {
@@ -239,8 +236,8 @@ func (s *Store) pairPeer(p Peer, actor string, data map[string]any) (*Peer, erro
 }
 
 // pairRefusals are the reasons the calling side of a pairing may log.
-var pairRefusals = []string{pairing.WrongCode, pairing.Declined, pairing.PeerDeclined, pairing.TimedOut,
-	pairing.Closed, pairing.AlreadyPeer, pairing.BadName, pairing.Own}
+var pairRefusals = []string{WrongCode, Declined, PeerDeclined, TimedOut,
+	Closed, AlreadyPeer, BadName, Own}
 
 // PairRefused logs that a pairing this yard called another for ended
 // without a link (peer_pair_refused): reason is one of pairing's, and peer
@@ -252,7 +249,7 @@ func (s *Store) PairRefused(ctx context.Context, reason, peer, actor string) err
 	}
 	data := map[string]any{"role": "joiner", "reason": reason}
 	if peer != "" {
-		if !yardkey.ValidName(peer) {
+		if !ValidName(peer) {
 			return fmt.Errorf("%q is no yard's name", peer)
 		}
 		data["calls"] = peer
@@ -260,13 +257,13 @@ func (s *Store) PairRefused(ctx context.Context, reason, peer, actor string) err
 	return s.LogEvent(ctx, "", "peer_pair_refused", actor, data)
 }
 
-// PairOpen opens a pairing and returns its code, good for pairing.TTL and
+// PairOpen opens a pairing and returns its code, good for TTL and
 // for one pairing. A yard has one open at a time.
 func (s *Store) PairOpen(ctx context.Context, o PairOffer, actor string) (*PairingCode, error) {
 	if err := s.mayRead(ctx, actor, ActPair, Object{Kind: KindPeer}); err != nil {
 		return nil, err
 	}
-	if err := (pairing.Party{Nonce: pairing.NewNonce(), Name: o.Name, Key: o.Key, URL: o.URL}).Valid(); err != nil {
+	if err := (Party{Nonce: NewNonce(), Name: o.Name, Key: o.Key, URL: o.URL}).Valid(); err != nil {
 		return nil, err
 	} else if o.URL == "" {
 		return nil, errors.New("pairing: the yard that shows the code is the one that is called, and has given no URL")
@@ -285,12 +282,12 @@ func (s *Store) PairOpen(ctx context.Context, o PairOffer, actor string) (*Pairi
 	if p := s.pairing(ctx); p != nil && (p.State == PairOpened || p.State == PairCalled) {
 		return nil, fmt.Errorf("a pairing is open already, until %s: a yard has one at a time (yardr peer pair --end ends it)", p.Expires.Local().Format("15:04:05"))
 	}
-	code := pairing.NewCode()
-	clean, err := pairing.CleanCode(code)
+	code := NewCode()
+	clean, err := CleanCode(code)
 	if err != nil {
 		return nil, err
 	}
-	p := &hostPairing{Pairing: Pairing{ID: newPeerMessageID(), State: PairOpened, Expires: now().Add(pairing.TTL)},
+	p := &hostPairing{Pairing: Pairing{ID: newPeerMessageID(), State: PairOpened, Expires: now().Add(TTL)},
 		offer: o, actor: actor, code: clean}
 	if err := s.LogEvent(ctx, "", "peer_pair_opened", actor, p.event(map[string]any{"expires": p.Expires, "url": o.URL})); err != nil {
 		return nil, err
@@ -339,7 +336,7 @@ func (s *Store) PairAnswer(ctx context.Context, id string, yes bool, actor strin
 	case p.State == PairOpened:
 		return nil, errors.New("the other yard has not called yet: there is no check to answer")
 	case p.State == PairCalled && !yes:
-		s.endPairing(ctx, p, pairing.Declined, "", actor)
+		s.endPairing(ctx, p, Declined, "", actor)
 	case p.State == PairCalled:
 		p.Confirmed, p.actor = true, actor
 		if p.PeerConfirmed {
@@ -391,7 +388,7 @@ func (s *Store) PairClose(ctx context.Context, id, actor string) error {
 		return err
 	}
 	if p.State == PairOpened || p.State == PairCalled {
-		s.endPairing(ctx, p, pairing.Closed, "", actor)
+		s.endPairing(ctx, p, Closed, "", actor)
 	}
 	return nil
 }
@@ -401,7 +398,7 @@ func (s *Store) PairClose(ctx context.Context, id, actor string) error {
 func (s *Store) finishPairing(ctx context.Context, p *hostPairing) {
 	peer := Peer{Name: p.Peer, Key: p.Key, Calls: p.Calls}
 	if _, err := s.pairPeer(peer, p.actor, map[string]any{"role": "host", "pairing": p.ID}); err != nil {
-		s.endPairing(ctx, p, pairing.AlreadyPeer, err.Error(), p.actor)
+		s.endPairing(ctx, p, AlreadyPeer, err.Error(), p.actor)
 		return
 	}
 	p.State = PairDone
@@ -411,25 +408,25 @@ func (s *Store) finishPairing(ctx context.Context, p *hostPairing) {
 func refusedCall(p *hostPairing) error {
 	switch {
 	case p == nil:
-		return &pairing.Refused{Reason: pairing.NoPairing}
+		return &Refused{Reason: NoPairing}
 	case p.State == PairCalled || p.State == PairDone:
-		return &pairing.Refused{Reason: pairing.Used}
-	case p.State == PairEnded && p.Reason == pairing.TimedOut:
-		return &pairing.Refused{Reason: pairing.TimedOut}
+		return &Refused{Reason: Used}
+	case p.State == PairEnded && p.Reason == TimedOut:
+		return &Refused{Reason: TimedOut}
 	case p.State == PairEnded:
-		return &pairing.Refused{Reason: pairing.NoPairing}
+		return &Refused{Reason: NoPairing}
 	}
 	return nil
 }
 
 // wrongCode counts a message made without the code, and ends the pairing
-// at pairing.MaxTries of them.
+// at MaxTries of them.
 func (s *Store) wrongCode(ctx context.Context, p *hostPairing) error {
 	p.Tries++
-	if p.Tries >= pairing.MaxTries {
-		s.endPairing(ctx, p, pairing.WrongCode, "", "yard")
+	if p.Tries >= MaxTries {
+		s.endPairing(ctx, p, WrongCode, "", "yard")
 	}
-	return &pairing.Refused{Reason: pairing.WrongCode}
+	return &Refused{Reason: WrongCode}
 }
 
 // PairHello takes the first message of a yard that calls with a code, and
@@ -439,7 +436,7 @@ func (s *Store) wrongCode(ctx context.Context, p *hostPairing) error {
 //
 // This and the three below are not on the API: they are the other yard's
 // calls, which only the receiver, in the process that owns the store, takes.
-func (s *Store) PairHello(ctx context.Context, h pairing.Hello) (*pairing.Offer, error) {
+func (s *Store) PairHello(ctx context.Context, h Hello) (*PairingOffer, error) {
 	s.pair.mu.Lock()
 	defer s.pair.mu.Unlock()
 	p := s.pairing(ctx)
@@ -451,17 +448,17 @@ func (s *Store) PairHello(ctx context.Context, h pairing.Hello) (*pairing.Offer,
 	}
 	// The stretch is the cost of a guess, and this yard pays it too, once a
 	// call: with the lock held, so the tries are counted one by one.
-	key := pairing.Key(p.code, h.Commit)
+	key := PairingKey(p.code, h.Commit)
 	if knows, _ := h.Check(key); !knows {
 		return nil, s.wrongCode(ctx, p)
 	}
-	p.commit, p.key, p.nonce = h.Commit, key, pairing.NewNonce()
-	offer := pairing.NewOffer(key, h.Commit, s.hostParty(p))
+	p.commit, p.key, p.nonce = h.Commit, key, NewNonce()
+	offer := NewPairingOffer(key, h.Commit, s.hostParty(p))
 	return &offer, nil
 }
 
-func (s *Store) hostParty(p *hostPairing) pairing.Party {
-	return pairing.Party{Nonce: p.nonce, Name: p.offer.Name, Key: p.offer.Key, URL: p.offer.URL}
+func (s *Store) hostParty(p *hostPairing) Party {
+	return Party{Nonce: p.nonce, Name: p.offer.Name, Key: p.offer.Key, URL: p.offer.URL}
 }
 
 // PairReveal takes the second message: who the calling yard is. The code
@@ -469,7 +466,7 @@ func (s *Store) hostParty(p *hostPairing) pairing.Party {
 // name the pairing by, or refuses a yard that cannot be added here, in
 // which case the pairing has ended and its Detail says why in AddPeer's
 // words.
-func (s *Store) PairReveal(ctx context.Context, r pairing.Reveal) (session string, err error) {
+func (s *Store) PairReveal(ctx context.Context, r Reveal) (session string, err error) {
 	s.pair.mu.Lock()
 	defer s.pair.mu.Unlock()
 	p := s.pairing(ctx)
@@ -477,7 +474,7 @@ func (s *Store) PairReveal(ctx context.Context, r pairing.Reveal) (session strin
 		return "", err
 	}
 	if p.commit == "" || r.Commit != p.commit {
-		return "", &pairing.Refused{Reason: pairing.Superseded}
+		return "", &Refused{Reason: Superseded}
 	}
 	t, knows, err := r.Check(p.key, s.hostParty(p))
 	if !knows && err == nil {
@@ -498,18 +495,18 @@ func (s *Store) PairReveal(ctx context.Context, r pairing.Reveal) (session strin
 	}
 	refuse := func(reason, detail string) (string, error) {
 		s.endPairing(ctx, p, reason, detail, "yard")
-		return "", &pairing.Refused{Reason: reason}
+		return "", &Refused{Reason: reason}
 	}
 	if p.Key == p.offer.Key {
-		return refuse(pairing.Own, "the yard that called has this yard's own key")
+		return refuse(Own, "the yard that called has this yard's own key")
 	}
 	if p.offer.As == "" && checkName("peer", p.Peer) != nil {
-		return refuse(pairing.BadName, fmt.Sprintf("the other yard calls itself %q, which is no name for a peer here: open the pairing again with --name", p.Calls))
+		return refuse(BadName, fmt.Sprintf("the other yard calls itself %q, which is no name for a peer here: open the pairing again with --name", p.Calls))
 	}
 	if err := s.CheckPeer(ctx, Peer{Name: p.Peer, Key: p.Key}); err != nil {
-		return refuse(pairing.AlreadyPeer, err.Error())
+		return refuse(AlreadyPeer, err.Error())
 	}
-	p.State, p.Expires = PairCalled, now().Add(pairing.ConfirmTTL)
+	p.State, p.Expires = PairCalled, now().Add(ConfirmTTL)
 	return p.session, nil
 }
 
@@ -520,7 +517,7 @@ func (s *Store) PairCaller(ctx context.Context, session string) (key string, err
 	defer s.pair.mu.Unlock()
 	p := s.pairing(ctx)
 	if p == nil || p.session == "" || p.session != session {
-		return "", &pairing.Refused{Reason: pairing.NoPairing}
+		return "", &Refused{Reason: NoPairing}
 	}
 	return p.Key, nil
 }
@@ -529,18 +526,18 @@ func (s *Store) PairCaller(ctx context.Context, session string) (key string, err
 // receiver has found signed with its key, and says how the pairing stands.
 // Its yes, once this yard's operator has said yes too, saves it as a peer;
 // its no ends the pairing. It asks again, with the same word, until the
-// answer is no longer pairing.Waiting.
-func (s *Store) PairConfirmed(ctx context.Context, session string, yes bool) (*pairing.Outcome, error) {
+// answer is no longer Waiting.
+func (s *Store) PairConfirmed(ctx context.Context, session string, yes bool) (*PairingOutcome, error) {
 	s.pair.mu.Lock()
 	defer s.pair.mu.Unlock()
 	p := s.pairing(ctx)
 	if p == nil || p.session == "" || p.session != session {
-		return nil, &pairing.Refused{Reason: pairing.NoPairing}
+		return nil, &Refused{Reason: NoPairing}
 	}
 	if p.State == PairCalled {
 		switch {
 		case !yes:
-			s.endPairing(ctx, p, pairing.PeerDeclined, "", "yard")
+			s.endPairing(ctx, p, PeerDeclined, "", "yard")
 		case !p.PeerConfirmed:
 			p.PeerConfirmed = true
 			if p.Confirmed {
@@ -550,9 +547,9 @@ func (s *Store) PairConfirmed(ctx context.Context, session string, yes bool) (*p
 	}
 	switch p.State {
 	case PairDone:
-		return &pairing.Outcome{State: pairing.Confirmed}, nil
+		return &PairingOutcome{State: Confirmed}, nil
 	case PairEnded:
-		return &pairing.Outcome{State: pairing.Ended, Reason: p.Reason}, nil
+		return &PairingOutcome{State: Ended, Reason: p.Reason}, nil
 	}
-	return &pairing.Outcome{State: pairing.Waiting}, nil
+	return &PairingOutcome{State: Waiting}, nil
 }

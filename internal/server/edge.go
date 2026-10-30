@@ -12,7 +12,6 @@ import (
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/edgelink"
 	"yardr.dev/yardr/internal/store"
-	"yardr.dev/yardr/internal/yardkey"
 )
 
 // KeepEdge keeps a link of role to the configured edge and serves h over it.
@@ -68,7 +67,7 @@ func KeepEdge(ctx context.Context, c *config.Config, st store.API, role string, 
 				log.Warn("edge: the edge setting is not one this build reads; no link", "err", err)
 				return
 			}
-			key, err := yardkey.Load(c.PeerKey())
+			key, err := store.Load(c.PeerKey())
 			if err != nil {
 				log.Warn("edge: the yard's key is not read; no link", "err", err)
 				return

@@ -391,13 +391,13 @@ func TestPeerBeadEventStale(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.api.AddPeer(y.ctx, store.Peer{Name: "south", Key: yardkey.Public(k)}, "jo"); err != nil {
+	if _, err := y.api.AddPeer(y.ctx, store.Peer{Name: "south", Key: store.Public(k)}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := y.api.AllowPeer(y.ctx, "south", store.PeerAllow{Receive: []string{store.PeerThread}}, "jo"); err != nil {
 		t.Fatal(err)
 	}
-	got, err := y.own.PeerReceive(y.ctx, "south", yardkey.Public(k), []store.PeerMessage{eventMsg("south-1", re, nil)})
+	got, err := y.own.PeerReceive(y.ctx, "south", store.Public(k), []store.PeerMessage{eventMsg("south-1", re, nil)})
 	if err != nil || got[0].Refused != "" {
 		t.Fatalf("south's event about north's stay = %+v, %v", got, err)
 	}

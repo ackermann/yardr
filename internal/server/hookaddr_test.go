@@ -157,7 +157,7 @@ func TestHookListenerTakesPeers(t *testing.T) {
 	if _, _, err := yardkey.Ensure(c.PeerKey()); err != nil {
 		t.Fatal(err)
 	}
-	own, err := yardkey.Load(c.PeerKey())
+	own, err := store.Load(c.PeerKey())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,13 +169,13 @@ func TestHookListenerTakesPeers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := cl.AddPeer(ctx, store.Peer{Name: "north", Key: yardkey.Public(north)}, "me"); err != nil {
+	if _, err := cl.AddPeer(ctx, store.Peer{Name: "north", Key: store.Public(north)}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := cl.AllowPeer(ctx, "north", store.PeerAllow{Receive: []string{"ping"}}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	me := store.Peer{Name: "yard", Key: yardkey.Public(own), URL: "http://" + addr}
+	me := store.Peer{Name: "yard", Key: store.Public(own), URL: "http://" + addr}
 	m := store.PeerMessage{ID: "m1", Kind: "ping", Body: []byte(`{}`)}
 	if err := (&yards.Caller{Key: north}).Push(ctx, me, m); err != nil {
 		t.Fatalf("north's message: %v", err)

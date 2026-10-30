@@ -546,19 +546,19 @@ func TestBeadAskRunPeerAdd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	south := yardkey.Public(k)
+	south := store.Public(k)
 	local, _, err := yardkey.Ensure(y.a.cfg.PeerKey())
 	if err != nil {
 		t.Fatal(err)
 	}
-	selfInvite := yardkey.Invite{Name: "this-yard", Key: yardkey.Public(local)}.String()
+	selfInvite := store.Invite{Name: "this-yard", Key: store.Public(local)}.String()
 	if _, err := y.as(t, "yardmaster", "ask", b.ID, "Link this yard?",
 		"--context", "the local key is not another yard", "--run", "peer add self "+selfInvite); err == nil ||
 		!strings.Contains(err.Error(), "that invite is this yard's own") {
 		t.Fatalf("asking to add this yard's invite = %v", err)
 	}
 	inviteURL := "https://[2001:db8::7]:8790/peer%2Fv1;flow=green"
-	invite := yardkey.Invite{Name: "south", Key: south, URL: inviteURL}.String()
+	invite := store.Invite{Name: "south", Key: south, URL: inviteURL}.String()
 
 	out, err := y.as(t, "yardmaster", "ask", b.ID, "Link south?",
 		"--context", "its yard feeds us builds", "--run", "peer add north "+invite)
@@ -741,7 +741,7 @@ func TestRunListIsTheCLIs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	southInvite := yardkey.Invite{Name: "south", Key: yardkey.Public(southKey), URL: "https://south.example.com"}.String()
+	southInvite := store.Invite{Name: "south", Key: store.Public(southKey), URL: "https://south.example.com"}.String()
 	addedFile := filepath.Join(t.TempDir(), "added.yaml")
 	if err := os.WriteFile(addedFile, []byte("name: added\nbase: https://added.example.com/v1\ncredential: { env: ADDED_TOKEN, header: \"Authorization: Bearer {credential}\" }\ncalls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n"), 0o600); err != nil {
 		t.Fatal(err)

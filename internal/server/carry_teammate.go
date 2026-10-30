@@ -11,7 +11,6 @@ import (
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/edgelink"
 	"yardr.dev/yardr/internal/store"
-	"yardr.dev/yardr/internal/yardkey"
 )
 
 // The server's carrying out of an approved teammate invite or removal
@@ -168,7 +167,7 @@ func (c *carrier) memberDoor(ctx context.Context) (*edgelink.Client, store.Edge,
 	if !connected {
 		return nil, store.Edge{}, nil, fmt.Errorf("this yard is connected to no edge (the %s setting names none)", store.EdgeSetting)
 	}
-	yard, err := yardkey.Load(config.At(c.home).PeerKey())
+	yard, err := store.Load(config.At(c.home).PeerKey())
 	if err != nil {
 		return nil, store.Edge{}, nil, err
 	}
@@ -182,7 +181,7 @@ func (c *carrier) reportMemberAdd(ctx context.Context, email, yardUser, invitedB
 	}
 	return client.MemberAdd(ctx, edge.Key, yard, edgelink.MemberAdd{
 		YardHandle: edge.Handle, YardName: edge.Name, Email: email,
-		YardUser: yardUser, InvitedBy: invitedBy, YardKey: yardkey.Public(yard),
+		YardUser: yardUser, InvitedBy: invitedBy, YardKey: store.Public(yard),
 	})
 }
 
@@ -192,6 +191,6 @@ func (c *carrier) reportMemberRemove(ctx context.Context, email string) error {
 		return err
 	}
 	return client.MemberRemove(ctx, edge.Key, yard, edgelink.MemberRemove{
-		YardHandle: edge.Handle, YardName: edge.Name, Email: email, YardKey: yardkey.Public(yard),
+		YardHandle: edge.Handle, YardName: edge.Name, Email: email, YardKey: store.Public(yard),
 	})
 }

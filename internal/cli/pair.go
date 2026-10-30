@@ -21,9 +21,7 @@ import (
 	"io"
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/hooks"
-	"yardr.dev/yardr/internal/pairing"
 	"yardr.dev/yardr/internal/store"
-	"yardr.dev/yardr/internal/yardkey"
 	"yardr.dev/yardr/internal/yards"
 )
 
@@ -342,7 +340,7 @@ func (a *app) pairHost(w, warn io.Writer, ctx context.Context, cfg *config.Confi
 		}
 	} else {
 		fmt.Fprintf(w, "Pairing is open for %s, until %s, for one yard. Read the code to the other operator, who runs:\n\n  %s\n\n",
-			short(pairing.TTL), opened.Expires.Local().Format("15:04:05"), command)
+			short(store.TTL), opened.Expires.Local().Format("15:04:05"), command)
 		if loopback != "" {
 			fmt.Fprintf(w, "%s\n\n", loopback)
 		}
@@ -375,7 +373,7 @@ func (a *app) pairHosted(w, warn io.Writer, ctx context.Context, st store.API, p
 		}
 		if now.Tries > tries {
 			tries = now.Tries
-			a.progress(w, warn, "a wrong code was tried (%d of %d)", tries, pairing.MaxTries)
+			a.progress(w, warn, "a wrong code was tried (%d of %d)", tries, store.MaxTries)
 		}
 		if now.State == store.PairCalled && !asked {
 			asked = true
@@ -419,20 +417,20 @@ func (a *app) pairHosted(w, warn io.Writer, ctx context.Context, st store.API, p
 func hostEnded(p store.Pairing) error {
 	text := "the pairing ended (" + p.Reason + ")"
 	switch p.Reason {
-	case pairing.WrongCode:
-		text = fmt.Sprintf("the pairing ended after %d wrong codes. Open another, and read out its code", pairing.MaxTries)
-	case pairing.Declined:
+	case store.WrongCode:
+		text = fmt.Sprintf("the pairing ended after %d wrong codes. Open another, and read out its code", store.MaxTries)
+	case store.Declined:
 		return errSaidNo
-	case pairing.PeerDeclined:
+	case store.PeerDeclined:
 		text = "the other yard's operator declined, or that yard could not add this one"
-	case pairing.TimedOut:
-		text = fmt.Sprintf("no yard called with the code within %s", short(pairing.TTL))
+	case store.TimedOut:
+		text = fmt.Sprintf("no yard called with the code within %s", short(store.TTL))
 		if p.Calls != "" {
-			text = fmt.Sprintf("the two operators did not both confirm within %s of the call", short(pairing.ConfirmTTL))
+			text = fmt.Sprintf("the two operators did not both confirm within %s of the call", short(store.ConfirmTTL))
 		}
-	case pairing.Closed:
+	case store.Closed:
 		text = "the pairing was ended"
-	case pairing.AlreadyPeer, pairing.BadName, pairing.Own:
+	case store.AlreadyPeer, store.BadName, store.Own:
 		text = p.Detail
 	}
 	return errors.New(text + nothingSaved)
@@ -444,7 +442,7 @@ func pairAddress(s string) (string, error) {
 	if !strings.Contains(s, "://") {
 		s = "http://" + s
 	}
-	u, err := yardkey.CleanURL(s)
+	u, err := store.CleanURL(s)
 	if err != nil {
 		return "", fmt.Errorf("%w: the address yardr peer pair prints on the other yard", err)
 	}
@@ -461,7 +459,7 @@ func (a *app) pairJoin(w, warn io.Writer, ctx context.Context, cfg *config.Confi
 	if err != nil {
 		return err
 	}
-	clean, err := pairing.CleanCode(code)
+	clean, err := store.CleanCode(code)
 	if err != nil {
 		return err
 	}
@@ -469,7 +467,7 @@ func (a *app) pairJoin(w, warn io.Writer, ctx context.Context, cfg *config.Confi
 	if err != nil {
 		return err
 	}
-	key, err := yardkey.Load(cfg.PeerKey())
+	key, err := store.Load(cfg.PeerKey())
 	if err != nil {
 		return err
 	}
@@ -487,14 +485,14 @@ func (a *app) pairJoin(w, warn io.Writer, ctx context.Context, cfg *config.Confi
 	// and the code is still good for a call with --name.
 	var peer store.Peer
 	errNotAdded := errors.New("not added")
-	called, err := caller.PairCall(ctx, addr, clean, inv.Name, func(host pairing.Party) error {
+	called, err := caller.PairCall(ctx, addr, clean, inv.Name, func(host store.Party) error {
 		peer = store.Peer{Name: or(opt.name, host.Name), Key: host.Key, URL: addr, Calls: host.Name}
 		if host.Key == inv.Key {
-			_ = st.PairRefused(ctx, pairing.Own, host.Name, who)
+			_ = st.PairRefused(ctx, store.Own, host.Name, who)
 			return fmt.Errorf("%w: the yard that answered has this yard's own key, and a yard is not paired with itself", errNotAdded)
 		}
 		if err := st.CheckPeer(ctx, peer); err != nil {
-			_ = st.PairRefused(ctx, pairing.AlreadyPeer, host.Name, who)
+			_ = st.PairRefused(ctx, store.AlreadyPeer, host.Name, who)
 			if opt.form != nil {
 				return fmt.Errorf("%w: %w. `%s peer list` shows this yard's peers; the code is still good for `%s peer pair <address> <code> --name <another name>`",
 					errNotAdded, err, yardrAt(cfg.Home), yardrAt(cfg.Home))
@@ -543,7 +541,7 @@ func (a *app) pairJoin(w, warn io.Writer, ctx context.Context, cfg *config.Confi
 		peer.Name = or(name, peer.Name)
 	}
 	if err != nil || !yes || ctx.Err() != nil {
-		refuse(pairing.Declined)
+		refuse(store.Declined)
 		if err != nil {
 			return err
 		}
@@ -554,20 +552,20 @@ func (a *app) pairJoin(w, warn io.Writer, ctx context.Context, cfg *config.Confi
 	} else {
 		a.progress(w, warn, "waiting for %s's operator to confirm", peer.Name)
 	}
-	wait, cancel := context.WithTimeout(ctx, pairing.ConfirmTTL)
+	wait, cancel := context.WithTimeout(ctx, store.ConfirmTTL)
 	defer cancel()
 	out, err := caller.PairWait(wait, called, pairPoll.caller)
 	switch {
 	case ctx.Err() != nil:
-		refuse(pairing.Closed)
+		refuse(store.Closed)
 		return errors.New("the pairing was ended" + nothingSaved)
 	case wait.Err() != nil:
-		refuse(pairing.TimedOut)
-		return fmt.Errorf("%s's operator did not confirm within %s%s", peer.Name, short(pairing.ConfirmTTL), nothingSaved)
+		refuse(store.TimedOut)
+		return fmt.Errorf("%s's operator did not confirm within %s%s", peer.Name, short(store.ConfirmTTL), nothingSaved)
 	case err != nil:
 		// The other yard may have saved this one: its answer did not arrive.
 		return fmt.Errorf("asking %s how the pairing stands: %w\nThis yard saved nothing. If %s shows this yard as a peer, remove it there (yardr peer rm) and pair again", peer.Name, err, peer.Name)
-	case out.State != pairing.Confirmed:
+	case out.State != store.Confirmed:
 		return a.hostSaidNo(ctx, st, peer.Name, host.Name, out.Reason)
 	}
 	saved, err := st.PairPeer(ctx, peer, who)
@@ -580,18 +578,18 @@ func (a *app) pairJoin(w, warn io.Writer, ctx context.Context, cfg *config.Confi
 // hostSaidNo says why the yard that was called ended the pairing, and logs
 // it here. The reason is that yard's: its "declined" is its own operator's.
 func (a *app) hostSaidNo(ctx context.Context, st store.API, peer, calls, reason string) error {
-	mine, text := pairing.PeerDeclined, fmt.Sprintf("%s ended the pairing (%s)", peer, clipText(reason))
+	mine, text := store.PeerDeclined, fmt.Sprintf("%s ended the pairing (%s)", peer, clipText(reason))
 	switch reason {
-	case pairing.Declined:
+	case store.Declined:
 		text = fmt.Sprintf("%s's operator declined", peer)
-	case pairing.PeerDeclined:
-		mine, text = pairing.Declined, "declined"
-	case pairing.TimedOut:
-		mine, text = pairing.TimedOut, fmt.Sprintf("the two operators did not both confirm within %s of the call", short(pairing.ConfirmTTL))
-	case pairing.Closed:
-		mine, text = pairing.Closed, fmt.Sprintf("%s's operator ended the pairing", peer)
-	case pairing.AlreadyPeer:
-		mine, text = pairing.AlreadyPeer, fmt.Sprintf("%s could not save this yard: its name or its key became a peer's there meanwhile", peer)
+	case store.PeerDeclined:
+		mine, text = store.Declined, "declined"
+	case store.TimedOut:
+		mine, text = store.TimedOut, fmt.Sprintf("the two operators did not both confirm within %s of the call", short(store.ConfirmTTL))
+	case store.Closed:
+		mine, text = store.Closed, fmt.Sprintf("%s's operator ended the pairing", peer)
+	case store.AlreadyPeer:
+		mine, text = store.AlreadyPeer, fmt.Sprintf("%s could not save this yard: its name or its key became a peer's there meanwhile", peer)
 	}
 	_ = st.PairRefused(context.WithoutCancel(ctx), mine, calls, a.who())
 	return errors.New(text + nothingSaved)
@@ -601,28 +599,28 @@ func (a *app) hostSaidNo(ctx context.Context, st store.API, peer, calls, reason 
 // words, for the reasons it knows, since a reason is the other yard's text.
 func (a *app) callFailed(ctx context.Context, cfg *config.Config, st store.API, addr string, err error) error {
 	yardr := yardrAt(cfg.Home)
-	var no *pairing.Refused
+	var no *store.Refused
 	var unreached *url.Error
 	switch {
 	case errors.As(err, &no):
 		text := "the yard at " + addr + " refused the call (" + clipText(no.Reason) + ")"
 		switch no.Reason {
-		case pairing.WrongCode:
-			_ = st.PairRefused(context.WithoutCancel(ctx), pairing.WrongCode, "", a.who())
-			text = fmt.Sprintf("that is not the code the yard at %s shows. Its pairing ends after %d wrong codes", addr, pairing.MaxTries)
-		case pairing.NoPairing:
+		case store.WrongCode:
+			_ = st.PairRefused(context.WithoutCancel(ctx), store.WrongCode, "", a.who())
+			text = fmt.Sprintf("that is not the code the yard at %s shows. Its pairing ends after %d wrong codes", addr, store.MaxTries)
+		case store.NoPairing:
 			text = fmt.Sprintf("the yard at %s has no pairing open: its operator runs yardr peer pair there, and reads you the code", addr)
-		case pairing.TimedOut:
-			text = fmt.Sprintf("that code has run out: a code is good for %s. The other operator opens another pairing", short(pairing.TTL))
-		case pairing.Used:
+		case store.TimedOut:
+			text = fmt.Sprintf("that code has run out: a code is good for %s. The other operator opens another pairing", short(store.TTL))
+		case store.Used:
 			text = "that code was used by another call, and a code is good for one. If that call was not yours, the other operator should say no to the check they are shown, and open another pairing"
-		case pairing.Superseded:
+		case store.Superseded:
 			text = "another call with the code took this one's place: run the command again"
-		case pairing.AlreadyPeer:
+		case store.AlreadyPeer:
 			text = fmt.Sprintf("the yard at %s cannot add this one: this yard's name or key is a peer's there already. Its operator sees which, and can remove that peer or open the pairing again with --name", addr)
-		case pairing.BadName:
+		case store.BadName:
 			text = fmt.Sprintf("the yard at %s cannot save this yard under the name it gives itself: its operator opens the pairing again with --name, or this yard takes another (%s settings set name <name>)", addr, yardr)
-		case pairing.Own:
+		case store.Own:
 			text = "the yard at " + addr + " is this yard itself: a yard is not paired with itself"
 		}
 		return errors.New(text + nothingSaved)

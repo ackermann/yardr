@@ -18,7 +18,6 @@ import (
 
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/hooks"
-	"yardr.dev/yardr/internal/pairing"
 	"yardr.dev/yardr/internal/server"
 	"yardr.dev/yardr/internal/store"
 )
@@ -282,7 +281,7 @@ func showCode(w io.Writer, addr, code string, expires time.Time) {
 		"Read both to the other yard's operator. There, `yardr peer pair` asks for them under\n"+
 		"\"Enter a code\". The code is good for %s, until %s, and for one yard.\n\n"+
 		"Waiting for the other yard to call. Ctrl+C ends this, and the code with it.\n",
-		code, addr, short(pairing.TTL), expires.Local().Format("15:04:05"))
+		code, addr, short(store.TTL), expires.Local().Format("15:04:05"))
 }
 
 // formEnter is the way of the yard that calls: it asks for the address and
@@ -304,7 +303,7 @@ func (a *app) formEnter(w, warn io.Writer, ctx context.Context, cfg *config.Conf
 				Description("Eight letters and digits, as the other operator reads them out: K7QM-2XPD.\n"+
 					"Capitals and the dash do not matter.").
 				Value(&code).Validate(func(s string) error {
-				_, err := pairing.CleanCode(s)
+				_, err := store.CleanCode(s)
 				return err
 			}),
 		); err != nil {

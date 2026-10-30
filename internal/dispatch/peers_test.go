@@ -60,7 +60,7 @@ func newPeerYard(t *testing.T, name string, clock *peerClock) *peerYard {
 	keyFile := filepath.Join(t.TempDir(), "peer.key")
 	key, _, err := yardkey.Ensure(keyFile)
 	must(t, err)
-	y := &peerYard{name: name, api: api, own: own, pub: yardkey.Public(key)}
+	y := &peerYard{name: name, api: api, own: own, pub: store.Public(key)}
 	// As the server says it on opening the store: a bead that crosses a
 	// link names the yards it passes by their keys.
 	own.SetYard(keyFile, "test")

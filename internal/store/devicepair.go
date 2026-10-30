@@ -8,8 +8,6 @@ import (
 	"time"
 
 	bolt "go.etcd.io/bbolt"
-
-	"yardr.dev/yardr/internal/pairing"
 )
 
 // A device is enrolled by a code as two yards are paired (pairing.go,
@@ -121,15 +119,15 @@ func (s *Store) endDevicePairing(ctx context.Context, p *devicePairing, reason, 
 }
 
 // wrongDevicePairCode counts one wrong try against p, with s.devPair.mu
-// held, and answers the refusal for it: pairing.MaxTries of them end the
+// held, and answers the refusal for it: MaxTries of them end the
 // pairing. It is the one place a try is counted, for a code that is not the
 // code and for a presenter that is not the pairing's user alike.
 func (s *Store) wrongDevicePairCode(ctx context.Context, p *devicePairing) error {
 	p.Tries++
-	if p.Tries >= pairing.MaxTries {
-		s.endDevicePairing(ctx, p, pairing.WrongCode, "", "yard")
+	if p.Tries >= MaxTries {
+		s.endDevicePairing(ctx, p, WrongCode, "", "yard")
 	}
-	return &pairing.Refused{Reason: pairing.WrongCode}
+	return &Refused{Reason: WrongCode}
 }
 
 // devicePairing is the yard's device pairing as it is now, with
@@ -138,13 +136,13 @@ func (s *Store) wrongDevicePairCode(ctx context.Context, p *devicePairing) error
 func (s *Store) devicePairing(ctx context.Context) *devicePairing {
 	p := s.devPair.cur
 	if p != nil && p.State == PairOpened && !s.devicePairNow().Before(p.Expires) {
-		s.endDevicePairing(ctx, p, pairing.TimedOut, "", "yard")
+		s.endDevicePairing(ctx, p, TimedOut, "", "yard")
 	}
 	return p
 }
 
 // DevicePairOpen opens a pairing for the device name of the user and
-// returns its code, good for pairing.TTL and for one device. A yard has one
+// returns its code, good for TTL and for one device. A yard has one
 // open at a time. It is asked of whoever AddDevice is, and refuses what
 // that would: the device is added when the code is used, as by the actor
 // who opened the pairing.
@@ -204,13 +202,13 @@ func (s *Store) openDevicePairing(ctx context.Context, user, name, actor string,
 	if p := s.devicePairing(ctx); p != nil && p.State == PairOpened {
 		return nil, busy(p)
 	}
-	code := pairing.NewCode()
-	clean, err := pairing.CleanCode(code)
+	code := NewCode()
+	clean, err := CleanCode(code)
 	if err != nil {
 		return nil, err
 	}
 	p := &devicePairing{DevicePairing: DevicePairing{ID: newPeerMessageID(), User: user, Device: name, State: PairOpened,
-		Expires: s.devicePairNow().Add(pairing.TTL)}, actor: actor, code: clean}
+		Expires: s.devicePairNow().Add(TTL)}, actor: actor, code: clean}
 	if err := s.LogEvent(ctx, "", "device_pair_opened", actor, p.event(map[string]any{"expires": p.Expires})); err != nil {
 		return nil, err
 	}
@@ -231,7 +229,7 @@ func (s *Store) DevicePairClose(ctx context.Context, actor string) (*DevicePairi
 	if p == nil || p.State != PairOpened {
 		return nil, fmt.Errorf("an open device pairing: %w (one lives in the server's memory, and ends with it)", ErrNotFound)
 	}
-	s.endDevicePairing(ctx, p, pairing.Closed, "", actor)
+	s.endDevicePairing(ctx, p, Closed, "", actor)
 	out := p.DevicePairing
 	return &out, nil
 }
@@ -276,7 +274,7 @@ func (s *Store) DevicePairCloseSelf(ctx context.Context, user string) (*DevicePa
 	if p == nil || p.State != PairOpened || p.User != user {
 		return nil, fmt.Errorf("an open device pairing: %w (one lives in the server's memory, and ends with it)", ErrNotFound)
 	}
-	s.endDevicePairing(ctx, p, pairing.Closed, "", user)
+	s.endDevicePairing(ctx, p, Closed, "", user)
 	out := p.DevicePairing
 	return &out, nil
 }
@@ -297,7 +295,7 @@ func (s *Store) DevicePairCodeSelf(ctx context.Context, user string) (*DevicePai
 }
 
 // displayCode is a pairing's stored code as it is shown: XXXX-XXXX (the
-// stored form has no dash, as pairing.CleanCode leaves it).
+// stored form has no dash, as CleanCode leaves it).
 func displayCode(clean string) string {
 	if len(clean) <= 4 {
 		return clean
@@ -318,10 +316,10 @@ func (s *Store) DevicePairOpened(ctx context.Context) bool {
 // DevicePairRedeem takes the code a device calls with and answers the
 // device the pairing was opened for, added now, with its token: the one
 // time the token is anywhere. A wrong code is refused and counted, and
-// pairing.MaxTries of them end the pairing; the right one is used with
+// MaxTries of them end the pairing; the right one is used with
 // this call, whatever becomes of adding the device. What is no code at all
-// is an error that is no *pairing.Refused, and no try. With no pairing open
-// the refusal is pairing.NoPairing, whatever the last one ended for.
+// is an error that is no *Refused, and no try. With no pairing open
+// the refusal is NoPairing, whatever the last one ended for.
 //
 // Holding the code is the whole credential here, as it is on the yard's own
 // listener; a redemption that names who presents it is DevicePairRedeemBy,
@@ -378,9 +376,9 @@ func (s *Store) redeemDevicePairing(ctx context.Context, code string, presenter 
 	defer s.devPair.mu.Unlock()
 	p := s.devicePairing(ctx)
 	if p == nil || p.State != PairOpened {
-		return nil, &pairing.Refused{Reason: pairing.NoPairing}
+		return nil, &Refused{Reason: NoPairing}
 	}
-	clean, err := pairing.CleanCode(code)
+	clean, err := CleanCode(code)
 	if err != nil {
 		return nil, err
 	}
@@ -410,7 +408,7 @@ func (s *Store) redeemDevicePairing(ctx context.Context, code string, presenter 
 	}
 	if err != nil {
 		s.endDevicePairing(ctx, p, DeviceNotAdded, err.Error(), "yard")
-		return nil, &pairing.Refused{Reason: DeviceNotAdded}
+		return nil, &Refused{Reason: DeviceNotAdded}
 	}
 	p.State = PairDone
 	return out, nil

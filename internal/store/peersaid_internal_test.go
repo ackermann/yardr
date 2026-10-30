@@ -5,8 +5,6 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
-
-	"yardr.dev/yardr/internal/yardkey"
 )
 
 // A peer says what it understands with every request, every few seconds.
@@ -24,11 +22,8 @@ func TestPeerSaidWhen(t *testing.T) {
 	}
 	defer s.Close(context.Background())
 	ctx := context.Background()
-	k, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "north.key"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	key := yardkey.Public(k)
+	k := newKey(t)
+	key := Public(k)
 	if _, err := s.AddPeer(ctx, Peer{Name: "north", Key: key}, "jo"); err != nil {
 		t.Fatal(err)
 	}

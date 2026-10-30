@@ -28,10 +28,10 @@ func linked(t *testing.T, st store.API, name string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.AddPeer(ctx, store.Peer{Name: name, Key: yardkey.Public(k)}, "me"); err != nil {
+	if _, err := st.AddPeer(ctx, store.Peer{Name: name, Key: store.Public(k)}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	return yardkey.Public(k)
+	return store.Public(k)
 }
 
 // exposed is the plan's entry for the crew member the pack asks to expose.

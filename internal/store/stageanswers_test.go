@@ -746,7 +746,7 @@ func stageAnswerPeer(t *testing.T, s store.API, own *store.Store, ctx context.Co
 	if err != nil {
 		t.Fatal(err)
 	}
-	key := yardkey.Public(k)
+	key := store.Public(k)
 	if _, err := s.AddPeer(ctx, store.Peer{Name: "north", Key: key}, "jo"); err != nil {
 		t.Fatal(err)
 	}

@@ -31,7 +31,7 @@ func TestMailWithHasTheTrustedName(t *testing.T) {
 	must(err)
 	k, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "airy.key"))
 	must(err)
-	key := yardkey.Public(k)
+	key := store.Public(k)
 	_, err = st.AddPeer(ctx, store.Peer{Name: "airy", Key: key, URL: "http://airy.test"}, "jo")
 	must(err)
 	says := store.Says("v1")

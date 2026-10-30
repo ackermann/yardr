@@ -43,7 +43,7 @@ func TestPeerIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.st.AddPeer(ctx, store.Peer{Name: "north", Key: yardkey.Public(key)}, "jo"); err != nil {
+	if _, err := y.st.AddPeer(ctx, store.Peer{Name: "north", Key: store.Public(key)}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := y.st.PutSource(ctx, "talk.yaml", peerTalkText, "jo"); err != nil {
@@ -135,7 +135,7 @@ func TestPeerIdentityIsTheOperatorsAlone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.st.AddPeer(ctx, store.Peer{Name: "north", Key: yardkey.Public(key)}, "jo"); err != nil {
+	if _, err := y.st.AddPeer(ctx, store.Peer{Name: "north", Key: store.Public(key)}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := y.st.PutSource(ctx, "talk.yaml", peerTalkText, "jo"); err != nil {
@@ -171,7 +171,7 @@ func TestUserIdentityRefusesAPeersCrewId(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.st.AddPeer(ctx, store.Peer{Name: "north", Key: yardkey.Public(key)}, "jo"); err != nil {
+	if _, err := y.st.AddPeer(ctx, store.Peer{Name: "north", Key: store.Public(key)}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := y.st.PutSource(ctx, "talk.yaml", peerTalkText, "jo"); err != nil {

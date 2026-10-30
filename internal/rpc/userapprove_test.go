@@ -254,12 +254,12 @@ func TestUserApproveAskIsForTheOperatorsDeviceAlone(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := y.st.AddPeer(ctx, store.Peer{Name: "north", Key: yardkey.Public(key), URL: "http://north.test"}, "jo"); err != nil {
+		if _, err := y.st.AddPeer(ctx, store.Peer{Name: "north", Key: store.Public(key), URL: "http://north.test"}, "jo"); err != nil {
 			t.Fatal(err)
 		}
 		notLetIn(t, y.approve(onTheMachine, "", unread{t}))
-		notLetIn(t, y.approve(onTheMachine, yardkey.Public(key), unread{t}))
-		notLetIn(t, y.approve(onTheMachine, "", unread{t}, "Yardr-Peer-Key", yardkey.Public(key)))
+		notLetIn(t, y.approve(onTheMachine, store.Public(key), unread{t}))
+		notLetIn(t, y.approve(onTheMachine, "", unread{t}, "Yardr-Peer-Key", store.Public(key)))
 		y.nothingRan(t, "no device token")
 	})
 	t.Run("the operator, said by something that is no device token", func(t *testing.T) {

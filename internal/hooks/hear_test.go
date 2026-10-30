@@ -1316,7 +1316,7 @@ func peerTalkDepot(t *testing.T, unknown string) *depot {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.st.AddPeer(ctx, store.Peer{Name: "yardr-north", Key: yardkey.Public(key)}, "op"); err != nil {
+	if _, err := r.st.AddPeer(ctx, store.Peer{Name: "yardr-north", Key: store.Public(key)}, "op"); err != nil {
 		t.Fatal(err)
 	}
 	return r

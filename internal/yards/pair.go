@@ -28,10 +28,10 @@ const maxPair = 4 << 10
 // PairStore is the host's side of a pairing, in the process that owns the
 // store. None of it is on the socket.
 type PairStore interface {
-	PairHello(ctx context.Context, h pairing.Hello) (*pairing.Offer, error)
-	PairReveal(ctx context.Context, r pairing.Reveal) (session string, err error)
+	PairHello(ctx context.Context, h store.Hello) (*store.PairingOffer, error)
+	PairReveal(ctx context.Context, r store.Reveal) (session string, err error)
 	PairCaller(ctx context.Context, session string) (key string, err error)
-	PairConfirmed(ctx context.Context, session string, yes bool) (*pairing.Outcome, error)
+	PairConfirmed(ctx context.Context, session string, yes bool) (*store.PairingOutcome, error)
 }
 
 // refusal is the body of an answer that takes nothing.
@@ -43,11 +43,11 @@ type refusal struct {
 // the body; the status tells a caller of another build what kind it is.
 func refusalStatus(reason string) int {
 	switch reason {
-	case pairing.WrongCode:
+	case store.WrongCode:
 		return http.StatusForbidden
-	case pairing.NoPairing:
+	case store.NoPairing:
 		return http.StatusNotFound
-	case pairing.TimedOut:
+	case store.TimedOut:
 		return http.StatusGone
 	}
 	return http.StatusConflict
@@ -71,7 +71,7 @@ func (rc *Receiver) pairBody(w http.ResponseWriter, r *http.Request, v any) ([]b
 // with its reason, or 400 for what is no message of a pairing. Neither the
 // answer nor the log has anything of the code: the store's errors do not.
 func (rc *Receiver) pairFailed(w http.ResponseWriter, err error) {
-	var no *pairing.Refused
+	var no *store.Refused
 	if !errors.As(err, &no) {
 		rc.reject(w, "", "pair_bad_request", http.StatusBadRequest, err)
 		return
@@ -87,7 +87,7 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 }
 
 func (rc *Receiver) pairHello(w http.ResponseWriter, r *http.Request) {
-	var h pairing.Hello
+	var h store.Hello
 	if _, ok := rc.pairBody(w, r, &h); !ok {
 		return
 	}
@@ -100,7 +100,7 @@ func (rc *Receiver) pairHello(w http.ResponseWriter, r *http.Request) {
 }
 
 func (rc *Receiver) pairReveal(w http.ResponseWriter, r *http.Request) {
-	var rv pairing.Reveal
+	var rv store.Reveal
 	if _, ok := rc.pairBody(w, r, &rv); !ok {
 		return
 	}
@@ -118,12 +118,12 @@ func (rc *Receiver) pairReveal(w http.ResponseWriter, r *http.Request) {
 // word that is not signed so is no one's, and answered 401 as any request
 // that is no peer's.
 func (rc *Receiver) pairConfirm(w http.ResponseWriter, r *http.Request) {
-	var a pairing.Answer
+	var a store.PairingAnswer
 	body, ok := rc.pairBody(w, r, &a)
 	if !ok {
 		return
 	}
-	key, err := yardkey.Load(rc.key)
+	key, err := store.Load(rc.key)
 	if err != nil {
 		rc.reject(w, "", "no_key", http.StatusUnauthorized, err)
 		return
@@ -135,9 +135,9 @@ func (rc *Receiver) pairConfirm(w http.ResponseWriter, r *http.Request) {
 	}
 	sig := r.Header.Get(yardkey.HeaderSig)
 	if r.Header.Get(yardkey.HeaderKey) != caller {
-		err = fmt.Errorf("%w: not the key the pairing was called with", yardkey.ErrSignature)
+		err = fmt.Errorf("%w: not the key the pairing was called with", store.ErrSignature)
 	} else {
-		err = yardkey.VerifyRequest(caller, yardkey.Public(key), r.Method, r.URL.RequestURI(), r.Header.Get(yardkey.HeaderTime), sig, body, rc.now())
+		err = yardkey.VerifyRequest(caller, store.Public(key), r.Method, r.URL.RequestURI(), r.Header.Get(yardkey.HeaderTime), sig, body, rc.now())
 	}
 	if err != nil {
 		rc.reject(w, "", "pair_unauthorized", http.StatusUnauthorized, err)
@@ -154,14 +154,14 @@ func (rc *Receiver) pairConfirm(w http.ResponseWriter, r *http.Request) {
 // Called is a pairing as the calling yard has it once the other has
 // answered: everything that crossed, from which it computes the check.
 type Called struct {
-	pairing.Transcript
+	store.Transcript
 	// URL is where the other yard was called, which is where the
 	// confirmations go and where the link then calls it.
 	URL string `json:"url"`
 }
 
 // pairPost posts v to a yard that is no peer yet, and reads its answer
-// into out. A refusal is a *pairing.Refused.
+// into out. A refusal is a *store.Refused.
 func (c *Caller) pairPost(ctx context.Context, url string, v, out any) error {
 	body, err := json.Marshal(v)
 	if err != nil {
@@ -197,7 +197,7 @@ func (c *Caller) pairPost(ctx context.Context, url string, v, out any) error {
 func pairRefusal(status int, answer []byte) error {
 	var no refusal
 	if json.Unmarshal(answer, &no) == nil && no.Refused != "" {
-		return &pairing.Refused{Reason: no.Refused}
+		return &store.Refused{Reason: no.Refused}
 	}
 	if status == http.StatusNotFound {
 		// A yardr from before pairing, or something that is no yard.
@@ -227,15 +227,15 @@ var ErrNotTheCode = errors.New("the answer was not made with the code: something
 // said it is: an error ends the call there, as accept's, before this yard
 // has revealed itself. The other yard's pairing then stays open, and its
 // operator has been asked nothing.
-func (c *Caller) PairCall(ctx context.Context, url, code, name string, accept func(host pairing.Party) error) (*Called, error) {
-	me := pairing.Party{Nonce: pairing.NewNonce(), Name: name, Key: yardkey.Public(c.Key)}
+func (c *Caller) PairCall(ctx context.Context, url, code, name string, accept func(host store.Party) error) (*Called, error) {
+	me := store.Party{Nonce: store.NewNonce(), Name: name, Key: store.Public(c.Key)}
 	if err := me.Valid(); err != nil {
 		return nil, err
 	}
-	t := pairing.Transcript{Commit: pairing.Commit(me), Joiner: me}
-	key := pairing.Key(code, t.Commit)
-	var offer pairing.Offer
-	if err := c.pairPost(ctx, url+pairing.PathHello, pairing.NewHello(key, me), &offer); err != nil {
+	t := store.Transcript{Commit: store.Commit(me), Joiner: me}
+	key := store.PairingKey(code, t.Commit)
+	var offer store.PairingOffer
+	if err := c.pairPost(ctx, url+pairing.PathHello, store.NewHello(key, me), &offer); err != nil {
 		return nil, err
 	}
 	if knows, err := offer.Check(key, t.Commit); err != nil {
@@ -252,7 +252,7 @@ func (c *Caller) PairCall(ctx context.Context, url, code, name string, accept fu
 	var took struct {
 		Session string `json:"session"`
 	}
-	if err := c.pairPost(ctx, url+pairing.PathReveal, pairing.NewReveal(key, t), &took); err != nil {
+	if err := c.pairPost(ctx, url+pairing.PathReveal, store.NewReveal(key, t), &took); err != nil {
 		return nil, err
 	}
 	return &Called{Transcript: t, URL: url}, nil
@@ -261,10 +261,10 @@ func (c *Caller) PairCall(ctx context.Context, url, code, name string, accept fu
 // PairAnswer tells the yard that was called what this yard's operator said
 // of the check, signed with this yard's key, and returns how the pairing
 // stands there, by an answer signed with the key that yard gave. With yes
-// it is asked again until the state is no longer pairing.Waiting; this
-// yard saves the other only on pairing.Confirmed.
-func (c *Caller) PairAnswer(ctx context.Context, p *Called, yes bool) (*pairing.Outcome, error) {
-	body, err := json.Marshal(pairing.Answer{Session: p.Session(), Confirm: yes})
+// it is asked again until the state is no longer store.Waiting; this
+// yard saves the other only on store.Confirmed.
+func (c *Caller) PairAnswer(ctx context.Context, p *Called, yes bool) (*store.PairingOutcome, error) {
+	body, err := json.Marshal(store.PairingAnswer{Session: p.Session(), Confirm: yes})
 	if err != nil {
 		return nil, err
 	}
@@ -277,7 +277,7 @@ func (c *Caller) PairAnswer(ctx context.Context, p *Called, yes bool) (*pairing.
 	} else if err != nil {
 		return nil, err
 	}
-	var out pairing.Outcome
+	var out store.PairingOutcome
 	if status != http.StatusOK || json.Unmarshal(answer, &out) != nil {
 		return nil, fmt.Errorf("the other yard answered %d", status)
 	}
@@ -286,10 +286,10 @@ func (c *Caller) PairAnswer(ctx context.Context, p *Called, yes bool) (*pairing.
 
 // PairWait asks the yard that was called, every interval, until both
 // operators have confirmed or the pairing has ended, and returns which.
-func (c *Caller) PairWait(ctx context.Context, p *Called, interval time.Duration) (*pairing.Outcome, error) {
+func (c *Caller) PairWait(ctx context.Context, p *Called, interval time.Duration) (*store.PairingOutcome, error) {
 	for {
 		out, err := c.PairAnswer(ctx, p, true)
-		if err != nil || out.State != pairing.Waiting {
+		if err != nil || out.State != store.Waiting {
 			return out, err
 		}
 		select {

@@ -4,12 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"maps"
-	"path/filepath"
 	"slices"
 	"testing"
 	"time"
-
-	"yardr.dev/yardr/internal/yardkey"
 )
 
 // Within one priority the dispatcher takes the bead that entered its stage
@@ -50,11 +47,8 @@ func TestPeerBeadArrivesQueuedByArrival(t *testing.T) {
 	y := newETATest(t)
 	ctx := context.Background()
 	t0 := y.now
-	k, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "north.key"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	key := yardkey.Public(k)
+	k := newKey(t)
+	key := Public(k)
 	if _, err := y.AddPeer(ctx, Peer{Name: "north", Key: key, URL: "http://north.test", Calls: "the-north"}, "jo"); err != nil {
 		t.Fatal(err)
 	}

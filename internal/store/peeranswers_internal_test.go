@@ -10,8 +10,6 @@ import (
 	"time"
 
 	bolt "go.etcd.io/bbolt"
-
-	"yardr.dev/yardr/internal/yardkey"
 )
 
 // homeYard is a yard linked with north, which asks north's mckean and is
@@ -37,11 +35,8 @@ func newHomeYard(t *testing.T) *homeYard {
 	}
 	t.Cleanup(func() { s.Close(context.Background()) })
 	y.Store = s
-	k, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "north.key"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	y.key = yardkey.Public(k)
+	k := newKey(t)
+	y.key = Public(k)
 	if _, err := s.AddPeer(y.ctx, Peer{Name: "north", Key: y.key}, "jo"); err != nil {
 		t.Fatal(err)
 	}
@@ -286,11 +281,8 @@ func TestPeerAnswerUnsolicited(t *testing.T) {
 	notes, _ := y.Notes(y.ctx, bead)
 	plain := notes[len(notes)-1].Seq
 	// Another yard, and an ask for its person.
-	k, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "south.key"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := y.AddPeer(y.ctx, Peer{Name: "south", Key: yardkey.Public(k)}, "jo"); err != nil {
+	k := newKey(t)
+	if _, err := y.AddPeer(y.ctx, Peer{Name: "south", Key: Public(k)}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := y.AllowPeer(y.ctx, "south", PeerAllow{Send: []string{PeerAsk}}, "jo"); err != nil {
@@ -382,11 +374,8 @@ func TestPeerAnswerAfterRename(t *testing.T) {
 	if r := y.state(t, bead, seq); r.Current == nil || r.Current.Note.Author != "mckean@up" {
 		t.Fatalf("after the rename: %+v", r.Current)
 	}
-	k, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "other.key"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := y.AddPeer(y.ctx, Peer{Name: "north", Key: yardkey.Public(k)}, "jo"); err != nil {
+	k := newKey(t)
+	if _, err := y.AddPeer(y.ctx, Peer{Name: "north", Key: Public(k)}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	if got := take(peerAnswer{From: "mckean", Bead: bead, Seq: seq, Option: 2}); got.Refused != RefusedNoSuchAsk {

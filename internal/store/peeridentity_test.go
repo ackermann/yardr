@@ -233,7 +233,7 @@ func TestPeerIdentityOneIdOneSpeaker(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.api.AddPeer(y.ctx, store.Peer{Name: "south", Key: yardkey.Public(other)}, "jo"); err != nil {
+	if _, err := y.api.AddPeer(y.ctx, store.Peer{Name: "south", Key: store.Public(other)}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -577,7 +577,7 @@ func TestMoveSourceRecordsRefusesPeerIdentityClashes(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if _, err := y.api.AddPeer(y.ctx, store.Peer{Name: "south", Key: yardkey.Public(key)}, "jo"); err != nil {
+				if _, err := y.api.AddPeer(y.ctx, store.Peer{Name: "south", Key: store.Public(key)}, "jo"); err != nil {
 					t.Fatal(err)
 				}
 				if _, err := y.api.SetPeerIdentity(y.ctx, "south", store.PeerIdentity{Source: "chat", ID: "U7", Crew: "mayor"}, "jo"); err != nil {

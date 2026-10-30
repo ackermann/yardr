@@ -127,7 +127,7 @@ func TestRunAskIsNotWrittenOrApprovedWhileItsSessionIsStarting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := api.AddPeer(ctx, store.Peer{Name: "airy", Key: yardkey.Public(k)}, "jo"); err != nil {
+	if _, err := api.AddPeer(ctx, store.Peer{Name: "airy", Key: store.Public(k)}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	seq, err := api.AddAsk(ctx, b.ID, mailLimitAsk(), "yardmaster")

@@ -18,7 +18,6 @@ import (
 	bolt "go.etcd.io/bbolt"
 
 	"yardr.dev/yardr/internal/config"
-	"yardr.dev/yardr/internal/yardkey"
 )
 
 // bSettings holds the yard's own defaults, key -> value (a JSON string),
@@ -717,7 +716,7 @@ func CheckEdgeURL(v string) error {
 type Edge struct {
 	// URL is the edge's origin (CheckEdgeURL).
 	URL string `json:"url"`
-	// Key is the edge's public key (yardkey.Public) as this yard pinned it
+	// Key is the edge's public key (Public) as this yard pinned it
 	// when it connected. It is never taken from the edge again: a different
 	// key at the same address is a different edge.
 	Key string `json:"key"`
@@ -777,7 +776,7 @@ func ParseEdge(v string) (Edge, error) {
 	if err := CheckEdgeURL(e.URL); err != nil {
 		return Edge{}, fmt.Errorf("%s: %w", EdgeSetting, err)
 	}
-	if _, err := yardkey.ParsePublic(e.Key); err != nil {
+	if _, err := ParsePublic(e.Key); err != nil {
 		return Edge{}, fmt.Errorf("%s: the edge's key: %w", EdgeSetting, err)
 	}
 	if !edgeHandle.MatchString(e.Handle) {

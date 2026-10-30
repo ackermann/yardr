@@ -48,7 +48,7 @@ func newYard(t *testing.T) *yard {
 	return y
 }
 
-func (y *yard) pub() string { return yardkey.Public(y.key) }
+func (y *yard) pub() string { return store.Public(y.key) }
 
 func (y *yard) caller() *yards.Caller {
 	return &yards.Caller{Key: y.key, Now: func() time.Time { return y.now }}
@@ -214,7 +214,7 @@ func TestReceiverPost(t *testing.T) {
 		if resp.StatusCode != want {
 			t.Fatalf("status %d (%s), want %d", resp.StatusCode, body, want)
 		}
-		if err := yardkey.VerifyResponse(b.pub(), resp.StatusCode, r.sig, resp.Header.Get(yardkey.HeaderSig), body); err != nil {
+		if err := store.VerifyResponse(b.pub(), resp.StatusCode, r.sig, resp.Header.Get(yardkey.HeaderSig), body); err != nil {
 			t.Fatalf("the %d answer is not b's: %v", resp.StatusCode, err)
 		}
 		var v map[string]any
@@ -455,7 +455,7 @@ func TestCallerPush(t *testing.T) {
 	// Something between the two that answers 200, or 403, for b.
 	for _, status := range []int{http.StatusOK, http.StatusForbidden} {
 		fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set(yardkey.HeaderSig, yardkey.SignResponse(stranger.key, status, r.Header.Get(yardkey.HeaderSig), []byte(`{"taken":true}`)))
+			w.Header().Set(yardkey.HeaderSig, store.SignResponse(stranger.key, status, r.Header.Get(yardkey.HeaderSig), []byte(`{"taken":true}`)))
 			w.WriteHeader(status)
 			_, _ = w.Write([]byte(`{"taken":true}`))
 		}))
@@ -789,7 +789,7 @@ func TestReceiverTakesABead(t *testing.T) {
 		if resp.StatusCode != want {
 			t.Fatalf("status %d (%s), want %d", resp.StatusCode, body, want)
 		}
-		if err := yardkey.VerifyResponse(b.pub(), resp.StatusCode, r.sig, resp.Header.Get(yardkey.HeaderSig), body); err != nil {
+		if err := store.VerifyResponse(b.pub(), resp.StatusCode, r.sig, resp.Header.Get(yardkey.HeaderSig), body); err != nil {
 			t.Fatalf("the %d answer is not b's: %v", resp.StatusCode, err)
 		}
 		var v map[string]any

@@ -927,7 +927,7 @@ func TestFileNotKeptStaysQueued(t *testing.T) {
 	if resp.StatusCode != http.StatusInternalServerError {
 		t.Fatalf("a file north cannot keep is answered %d (%s), want 500", resp.StatusCode, answer)
 	}
-	if err := yardkey.VerifyResponse(north.pub(), resp.StatusCode, r.sig, resp.Header.Get(yardkey.HeaderSig), answer); err != nil {
+	if err := store.VerifyResponse(north.pub(), resp.StatusCode, r.sig, resp.Header.Get(yardkey.HeaderSig), answer); err != nil {
 		t.Fatalf("the 500 is not north's: %v", err)
 	}
 	if strings.Contains(string(answer), dir) {

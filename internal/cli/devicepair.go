@@ -16,9 +16,7 @@ import (
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/edgelink"
 	"yardr.dev/yardr/internal/hooks"
-	"yardr.dev/yardr/internal/pairing"
 	"yardr.dev/yardr/internal/store"
-	"yardr.dev/yardr/internal/yardkey"
 )
 
 // A device is enrolled by a code, as two yards are paired (docs/users.md,
@@ -30,7 +28,7 @@ import (
 // device reaches the yard at, then '#', then the code, and where the address
 // is the edge's, '#' and the yard's handle/name at the edge beside them, so
 // the device knows which of the account's yards it pairs with. Nothing else
-// is in it, and an address has no '#' of its own (yardkey.CleanURL).
+// is in it, and an address has no '#' of its own (store.CleanURL).
 func pairQR(address, code, yard string) string {
 	if yard == "" {
 		return address + "#" + code
@@ -193,7 +191,7 @@ a person.`,
 					}
 					addr = edge
 				}
-			} else if addr, err = yardkey.CleanURL(addr); err != nil {
+			} else if addr, err = store.CleanURL(addr); err != nil {
 				return fmt.Errorf("%w: the address the device reaches this yard at", err)
 			}
 			opened, err := st.DevicePairOpen(ctx, args[0], args[1], a.who())
@@ -225,7 +223,7 @@ a person.`,
 				}
 				fmt.Fprintf(w, "Pairing is open for %s, until %s, for the device %s of %s. Give the device %s:\n\n"+
 					"  address  %s\n",
-					short(pairing.TTL), out.Expires.Local().Format("15:04:05"), out.Device, out.User, give, out.Address)
+					short(store.TTL), out.Expires.Local().Format("15:04:05"), out.Device, out.User, give, out.Address)
 				if out.Yard != "" {
 					fmt.Fprintf(w, "  yard     %s\n", out.Yard)
 				}
@@ -234,7 +232,7 @@ a person.`,
 					fmt.Fprintf(w, "%s\n", picture)
 				}
 				fmt.Fprintf(w, "The code is good once: the device is answered with its token, which is shown nowhere else. "+
-					"%d wrong codes end the pairing, and so does: %s user device pair --end\n", pairing.MaxTries, yardr)
+					"%d wrong codes end the pairing, and so does: %s user device pair --end\n", store.MaxTries, yardr)
 				fmt.Fprintf(w, "It then calls as %s until: %s user device rm %s %s\n", out.User, yardr, out.User, out.Device)
 				if !isOperator(c.Context(), st, out.User) {
 					fmt.Fprintf(w, "%s is not an operator, and the device reads every bead in the yard, with its notes, and the mail of %s alone.\n", out.User, out.User)

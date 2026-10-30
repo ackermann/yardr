@@ -2838,7 +2838,7 @@ func TestSchema33NotificationsRemadeHeld(t *testing.T) {
 	must(err)
 	k, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "airy.key"))
 	must(err)
-	_, err = s.AddPeer(ctx, store.Peer{Name: "airy", Key: yardkey.Public(k), Calls: "yardr"}, "op")
+	_, err = s.AddPeer(ctx, store.Peer{Name: "airy", Key: store.Public(k), Calls: "yardr"}, "op")
 	must(err)
 	bead, err := s.CreateBead(ctx, store.NewBead{Title: "work"}, "op")
 	must(err)

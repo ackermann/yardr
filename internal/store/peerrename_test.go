@@ -18,7 +18,7 @@ func otherKey(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return yardkey.Public(k)
+	return store.Public(k)
 }
 
 // conversation is what yardr mail --with reads back, as "from>to state: text".

@@ -46,7 +46,7 @@ func peerKey(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return yardkey.Public(key)
+	return store.Public(key)
 }
 
 // What only the operator may do is refused by the store itself, in one

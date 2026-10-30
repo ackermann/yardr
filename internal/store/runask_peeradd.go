@@ -10,8 +10,6 @@ package store
 import (
 	"context"
 	"fmt"
-
-	"yardr.dev/yardr/internal/yardkey"
 )
 
 // parsePeerAdd reads the words of peer add <name> <invite>.
@@ -36,7 +34,7 @@ func checkPeerAdd(ctx context.Context, w *wtx, argv []string, actor string) erro
 // or a key a peer has already, as the command does.
 func (w *wtx) peerAddCard(argv []string, asking bool) (AskRun, error) {
 	name := argv[2]
-	inv, err := yardkey.ParseInvite(argv[3])
+	inv, err := ParseInvite(argv[3])
 	if err != nil {
 		return AskRun{}, err
 	}
@@ -92,7 +90,7 @@ func (w *wtx) peerAddStale(seq uint64, was, now AskRun) error {
 // runPeerAdd links the peer as actor through addPeer, and answers what the
 // command prints at a terminal: the link with what it calls itself.
 func runPeerAdd(ctx context.Context, w *wtx, argv []string, actor string, by *approvedOn) (string, error) {
-	inv, err := yardkey.ParseInvite(argv[3])
+	inv, err := ParseInvite(argv[3])
 	if err != nil {
 		return "", err
 	}

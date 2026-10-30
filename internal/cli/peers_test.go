@@ -104,7 +104,7 @@ func TestPeerKeyAndInvite(t *testing.T) {
 	y := newCLIYard(t, "north")
 	cliEnv(t, y)
 	first := strings.TrimSpace(y.must(t, "key"))
-	if _, err := yardkey.ParsePublic(first); err != nil {
+	if _, err := store.ParsePublic(first); err != nil {
 		t.Fatalf("peer key printed %q: %v", first, err)
 	}
 	st, err := os.Stat(filepath.Join(y.home, "peer.key"))
@@ -116,14 +116,14 @@ func TestPeerKeyAndInvite(t *testing.T) {
 	}
 
 	line := strings.TrimSpace(y.must(t, "invite", "--url", y.srv.URL+"/"))
-	inv, err := yardkey.ParseInvite(line)
+	inv, err := store.ParseInvite(line)
 	if err != nil || inv.Name != "north" || inv.Key != first || inv.URL != y.srv.URL {
 		t.Fatalf("invite %q = %+v, %v", line, inv, err)
 	}
 	if err := y.st.SetSetting(context.Background(), "name", "the-north", "jo"); err != nil {
 		t.Fatal(err)
 	}
-	inv, err = yardkey.ParseInvite(strings.TrimSpace(y.must(t, "invite")))
+	inv, err = store.ParseInvite(strings.TrimSpace(y.must(t, "invite")))
 	if err != nil || inv.Name != "the-north" || inv.Key != first || inv.URL != "" {
 		t.Fatalf("invite without a URL = %+v, %v", inv, err)
 	}
@@ -334,7 +334,7 @@ func TestDoctorPeers(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		keys[name] = yardkey.Public(k)
+		keys[name] = store.Public(k)
 	}
 	if _, err := y.st.AddPeer(ctx, store.Peer{Name: "laptop", Key: keys["laptop"]}, "jo"); err != nil {
 		t.Fatal(err)
@@ -523,7 +523,7 @@ func TestDoctorPeerLandings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.st.AddPeer(ctx, store.Peer{Name: "north", Key: yardkey.Public(k), URL: "http://north.test"}, "jo"); err != nil {
+	if _, err := y.st.AddPeer(ctx, store.Peer{Name: "north", Key: store.Public(k), URL: "http://north.test"}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := y.st.AllowPeer(ctx, "north", store.PeerAllow{Send: []string{store.PeerBead}}, "jo"); err != nil {

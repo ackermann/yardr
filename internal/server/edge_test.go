@@ -272,7 +272,7 @@ func TestEdgeLinkFollowsTheSettingBesideTheListener(t *testing.T) {
 				t.Fatal(err)
 			}
 			l := nextLink(t, edge)
-			key, err := yardkey.Load(c.PeerKey())
+			key, err := store.Load(c.PeerKey())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -281,7 +281,7 @@ func TestEdgeLinkFollowsTheSettingBesideTheListener(t *testing.T) {
 				if got := l.Header.Get("Yardr-Link-Role"); got != role {
 					t.Errorf("upgrade role = %q, want %q", got, role)
 				}
-				if got := l.Header.Get(yardkey.HeaderKey); got != yardkey.Public(key) {
+				if got := l.Header.Get(yardkey.HeaderKey); got != store.Public(key) {
 					t.Errorf("upgrade key = %q, want the yard's key", got)
 				}
 			}
@@ -449,11 +449,11 @@ func TestEdgeLinkFollowsTheSettingBesideTheListener(t *testing.T) {
 		if got := l.Header.Get("Yardr-Link-Role"); got != "web" {
 			t.Errorf("upgrade role = %q, want web", got)
 		}
-		key, err := yardkey.Load(c.PeerKey())
+		key, err := store.Load(c.PeerKey())
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got := l.Header.Get(yardkey.HeaderKey); got != yardkey.Public(key) {
+		if got := l.Header.Get(yardkey.HeaderKey); got != store.Public(key) {
 			t.Errorf("upgrade key = %q, want the yard's key", got)
 		}
 		waitEvent(t, real, "edge_link_up", func(e store.Event) bool { return e.Data["role"] == "web" })

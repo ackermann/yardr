@@ -72,7 +72,7 @@ func newPairYard(t *testing.T, name string) *pairYard {
 	return y
 }
 
-func (y *pairYard) pub() string           { return yardkey.Public(y.key) }
+func (y *pairYard) pub() string           { return store.Public(y.key) }
 func (y *pairYard) caller() *yards.Caller { return &yards.Caller{Key: y.key} }
 
 // open opens a pairing on y, to save the other yard as as ("" for the name
@@ -83,7 +83,7 @@ func (y *pairYard) open(t *testing.T, as string) (*store.PairingCode, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	code, err := pairing.CleanCode(p.Code)
+	code, err := store.CleanCode(p.Code)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,14 +137,14 @@ func (y *pairYard) refusals(t *testing.T) []string {
 // cheapKeys makes a key from a code cost little, for a test that makes many.
 func cheapKeys(t *testing.T) {
 	t.Helper()
-	old := pairing.Stretch
-	pairing.Stretch = 16
-	t.Cleanup(func() { pairing.Stretch = old })
+	old := store.Stretch
+	store.Stretch = 16
+	t.Cleanup(func() { store.Stretch = old })
 }
 
 // refusedFor reports whether err is the other yard's refusal for reason.
 func refusedFor(err error, reason string) bool {
-	var no *pairing.Refused
+	var no *store.Refused
 	return errors.As(err, &no) && no.Reason == reason
 }
 
@@ -179,7 +179,7 @@ func TestPairing(t *testing.T) {
 	north, laptop := newPairYard(t, "north"), newPairYard(t, "laptop")
 	ctx := context.Background()
 	opened, code := north.open(t, "")
-	if opened.State != store.PairOpened || opened.Expires.Sub(opened.Expires.Add(-pairing.TTL)) != pairing.TTL || len(opened.Code) != 9 {
+	if opened.State != store.PairOpened || opened.Expires.Sub(opened.Expires.Add(-store.TTL)) != store.TTL || len(opened.Code) != 9 {
 		t.Fatalf("opened = %+v", opened)
 	}
 
@@ -200,7 +200,7 @@ func TestPairing(t *testing.T) {
 
 	// Laptop's operator confirms first: nothing is saved while north's has not.
 	out, err := laptop.caller().PairAnswer(ctx, called, true)
-	if err != nil || out.State != pairing.Waiting {
+	if err != nil || out.State != store.Waiting {
 		t.Fatalf("laptop's yes before north's = %+v, %v", out, err)
 	}
 	if len(north.peers(t)) != 0 {
@@ -210,7 +210,7 @@ func TestPairing(t *testing.T) {
 		t.Fatalf("north's yes = %+v, %v", p, err)
 	}
 	for range 2 { // asked again, the answer is the same
-		if out, err = laptop.caller().PairAnswer(ctx, called, true); err != nil || out.State != pairing.Confirmed {
+		if out, err = laptop.caller().PairAnswer(ctx, called, true); err != nil || out.State != store.Confirmed {
 			t.Fatalf("laptop asked how it stands: %+v, %v", out, err)
 		}
 	}
@@ -292,7 +292,7 @@ func TestPairing(t *testing.T) {
 	}
 
 	// The code, and the key stretched from it, are nowhere.
-	key := pairing.Key(code, called.Commit)
+	key := store.PairingKey(code, called.Commit)
 	secrets := map[string]string{
 		"the code as shown": opened.Code, "the code": code,
 		"the key (raw)": string(key), "the key (hex)": hex.EncodeToString(key),
@@ -316,25 +316,25 @@ func TestPairingWrongCode(t *testing.T) {
 	if wrong == code {
 		wrong = "11111111"
 	}
-	for i := 1; i <= pairing.MaxTries; i++ {
-		if _, err := laptop.caller().PairCall(ctx, north.srv.URL, wrong, "laptop", nil); !refusedFor(err, pairing.WrongCode) {
+	for i := 1; i <= store.MaxTries; i++ {
+		if _, err := laptop.caller().PairCall(ctx, north.srv.URL, wrong, "laptop", nil); !refusedFor(err, store.WrongCode) {
 			t.Fatalf("wrong code %d = %v", i, err)
 		}
 		p := north.pairing(t)
-		if want := map[bool]string{false: store.PairOpened, true: store.PairEnded}[i == pairing.MaxTries]; p.Tries != i || p.State != want {
+		if want := map[bool]string{false: store.PairOpened, true: store.PairEnded}[i == store.MaxTries]; p.Tries != i || p.State != want {
 			t.Fatalf("after %d wrong codes: %+v", i, p)
 		}
 	}
-	if p := north.pairing(t); p.Reason != pairing.WrongCode {
+	if p := north.pairing(t); p.Reason != store.WrongCode {
 		t.Fatalf("ended pairing = %+v", p)
 	}
-	if _, err := laptop.caller().PairCall(ctx, north.srv.URL, code, "laptop", nil); !refusedFor(err, pairing.NoPairing) {
+	if _, err := laptop.caller().PairCall(ctx, north.srv.URL, code, "laptop", nil); !refusedFor(err, store.NoPairing) {
 		t.Fatalf("the right code after the pairing ended = %v", err)
 	}
-	if got := north.refusals(t); len(got) != 1 || got[0] != pairing.WrongCode {
+	if got := north.refusals(t); len(got) != 1 || got[0] != store.WrongCode {
 		t.Fatalf("north's refusals = %v", got)
 	}
-	if evs := north.events(t, "peer_pair_refused"); evs[0].Data["wrong_codes"] != float64(pairing.MaxTries) && evs[0].Data["wrong_codes"] != pairing.MaxTries {
+	if evs := north.events(t, "peer_pair_refused"); evs[0].Data["wrong_codes"] != float64(store.MaxTries) && evs[0].Data["wrong_codes"] != store.MaxTries {
 		t.Fatalf("the refusal does not count the tries: %+v", evs[0].Data)
 	}
 	if len(north.peers(t))+len(laptop.peers(t)) != 0 {
@@ -345,15 +345,15 @@ func TestPairingWrongCode(t *testing.T) {
 
 	// A pairing that took four wrong codes still takes the right one.
 	_, code = north.open(t, "")
-	for range pairing.MaxTries - 1 {
-		if _, err := laptop.caller().PairCall(ctx, north.srv.URL, wrong, "laptop", nil); !refusedFor(err, pairing.WrongCode) {
+	for range store.MaxTries - 1 {
+		if _, err := laptop.caller().PairCall(ctx, north.srv.URL, wrong, "laptop", nil); !refusedFor(err, store.WrongCode) {
 			t.Fatal(err)
 		}
 	}
 	if _, err := laptop.caller().PairCall(ctx, north.srv.URL, code, "laptop", nil); err != nil {
 		t.Fatalf("the right code after four wrong ones = %v", err)
 	}
-	if p := north.pairing(t); p.State != store.PairCalled || p.Tries != pairing.MaxTries-1 {
+	if p := north.pairing(t); p.State != store.PairCalled || p.Tries != store.MaxTries-1 {
 		t.Fatalf("pairing = %+v", p)
 	}
 }
@@ -365,7 +365,7 @@ func TestPairingCodeIsUsedOnce(t *testing.T) {
 	cheapKeys(t)
 	north, laptop, third := newPairYard(t, "north"), newPairYard(t, "laptop"), newPairYard(t, "third")
 	ctx := context.Background()
-	if _, err := laptop.caller().PairCall(ctx, north.srv.URL, "K7QM2XPD", "laptop", nil); !refusedFor(err, pairing.NoPairing) {
+	if _, err := laptop.caller().PairCall(ctx, north.srv.URL, "K7QM2XPD", "laptop", nil); !refusedFor(err, store.NoPairing) {
 		t.Fatalf("a call with no pairing open = %v", err)
 	}
 	opened, code := north.open(t, "")
@@ -373,7 +373,7 @@ func TestPairingCodeIsUsedOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := third.caller().PairCall(ctx, north.srv.URL, code, "third", nil); !refusedFor(err, pairing.Used) {
+	if _, err := third.caller().PairCall(ctx, north.srv.URL, code, "third", nil); !refusedFor(err, store.Used) {
 		t.Fatalf("a second yard with the code = %v", err)
 	}
 	if p := north.pairing(t); p.State != store.PairCalled || p.Key != laptop.pub() || p.Check != called.Check() || p.Tries != 0 {
@@ -387,10 +387,10 @@ func TestPairingCodeIsUsedOnce(t *testing.T) {
 	if _, err := north.own.PairAnswer(ctx, opened.ID, true, "jo"); err != nil {
 		t.Fatal(err)
 	}
-	if out, err := laptop.caller().PairAnswer(ctx, called, true); err != nil || out.State != pairing.Confirmed {
+	if out, err := laptop.caller().PairAnswer(ctx, called, true); err != nil || out.State != store.Confirmed {
 		t.Fatalf("%+v, %v", out, err)
 	}
-	if _, err := third.caller().PairCall(ctx, north.srv.URL, code, "third", nil); !refusedFor(err, pairing.Used) {
+	if _, err := third.caller().PairCall(ctx, north.srv.URL, code, "third", nil); !refusedFor(err, store.Used) {
 		t.Fatalf("the code after its pairing was done = %v", err)
 	}
 	if ps := north.peers(t); len(ps) != 1 || ps[0].Name != "laptop" {
@@ -410,20 +410,20 @@ func TestPairingDeclined(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if out, err := laptop.caller().PairAnswer(ctx, called, true); err != nil || out.State != pairing.Waiting {
+		if out, err := laptop.caller().PairAnswer(ctx, called, true); err != nil || out.State != store.Waiting {
 			t.Fatalf("%+v, %v", out, err)
 		}
-		if p, err := north.own.PairAnswer(ctx, opened.ID, false, "jo"); err != nil || p.State != store.PairEnded || p.Reason != pairing.Declined {
+		if p, err := north.own.PairAnswer(ctx, opened.ID, false, "jo"); err != nil || p.State != store.PairEnded || p.Reason != store.Declined {
 			t.Fatalf("north's no = %+v, %v", p, err)
 		}
 		out, err := laptop.caller().PairWait(ctx, called, 0)
-		if err != nil || out.State != pairing.Ended || out.Reason != pairing.Declined {
+		if err != nil || out.State != store.Ended || out.Reason != store.Declined {
 			t.Fatalf("laptop is told %+v, %v", out, err)
 		}
 		if len(north.peers(t))+len(laptop.peers(t)) != 0 {
 			t.Fatal("a peer was saved")
 		}
-		if got := north.refusals(t); len(got) != 1 || got[0] != pairing.Declined {
+		if got := north.refusals(t); len(got) != 1 || got[0] != store.Declined {
 			t.Fatalf("north's refusals = %v", got)
 		}
 		// A yes after the no changes nothing.
@@ -446,20 +446,20 @@ func TestPairingDeclined(t *testing.T) {
 			t.Fatalf("north's yes = %+v, %v", p, err)
 		}
 		out, err := laptop.caller().PairAnswer(ctx, called, false)
-		if err != nil || out.State != pairing.Ended || out.Reason != pairing.PeerDeclined {
+		if err != nil || out.State != store.Ended || out.Reason != store.PeerDeclined {
 			t.Fatalf("laptop's no = %+v, %v", out, err)
 		}
-		if p := north.pairing(t); p.State != store.PairEnded || p.Reason != pairing.PeerDeclined {
+		if p := north.pairing(t); p.State != store.PairEnded || p.Reason != store.PeerDeclined {
 			t.Fatalf("north's pairing = %+v", p)
 		}
 		// A yes after the no is no yes.
-		if out, err := laptop.caller().PairAnswer(ctx, called, true); err != nil || out.State != pairing.Ended {
+		if out, err := laptop.caller().PairAnswer(ctx, called, true); err != nil || out.State != store.Ended {
 			t.Fatalf("a yes after the no = %+v, %v", out, err)
 		}
 		if len(north.peers(t))+len(laptop.peers(t)) != 0 {
 			t.Fatal("a peer was saved")
 		}
-		if got := north.refusals(t); len(got) != 1 || got[0] != pairing.PeerDeclined {
+		if got := north.refusals(t); len(got) != 1 || got[0] != store.PeerDeclined {
 			t.Fatalf("north's refusals = %v", got)
 		}
 	})
@@ -469,10 +469,10 @@ func TestPairingDeclined(t *testing.T) {
 		if err := north.own.PairClose(ctx, "", "jo"); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := laptop.caller().PairCall(ctx, north.srv.URL, code, "laptop", nil); !refusedFor(err, pairing.NoPairing) {
+		if _, err := laptop.caller().PairCall(ctx, north.srv.URL, code, "laptop", nil); !refusedFor(err, store.NoPairing) {
 			t.Fatalf("a call after the pairing was ended = %v", err)
 		}
-		if p := north.pairing(t); p.ID != opened.ID || p.Reason != pairing.Closed {
+		if p := north.pairing(t); p.ID != opened.ID || p.Reason != store.Closed {
 			t.Fatalf("north's pairing = %+v", p)
 		}
 	})
@@ -501,17 +501,17 @@ func TestPairingAPeerAlready(t *testing.T) {
 				t.Fatal("peer add took it")
 			}
 			_, code := north.open(t, "")
-			if _, err := laptop.caller().PairCall(ctx, north.srv.URL, code, "laptop", nil); !refusedFor(err, pairing.AlreadyPeer) {
+			if _, err := laptop.caller().PairCall(ctx, north.srv.URL, code, "laptop", nil); !refusedFor(err, store.AlreadyPeer) {
 				t.Fatalf("the call = %v", err)
 			}
 			p := north.pairing(t)
-			if p.State != store.PairEnded || p.Reason != pairing.AlreadyPeer || p.Detail != want.Error() || p.Check == "" {
+			if p.State != store.PairEnded || p.Reason != store.AlreadyPeer || p.Detail != want.Error() || p.Check == "" {
 				t.Fatalf("north's pairing = %+v\nwant the words of peer add: %v", p, want)
 			}
 			if ps := north.peers(t); len(ps) != 1 {
 				t.Fatalf("north's peers = %+v", ps)
 			}
-			if got := north.refusals(t); len(got) != 1 || got[0] != pairing.AlreadyPeer {
+			if got := north.refusals(t); len(got) != 1 || got[0] != store.AlreadyPeer {
 				t.Fatalf("north's refusals = %v", got)
 			}
 		})
@@ -545,7 +545,7 @@ func TestPairingAPeerAlready(t *testing.T) {
 	if _, err := north.own.PairAnswer(ctx, opened.ID, true, "jo"); err != nil {
 		t.Fatal(err)
 	}
-	if out, err := laptop.caller().PairAnswer(ctx, called, true); err != nil || out.State != pairing.Confirmed {
+	if out, err := laptop.caller().PairAnswer(ctx, called, true); err != nil || out.State != store.Confirmed {
 		t.Fatalf("%+v, %v", out, err)
 	}
 	if p, err := north.own.GetPeer(ctx, "jos-laptop"); err != nil || p.Key != laptop.pub() || p.Calls != "laptop" {
@@ -557,7 +557,7 @@ func TestPairingAPeerAlready(t *testing.T) {
 	}
 	// A yard is not paired with itself.
 	_, code = north.open(t, "")
-	if _, err := north.caller().PairCall(ctx, north.srv.URL, code, "north", nil); !refusedFor(err, pairing.Own) {
+	if _, err := north.caller().PairCall(ctx, north.srv.URL, code, "north", nil); !refusedFor(err, store.Own) {
 		t.Fatalf("a yard calling itself = %v", err)
 	}
 }
@@ -580,7 +580,7 @@ func TestPairingConfirmIsSigned(t *testing.T) {
 		}
 	}
 	// Signed by the third yard, under laptop's name for the key.
-	body, _ := json.Marshal(pairing.Answer{Session: called.Session(), Confirm: true})
+	body, _ := json.Marshal(store.PairingAnswer{Session: called.Session(), Confirm: true})
 	ts, sig := yardkey.SignRequest(third.key, north.pub(), "POST", pairing.PathConfirm, time.Now(), body)
 	req, _ := http.NewRequest("POST", north.srv.URL+pairing.PathConfirm, bytes.NewReader(body))
 	req.Header.Set(yardkey.HeaderKey, laptop.pub())
@@ -598,7 +598,7 @@ func TestPairingConfirmIsSigned(t *testing.T) {
 		t.Fatalf("north's pairing after forged words = %+v", p)
 	}
 	// Laptop's own still counts.
-	if out, err := laptop.caller().PairAnswer(ctx, called, true); err != nil || out.State != pairing.Waiting {
+	if out, err := laptop.caller().PairAnswer(ctx, called, true); err != nil || out.State != store.Waiting {
 		t.Fatalf("laptop's word = %+v, %v", out, err)
 	}
 	if p := north.pairing(t); !p.PeerConfirmed {
@@ -618,7 +618,7 @@ type middle struct {
 	srv  *httptest.Server
 
 	mu     sync.Mutex
-	asHost pairing.Party // what it told the caller it is
+	asHost store.Party   // what it told the caller it is
 	called *yards.Called // its own pairing with the host
 }
 
@@ -639,7 +639,7 @@ func newMiddle(t *testing.T, host *pairYard, code string) *middle {
 }
 
 func (m *middle) hello(w http.ResponseWriter, r *http.Request) {
-	var h pairing.Hello
+	var h store.Hello
 	if err := json.NewDecoder(r.Body).Decode(&h); err != nil {
 		m.t.Error(err)
 	}
@@ -651,26 +651,26 @@ func (m *middle) hello(w http.ResponseWriter, r *http.Request) {
 	m.mu.Lock()
 	m.called = called
 	// To the caller it is the host, under the host's name and URL.
-	m.asHost = pairing.Party{Nonce: pairing.NewNonce(), Name: m.host.name, Key: yardkey.Public(m.key), URL: m.host.srv.URL}
-	offer := pairing.NewOffer(pairing.Key(m.code, h.Commit), h.Commit, m.asHost)
+	m.asHost = store.Party{Nonce: store.NewNonce(), Name: m.host.name, Key: store.Public(m.key), URL: m.host.srv.URL}
+	offer := store.NewPairingOffer(store.PairingKey(m.code, h.Commit), h.Commit, m.asHost)
 	m.mu.Unlock()
 	_ = json.NewEncoder(w).Encode(offer)
 }
 
 func (m *middle) reveal(w http.ResponseWriter, r *http.Request) {
-	var rv pairing.Reveal
+	var rv store.Reveal
 	if err := json.NewDecoder(r.Body).Decode(&rv); err != nil {
 		m.t.Error(err)
 	}
-	t := pairing.Transcript{Commit: rv.Commit, Joiner: rv.Party, Host: m.asHost}
+	t := store.Transcript{Commit: rv.Commit, Joiner: rv.Party, Host: m.asHost}
 	_ = json.NewEncoder(w).Encode(map[string]string{"session": t.Session()})
 }
 
 // confirm answers the caller that all is confirmed, signed with the key the
 // caller took for the host's.
 func (m *middle) confirm(w http.ResponseWriter, r *http.Request) {
-	body, _ := json.Marshal(pairing.Outcome{State: pairing.Confirmed})
-	w.Header().Set(yardkey.HeaderSig, yardkey.SignResponse(m.key, 200, r.Header.Get(yardkey.HeaderSig), body))
+	body, _ := json.Marshal(store.PairingOutcome{State: store.Confirmed})
+	w.Header().Set(yardkey.HeaderSig, store.SignResponse(m.key, 200, r.Header.Get(yardkey.HeaderSig), body))
 	_, _ = w.Write(body)
 }
 
@@ -715,7 +715,7 @@ func TestPairingMiddleSwapsAKey(t *testing.T) {
 	}
 	// And the middle, which says yes to anything, cannot confirm for laptop
 	// at north any more: the pairing has ended there.
-	if out, err := (&yards.Caller{Key: m.key}).PairAnswer(ctx, m.called, true); err != nil || out.State != pairing.Ended {
+	if out, err := (&yards.Caller{Key: m.key}).PairAnswer(ctx, m.called, true); err != nil || out.State != store.Ended {
 		t.Fatalf("the middle's yes after north's no = %+v, %v", out, err)
 	}
 	if len(north.peers(t)) != 0 {
@@ -743,9 +743,9 @@ func TestPairingMiddleWithoutTheCode(t *testing.T) {
 		}
 		defer resp.Body.Close()
 		body, _ := io.ReadAll(resp.Body)
-		var offer pairing.Offer
+		var offer store.PairingOffer
 		if r.URL.Path == pairing.PathHello && json.Unmarshal(body, &offer) == nil {
-			offer.Key = yardkey.Public(swap)
+			offer.Key = store.Public(swap)
 			body, _ = json.Marshal(offer)
 		}
 		w.WriteHeader(resp.StatusCode)

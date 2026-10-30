@@ -7,8 +7,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-
-	"yardr.dev/yardr/internal/yardkey"
 )
 
 // peerRuleYard is runYard with a second link, north, and the identity-hearing
@@ -16,11 +14,8 @@ import (
 func peerRuleYard(t *testing.T) *askYard {
 	t.Helper()
 	y, _ := runYard(t)
-	k, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "north.key"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := y.AddPeer(y.ctx, Peer{Name: "north", Key: yardkey.Public(k), Calls: "the-north"}, "mckean"); err != nil {
+	k := newKey(t)
+	if _, err := y.AddPeer(y.ctx, Peer{Name: "north", Key: Public(k), Calls: "the-north"}, "mckean"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := y.PutSource(y.ctx, "talk.yaml", talkFile, "mckean"); err != nil {

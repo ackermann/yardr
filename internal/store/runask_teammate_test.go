@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	bolt "go.etcd.io/bbolt"
-	"yardr.dev/yardr/internal/yardkey"
 )
 
 // teammateYard is a run yard connected to an edge as mckean/edgeyard.
@@ -21,7 +20,7 @@ func teammateYard(t *testing.T) *askYard {
 	if err != nil {
 		t.Fatal(err)
 	}
-	edge := Edge{URL: "https://my.yardr.dev", Key: yardkey.Public(key), Handle: "mckean", Name: "edgeyard"}
+	edge := Edge{URL: "https://my.yardr.dev", Key: Public(key), Handle: "mckean", Name: "edgeyard"}
 	if err := y.SetSetting(y.ctx, EdgeSetting, edge.String(), "mckean"); err != nil {
 		t.Fatal(err)
 	}

@@ -511,7 +511,7 @@ func TestStageAskRemote(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := api.AddPeer(ctx, store.Peer{Name: "north", Key: yardkey.Public(k)}, "jo"); err != nil {
+	if _, err := api.AddPeer(ctx, store.Peer{Name: "north", Key: store.Public(k)}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := api.AllowPeer(ctx, "north", store.PeerAllow{Send: []string{"ask"}}, "jo"); err != nil {
@@ -612,12 +612,12 @@ func TestStageAskReachCopy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.AddPeer(ctx, store.Peer{Name: "north", Key: yardkey.Public(k)}, "jo"); err != nil {
+	if _, err := s.AddPeer(ctx, store.Peer{Name: "north", Key: store.Public(k)}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	says := store.Says("v1")
 	says.Roster = []store.PeerRosterEntry{{Name: "ada", Kind: store.RosterUser, Mail: true}}
-	if err := own.PeerHeard(ctx, "north", yardkey.Public(k), says); err != nil {
+	if err := own.PeerHeard(ctx, "north", store.Public(k), says); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.AllowPeer(ctx, "north", store.PeerAllow{

@@ -21,7 +21,6 @@ import (
 	"yardr.dev/yardr/internal/server"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
-	"yardr.dev/yardr/internal/yardkey"
 )
 
 // noHome is a machine where nothing names a yard: a user's home of its own,
@@ -420,7 +419,7 @@ func TestHookAddNamesTheEdgeWhereTheLinkServesAlone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	edge := store.Edge{URL: "https://my.yardr.dev", Key: yardkey.Public(key), Handle: "mckean"}
+	edge := store.Edge{URL: "https://my.yardr.dev", Key: store.Public(key), Handle: "mckean"}
 	if err := st.SetSetting(ctx, store.EdgeSetting, edge.String(), yardOperator(ctx, st)); err != nil {
 		t.Fatal(err)
 	}

@@ -31,7 +31,7 @@ func beadYard(t *testing.T) (st store.API, own *store.Store, key string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	key = yardkey.Public(k)
+	key = store.Public(k)
 	if _, err := st.AddPeer(ctx, store.Peer{Name: "north", Key: key, Calls: "the-north"}, "jo"); err != nil {
 		t.Fatal(err)
 	}
@@ -547,5 +547,5 @@ func southKey(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return yardkey.Public(k)
+	return store.Public(k)
 }

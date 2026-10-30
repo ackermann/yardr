@@ -14,7 +14,6 @@ import (
 	"yardr.dev/yardr/internal/limits"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/web"
-	"yardr.dev/yardr/internal/yardkey"
 )
 
 // printed is v as a command prints it with --json, read back: what a client
@@ -102,7 +101,7 @@ func TestLists(t *testing.T) {
 	}
 	_, key, err := ed25519.GenerateKey(nil)
 	must(t, err)
-	_, err = f.st.AddPeer(ctx, store.Peer{Name: "north", Key: yardkey.Public(key), URL: "http://127.0.0.1:1"}, "me")
+	_, err = f.st.AddPeer(ctx, store.Peer{Name: "north", Key: store.Public(key), URL: "http://127.0.0.1:1"}, "me")
 	must(t, err)
 	beads := f.byTitle()
 	must(t, f.st.AddDep(ctx, beads["one"].ID, beads["three"].ID, store.DepBlocks, "", "", "me"))
@@ -299,11 +298,11 @@ func TestConfigPagesPeersDeps(t *testing.T) {
 	ctx := context.Background()
 	_, key, err := ed25519.GenerateKey(nil)
 	must(t, err)
-	_, err = f.st.AddPeer(ctx, store.Peer{Name: "north", Key: yardkey.Public(key), URL: "http://127.0.0.1:1"}, "me")
+	_, err = f.st.AddPeer(ctx, store.Peer{Name: "north", Key: store.Public(key), URL: "http://127.0.0.1:1"}, "me")
 	must(t, err)
 	_, key, err = ed25519.GenerateKey(nil)
 	must(t, err)
-	_, err = f.st.AddPeer(ctx, store.Peer{Name: "laptop", Key: yardkey.Public(key)}, "me")
+	_, err = f.st.AddPeer(ctx, store.Peer{Name: "laptop", Key: store.Public(key)}, "me")
 	must(t, err)
 	_, err = f.st.AllowPeer(ctx, "north", store.PeerAllow{Send: []string{"ping", "mail"}, Receive: []string{"ping"}}, "me")
 	must(t, err)

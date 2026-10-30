@@ -707,13 +707,13 @@ func TestUserGiveSecretIsForTheOperatorsDeviceAlone(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := y.st.AddPeer(ctx, store.Peer{Name: "north", Key: yardkey.Public(key), URL: "http://north.test"}, "jo"); err != nil {
+		if _, err := y.st.AddPeer(ctx, store.Peer{Name: "north", Key: store.Public(key), URL: "http://north.test"}, "jo"); err != nil {
 			t.Fatal(err)
 		}
 		// As a bearer, and as a linked yard names its key in a request of
 		// its own: neither is a way in here.
-		notLetIn(t, y.give(onTheMachine, yardkey.Public(key), unread{t}))
-		notLetIn(t, y.give(onTheMachine, "", unread{t}, "Yardr-Peer-Key", yardkey.Public(key)))
+		notLetIn(t, y.give(onTheMachine, store.Public(key), unread{t}))
+		notLetIn(t, y.give(onTheMachine, "", unread{t}, "Yardr-Peer-Key", store.Public(key)))
 		y.untouched(t, "a peer's key")
 	})
 	t.Run("the operator, said by something that is no device token", func(t *testing.T) {

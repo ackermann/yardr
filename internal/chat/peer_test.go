@@ -30,7 +30,7 @@ func linkedYard(t *testing.T) (st store.API, own *store.Store, key string) {
 	}
 	k, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "north.key"))
 	must(t, err)
-	key = yardkey.Public(k)
+	key = store.Public(k)
 	_, err = st.AddPeer(ctx, store.Peer{Name: "north", Key: key, Calls: "the-north"}, "jo")
 	must(t, err)
 	said(t, own, key, true, "mckean", "yardmaster")
@@ -349,7 +349,7 @@ func northYard(t *testing.T) (north *store.Store, yardKey string) {
 	must(t, err)
 	k, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "yard.key"))
 	must(t, err)
-	yardKey = yardkey.Public(k)
+	yardKey = store.Public(k)
 	_, err = api.AddPeer(ctx, store.Peer{Name: "yard", Key: yardKey, Calls: "the-yard"}, "mckean")
 	must(t, err)
 	_, err = api.AllowPeer(ctx, "yard", store.PeerAllow{Send: []string{"mail"}, Receive: []string{"mail"}, Expose: []string{"mckean"}}, "mckean")

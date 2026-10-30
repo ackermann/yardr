@@ -20,7 +20,6 @@ import (
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 	"yardr.dev/yardr/internal/web"
-	"yardr.dev/yardr/internal/yardkey"
 )
 
 // getJSON reads target as JSON into v and returns the answer.
@@ -806,7 +805,7 @@ func TestBeadPageMarksTrustedNoteAuthor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.AddPeer(ctx, store.Peer{Name: "airy", Key: yardkey.Public(key)}, "me"); err != nil {
+	if _, err := st.AddPeer(ctx, store.Peer{Name: "airy", Key: store.Public(key)}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	p, err := st.GetPeer(ctx, "airy")
@@ -900,7 +899,7 @@ func TestBeadPageMarksHistoryActor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.AddPeer(ctx, store.Peer{Name: "airy", Key: yardkey.Public(key)}, "me"); err != nil {
+	if _, err := st.AddPeer(ctx, store.Peer{Name: "airy", Key: store.Public(key)}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	p, err := st.GetPeer(ctx, "airy")

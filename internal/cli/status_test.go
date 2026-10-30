@@ -304,7 +304,7 @@ func TestStatusRunningYard(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		p.Key = yardkey.Public(key)
+		p.Key = store.Public(key)
 		if _, err := st.AddPeer(ctx, p, "Jo"); err != nil {
 			t.Fatal(err)
 		}

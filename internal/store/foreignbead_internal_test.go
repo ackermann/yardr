@@ -4,13 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	bolt "go.etcd.io/bbolt"
-	"yardr.dev/yardr/internal/yardkey"
 )
 
 // takeAsk takes the question a brings from north under the message id.
@@ -221,11 +219,8 @@ func TestLinesMarked(t *testing.T) {
 	y := decisionYard(t)
 	// The answers below are north's mckean's, on asks put to them: only
 	// the addressee answers.
-	k, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "north.key"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := y.Store.AddPeer(y.ctx, Peer{Name: "north", Key: yardkey.Public(k)}, "yardmaster"); err != nil {
+	k := newKey(t)
+	if _, err := y.Store.AddPeer(y.ctx, Peer{Name: "north", Key: Public(k)}, "yardmaster"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := y.Store.AllowPeer(y.ctx, "north", PeerAllow{Send: []string{PeerAsk}}, "yardmaster"); err != nil {

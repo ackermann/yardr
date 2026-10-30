@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/yardkey"
 )
 
@@ -146,7 +147,7 @@ func NewEdge() (*Edge, error) {
 }
 
 // PublicKey is the edge's own key as yards write one.
-func (e *Edge) PublicKey() string { return yardkey.Public(e.key) }
+func (e *Edge) PublicKey() string { return store.Public(e.key) }
 
 // Behave changes the edge's behaviour: f is given it to change, under the
 // edge's lock.
@@ -185,7 +186,7 @@ func (e *Edge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			served = e.b.ServedAfterApproval
 		}
 		e.mu.Unlock()
-		fmt.Fprintln(w, yardkey.Public(served))
+		fmt.Fprintln(w, store.Public(served))
 	case "POST /edge/enrol":
 		e.enrol(w, r)
 	case "POST /edge/disconnect":
@@ -223,7 +224,7 @@ func (e *Edge) signed(w http.ResponseWriter, r *http.Request) (body []byte, ok b
 // answer writes v as the answer to r, signed as the stand-in is to sign.
 func (e *Edge) answer(w http.ResponseWriter, r *http.Request, status int, v any) {
 	body, _ := json.Marshal(v)
-	w.Header().Set(yardkey.HeaderSig, yardkey.SignResponse(e.behaviour().Signer, status, r.Header.Get(yardkey.HeaderSig), body))
+	w.Header().Set(yardkey.HeaderSig, store.SignResponse(e.behaviour().Signer, status, r.Header.Get(yardkey.HeaderSig), body))
 	w.WriteHeader(status)
 	w.Write(body)
 }

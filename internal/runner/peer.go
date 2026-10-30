@@ -10,7 +10,6 @@ import (
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/store"
-	"yardr.dev/yardr/internal/yardkey"
 )
 
 // PeerWait is how long a bead is at another yard before the yardmaster hears of
@@ -36,7 +35,7 @@ func (p *Peer) Start(ctx context.Context, job dispatch.Job) (map[string]any, err
 	}
 	// Without a key nothing this yard sends is signed, and no bead of the
 	// group gets further than this one: the group's, not the bead's.
-	if _, err := yardkey.Load(config.At(p.Home).PeerKey()); p.Home != "" && errors.Is(err, fs.ErrNotExist) {
+	if _, err := store.Load(config.At(p.Home).PeerKey()); p.Home != "" && errors.Is(err, fs.ErrNotExist) {
 		return nil, dispatch.Blocked(fmt.Errorf("this yard has no key, so it sends its peers nothing: yardr peer key makes one (%s)", config.At(p.Home).PeerKey()))
 	}
 	sent, err := p.Store.PeerBeadSend(ctx, job.Session.ID)

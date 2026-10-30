@@ -1278,11 +1278,11 @@ func apiStore(t *testing.T) (*store.Store, string) {
 
 	key, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "north.key"))
 	must(err)
-	_, err = st.AddPeer(ctx, store.Peer{Name: "north", Key: yardkey.Public(key), URL: "http://north.test"}, "jo")
+	_, err = st.AddPeer(ctx, store.Peer{Name: "north", Key: store.Public(key), URL: "http://north.test"}, "jo")
 	must(err)
 	_, err = st.AllowPeer(ctx, "north", store.PeerAllow{Send: []string{store.PeerMail}, Receive: []string{store.PeerMail, store.PeerAsk}, Expose: []string{"jo"}}, "jo")
 	must(err)
-	must(st.PeerHeard(ctx, "north", yardkey.Public(key), &store.PeerSays{Understands: []string{store.PeerMail}, Yardr: "v1.4.0",
+	must(st.PeerHeard(ctx, "north", store.Public(key), &store.PeerSays{Understands: []string{store.PeerMail}, Yardr: "v1.4.0",
 		Roster: []store.PeerRosterEntry{{Name: "clerk", Kind: store.RosterCrew, Role: "Keeps the books", Mail: true},
 			{Name: "josephine", Kind: store.RosterUser, Mail: true}}}))
 
@@ -1383,7 +1383,7 @@ func apiStore(t *testing.T) (*store.Store, string) {
 		"about": []map[string]string{},
 	})
 	must(err)
-	_, err = st.PeerReceive(ctx, "north", yardkey.Public(key), []store.PeerMessage{{ID: "f1", Kind: store.PeerAsk, Body: foreign}})
+	_, err = st.PeerReceive(ctx, "north", store.Public(key), []store.PeerMessage{{ID: "f1", Kind: store.PeerAsk, Body: foreign}})
 	must(err)
 
 	// Jo has a device, and wrote through it once: what came that way says
@@ -1432,7 +1432,7 @@ func apiStore(t *testing.T) (*store.Store, string) {
 	must(err)
 	said, err := json.Marshal(map[string]any{"to": "jo", "from": "josephine", "text": "I am at the other machine until four."})
 	must(err)
-	_, err = st.PeerReceive(ctx, "north", yardkey.Public(key), []store.PeerMessage{{ID: "m1", Kind: store.PeerMail, Body: said}})
+	_, err = st.PeerReceive(ctx, "north", store.Public(key), []store.PeerMessage{{ID: "m1", Kind: store.PeerMail, Body: said}})
 	must(err)
 
 	// And for jo's own address in a source that tells people, as for a
@@ -1455,7 +1455,7 @@ func apiStore(t *testing.T) (*store.Store, string) {
 	must(err)
 	said, err = json.Marshal(map[string]any{"to": "yardmaster", "from": "josephine", "text": "And the fence after the shed."})
 	must(err)
-	_, err = st.PeerReceive(ctx, "north", yardkey.Public(key), []store.PeerMessage{{ID: "m2", Kind: store.PeerMail, Body: said}})
+	_, err = st.PeerReceive(ctx, "north", store.Public(key), []store.PeerMessage{{ID: "m2", Kind: store.PeerMail, Body: said}})
 	must(err)
 
 	// Run asks, each state the doc shows once: one the operator approved
@@ -1827,7 +1827,7 @@ func apiStore(t *testing.T) (*store.Store, string) {
 	must(st.MarkRunning(ctx, moved.ID, map[string]any{"agent": "links-new"}))
 	// Depot-push cards have an outside weight and a listener visibility rule,
 	// so the API contract carries one open and one approved card in its queue.
-	edge := store.Edge{URL: "https://edge.example.com", Key: yardkey.Public(key), Handle: "jo", Name: "edgeyard"}
+	edge := store.Edge{URL: "https://edge.example.com", Key: store.Public(key), Handle: "jo", Name: "edgeyard"}
 	must(st.SetSetting(ctx, store.EdgeSetting, edge.String(), "jo"))
 	const githubPushSource = `name: github
 base: https://api.github.com

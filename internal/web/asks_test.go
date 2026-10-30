@@ -10,7 +10,6 @@ import (
 
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/web"
-	"yardr.dev/yardr/internal/yardkey"
 )
 
 // askFixture is a yard with an operator and a depot, ready for asks.
@@ -537,7 +536,7 @@ func TestHomeNeedsRunAskForgedQuestion(t *testing.T) {
 	f := askFixture(t)
 	_, key, err := ed25519.GenerateKey(nil)
 	must(t, err)
-	_, err = f.st.AddPeer(ctx, store.Peer{Name: "airy", Key: yardkey.Public(key), Calls: "yardr"}, "mckean")
+	_, err = f.st.AddPeer(ctx, store.Peer{Name: "airy", Key: store.Public(key), Calls: "yardr"}, "mckean")
 	must(t, err)
 	_, err = f.st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr", Config: map[string]any{"kind": "claude"}}, "mckean")
 	must(t, err)
