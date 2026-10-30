@@ -48,8 +48,9 @@ type filesizeRow struct {
 // What the tests of the gate share, in the order a case uses it: the
 // repository a run is made in (gateRepo, copyFixture, goModTemplate), the
 // fakes it runs against (fakeBins, boxEnv), the run (runCmd, modGate.box),
-// and what a case asserts of it (wantRun, wantGoCalls, wantSteps, wantEmpty,
-// wantQueued). A case that needs more than these writes it beside the case.
+// the wait on it (pollUntil), and what a case asserts of it (wantRun,
+// wantGoCalls, wantSteps, wantEmpty, wantQueued). A case that needs more
+// than these writes it beside the case.
 
 // writeSizeTree writes every filesizes-listed file at exactly its ceiling,
 // as valid Go, so a fixture that runs the whole gate passes the file size
@@ -272,6 +273,34 @@ func pathWith(dir string) string {
 // case's own variables, which win.
 func boxEnv(fake, tmp string, own ...string) []string {
 	return append(scriptEnv(), append([]string{pathWith(fake), "FAKE=" + fake, "TMPDIR=" + tmp}, own...)...)
+}
+
+// pollUntil polls cond every step until it holds or the fuse runs out. The
+// fuse is written for an idle box and is scaled to the machine inside, once,
+// so the deadline and the expiry share it (docs/testing.md R2). The condition
+// gets that deadline so a site that checked its fuse first can keep doing so
+// without scaling it again. On expiry, fail stops what the site started (a
+// kill, a wait) and fails with the site's message for the scaled fuse; fail
+// may return instead, and then the poll returns too.
+func pollUntil(
+	t *testing.T,
+	fuse, step time.Duration,
+	cond func(time.Time) bool,
+	fail func(scaled time.Duration),
+) {
+	t.Helper()
+	scaled := testload.Scale(fuse)
+	deadline := time.Now().Add(scaled)
+	for {
+		if cond(deadline) {
+			return
+		}
+		if time.Now().After(deadline) {
+			fail(scaled)
+			return
+		}
+		time.Sleep(step)
+	}
 }
 
 // wantRun fails the case unless a run ended with the status wanted, and then
@@ -2781,23 +2810,21 @@ func TestYardTestKilledGatePrintsNoPass(t *testing.T) {
 			// Once the test step starts, signal the gate as a tree kill
 			// would, or let the fake go send INT to the waiting shell.
 			marker := filepath.Join(fake, "started")
-			deadline := time.Now().Add(60 * time.Second)
-			for {
+			pollUntil(t, 60*time.Second, 10*time.Millisecond, func(_ time.Time) bool {
 				if _, err := os.Stat(marker); err == nil {
-					break
+					return true
 				}
 				select {
 				case <-done:
 					t.Fatalf("the run exited before its test step, output:\n%s%s", stdout.String(), stderr.String())
 				default:
 				}
-				if time.Now().After(deadline) {
-					_ = syscall.Kill(-pgid, syscall.SIGKILL)
-					<-done
-					t.Fatalf("the run never started its test step, output:\n%s%s", stdout.String(), stderr.String())
-				}
-				time.Sleep(10 * time.Millisecond)
-			}
+				return false
+			}, func(time.Duration) {
+				_ = syscall.Kill(-pgid, syscall.SIGKILL)
+				<-done
+				t.Fatalf("the run never started its test step, output:\n%s%s", stdout.String(), stderr.String())
+			})
 			if c.groupSignal {
 				if err := syscall.Kill(-pgid, syscall.SIGTERM); err != nil {
 					_ = syscall.Kill(-pgid, syscall.SIGKILL)
@@ -2886,19 +2913,14 @@ fi
 	callsPath := filepath.Join(fake, "calls")
 	waitFor := func(what string) {
 		t.Helper()
-		deadline := time.Now().Add(60 * time.Second)
-		for {
+		pollUntil(t, 60*time.Second, 100*time.Millisecond, func(_ time.Time) bool {
 			calls, _ := os.ReadFile(callsPath)
-			if strings.Contains(string(calls), what) {
-				return
-			}
-			if time.Now().After(deadline) {
-				cmd.Process.Kill()
-				<-done
-				t.Fatalf("the run never reached %s, output:\n%s", what, out)
-			}
-			time.Sleep(100 * time.Millisecond)
-		}
+			return strings.Contains(string(calls), what)
+		}, func(time.Duration) {
+			cmd.Process.Kill()
+			<-done
+			t.Fatalf("the run never reached %s, output:\n%s", what, out)
+		})
 	}
 	waitFor("linux vet ./...")
 	// The queue publishes the wait as data: a ticket file. Seeing the
@@ -2909,28 +2931,17 @@ fi
 	// while held and the summary's waited seconds are positive.
 	qdir := filepath.Join(home, ".yardr", "race.queue")
 	var firstSeen time.Time
-	ticketDeadline := time.Now().Add(60 * time.Second)
-	for {
-		seen := false
-		if entries, err := os.ReadDir(qdir); err == nil {
-			for _, e := range entries {
-				if raceTicketName.MatchString(e.Name()) {
-					seen = true
-					break
-				}
-			}
+	pollUntil(t, 60*time.Second, 10*time.Millisecond, func(_ time.Time) bool {
+		if len(raceQueue(t, qdir)) == 0 {
+			return false
 		}
-		if seen {
-			firstSeen = time.Now()
-			break
-		}
-		if time.Now().After(ticketDeadline) {
-			cmd.Process.Kill()
-			<-done
-			t.Fatalf("the run never queued for the race lock, output:\n%s", out)
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+		firstSeen = time.Now()
+		return true
+	}, func(time.Duration) {
+		cmd.Process.Kill()
+		<-done
+		t.Fatalf("the run never queued for the race lock, output:\n%s", out)
+	})
 	holdTicketAge(firstSeen)
 	if err := syscall.Flock(int(held.Fd()), syscall.LOCK_UN); err != nil {
 		t.Fatal(err)
@@ -3057,27 +3068,20 @@ func plainLockFake(t *testing.T, realGo string) (fake string) {
 // name: the queue publishes the wait as data.
 func plainLockTicket(t *testing.T, cmd *exec.Cmd, qdir, bead string) string {
 	t.Helper()
-	fuse := testload.Scale(60 * time.Second)
-	deadline := time.Now().Add(fuse)
-	for {
-		if entries, err := os.ReadDir(qdir); err == nil {
-			for _, e := range entries {
-				if !raceTicketName.MatchString(e.Name()) {
-					continue
-				}
-				if b, _ := os.ReadFile(filepath.Join(qdir, e.Name())); strings.Contains(string(b), "bead="+bead+"\n") {
-					return e.Name()
-				}
+	var found string
+	pollUntil(t, 60*time.Second, 10*time.Millisecond, func(_ time.Time) bool {
+		for _, ticket := range raceQueue(t, qdir) {
+			if ticket.bead == bead {
+				found = ticket.name
+				return true
 			}
 		}
-		if time.Now().After(deadline) {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	cmd.Process.Kill()
-	t.Fatalf("no ticket for %s in %s", bead, fuse)
-	return ""
+		return false
+	}, func(fuse time.Duration) {
+		cmd.Process.Kill()
+		t.Fatalf("no ticket for %s in %s", bead, fuse)
+	})
+	return found
 }
 
 // plainLockStart starts the gate in dir against base: under ctx, with a
@@ -3173,18 +3177,14 @@ func TestYardTestWholePlainRunsSerialize(t *testing.T) {
 	// second starts only then, so the two legs cannot interleave by luck.
 	waitOrder := func(mark string) {
 		t.Helper()
-		deadline := time.Now().Add(testload.Scale(60 * time.Second))
-		for {
-			if b, _ := os.ReadFile(order); strings.Contains(string(b), mark+"\n") {
-				return
-			}
-			if time.Now().After(deadline) {
-				cmd1.Process.Kill()
-				b1, _ := os.ReadFile(out1.Name())
-				t.Fatalf("the order never holds %s:\n%s", mark, b1)
-			}
-			time.Sleep(10 * time.Millisecond)
-		}
+		pollUntil(t, 60*time.Second, 10*time.Millisecond, func(_ time.Time) bool {
+			b, _ := os.ReadFile(order)
+			return strings.Contains(string(b), mark+"\n")
+		}, func(time.Duration) {
+			cmd1.Process.Kill()
+			b1, _ := os.ReadFile(out1.Name())
+			t.Fatalf("the order never holds %s:\n%s", mark, b1)
+		})
 	}
 	waitOrder("start-run1")
 	cmd2, fake2, out2 := plainLockStart(t, ctx, dir2, base2, home, realGo, "run2", order, release, strings.Join(oks, " "), nil)
@@ -3573,13 +3573,11 @@ func TestYardTestRaceLockDiesWithTheRun(t *testing.T) {
 		t.Errorf("the run (pid %d) survived the TERM to its holder: it was not forwarded", pid)
 	}
 	childPID := pidOf(victimChild)
-	deadline := time.Now().Add(5 * time.Second)
-	for syscall.Kill(childPID, 0) == nil && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
-	}
-	if syscall.Kill(childPID, 0) == nil {
+	pollUntil(t, 5*time.Second, 10*time.Millisecond, func(_ time.Time) bool {
+		return syscall.Kill(childPID, 0) != nil
+	}, func(time.Duration) {
 		t.Errorf("the run's child (pid %d) survived the TERM to its holder", childPID)
-	}
+	})
 }
 
 // The package budget's re-run shares the race leg's hold on the lock: a
@@ -3784,6 +3782,93 @@ func raceLockDriver(t *testing.T) (driver, home string) {
 	return driver, home
 }
 
+// raceTicket is one ticket queued for the race lock: its file's name and
+// the bead its content names.
+type raceTicket struct {
+	name string
+	bead string
+}
+
+// raceQueue lists the queue's tickets: the names in qdir matching
+// raceTicketName, sorted, each with the bead its content names. A queue
+// that is not there holds none, and a ticket gone between the listing and
+// the read is already gone.
+func raceQueue(t *testing.T, qdir string) []raceTicket {
+	t.Helper()
+	entries, err := os.ReadDir(qdir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		t.Fatal(err)
+	}
+	var tickets []raceTicket
+	for _, e := range entries {
+		if !raceTicketName.MatchString(e.Name()) {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join(qdir, e.Name()))
+		if err != nil {
+			continue
+		}
+		ticket := raceTicket{name: e.Name()}
+		for _, line := range strings.Split(string(b), "\n") {
+			if bead, ok := strings.CutPrefix(line, "bead="); ok {
+				ticket.bead = bead
+			}
+		}
+		tickets = append(tickets, ticket)
+	}
+	slices.SortFunc(tickets, func(a, b raceTicket) int { return strings.Compare(a.name, b.name) })
+	return tickets
+}
+
+// raceStart starts a race-lock process in its own process group: path with
+// args in dir, stdin from in (nil for none), output to a temp file, dying
+// with ctx (nil for none). The group is killed at cleanup. It returns the
+// started command and the output file.
+func raceStart(t *testing.T, ctx context.Context, dir, path string, env []string, in *os.File, args ...string) (*exec.Cmd, *os.File) {
+	t.Helper()
+	out, err := os.CreateTemp("", "raceproc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Remove(out.Name()) })
+	var cmd *exec.Cmd
+	if ctx == nil {
+		cmd = exec.Command(path, args...)
+	} else {
+		cmd = exec.CommandContext(ctx, path, args...)
+		cmd.Cancel = func() error {
+			if cmd.Process == nil {
+				return os.ErrProcessDone
+			}
+			err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+			if errors.Is(err, syscall.ESRCH) {
+				return os.ErrProcessDone
+			}
+			return err
+		}
+	}
+	cmd.Dir = dir
+	cmd.Env = env
+	if in != nil {
+		cmd.Stdin = in
+	}
+	cmd.Stdout, cmd.Stderr = out, out
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		out.Close()
+		if in != nil {
+			in.Close()
+		}
+		t.Fatal(err)
+	}
+	pgid := cmd.Process.Pid
+	t.Cleanup(func() { _ = syscall.Kill(-pgid, syscall.SIGKILL) })
+	return cmd, out
+}
+
 // The race lock serves waiters in arrival order, landings first, and says
 // so: waiters queued behind a held lock in a known order take it in that
 // order, a landing (YARDR_LANDING set and not empty) before the plain runs
@@ -3816,37 +3901,13 @@ func TestYardTestRaceLockServesWaitersInOrder(t *testing.T) {
 	}
 	startWith := func(bead string, env []string, args ...string) raceRun {
 		t.Helper()
-		out, err := os.CreateTemp("", "racequeue")
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { os.Remove(out.Name()) })
 		in, release, err := os.Pipe()
 		if err != nil {
-			out.Close()
 			t.Fatal(err)
 		}
-		cmd := exec.CommandContext(ctx, driver, append([]string{filepath.Join(home, "worker.status")}, args...)...)
-		cmd.Dir = wt
-		cmd.Env = append(append(scriptEnv(), "HOME="+home, "YARDR_BEAD="+bead), env...)
-		cmd.Stdin, cmd.Stdout, cmd.Stderr = in, out, out
-		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-		cmd.Cancel = func() error {
-			if cmd.Process == nil {
-				return os.ErrProcessDone
-			}
-			err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-			if errors.Is(err, syscall.ESRCH) {
-				return os.ErrProcessDone
-			}
-			return err
-		}
-		if err := cmd.Start(); err != nil {
-			in.Close()
-			release.Close()
-			out.Close()
-			t.Fatal(err)
-		}
+		cmd, out := raceStart(t, ctx, wt, driver,
+			append(append(scriptEnv(), "HOME="+home, "YARDR_BEAD="+bead), env...),
+			in, append([]string{filepath.Join(home, "worker.status")}, args...)...)
 		in.Close()
 		return raceRun{cmd, out, release}
 	}
@@ -3872,20 +3933,10 @@ func TestYardTestRaceLockServesWaitersInOrder(t *testing.T) {
 	}
 	tickets := func() []string {
 		t.Helper()
-		entries, err := os.ReadDir(qdir)
-		if err != nil {
-			if os.IsNotExist(err) {
-				return nil
-			}
-			t.Fatal(err)
-		}
 		var names []string
-		for _, e := range entries {
-			if raceTicketName.MatchString(e.Name()) {
-				names = append(names, e.Name())
-			}
+		for _, ticket := range raceQueue(t, qdir) {
+			names = append(names, ticket.name)
 		}
-		slices.Sort(names)
 		return names
 	}
 	// waitTicket waits for a ticket beyond those known. Starting each
@@ -3897,19 +3948,20 @@ func TestYardTestRaceLockServesWaitersInOrder(t *testing.T) {
 		for _, n := range known {
 			seen[n] = true
 		}
-		deadline := time.Now().Add(30 * time.Second)
-		for {
+		var fresh []string
+		pollUntil(t, 30*time.Second, 50*time.Millisecond, func(_ time.Time) bool {
 			got := tickets()
 			for _, n := range got {
 				if !seen[n] {
-					return got
+					fresh = got
+					return true
 				}
 			}
-			if time.Now().After(deadline) {
-				t.Fatalf("no new ticket after %v", known)
-			}
-			time.Sleep(50 * time.Millisecond)
-		}
+			return false
+		}, func(time.Duration) {
+			t.Fatalf("no new ticket after %v", known)
+		})
+		return fresh
 	}
 	// waitPlace waits for a waiter to print its place, which it does once it
 	// has looked at the queue. The place counts the tickets there are as it
@@ -3917,17 +3969,13 @@ func TestYardTestRaceLockServesWaitersInOrder(t *testing.T) {
 	// its own, and the holder is released only after all have.
 	waitPlace := func(q raceRun) {
 		t.Helper()
-		deadline := time.Now().Add(30 * time.Second)
-		for {
+		pollUntil(t, 30*time.Second, 20*time.Millisecond, func(_ time.Time) bool {
 			b, _ := os.ReadFile(q.out.Name())
-			if strings.Contains(string(b), " in line, ") {
-				return
-			}
-			if time.Now().After(deadline) {
-				t.Fatalf("a waiter printed no place in 30 s:\n%s", b)
-			}
-			time.Sleep(20 * time.Millisecond)
-		}
+			return strings.Contains(string(b), " in line, ")
+		}, func(time.Duration) {
+			b, _ := os.ReadFile(q.out.Name())
+			t.Fatalf("a waiter printed no place in 30 s:\n%s", b)
+		})
 	}
 	killTicket := func(name string, sig syscall.Signal) {
 		t.Helper()
@@ -3944,17 +3992,13 @@ func TestYardTestRaceLockServesWaitersInOrder(t *testing.T) {
 	holder := start("holder-bead", "sh", "-c", "read _ || true")
 	known := waitTicket(nil)
 	holderFile := filepath.Join(home, ".yardr", "race.holder")
-	holderDeadline := time.Now().Add(30 * time.Second)
-	for {
+	pollUntil(t, 30*time.Second, 10*time.Millisecond, func(_ time.Time) bool {
 		b, err := os.ReadFile(holderFile)
-		if err == nil && strings.Contains(string(b), "bead=holder-bead\n") {
-			break
-		}
-		if time.Now().After(holderDeadline) {
-			t.Fatalf("the holder never acquired the lock and recorded itself: %v", err)
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+		return err == nil && strings.Contains(string(b), "bead=holder-bead\n")
+	}, func(time.Duration) {
+		_, err := os.ReadFile(holderFile)
+		t.Fatalf("the holder never acquired the lock and recorded itself: %v", err)
+	})
 	// A waiter killed with KILL leaves its ticket behind; the queue
 	// must skip it.
 	dead := start("dead-bead", "sh", "-c", "echo dead >>"+quote(order))
@@ -4158,66 +4202,36 @@ func TestYardTestRaceLockTermToQueuedGateStopsItAtOnce(t *testing.T) {
 	driver, home := raceLockDriver(t)
 	qdir := filepath.Join(home, ".yardr", "race.queue")
 	// beads are the queued tickets by name, each with the bead its
-	// content names. A ticket gone between the listing and the read is
-	// already gone.
+	// content names.
 	beads := func() map[string]string {
 		t.Helper()
-		entries, err := os.ReadDir(qdir)
-		if err != nil {
-			if os.IsNotExist(err) {
-				return map[string]string{}
-			}
-			t.Fatal(err)
-		}
 		got := map[string]string{}
-		for _, e := range entries {
-			if !raceTicketName.MatchString(e.Name()) {
-				continue
-			}
-			b, err := os.ReadFile(filepath.Join(qdir, e.Name()))
-			if err != nil {
-				continue
-			}
-			for _, line := range strings.Split(string(b), "\n") {
-				if bead, ok := strings.CutPrefix(line, "bead="); ok {
-					got[e.Name()] = bead
-				}
-			}
+		for _, ticket := range raceQueue(t, qdir) {
+			got[ticket.name] = ticket.bead
 		}
 		return got
 	}
 	// The holder takes the lock for a minute, past every wait below.
-	holderOut, err := os.CreateTemp("", "raceholder")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { os.Remove(holderOut.Name()) })
-	holder := exec.Command(driver, filepath.Join(home, "holder.status"), "sleep", "60")
-	holder.Dir = t.TempDir()
-	holder.Env = append(scriptEnv(), "HOME="+home, "YARDR_BEAD=holder-bead")
-	holder.Stdout, holder.Stderr = holderOut, holderOut
-	holder.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	if err := holder.Start(); err != nil {
-		t.Fatal(err)
-	}
-	holderPG := holder.Process.Pid
+	holder, holderOut := raceStart(t, nil, t.TempDir(), driver,
+		append(scriptEnv(), "HOME="+home, "YARDR_BEAD=holder-bead"),
+		nil, filepath.Join(home, "holder.status"), "sleep", "60")
 	holderDone := make(chan error, 1)
 	go func() { holderDone <- holder.Wait() }()
-	t.Cleanup(func() { _ = syscall.Kill(-holderPG, syscall.SIGKILL) })
-	deadline := time.Now().Add(30 * time.Second)
-	for len(beads()) != 1 {
+	pollUntil(t, 30*time.Second, 10*time.Millisecond, func(_ time.Time) bool {
+		if len(beads()) == 1 {
+			return true
+		}
 		select {
 		case err := <-holderDone:
 			out, _ := os.ReadFile(holderOut.Name())
 			t.Fatalf("the holder exited %v before it queued:\n%s", err, out)
 		default:
 		}
-		if time.Now().After(deadline) {
-			out, _ := os.ReadFile(holderOut.Name())
-			t.Fatalf("the holder queued nothing in 30 s:\n%s", out)
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+		return false
+	}, func(time.Duration) {
+		out, _ := os.ReadFile(holderOut.Name())
+		t.Fatalf("the holder queued nothing in 30 s:\n%s", out)
+	})
 	// go.mod changed: the whole suite, so the step queues on the race
 	// lock (lockplain) without asking go for any list. The gate's own
 	// process group, so the TERM below names its shell's pid alone.
@@ -4239,18 +4253,19 @@ func TestYardTestRaceLockTermToQueuedGateStopsItAtOnce(t *testing.T) {
 	t.Cleanup(func() { _ = syscall.Kill(-gatePG, syscall.SIGKILL) })
 	// The gate's ticket beside the holder's: its shell is blocked in the
 	// lock pipeline, which is the only way that ticket's process runs.
-	deadline = time.Now().Add(60 * time.Second)
-	for len(beads()) != 2 {
+	pollUntil(t, 60*time.Second, 10*time.Millisecond, func(_ time.Time) bool {
+		if len(beads()) == 2 {
+			return true
+		}
 		select {
 		case err := <-gateDone:
 			t.Fatalf("the gate exited %v before it queued, output:\n%s%s", err, stdout.String(), stderr.String())
 		default:
 		}
-		if time.Now().After(deadline) {
-			t.Fatalf("the gate queued nothing in 60 s, output:\n%s%s", stdout.String(), stderr.String())
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+		return false
+	}, func(time.Duration) {
+		t.Fatalf("the gate queued nothing in 60 s, output:\n%s%s", stdout.String(), stderr.String())
+	})
 	pidB, err := os.ReadFile(filepath.Join(fake, "gate.pid"))
 	if err != nil {
 		t.Fatal(err)
@@ -4288,30 +4303,28 @@ func TestYardTestRaceLockTermToQueuedGateStopsItAtOnce(t *testing.T) {
 	}
 	// The helper's cleanup runs beside the shell's death, so the ticket
 	// follows the exit: the holder's is what stays.
-	deadline = time.Now().Add(10 * time.Second)
-	for {
+	pollUntil(t, 10*time.Second, 10*time.Millisecond, func(_ time.Time) bool {
 		got := beads()
 		gateLeft := false
 		for _, bead := range got {
 			gateLeft = gateLeft || bead == "gate-bead"
 		}
-		if !gateLeft {
-			if len(got) != 1 {
-				t.Errorf("tickets left: %v, want the holder's alone", got)
-				break
-			}
-			for _, bead := range got {
-				if bead != "holder-bead" {
-					t.Errorf("the ticket left names %q, want the holder's", bead)
-				}
-			}
-			break
+		if gateLeft {
+			return false
 		}
-		if time.Now().After(deadline) {
-			t.Fatalf("the gate's ticket is still queued 10 s after TERM: %v", got)
+		if len(got) != 1 {
+			t.Errorf("tickets left: %v, want the holder's alone", got)
+			return true
 		}
-		time.Sleep(10 * time.Millisecond)
-	}
+		for _, bead := range got {
+			if bead != "holder-bead" {
+				t.Errorf("the ticket left names %q, want the holder's", bead)
+			}
+		}
+		return true
+	}, func(time.Duration) {
+		t.Fatalf("the gate's ticket is still queued 10 s after TERM: %v", beads())
+	})
 }
 
 // raceOwnStart is this process's start time as the queue's perl reads it:
@@ -4657,24 +4670,13 @@ fi
 	// A landing with no comparable base tests every package: only a landing
 	// has a race leg.
 	dir, _ := gateRepo(t, map[string]string{".yardr/test": string(script), "go.mod": "module m.test/m\n"})
-	cmd := exec.Command("sh", ".yardr/test")
-	cmd.Dir = dir
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	// YARDR_TEST_PID is the test binary's own pid: the fake go's waits end
 	// when it is gone, since a killed binary runs no cleanup.
-	cmd.Env = boxEnv(fake, tmp,
+	cmd, outFile := raceStart(t, nil, dir, "sh", boxEnv(fake, tmp,
 		"YARDR_LANDING=1", "YARDR_BASE=nowhere", "HOME="+home,
 		"FORCE_ORPHAN_DEADLINE="+strconv.FormatBool(forceDeadline),
-		"YARDR_TEST_PID="+strconv.Itoa(os.Getpid()))
-	outFile, err := os.CreateTemp(t.TempDir(), "yardtest-orphan")
-	if err != nil {
-		t.Fatal(err)
-	}
+		"YARDR_TEST_PID="+strconv.Itoa(os.Getpid())), nil, ".yardr/test")
 	defer outFile.Close()
-	cmd.Stdout, cmd.Stderr = outFile, outFile
-	if err := cmd.Start(); err != nil {
-		t.Fatal(err)
-	}
 	proc := cmd.Process
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
@@ -4696,68 +4698,63 @@ fi
 		return err
 	}
 	if forceDeadline {
-		readyDeadline := time.Now().Add(30 * time.Second)
-		for {
-			if _, err := os.Stat(filepath.Join(fake, "fixture-ready")); err == nil {
-				break
-			}
-			if time.Now().After(readyDeadline) {
-				killProcessTree(proc.Pid)
-				waitDone()
-				t.Fatalf("the race leg never reached the fixture barrier")
-			}
-			time.Sleep(10 * time.Millisecond)
-		}
+		pollUntil(t, 30*time.Second, 10*time.Millisecond, func(_ time.Time) bool {
+			_, err := os.Stat(filepath.Join(fake, "fixture-ready"))
+			return err == nil
+		}, func(time.Duration) {
+			killProcessTree(proc.Pid)
+			waitDone()
+			t.Fatalf("the race leg never reached the fixture barrier")
+		})
 		if err := os.WriteFile(filepath.Join(fake, "allow-barrier"), nil, 0o600); err != nil {
 			killProcessTree(proc.Pid)
 			waitDone()
 			t.Fatal(err)
 		}
-		barrierDeadline := time.Now().Add(30 * time.Second)
-		for {
-			if _, err := os.Stat(filepath.Join(fake, "barrier-reached")); err == nil {
-				break
-			}
-			if time.Now().After(barrierDeadline) {
-				killProcessTree(proc.Pid)
-				waitDone()
-				t.Fatalf("the fixture never reached its blocking barrier")
-			}
-			time.Sleep(10 * time.Millisecond)
-		}
+		pollUntil(t, 30*time.Second, 10*time.Millisecond, func(_ time.Time) bool {
+			_, err := os.Stat(filepath.Join(fake, "barrier-reached"))
+			return err == nil
+		}, func(time.Duration) {
+			killProcessTree(proc.Pid)
+			waitDone()
+			t.Fatalf("the fixture never reached its blocking barrier")
+		})
 	}
 	// The bound is a fuse against a hang, not a performance assertion: the
-	// loop already polls the effect, so the deadline must hold still while a
-	// loaded machine runs the fixture script (docs/testing.md R2).
+	// loop already polls the effect (docs/testing.md R2).
 	deadline := 3 * time.Minute
 	if forceDeadline {
 		deadline = 2 * time.Second
 	}
-	deadlineAt := time.Now().Add(deadline)
-	for {
-		if _, err := os.Stat(filepath.Join(fake, "test-done")); err == nil {
-			if forceDeadline {
-				killProcessTree(proc.Pid)
-				waitDone()
-				t.Fatalf("test-done appeared before the forced deadline")
+	reached := false
+	pollUntil(t, deadline, 10*time.Millisecond, func(_ time.Time) bool {
+		_, err := os.Stat(filepath.Join(fake, "test-done"))
+		reached = err == nil
+		return reached
+	}, func(time.Duration) {
+		killProcessTree(proc.Pid)
+		err := waitDone()
+		if forceDeadline {
+			if err == nil {
+				t.Fatal("the forced deadline run exited without being killed")
 			}
-			break
+			if _, err := os.Stat(filepath.Join(fake, "test-done")); err == nil {
+				t.Fatal("test-done appeared after the forced deadline")
+			}
+			return
 		}
-		if time.Now().After(deadlineAt) {
+		t.Fatalf("the race leg never reached go test: %v", err)
+	})
+	if forceDeadline {
+		// The poll returns when test-done appears or when the forced
+		// deadline expires after the checks above: appearing first fails,
+		// expiring passes.
+		if reached {
 			killProcessTree(proc.Pid)
-			err := waitDone()
-			if forceDeadline {
-				if err == nil {
-					t.Fatal("the forced deadline run exited without being killed")
-				}
-				if _, err := os.Stat(filepath.Join(fake, "test-done")); err == nil {
-					t.Fatal("test-done appeared after the forced deadline")
-				}
-				return
-			}
-			t.Fatalf("the race leg never reached go test: %v", err)
+			waitDone()
+			t.Fatalf("test-done appeared before the forced deadline")
 		}
-		time.Sleep(10 * time.Millisecond)
+		return
 	}
 	sleeper, err := os.ReadFile(pidPath)
 	if err != nil {
@@ -4777,16 +4774,9 @@ fi
 	// A fuse, not a measurement: after go test exits the worker still has
 	// to finish and release the lock, and a loaded machine can hold it
 	// past seconds (docs/testing.md R2).
-	lockDeadline := time.Now().Add(time.Minute)
-	lockAcquired := false
-	for time.Now().Before(lockDeadline) {
-		if syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) == nil {
-			lockAcquired = true
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	if !lockAcquired {
+	pollUntil(t, time.Minute, 10*time.Millisecond, func(deadline time.Time) bool {
+		return time.Now().Before(deadline) && syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) == nil
+	}, func(time.Duration) {
 		if b, readErr := os.ReadFile(pidPath); readErr == nil {
 			if pid, parseErr := strconv.Atoi(strings.TrimSpace(string(b))); parseErr == nil {
 				_ = syscall.Kill(pid, syscall.SIGKILL)
@@ -4801,7 +4791,7 @@ fi
 		outFile.Seek(0, 0)
 		b, _ := io.ReadAll(outFile)
 		t.Fatalf("the race lock stayed held after go test exited; output:\n%s", b)
-	}
+	})
 	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_UN); err != nil {
 		t.Fatal(err)
 	}
