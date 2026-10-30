@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -81,8 +82,9 @@ func authAt(at time.Time) func(jwt.MapClaims) {
 }
 
 // post sends form to target as the token's user, following no redirect,
-// so a 303 is seen as one.
-func (y *approveYard) post(target, token string, form url.Values) resp {
+// so a 303 is seen as one. headers are more request headers, each a name
+// and a value.
+func (y *approveYard) post(target, token string, form url.Values, headers ...string) resp {
 	y.t.Helper()
 	req, err := http.NewRequest(http.MethodPost, y.ts.URL+target, strings.NewReader(form.Encode()))
 	if err != nil {
@@ -91,6 +93,9 @@ func (y *approveYard) post(target, token string, form url.Values) resp {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set(web.DefaultJWTHeader, token)
 	req.Header.Set("Origin", y.ts.URL)
+	for i := 0; i+1 < len(headers); i += 2 {
+		req.Header.Set(headers[i], headers[i+1])
+	}
 	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	r, err := client.Do(req)
 	if err != nil {
@@ -317,7 +322,11 @@ func TestWebApprovesARoutineRunCard(t *testing.T) {
 // A strong card's approval starts the gateway re-authentication: the view
 // answers with the step to the edge, bound to this card, and the gateway's
 // return approves it under the fresh sign-in. The return state is one-use:
-// replayed, it approves nothing.
+// replayed, it approves nothing. A post htmx made (the bead page's forms
+// post with it) is answered 200 with HX-Redirect to the same step, since
+// htmx follows a 303 as an XHR and would swap the sign-in page into the
+// card's place; the state it carries is the one followed through the return
+// here.
 func TestWebStrongCardChallengeAndReturn(t *testing.T) {
 	t.Parallel()
 	y := newApproveYard(t, true)
@@ -337,13 +346,33 @@ func TestWebStrongCardChallengeAndReturn(t *testing.T) {
 	if want := "/beads/" + b.ID + "/fresh/" + strconv.FormatUint(seq, 10) + "/"; !strings.HasPrefix(back, want) || back == want {
 		t.Fatalf("the return state is %q, want one-use state bound to ask %d", back, seq)
 	}
+	// The same post from htmx names the same step with a one-use state of
+	// its own, and no redirect for the XHR to follow.
+	hx := y.post("/beads/"+b.ID, y.token("jo@example.net"), y.approveForm(b.ID, seq), "HX-Request", "true")
+	if hx.status != http.StatusOK || hx.header.Get("Location") != "" {
+		t.Fatalf("POST the approval with htmx: %d %q: %s", hx.status, hx.header.Get("Location"), hx.body)
+	}
+	hxLoc, err := url.Parse(hx.header.Get("HX-Redirect"))
+	if err != nil || hxLoc.Path != "/edge/reauth" {
+		t.Fatalf("the htmx approval goes to %q, want the gateway re-authentication", hx.header.Get("HX-Redirect"))
+	}
+	hxBack := hxLoc.Query().Get("return_to")
+	if want := "/beads/" + b.ID + "/fresh/" + strconv.FormatUint(seq, 10) + "/"; !strings.HasPrefix(hxBack, want) || hxBack == want || hxBack == back {
+		t.Fatalf("the htmx return state is %q, want a state of its own bound to ask %d", hxBack, seq)
+	}
+	// Up to the state each post mints, it is the URL the 303 names.
+	if hxStep, step := strings.TrimSuffix(hx.header.Get("HX-Redirect"), path.Base(hxBack)), strings.TrimSuffix(r.header.Get("Location"), path.Base(back)); hxStep != step {
+		t.Fatalf("the htmx approval goes to %q, the 303 to %q, want the same step", hxStep, step)
+	}
 	if _, err := y.st.GetUser(ctx, "bob"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("the challenge added the user: %v", err)
 	}
 	// The gateway authenticates after the challenge: whole seconds, as a
-	// gateway writes them, past the skew only a clock may be ahead by.
+	// gateway writes them, past the skew only a clock may be ahead by. The
+	// return followed is the htmx post's, the one a browser on the bead's
+	// page carries.
 	fresh := y.token("jo@example.net", authAt(time.Now().Add(5*time.Second)))
-	r = y.getNoFollow(back, fresh)
+	r = y.getNoFollow(hxBack, fresh)
 	if r.status != http.StatusSeeOther || r.header.Get("Location") != "/beads/"+b.ID {
 		t.Fatalf("GET the return: %d %q: %s", r.status, r.header.Get("Location"), r.body)
 	}
@@ -356,7 +385,7 @@ func TestWebStrongCardChallengeAndReturn(t *testing.T) {
 	if w := y.witness(); w != store.WitnessFreshSignIn {
 		t.Fatalf("the approval is witnessed %q, want a fresh sign-in", w)
 	}
-	r = y.getNoFollow(back, fresh)
+	r = y.getNoFollow(hxBack, fresh)
 	if r.status != 200 || !strings.Contains(r.body, "used already") {
 		t.Fatalf("replaying the return: %d: %s", r.status, r.body)
 	}

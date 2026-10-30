@@ -139,7 +139,9 @@ func (s *Server) approveParams(w http.ResponseWriter, r *http.Request, b *store.
 // stays terminal-only. Where the session's last authentication is already
 // a strong-card re-authentication by this operator inside the window, the
 // card approves at once; otherwise the gateway authenticates now, and the
-// one-use state returns to this card alone.
+// one-use state returns to this card alone. The step to the gateway is a 303,
+// except for a request htmx made (the bead page's forms), which is answered
+// 200 with HX-Redirect so the browser navigates whole.
 func (s *Server) approveStrong(w http.ResponseWriter, r *http.Request, b *store.Bead, ask store.BeadAsk, option int, values map[string]string, account string) {
 	ctx := r.Context()
 	user := s.acting(ctx)
@@ -178,7 +180,18 @@ func (s *Server) approveStrong(w http.ResponseWriter, r *http.Request, b *store.
 		option: option, values: values, account: account}
 	s.freshMu.Unlock()
 	to := "/beads/" + url.PathEscape(b.ID) + "/fresh/" + strconv.FormatUint(ask.Ask, 10) + "/" + state
-	http.Redirect(w, r, "/edge/reauth?return_to="+url.QueryEscape(to), http.StatusSeeOther)
+	reauth := "/edge/reauth?return_to=" + url.QueryEscape(to)
+	// htmx follows a 303 as an XHR, and the sign-in page it reaches has no
+	// #bead for the form's hx-select to take: the bead's contents are
+	// swapped for nothing, the card and its form vanish, and the person
+	// never gets to the sign-in. HX-Redirect makes htmx navigate to the URL
+	// as a whole page.
+	if r.Header.Get("HX-Request") == "true" {
+		w.Header().Set("HX-Redirect", reauth)
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	http.Redirect(w, r, reauth, http.StatusSeeOther)
 }
 
 // strongAuth is the authentication time the operator's last consumed
