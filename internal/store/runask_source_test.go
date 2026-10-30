@@ -4,6 +4,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"os"
+	"path/filepath"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -98,10 +102,17 @@ func TestSourceAddAskCard(t *testing.T) {
 	ask.Run.Argv = []string{"source add tg.yaml"}
 	ask.Run.Does = []string{"a small add, nothing to read here"}
 	ask.Run.Seen = map[string]string{"source tg": "forged"}
+	// What the yard's copies hold is the yard's record, never the asker's.
+	ask.Run.Carried[0].Old = []AskFileDiff{{Program: "forged", Diff: "+forged\n"}}
+	ask.Run.Carried[0].Removed = []AskRemoved{{Path: "forged", Text: "forged\n"}}
+	ask.Run.Carried[0].Inventory = []AskInventory{{Path: "forged"}}
 	seq := y.ask(t, ask, "yardmaster")
 	got := y.asked(t, seq)
 	if got.Ask.Run == nil || len(got.Ask.Run.Carried) != 1 || got.Ask.Run.Carried[0].Text != tgDecl {
 		t.Fatalf("the stored ask carries %+v", got.Ask.Run)
+	}
+	if c := got.Ask.Run.Carried[0]; len(c.Old)+len(c.Removed)+len(c.Inventory) != 0 || strings.Contains(strings.Join(got.Lines(), "\n"), "forged") {
+		t.Errorf("the stored ask kept the asker's record of the copies: %+v", c)
 	}
 	joined := strings.Join(got.Ask.Run.Does, "\n")
 	for _, want := range []string{
@@ -194,6 +205,12 @@ func TestSourceAddCardNamesABuiltCall(t *testing.T) {
 	if strings.Contains(joined, "call write sends no body") {
 		t.Errorf("the built call reads as sending no body:\n%s", joined)
 	}
+}
+
+// crmLimits is the standing crm with a limits command whose program is
+// program: a file the declaration brings when it is relative.
+func crmLimits(program string) string {
+	return runCRM + "limits:\n  command: [" + program + ", \"{provider}\"]\n  kinds: { claude: claude }\n"
 }
 
 const builtDecl = `name: docs
@@ -373,8 +390,17 @@ func TestSourceAddRefusals(t *testing.T) {
 	}{
 		{"does not parse", []AskSource{{Name: "x", Text: "not a declaration"}}, "want a mapping"},
 		{"another name carried", func() []AskSource { c := carriedOf(t, phoneDecl, nil); c[0].Name = "other"; return c }(), "its declaration names phone"},
-		{"the yard has the name", carriedOf(t, runCRM, nil), "it is the operator's alone"},
 		{"an absolute program", carriedOf(t, strings.Replace(wiredDecl, "[wired/limits,", "[/bin/limits,", 1), wiredFiles), "it is the operator's alone"},
+		// The yard has crm: these are refused as they are for a free name,
+		// since a replacement carries its bytes in the same way.
+		{"an absolute program replacing a source", carriedOf(t, crmLimits("/bin/limits"), nil), "it is the operator's alone"},
+		{"a declaration too long replacing a source", []AskSource{{Name: "crm", Text: strings.Replace(runCRM, "name: crm\n", "name: crm\nabout: "+strings.Repeat("a", 9000)+"\n", 1)}}, "a card holds at most 8192"},
+		{"a file too long replacing a source", carriedOf(t, crmLimits("crm/limits"), map[string]string{"crm/limits": strings.Repeat("a", 9000)}), "a card holds at most 8192"},
+		{"bytes are not their hash replacing a source", func() []AskSource {
+			c := carriedOf(t, crmLimits("crm/limits"), map[string]string{"crm/limits": "#!/bin/sh\n"})
+			c[0].Files[0].SHA256 = strings.Repeat("0", 64)
+			return c
+		}(), "its bytes hash to"},
 		{"bytes are not their hash", func() []AskSource {
 			c := carriedOf(t, wiredDecl, wiredFiles)
 			c[0].Files[0].SHA256 = strings.Repeat("0", 64)
@@ -476,5 +502,387 @@ func TestSourceAddApproveStale(t *testing.T) {
 	}
 	if r := y.asked(t, seq); r.State != AskOpen {
 		t.Fatalf("the ask is %s after a refused approval", r.State)
+	}
+
+	// An ask written for a free name is never turned into a replacement
+	// because the name was taken: even where the source that took it has a
+	// copy no card can show, the refusal is the stale one for a name taken.
+	y, _ = runYard(t)
+	free := sourceAddAsk(carriedOf(t, wiredDecl, wiredFiles))
+	free.Run.Argv = []string{"source add wired.yaml"}
+	seq = y.ask(t, free, "yardmaster")
+	limits := filepath.Join(plantWired(t, y), "wired", "limits")
+	if err := os.Remove(limits); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("elsewhere", limits); err != nil {
+		t.Fatal(err)
+	}
+	y.refusedStale(t, seq, "was written when the source wired was not in the yard: it was added since")
+	// And the write that adds refuses a name taken, as the one that
+	// replaces refuses a source gone, when its card says otherwise.
+	var stored AskRun
+	if err := y.write(func(w *wtx) error {
+		stored = *y.asked(t, seq).Ask.Run
+		_, err := runSourceAdd(y.ctx, w, stored, "mckean", nil)
+		if err == nil || !strings.Contains(err.Error(), "source wired is in the yard already") {
+			t.Errorf("adding over a name taken = %v", err)
+		}
+		stored.Seen = map[string]string{"source wired": "a fingerprint"}
+		if err := w.deleteSource(y.ctx, "wired", "mckean"); err != nil {
+			t.Fatal(err)
+		}
+		_, err = runSourceAdd(y.ctx, w, stored, "mckean", nil)
+		if err == nil || !strings.Contains(err.Error(), "source wired is not in the yard any more") {
+			t.Errorf("replacing a source gone = %v", err)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// A replacement is held to the source it was written about: its
+	// declaration, the settings its card was held to, the copies that stand
+	// and who a grant reaches. Any change makes it stale; nothing runs.
+	next, files := nextWired()
+	for _, c := range []struct {
+		name   string
+		change func(t *testing.T, y *askYard, dir string)
+		want   string
+	}{
+		{"replaced since", func(t *testing.T, y *askYard, _ string) {
+			if _, err := y.PutSource(y.ctx, "wired.yaml", wiredDecl+"# another\n", "mckean"); err != nil {
+				t.Fatal(err)
+			}
+		}, "was written from another declaration of the source wired: it was replaced since"},
+		{"its credential file set since", func(t *testing.T, y *askYard, _ string) {
+			if _, err := y.SetSource(y.ctx, "wired", SourceEnvFile, "/keys/wired.env", "mckean"); err != nil {
+				t.Fatal(err)
+			}
+		}, "took its credential from elsewhere: its env_file was set since"},
+		{"a copy changed since", func(t *testing.T, _ *askYard, dir string) {
+			if err := os.WriteFile(filepath.Join(dir, "wired", "limits"), []byte("#!/bin/sh\n# swapped\n"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+		}, "the source wired's copies stood as carded: the command copy wired/limits changed since"},
+		{"a copy added since", func(t *testing.T, _ *askYard, dir string) {
+			if err := os.WriteFile(filepath.Join(dir, "added.txt"), []byte("by hand\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}, "the command copy added.txt was added since"},
+		{"a grant of read given since", func(t *testing.T, y *askYard, _ string) {
+			if _, err := y.GrantSource(y.ctx, "wired", GrantRead, Grantee{Crew: "yardmaster"}, "", "mckean"); err != nil {
+				t.Fatal(err)
+			}
+		}, "the card is from before that changed"},
+		{"removed since", func(t *testing.T, y *askYard, _ string) {
+			if err := y.DeleteSource(y.ctx, "wired", "mckean"); err != nil {
+				t.Fatal(err)
+			}
+		}, "was written when the source wired was in the yard: it was removed since"},
+	} {
+		y, _ := runYard(t)
+		dir := plantWired(t, y)
+		ask := sourceAddAsk(carriedOf(t, next, files))
+		ask.Run.Argv = []string{"source add wired.yaml"}
+		seq := y.ask(t, ask, "yardmaster")
+		c.change(t, y, dir)
+		_, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true, nil)
+		if err == nil || !strings.Contains(err.Error(), c.want) || !strings.HasSuffix(err.Error(), nothingRan) {
+			t.Errorf("%s: ApproveAsk = %v, want %q and then %q", c.name, err, c.want, nothingRan)
+		}
+		if src, err := y.GetSource(y.ctx, "wired"); err == nil && src.Text == next {
+			t.Errorf("%s: the stale approval replaced the source", c.name)
+		}
+		if r := y.asked(t, seq); r.State != AskOpen {
+			t.Errorf("%s: the ask is %s after a refused approval", c.name, r.State)
+		}
+	}
+}
+
+// nextWired is wiredDecl as a replacement would carry it: the address
+// moved, a read call added, and the thread command's file rewritten.
+func nextWired() (string, map[string]string) {
+	next := strings.Replace(wiredDecl, "https://wired.example.com/v1", "https://wired.example.org/v2", 1)
+	next = strings.Replace(next, "  ping: { kind: read, request: { method: GET, path: /me } }\n",
+		"  ping: { kind: read, request: { method: GET, path: /me } }\n  list: { kind: read, request: { method: GET, path: /lists } }\n", 1)
+	files := map[string]string{}
+	for prog, body := range wiredFiles {
+		files[prog] = body
+	}
+	files["wired/thread"] = "#!/bin/sh\n# thread, rewritten\n"
+	return next, files
+}
+
+// A source add ask for a name the yard has is a replacement: its card
+// says what changes between the declaration that stands and the one the
+// ask carries, each changed key whole old and new and each command file's
+// change with its diff, who a standing grant of read now reaches, and what
+// the source keeps; it takes it back with the old declaration asked again.
+// The yard weighs it as code, with reads where a grant widens.
+func TestSourceAddReplacementCard(t *testing.T) {
+	y, _ := runYard(t)
+	dir := plantWired(t, y)
+	if _, err := y.GrantSource(y.ctx, "wired", GrantRead, Grantee{Crew: "yardmaster"}, "", "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	next, files := nextWired()
+	ask := sourceAddAsk(carriedOf(t, next, files))
+	ask.Run.Argv = []string{"source add wired.yaml"}
+	ask.Run.Does = []string{"a small change, nothing to read here"}
+	ask.Run.Seen = map[string]string{"source wired": "forged"}
+	seq := y.ask(t, ask, "yardmaster")
+	got := y.asked(t, seq)
+	run := got.Ask.Run
+	oldThread := sha256.Sum256([]byte(wiredFiles["wired/thread"]))
+	newThread := sha256.Sum256([]byte(files["wired/thread"]))
+	joined := strings.Join(run.Does, "\n")
+	for _, want := range []string{
+		"it replaces one source and copies 4 command files (5 commands), and changes nothing else.",
+		"the source keeps its env_file, mint_command, region base, call limits and ignored senders, and every grant of it stands",
+		"still owed after it: the credential, by a secret ask for wired.",
+		"source wired: its calls go to https://wired.example.org/v2.",
+		"it would replace the source wired the yard has under that name.",
+		`source wired base: "https://wired.example.com/v1" -> "https://wired.example.org/v2".`,
+		"call list (read): GET /lists.",
+		"a standing grant of read of source wired widens to list for crew member yardmaster.",
+		"command file wired/thread: [wired/thread, reply] (thread.reply, handed the credential): sha256 " + hex.EncodeToString(oldThread[:]) + " -> sha256 " + hex.EncodeToString(newThread[:]) + ", mode 0700 (1 insertions, 1 deletions).",
+		"the copy would remove extra.txt, which neither declaration names: sha256 ",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("the card lacks %q:\n%s", want, joined)
+		}
+	}
+	if !strings.Contains(joined, `source wired calls: [{`) || !strings.Contains(joined, `/lists`) {
+		t.Errorf("the card does not show the calls whole, old and new:\n%s", joined)
+	}
+	if strings.Contains(joined, "nothing to read here") {
+		t.Errorf("the asker's sentences stood:\n%s", joined)
+	}
+	if got.Ask.Run.TakenBack() != `only the operator can take it back: yardr bead ask <bead> "<question>" --run "source add <a file holding the declaration that stands now>"` {
+		t.Errorf("the card takes it back with %q", got.Ask.Run.TakenBack())
+	}
+	if want := []string{WeightCode, WeightReads}; !slices.Equal(weightClasses(got.Ask.Weight), want) {
+		t.Errorf("the card weighs %v, want %v", weightClasses(got.Ask.Weight), want)
+	}
+	if want := "the command file wired/thread of wired (changed)"; !strings.Contains(got.Ask.Weight[0].Line, want) {
+		t.Errorf("the code line is %q, want it to name %q", got.Ask.Weight[0].Line, want)
+	}
+	// The ask stores the copies that stand, with each file's change and
+	// the entry nothing names, whole behind the card.
+	carried := run.Carried[0]
+	if len(carried.Inventory) != 5 || len(carried.Old) != 1 || carried.Old[0].Program != "wired/thread" || len(carried.Removed) != 1 || carried.Removed[0].Path != "extra.txt" {
+		t.Fatalf("the stored inventory = %+v, old %+v, removed %+v", carried.Inventory, carried.Old, carried.Removed)
+	}
+	lines := strings.Join(got.Lines(), "\n")
+	for _, want := range []string{"the change to command file wired/thread", "-# thread", "+# thread, rewritten", "the declaration of source wired, whole as carried:", "      base: https://wired.example.org/v2"} {
+		if !strings.Contains(lines, want) {
+			t.Errorf("the terminal card lacks %q:\n%s", want, lines)
+		}
+	}
+	// Nothing is written by asking: the source stands as it did.
+	if src, err := y.GetSource(y.ctx, "wired"); err != nil || src.Text != wiredDecl {
+		t.Fatalf("asking changed the source: %+v, %v", src, err)
+	}
+	if body, err := os.ReadFile(filepath.Join(dir, "wired", "thread")); err != nil || string(body) != wiredFiles["wired/thread"] {
+		t.Fatalf("asking changed the copy: %q, %v", body, err)
+	}
+}
+
+// crmRegions is runCRM with a second region the source can be set to call.
+const crmRegions = runCRM + "bases:\n  eu: https://eu.crm.example.com/v1\n"
+
+// crmMoved is crmRegions with both addresses moved: a replacement that
+// changes nothing of its calls or files, only where the credential goes.
+var crmMoved = strings.NewReplacer("https://crm.example.com/v1", "https://crm.example.org/v2",
+	"https://eu.crm.example.com/v1", "https://eu.crm.example.org/v2").Replace(crmRegions)
+
+// standingCRM is a yard whose source crm stands with every setting a
+// replacement keeps (where its credential comes from, its mint command,
+// its call limits, the region it calls, an ignored sender) and a grant of
+// read of it.
+func standingCRM(t *testing.T) *askYard {
+	t.Helper()
+	y, _ := runYard(t)
+	if _, err := y.PutSource(y.ctx, "crm.yaml", crmRegions, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	for key, value := range map[string]string{SourceEnvFile: "/keys/crm.env", SourceMintCommand: "crm-mint --short",
+		SourceCallsPerHour: "7", SourceUpdatesPerHour: "3", SourceBase: "eu"} {
+		if _, err := y.SetSource(y.ctx, "crm", key, value, "mckean"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := y.write(func(w *wtx) error {
+		var src Source
+		if _, err := get(w.Tx, bSources, "crm", &src); err != nil {
+			return err
+		}
+		src.Ignored = []string{"U1", "U2"}
+		return put(w.Tx, bSources, "crm", src)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.GrantSource(y.ctx, "crm", GrantRead, Grantee{Crew: "yardmaster"}, "", "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	return y
+}
+
+// lastSourceAdded is the newest source_added event's data without the ask
+// it was approved on.
+func (y *askYard) lastSourceAdded(t *testing.T) (Event, map[string]any) {
+	t.Helper()
+	evs, err := y.EventsOfKind(y.ctx, "source_added", 1)
+	if err != nil || len(evs) != 1 {
+		t.Fatalf("source_added events = %v, %v", evs, err)
+	}
+	data := map[string]any{}
+	for k, v := range evs[0].Data {
+		if k != "approved" {
+			data[k] = v
+		}
+	}
+	return evs[0], data
+}
+
+// Approving a replacement weighed replaces the source exactly as the
+// terminal command does (PutSource): the new declaration, and everything
+// the source had that a declaration does not say, which it keeps. Unweighed
+// it is refused, and so is a device's approval, since the card is strong.
+// A replacement of nothing but where the credential goes is strong too.
+func TestSourceAddReplacementApprove(t *testing.T) {
+	y := standingCRM(t)
+	before := y.source(t)
+	grants := y.grants(t)
+	ask := sourceAddAsk(carriedOf(t, crmMoved, nil))
+	ask.Run.Argv = []string{"source add crm.yaml"}
+	seq := y.ask(t, ask, "yardmaster")
+	got := y.asked(t, seq)
+	if classes := weightClasses(got.Ask.Weight); !slices.Equal(classes, []string{WeightCode}) {
+		t.Fatalf("a replacement of nothing but the addresses weighs %v", classes)
+	}
+	if want := "the declaration of crm replaces the one that stands"; !strings.Contains(got.Ask.Weight[0].Line, want) {
+		t.Errorf("the code line is %q, want it to say %q", got.Ask.Weight[0].Line, want)
+	}
+	if !strings.Contains(strings.Join(got.Ask.Run.Does, "\n"), `source crm base: "https://crm.example.com/v1" -> "https://crm.example.org/v2".`) {
+		t.Errorf("the card does not show the address moving:\n%s", strings.Join(got.Ask.Run.Does, "\n"))
+	}
+	// crm keeps the file its credential is read from, so none is owed after.
+	if strings.Contains(strings.Join(got.Ask.Run.Does, "\n"), "still owed after it") {
+		t.Errorf("the card says a credential is owed for a source that keeps its file:\n%s", strings.Join(got.Ask.Run.Does, "\n"))
+	}
+
+	// Unweighed, through a device, and the ask stays open each time.
+	want := "ask " + itoa(seq) + ` is weighty (code): approve it where its weight is shown; a client sends "weighed": true once its person has passed its gate`
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false, nil); err == nil || err.Error() != want {
+		t.Fatalf("approving unweighed = %v, want %q", err, want)
+	}
+	phone := WithVia(y.ctx, "mckean", "phone")
+	if _, err := y.ApproveAsk(phone, y.bead, seq, "mckean", true, nil); err == nil || !strings.Contains(err.Error(), "is strong (code): this approval arrived through the device phone") {
+		t.Fatalf("approving through a device = %v", err)
+	}
+	if now := y.source(t); !reflect.DeepEqual(now, before) {
+		t.Fatalf("a refused approval changed the source: %+v, was %+v", now, before)
+	}
+	if r := y.asked(t, seq); r.State != AskOpen {
+		t.Fatalf("the ask is %s after the refusals", r.State)
+	}
+
+	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "source crm saved: 3 calls under https://eu.crm.example.org/v2 (base eu)"; done.Result != want {
+		t.Fatalf("the approval recorded %q, want %q", done.Result, want)
+	}
+	if carry, err := y.CarryOf(y.ctx, y.bead, seq); err != nil || carry != nil {
+		t.Fatalf("a replacement with no files and no copies was left to carry out: %+v, %v", carry, err)
+	}
+	after := y.source(t)
+	if after.Text != crmMoved || after.AddedBy != "mckean" {
+		t.Fatalf("the source after the approval = %+v", after)
+	}
+	// Each setting the source had stands, and so does every grant.
+	if after.EnvFile != "/keys/crm.env" || after.MintCommand != "crm-mint --short" || after.CallsPerHour != 7 ||
+		after.UpdatesPerHour != 3 || after.Base != "eu" || !slices.Equal(after.Ignored, []string{"U1", "U2"}) {
+		t.Fatalf("the replacement dropped a setting: %+v", after)
+	}
+	if now := y.grants(t); !slices.Equal(now, grants) {
+		t.Fatalf("the grants after the approval = %v, were %v", now, grants)
+	}
+	ev, data := y.lastSourceAdded(t)
+	y.approved(t, ev, seq)
+	if data["replaced"] != true || data["source"] != "crm" {
+		t.Fatalf("the event = %v, want it to say crm was replaced", data)
+	}
+
+	// The terminal's own command, on a yard that began the same, leaves the
+	// source and its event as the approval did.
+	typed := standingCRM(t)
+	if _, err := typed.PutSource(typed.ctx, "crm.yaml", crmMoved, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	if got := typed.source(t); !reflect.DeepEqual(got, after) {
+		t.Errorf("typed, the source is %+v, and approved %+v", got, after)
+	}
+	if _, typedData := typed.lastSourceAdded(t); !reflect.DeepEqual(typedData, data) {
+		t.Errorf("typed, the event says %v, and approved %v", typedData, data)
+	}
+
+	// A command run directly by the asker is refused as it always was; only
+	// the card gains the road.
+	if _, err := y.PutSource(y.ctx, "crm.yaml", crmRegions, "yardmaster"); err == nil || !strings.Contains(err.Error(), "adding a source is the operator's") {
+		t.Fatalf("a crew member's own replacement = %v", err)
+	}
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true, nil); err == nil || !strings.Contains(err.Error(), "was approved already") {
+		t.Fatalf("a second approval = %v", err)
+	}
+}
+
+// A replacement that brings command files, or drops the ones that stand,
+// is carried out by the server after its approval, which makes the copies
+// anew as source add does; one with nothing to copy and nothing to remove
+// runs in the approval's own write.
+func TestSourceAddReplacementIsCarriedOut(t *testing.T) {
+	next, files := nextWired()
+	// Brings files over the copies that stand.
+	y, _ := runYard(t)
+	plantWired(t, y)
+	ask := sourceAddAsk(carriedOf(t, next, files))
+	ask.Run.Argv = []string{"source add wired.yaml"}
+	seq := y.ask(t, ask, "yardmaster")
+	if done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true, nil); err != nil || done.Result != CarryPending {
+		t.Fatalf("the approval of one bringing files = %+v, %v", done, err)
+	}
+	if carry, err := y.CarryOf(y.ctx, y.bead, seq); err != nil || carry == nil || carry.State != CarryApproved {
+		t.Fatalf("the carrying record = %+v, %v", carry, err)
+	}
+	if src, err := y.GetSource(y.ctx, "wired"); err != nil || src.Text != next {
+		t.Fatalf("the stored declaration = %+v, %v", src, err)
+	}
+
+	// Drops every file: nothing to copy, but the copies that stand are to go.
+	y, _ = runYard(t)
+	plantWired(t, y)
+	bare := "name: wired\nbase: https://wired.example.com/v1\ncalls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n"
+	ask = sourceAddAsk(carriedOf(t, bare, nil))
+	ask.Run.Argv = []string{"source add wired.yaml"}
+	seq = y.ask(t, ask, "yardmaster")
+	joined := strings.Join(y.asked(t, seq).Ask.Run.Does, "\n")
+	for _, want := range []string{
+		"it replaces one source and copies no command files, and removes the command copies that stand, and changes nothing else.",
+		"command file wired/thread would change: sha256 ",
+		"the copy would remove extra.txt, which neither declaration names",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("the card lacks %q:\n%s", want, joined)
+		}
+	}
+	if done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true, nil); err != nil || done.Result != CarryPending {
+		t.Fatalf("the approval of one dropping every file = %+v, %v", done, err)
+	}
+	if carry, err := y.CarryOf(y.ctx, y.bead, seq); err != nil || carry == nil {
+		t.Fatalf("a replacement over copies that stand left no carrying record: %+v, %v", carry, err)
 	}
 }

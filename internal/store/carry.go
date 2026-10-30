@@ -113,7 +113,8 @@ func carryKey(bead string, ask uint64) string { return join(bead, seqKey(ask)) }
 // needsCarry says whether approving the run ask was records it to be
 // carried out: a pack apply always, an up, which starts the yard's own
 // processes after the write, a source add whose declaration names
-// command files the approval's write cannot write, and a teammate
+// command files the approval's write cannot write or that replaces a
+// source whose command copies stand (they are made anew), and a teammate
 // invite or removal, whose edge report cannot be one store write.
 func needsCarry(was AskRun) bool {
 	if len(was.Argv) >= 2 && was.Argv[0] == "pack" && was.Argv[1] == "apply" {
@@ -126,7 +127,7 @@ func needsCarry(was AskRun) bool {
 		return true
 	}
 	return len(was.Argv) >= 2 && was.Argv[0] == "source" && was.Argv[1] == "add" &&
-		len(was.Carried) == 1 && len(was.Carried[0].Files) > 0
+		len(was.Carried) == 1 && (len(was.Carried[0].Files) > 0 || len(was.Carried[0].Inventory) > 0)
 }
 
 // recordCarry makes the carrying record of the ask bead/seq in the
@@ -413,12 +414,13 @@ func (w *wtx) completeAnswer(bead string, seq uint64, result string, failed bool
 	return fmt.Errorf("ask %d on %s has no approved answer to complete", seq, bead)
 }
 
-// CheckCarrySource holds one declared source of an approved pack apply
-// to what its approval was held to (design yardr-bht9 3.4): it answers
+// CheckCarrySource holds one declared source of an approved carried source
+// add or pack apply to what its approval was held to (design yardr-bht9
+// 3.4): it answers
 // CarryApproved when the yard holds the source as the card recorded it
 // (its sourceSeen, absence included), CarryStored when the yard holds
-// the pack's declaration text already stored — with each inventoried
-// copy at the card's old standing or the pack's new one, and its
+// the approved declaration text already stored — with each inventoried
+// copy at the card's old standing or the approved new one, and its
 // credential standing as at the approval — which a stop inside the
 // source's write leaves and a carrying out finishes forward, and an
 // error in the stale words, naming what stands, anywhere else: a file

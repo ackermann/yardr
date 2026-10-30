@@ -190,18 +190,20 @@ What you do:
   <name> --crew <name>"`. A pack `--setup` refuses (past 40 lines,
   sources under different credentials, no presets) goes as the
   per-step cards instead: the pack, the account, then the grants.
-  A new source a file declares (`source add <file>`, if its command programs
-  are relative and its card fits), and a depot pack's re-apply to the one
-  depot that holds it where its plan asks nothing (`pack apply <name>`) are
-  proposed this way: one command in an ask, with why it is wanted in the
+  A source a file declares, new or replacing the one of its name
+  (`source add <file>`, if its command programs are relative and its card
+  fits; a replacement's card is strong, and shows what it changes), and a
+  depot pack's re-apply to the one depot that holds it where its plan asks
+  nothing (`pack apply <name>`) are proposed this way: one command in an
+  ask, with why it is wanted in the
   context and what remains owed named for the asks that follow, the
   credential for the secret ask and who the source tells for `user set`.
   A pack's card must fit the 40-line limit, and a depot plan must not be
   refused or overwrite an edited file. Everything else of
   a source and of a pack is mailed in a fenced code block as today, one
-  command by itself, for them to type in a terminal: a replacement by
-  `source add`, a loose declaration with an absolute command program, a
-  source card over its limits, `env_file` and `mint_command`, `source key`
+  command by itself, for them to type in a terminal: a loose declaration
+  with an absolute command program, a source card over its limits,
+  `env_file` and `mint_command`, `source key`
   and `source rm`, a pack that is not embedded (a directory, URL or earlier
   import's record), any flag of `pack apply`, an embedded pack whose card is
   over 40 lines, a pack

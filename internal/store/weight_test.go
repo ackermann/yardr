@@ -166,6 +166,18 @@ calls:
 		}, run: AskRun{Argv: []string{"pack apply crm-pack"}, Carried: []AskSource{{Name: "crm", Text: crmWith}}}, want: []string{WeightReads}},
 		{name: "pack apply dropping a read call", run: AskRun{Argv: []string{"pack apply crm-pack"},
 			Carried: []AskSource{{Name: "crm", Text: strings.Replace(runCRM, "  find: { kind: read, request: { method: GET, path: /contacts } }\n", "", 1)}}}},
+		// A source add that replaces crm is code whatever it changes, since
+		// the credential and the grants stay and the declaration says where
+		// they go; the grant of read above stands for the third row.
+		{name: "source add replacing with only an address moved", run: AskRun{Argv: []string{"source add crm.yaml"},
+			Carried: []AskSource{{Name: "crm", Text: strings.Replace(runCRM, "https://crm.example.com", "https://crm.example.org", 1)}}}, want: []string{WeightCode}},
+		{name: "source add replacing with a command file", run: AskRun{Argv: []string{"source add crm.yaml"},
+			Carried: []AskSource{{Name: "crm", Text: runCRM + "limits:\n  command: [crm/limits, \"{provider}\"]\n  kinds: { claude: claude }\n",
+				Files: []AskFile{file("crm/limits", "#!/bin/sh\n")}}}}, want: []string{WeightCode}},
+		{name: "source add replacing, widening a grant of read", run: AskRun{Argv: []string{"source add crm.yaml"},
+			Carried: []AskSource{{Name: "crm", Text: crmWith}}}, want: []string{WeightCode, WeightReads}},
+		{name: "pack apply replacing with only an address moved", run: AskRun{Argv: []string{"pack apply crm-pack"},
+			Carried: []AskSource{{Name: "crm", Text: strings.Replace(runCRM, "https://crm.example.com", "https://crm.example.org", 1)}}}},
 		{name: "hook add", run: AskRun{Argv: []string{"hook add bot --source crm"}}, want: []string{WeightTrust}},
 		{name: "user key", run: AskRun{Argv: []string{"user key ada crm"}}, want: []string{WeightCredential}},
 		{name: "user add", run: AskRun{Argv: []string{"user add eve"}}, want: []string{WeightTrust}},

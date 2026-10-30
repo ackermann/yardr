@@ -252,6 +252,25 @@ func (c *carrier) carryLoose(ctx context.Context, rec *store.Carry, run *store.A
 		}
 		return "", failWords(fmt.Sprintf("source %s stands with %s than the one approved; nothing was written", carried.Name, what), terminal)
 	}
+	// A replacement card showed the command copies that stood. Hold those
+	// copies again before the delayed write, so a hand that changed one after
+	// approval is not silently removed by making the directory anew.
+	if fingerprint := run.Seen["source "+carried.Name]; fingerprint != "" {
+		var snap store.CarrySource
+		found := false
+		for _, source := range rec.Sources {
+			if source.Name == carried.Name {
+				snap, found = source, true
+				break
+			}
+		}
+		if !found {
+			return "", failWords(fmt.Sprintf("the carrying record has no standing for source %s", carried.Name), terminal)
+		}
+		if _, err := c.st.CheckCarrySource(ctx, carried, fingerprint, snap); err != nil {
+			return "", staleWords(fmt.Sprintf("ask %d: %s", rec.Ask, err), terminal)
+		}
+	}
 	files := make([]source.FileCopy, len(carried.Files))
 	want := map[string]string{}
 	for i, f := range carried.Files {
@@ -271,7 +290,7 @@ func (c *carrier) carryLoose(ctx context.Context, rec *store.Carry, run *store.A
 	if len(d.Calls) == 0 {
 		return fmt.Sprintf("source %s saved: no call, its limits command alone", d.Name), ""
 	}
-	return fmt.Sprintf("source %s saved: %s under %s", d.Name, plural(len(d.Calls), "call"), d.Address()), ""
+	return fmt.Sprintf("source %s saved: %s under %s", d.Name, plural(len(d.Calls), "call"), src.CalledAt(d)), ""
 }
 
 // carryUp finishes an approved up: the server starts yardr up for the

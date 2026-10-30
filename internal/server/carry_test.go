@@ -8,8 +8,10 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -244,16 +246,20 @@ var looseFiles = map[string]string{
 	"loose/thread": "#!/bin/sh\n# thread\n",
 }
 
-func looseAsk() store.Ask {
+func looseAsk() store.Ask { return looseAskOf(looseDecl, looseFiles) }
+
+// looseAskOf is the ask that adds, or replaces, the source loose with the
+// declaration decl and the command files it names.
+func looseAskOf(decl string, texts map[string]string) store.Ask {
 	var files []store.AskFile
-	for _, prog := range []string{"loose/limits", "loose/thread"} {
-		sum := sha256.Sum256([]byte(looseFiles[prog]))
-		files = append(files, store.AskFile{Program: prog, Text: looseFiles[prog], SHA256: hex.EncodeToString(sum[:])})
+	for _, prog := range slices.Sorted(maps.Keys(texts)) {
+		sum := sha256.Sum256([]byte(texts[prog]))
+		files = append(files, store.AskFile{Program: prog, Text: texts[prog], SHA256: hex.EncodeToString(sum[:])})
 	}
 	return store.Ask{Question: "Add the loose source?", To: "mckean",
 		Context: []string{"its declaration is loose.yaml beside the work"},
 		Run: &store.AskRun{Argv: []string{"source add loose.yaml"},
-			Carried: []store.AskSource{{Name: "loose", Text: looseDecl, Files: files}}}}
+			Carried: []store.AskSource{{Name: "loose", Text: decl, Files: files}}}}
 }
 
 // A loose ask that names commands has its carried bytes written and
@@ -280,6 +286,52 @@ func TestCarryLooseSourceWithCommands(t *testing.T) {
 		t.Fatalf("the carried-out card reads:\n%s", lines)
 	}
 
+	// The source it added is then replaced on a card, as source add
+	// replaces one: the copies are made anew, so the file the new
+	// declaration no longer names goes with an entry left by hand, and the
+	// one it still names has the new bytes. The source's region base stays
+	// set, and the result says it as the terminal does.
+	dir := filepath.Join(home, "sources", "loose")
+	if err := os.WriteFile(filepath.Join(dir, "stray.txt"), []byte("by hand\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	moved := strings.Replace(looseDecl, "limits:\n  command: [loose/limits, \"{provider}\", --json]\n  kinds: { claude: claude }\n", "", 1)
+	moved = strings.Replace(moved, "https://loose.example.com/v1", "https://loose.example.org/v2", 1) + "bases:\n  eu: https://eu.loose.example.org/v2\n"
+	rewritten := map[string]string{"loose/thread": "#!/bin/sh\n# thread, rewritten\n"}
+	seq3 := askApprove(t, st, bead, looseAskOf(moved, rewritten))
+	if _, err := os.Stat(filepath.Join(dir, "loose", "limits")); err != nil {
+		t.Fatalf("the approval removed a copy before the server carried it out: %v", err)
+	}
+	drain(t, st, home, "boot-one")
+	for _, gone := range []string{filepath.Join("loose", "limits"), "stray.txt"} {
+		if _, err := os.Stat(filepath.Join(dir, gone)); !os.IsNotExist(err) {
+			t.Errorf("%s stands after the replacement was carried out: %v", gone, err)
+		}
+	}
+	if data, err := os.ReadFile(filepath.Join(dir, "loose", "thread")); err != nil || string(data) != rewritten["loose/thread"] {
+		t.Fatalf("the copy of loose/thread = %q, %v", data, err)
+	}
+	if rec := carryState(t, st, bead, seq3); rec.State != store.CarryDone {
+		t.Fatalf("the replacement's record = %+v", rec)
+	}
+	if _, err := st.SetSource(ctx, "loose", store.SourceBase, "eu", "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	// One that names no command at all leaves no copies; the record is
+	// carried out too, since the copies that stand are to go.
+	bare := "name: loose\nbase: https://loose.example.org/v2\nbases:\n  eu: https://eu.loose.example.org/v2\ncalls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n"
+	seq4 := askApprove(t, st, bead, looseAskOf(bare, nil))
+	drain(t, st, home, "boot-one")
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Errorf("the copies stand after a replacement that names no command: %v", err)
+	}
+	if rec := carryState(t, st, bead, seq4); rec.State != store.CarryDone {
+		t.Fatalf("the second replacement's record = %+v", rec)
+	}
+	if lines := resolvedLines(t, st, bead, seq4); !strings.Contains(lines, "source loose saved: 1 call under https://eu.loose.example.org/v2 (base eu)") {
+		t.Fatalf("the carried-out card reads:\n%s", lines)
+	}
+
 	st2, home2, bead2 := carryYard(t)
 	seq2 := askApprove(t, st2, bead2, looseAsk())
 	other := strings.Replace(looseDecl, "https://loose.example.com/v1", "https://other.example.com", 1)
@@ -295,6 +347,38 @@ func TestCarryLooseSourceWithCommands(t *testing.T) {
 	}
 	if lines := resolvedLines(t, st2, bead2, seq2); !strings.Contains(lines, "approved, failed: yardr source add loose.yaml") {
 		t.Fatalf("the failed card reads:\n%s", lines)
+	}
+
+	// A replacement shows the old copies before its approval, then carries
+	// the new ones after it. If a hand changes a copy in between, the carry
+	// fails before removing that uncarded file.
+	st3, home3, bead3 := carryYard(t)
+	if _, err := st3.PutSource(ctx, "loose.yaml", looseDecl, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	for prog, body := range looseFiles {
+		path := filepath.Join(home3, "sources", "loose", filepath.FromSlash(prog))
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	movedDecl := strings.Replace(looseDecl, "https://loose.example.com/v1", "https://loose.example.org/v2", 1)
+	approvedFiles := map[string]string{"loose/limits": looseFiles["loose/limits"], "loose/thread": "#!/bin/sh\n# thread, approved\n"}
+	seq5 := askApprove(t, st3, bead3, looseAskOf(movedDecl, approvedFiles))
+	thread := filepath.Join(home3, "sources", "loose", "loose", "thread")
+	third := "#!/bin/sh\n# a hand changed this after approval\n"
+	if err := os.WriteFile(thread, []byte(third), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	drain(t, st3, home3, "boot-one")
+	if rec := carryState(t, st3, bead3, seq5); rec.State != store.CarryFailed {
+		t.Fatalf("a replacement over a changed copy = %+v", rec)
+	}
+	if data, err := os.ReadFile(thread); err != nil || string(data) != third {
+		t.Fatalf("the uncarded copy after the failed carry = %q, %v", data, err)
 	}
 }
 

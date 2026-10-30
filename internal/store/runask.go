@@ -144,8 +144,8 @@ type AskSource struct {
 	// yard's copies of a source it would replace hold as the card was
 	// written: each command file's change, each entry neither
 	// declaration names that the copy would remove, and the whole
-	// destination inventory. A loose add replaces nothing and keeps
-	// none of them.
+	// destination inventory. A source add keeps them for a replacement
+	// and none for a new source.
 	Old       []AskFileDiff  `json:"old,omitempty"`
 	Removed   []AskRemoved   `json:"removed,omitempty"`
 	Inventory []AskInventory `json:"inventory,omitempty"`
@@ -460,7 +460,7 @@ var runList = []runCommand{{
 	checkRun:    checkSourceAdd,
 	cardRun:     (*wtx).sourceAddCard,
 	stale:       (*wtx).sourceAddStale,
-	weigh:       carriedRunWeight,
+	weigh:       sourceAddWeight,
 	runRun:      runSourceAdd,
 }, {
 	words:       []string{"source", "ignore"},

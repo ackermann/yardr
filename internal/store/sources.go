@@ -127,6 +127,18 @@ func (s Source) UpdateLimit() int {
 	return SourceUpdateLimit
 }
 
+// CalledAt is where the source's calls go under its declaration d, as
+// yardr source add says it: the address, and beside it the name of the
+// region base the source is set to where that names one of d's bases (a
+// setting a replacement keeps). "" for a declaration that makes no call.
+func (s Source) CalledAt(d *source.Declaration) string {
+	addr := d.WithBase(s.Base).Address()
+	if _, ok := d.BaseURL(s.Base); addr != "" && s.Base != "" && ok {
+		addr += " (base " + s.Base + ")"
+	}
+	return addr
+}
+
 // PutSource adds the source text declares, under the name the text gives
 // it, or replaces the one of that name, which keeps its settings. file is
 // how an error names the text. A declaration that source.Parse refuses,
@@ -139,42 +151,61 @@ func (s *Store) PutSource(ctx context.Context, file, text, actor string) (*Sourc
 	if err := hearSubscribeKeys(d); err != nil {
 		return nil, err
 	}
-	src := Source{Name: d.Name, Text: text, AddedAt: now(), AddedBy: actor}
+	var src *Source
 	err = s.write(func(w *wtx) error {
 		// Alone: it reads a file that says where a credential is sent and
 		// may name a command the yard runs.
 		if err := w.may(ctx, actor, ActAddSource, Object{Kind: KindSource, Name: d.Name}); err != nil {
 			return err
 		}
-		var was Source
-		replaced, err := get(w.Tx, bSources, d.Name, &was)
-		if err != nil {
-			return err
-		}
-		src.EnvFile, src.MintCommand, src.CallsPerHour, src.UpdatesPerHour, src.Base = was.EnvFile, was.MintCommand, was.CallsPerHour, was.UpdatesPerHour, was.Base
-		src.Ignored = was.Ignored
-		if d.Limits != nil {
-			if err := limitsKindsFree(w.Tx, d); err != nil {
-				return err
-			}
-		}
-		if err := put(w.Tx, bSources, d.Name, src); err != nil {
-			return err
-		}
-		calls := make([]string, len(d.Calls))
-		for i, c := range d.Calls {
-			calls[i] = c.Name
-		}
-		data := map[string]any{"source": d.Name, "base": d.Base, "calls": calls}
-		if d.Limits != nil {
-			data["limits"] = d.Limits.KindNames()
-		}
-		if replaced {
-			data["replaced"] = true
-		}
-		return w.event("", "source_added", actor, data)
+		var err error
+		src, err = w.putSource(d, text, actor, nil)
+		return err
 	})
 	if err != nil {
+		return nil, err
+	}
+	return src, nil
+}
+
+// putSource stores the source text declares as d, inside the write, under
+// d's name, or replaces the one of that name, which keeps its settings and
+// its ignored senders (the grants stand beside it). It is what PutSource
+// writes and what an approved run ask writes (putCarriedSource), so the
+// two cannot differ: by names the ask the add was approved on, for the
+// event. The caller has asked who may.
+func (w *wtx) putSource(d *source.Declaration, text, actor string, by *approvedOn) (*Source, error) {
+	src := Source{Name: d.Name, Text: text, AddedAt: now(), AddedBy: actor}
+	var was Source
+	replaced, err := get(w.Tx, bSources, d.Name, &was)
+	if err != nil {
+		return nil, err
+	}
+	src.EnvFile, src.MintCommand, src.CallsPerHour, src.UpdatesPerHour, src.Base = was.EnvFile, was.MintCommand, was.CallsPerHour, was.UpdatesPerHour, was.Base
+	src.Ignored = was.Ignored
+	if d.Limits != nil {
+		if err := limitsKindsFree(w.Tx, d); err != nil {
+			return nil, err
+		}
+	}
+	if err := put(w.Tx, bSources, d.Name, src); err != nil {
+		return nil, err
+	}
+	calls := make([]string, len(d.Calls))
+	for i, c := range d.Calls {
+		calls[i] = c.Name
+	}
+	data := map[string]any{"source": d.Name, "base": d.Base, "calls": calls}
+	if d.Limits != nil {
+		data["limits"] = d.Limits.KindNames()
+	}
+	if replaced {
+		data["replaced"] = true
+	}
+	if by != nil {
+		data["approved"] = by
+	}
+	if err := w.event("", "source_added", actor, data); err != nil {
 		return nil, err
 	}
 	return &src, nil

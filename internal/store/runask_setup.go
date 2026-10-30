@@ -505,7 +505,7 @@ func (w *wtx) setupCard(pack string, to []Grantee, base string) (*AskSetup, erro
 	// by the store itself through its home, with each file's diff.
 	payload := 0
 	for i := range carried {
-		pay, err := w.packReplacement(&carried[i], decls[carried[i].Name], pack)
+		pay, err := w.packReplacement(&carried[i], decls[carried[i].Name], packTerminal(pack))
 		if err != nil {
 			return nil, err
 		}

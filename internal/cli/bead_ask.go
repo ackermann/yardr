@@ -214,11 +214,11 @@ one of the list the yard runs from a card:
       pack; with --as <user> the call is made as that user, and that
       user alone approves it
   source add <file>
-      a new source the file declares: the ask carries the declaration
-      and each command file it names, the card shows the whole
-      declaration, and a commands-free add runs at approval while one
-      naming commands is carried out by the server after it; a
-      replacement and an absolute program stay in a terminal
+      a source the file declares, new or replacing the one of its name:
+      the ask carries the declaration and each command file it names, the
+      card shows it whole and a replacement's changes (strong, code); a
+      commands-free add runs at approval, one naming commands is carried
+      out by the server after it; an absolute program stays in a terminal
   source ignore <source> --rm <id>
       a sender ignored in the source is heard again: their next message
       follows the hook's word, a fresh mapping card under unknown, heard

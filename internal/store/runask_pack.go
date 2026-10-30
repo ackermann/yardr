@@ -194,7 +194,7 @@ func sourceInventory(home, name string, carryContents bool) ([]AskInventory, map
 		return nil, nil, fmt.Errorf("source %s: cannot inspect its command copy directory: %w", name, err)
 	}
 	if !rootInfo.IsDir() || rootInfo.Mode()&os.ModeSymlink != 0 {
-		return nil, nil, fmt.Errorf("source %s: its command copy destination is not a directory: pack apply cannot card what it would remove", name)
+		return nil, nil, fmt.Errorf("source %s: its command copy destination is not a directory: a card cannot show what it would remove", name)
 	}
 	var out []AskInventory
 	contents := map[string][]byte{}
@@ -243,7 +243,7 @@ func sourceInventory(home, name string, carryContents bool) ([]AskInventory, map
 				contents[rel] = data
 			}
 		default:
-			return fmt.Errorf("source %s: command copy %s is not a regular file or symbolic link: pack apply cannot card what it would remove", name, OneLine(rel))
+			return fmt.Errorf("source %s: command copy %s is not a regular file or symbolic link: a card cannot show what it would remove", name, OneLine(rel))
 		}
 		sum := sha256.Sum256(data)
 		out = append(out, AskInventory{Path: rel, SHA256: hex.EncodeToString(sum[:]),
@@ -407,7 +407,7 @@ func (w *wtx) packApplyCard(run AskRun, asking bool) (AskRun, error) {
 	// store itself through its home, with each file's diff.
 	for i := range carried {
 		d := decls[carried[i].Name]
-		pay, err := w.packReplacement(&carried[i], d, name)
+		pay, err := w.packReplacement(&carried[i], d, packTerminal(name))
 		if err != nil {
 			return AskRun{}, err
 		}
@@ -492,13 +492,22 @@ func (w *wtx) packApplyCard(run AskRun, asking bool) (AskRun, error) {
 	return card, nil
 }
 
+// packTerminal ends a refusal of a pack's card for what a card cannot
+// show: the pack is the operator's to apply in a terminal, where pack
+// check shows its plan.
+func packTerminal(pack string) string {
+	return fmt.Sprintf("this pack is the operator's to apply in a terminal (yardr pack check %s)", pack)
+}
+
 // packReplacement fills carried with what the yard holds of the source
 // it would replace: each command file's old and new SHA-256 with its
 // diff, the whole destination inventory, and each entry neither
 // declaration names as removed. It answers the diff and removed bytes
 // the ask carries, for the payload bound. If no source record stands,
 // it still cards any leftover files the copy step would replace.
-func (w *wtx) packReplacement(carried *AskSource, d *source.Declaration, packName string) (int, error) {
+// terminal ends a refusal for a copy a card cannot show (a source add
+// card shares this with the pack rows).
+func (w *wtx) packReplacement(carried *AskSource, d *source.Declaration, terminal string) (int, error) {
 	_, was, sourceErr := sourceIn(w.Tx, carried.Name)
 	sourceMissing := errors.Is(sourceErr, ErrNotFound)
 	if sourceErr != nil && !sourceMissing {
@@ -549,7 +558,7 @@ func (w *wtx) packReplacement(carried *AskSource, d *source.Declaration, packNam
 			continue // a new command file is already shown by sourceDoes
 		}
 		if hasOld && oldE.Symlink {
-			return 0, fmt.Errorf("source %s: the copy of %s is a symbolic link, not a regular text file: a card cannot show what it points to, so this pack is the operator's to apply in a terminal (yardr pack check %s)", carried.Name, OneLine(prog), packName)
+			return 0, fmt.Errorf("source %s: the copy of %s is a symbolic link, not a regular text file: a card cannot show what it points to, so %s", carried.Name, OneLine(prog), terminal)
 		}
 		if oldSHA == newSHA {
 			continue
@@ -558,7 +567,7 @@ func (w *wtx) packReplacement(carried *AskSource, d *source.Declaration, packNam
 		if hasOld {
 			data := contents[prog]
 			if !utf8.Valid(data) {
-				return 0, fmt.Errorf("source %s: the copy of %s that stands is not valid UTF-8 text: a card carries text only, so this pack is the operator's to apply in a terminal (yardr pack check %s)", carried.Name, prog, packName)
+				return 0, fmt.Errorf("source %s: the copy of %s that stands is not valid UTF-8 text: a card carries text only, so %s", carried.Name, prog, terminal)
 			}
 			oldText = string(data)
 		}

@@ -583,6 +583,24 @@ func carriedRunWeight(w *wtx, run AskRun) ([]AskWeight, error) {
 	return w.carriedWeight(run.Carried)
 }
 
+// sourceAddWeight weighs a source add by what it carries, and a source it
+// replaces as code whatever its files: the source keeps the credential it
+// has and every grant of it, so a declaration with no file to change can
+// still move where that credential is sent and which programs the yard
+// runs for it. A source that is new weighs as carriedRunWeight has it.
+func sourceAddWeight(w *wtx, run AskRun) ([]AskWeight, error) {
+	out, err := w.carriedWeight(run.Carried)
+	if err != nil || slices.ContainsFunc(out, func(a AskWeight) bool { return a.Class == WeightCode }) {
+		return out, err
+	}
+	for _, c := range run.Carried {
+		if w.Bucket(bSources).Get([]byte(c.Name)) != nil {
+			return slices.Insert(out, 0, weighs(WeightCode, fmt.Sprintf("the declaration of %s replaces the one that stands, and says where the credential it keeps is sent and which programs the yard runs", c.Name))), nil
+		}
+	}
+	return out, nil
+}
+
 // hookAddWeight weighs a hook add: an endpoint that takes outside input is
 // always a widening.
 func hookAddWeight(w *wtx, run AskRun) ([]AskWeight, error) {

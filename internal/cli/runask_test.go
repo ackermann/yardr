@@ -120,6 +120,33 @@ hear:
   by: identity
 `
 
+// addedStanding is the source the source add row's replacement ask
+// replaces: two regions to call.
+const addedStanding = `name: added
+base: https://added.example.com/v1
+bases:
+  eu: https://eu.added.example.com/v1
+credential: { env: ADDED_TOKEN, header: "Authorization: Bearer {credential}" }
+calls:
+  ping: { kind: read, request: { method: GET, path: /me } }
+`
+
+// seedAdded declares the source added on the yard, with the settings a
+// replacement keeps.
+func seedAdded(t *testing.T, y *cliYard) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := y.st.PutSource(ctx, "added.yaml", addedStanding, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	for key, value := range map[string]string{store.SourceEnvFile: "/keys/added.env", store.SourceMintCommand: "added-mint",
+		store.SourceCallsPerHour: "7", store.SourceUpdatesPerHour: "3", store.SourceBase: "eu"} {
+		if _, err := y.st.SetSource(ctx, "added", key, value, "jo"); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 // seedTalkIgnored declares talk on the yard and ignores U999 there
 // through a mapping card's nobody pick.
 func seedTalkIgnored(t *testing.T, y *cliYard) {
@@ -746,6 +773,13 @@ func TestRunListIsTheCLIs(t *testing.T) {
 	if err := os.WriteFile(addedFile, []byte("name: added\nbase: https://added.example.com/v1\ncredential: { env: ADDED_TOKEN, header: \"Authorization: Bearer {credential}\" }\ncalls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	// The source add row's second ask replaces the source added, which both
+	// yards have with every setting a replacement keeps.
+	replacedFile := filepath.Join(t.TempDir(), "replaced.yaml")
+	if err := os.WriteFile(replacedFile, []byte(strings.NewReplacer("https://added.example.com/v1", "https://added.example.org/v2",
+		"https://eu.added.example.com/v1", "https://eu.added.example.org/v2").Replace(addedStanding)+"  list: { kind: read, request: { method: GET, path: /lists } }\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	asks := map[string][]string{
 		"yardr peer add <name> <invite>": {"peer add north " + southInvite},
 		"yardr peer allow <peer> --send <kinds> | --receive <kinds> | --expose <names> | --trust <name>@<peer>=<user> | --reach <name>@<peer>=<user> | --mail-limit <n>": {
@@ -764,7 +798,7 @@ func TestRunListIsTheCLIs(t *testing.T) {
 		"yardr peer set <name> --url <url>":                                 {"peer set airy --url https://airy.example.com"},
 		"yardr source set <source> calls_per_hour=<n>|updates_per_hour=<n>": {"source set crm updates_per_hour=3"},
 		"yardr source grant <source> read|<call>|--preset <preset> --group <group>|--crew <crew member> [--as <user>]": {"source grant crm note --crew yardmaster --group builders"},
-		"yardr source add <file>": {"source add " + addedFile},
+		"yardr source add <file>": {"source add " + addedFile, "source add " + replacedFile},
 		"yardr source ignore <source> --rm <id>": {
 			"source ignore talk --rm U999",
 		},
@@ -840,6 +874,11 @@ func TestRunListIsTheCLIs(t *testing.T) {
 				// card's nobody pick, as only that pick adds one.
 				for _, y := range []*cliYard{approved, typed} {
 					seedTalkIgnored(t, y)
+				}
+			}
+			if command == "source add "+replacedFile {
+				for _, y := range []*cliYard{approved, typed} {
+					seedAdded(t, y)
 				}
 			}
 			if use == "yardr peer intake <peer> --depot <depot> --flow <flow> [--limit <n>] [--default]" {
@@ -1473,6 +1512,66 @@ func TestBeadAskRunSourceAdd(t *testing.T) {
 	}
 	if _, err := y.st.GetSource(context.Background(), "wired"); err != nil {
 		t.Fatal(err)
+	}
+
+	// A source the yard has is replaced on a card that shows what changes,
+	// strong in every form: with no terminal it is declined, at one the
+	// source takes the new declaration and keeps what it had.
+	ctx := context.Background()
+	if _, err := y.st.SetSource(ctx, "phone", store.SourceEnvFile, "/keys/phone.env", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	moved := strings.Replace(string(mustRead(t, phone)), "https://phone.example.com/v1", "https://phone.example.org/v2", 1)
+	if err := os.WriteFile(phone, []byte(moved), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, err = y.as(t, "yardmaster", "ask", b.ID, "Move the phone source?",
+		"--context", "its host moved", "--run", "source add "+phone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "ask 5 on " + b.ID + " for jo: to approve, yardr source add " + phone + "\n"; out != want {
+		t.Fatalf("bead ask --run source add for a replacement printed %q, want %q", out, want)
+	}
+	shown, err = run(t, y.a.primeCmd(), "--bead", b.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"WEIGHTY · code: brings a program the yard will run: the declaration of phone replaces the one that stands",
+		"the yard says: it replaces one source and copies no command files",
+		`the yard says: source phone base: "https://phone.example.com/v1" -> "https://phone.example.org/v2".`,
+		"the declaration of source phone, whole as carried:",
+		"only the operator can take it back: yardr bead ask <bead>",
+	} {
+		if !strings.Contains(shown, want) {
+			t.Errorf("prime lacks %q:\n%s", want, shown)
+		}
+	}
+	noTerm := y.a.beadCmd()
+	noTerm.SetIn(strings.NewReader("5\n"))
+	if _, err := run(t, noTerm, "answer", b.ID, "5", "--approve"); err == nil || !strings.Contains(err.Error(), "is weighty (code)") {
+		t.Fatalf("approving a replacement with no terminal = %v", err)
+	}
+	if src, err := y.st.GetSource(ctx, "phone"); err != nil || strings.Contains(src.Text, "phone.example.org") {
+		t.Fatalf("the refused approval replaced the source: %+v, %v", src, err)
+	}
+	out, err = y.as(t, "jo", "answer", b.ID, "5", "--approve")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "source phone saved: 1 call under https://phone.example.org/v2") {
+		t.Fatalf("the approval of a replacement printed:\n%s", out)
+	}
+	if src, err := y.st.GetSource(ctx, "phone"); err != nil || src.Text != moved || src.EnvFile != "/keys/phone.env" {
+		t.Fatalf("the source after the approval = %+v, %v", src, err)
+	}
+	// Only the card gains the road: the crew member's own command is
+	// refused as it was.
+	y.a.actor = "yardmaster"
+	defer func() { y.a.actor = "jo" }()
+	if _, err := run(t, y.a.sourceCmd(), "add", phone); err == nil || !strings.Contains(err.Error(), "adding a source is the operator's (jo)") {
+		t.Fatalf("source add of a replacement as yardmaster = %v", err)
 	}
 }
 

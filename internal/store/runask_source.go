@@ -1,10 +1,11 @@
-// The source add row of the run-ask list (design yardr-bht9, B1): a new
+// The source add row of the run-ask list (design yardr-bht9, B1): a
 // source whose declaration the ask itself carries, so the card shows the
 // whole declaration in the yard's words and the approval adds exactly
 // what was carded. A commands-free add runs in the approval's own write;
 // an add that names commands stores its declaration there and is carried
-// out by the server's file step (B3). A replacement and an absolute
-// program stay the operator's in a terminal.
+// out by the server's file step (B3). A name the yard has is replaced on a
+// card of its own (runask_sourcereplace.go); an absolute program stays the
+// operator's alone in a terminal.
 package store
 
 import (
@@ -33,8 +34,9 @@ func parseSourceAdd(rest []string) ([]string, error) {
 
 // carriedSource validates what a source add ask carries and answers its
 // declaration parsed by the store itself. file names the text in errors,
-// as source add names it. absolute and exists say the two cases that stay
-// the operator's alone; err refuses the ask for anything else it holds.
+// as source add names it. absolute says the case that stays the
+// operator's alone and exists that the name stands, which the card
+// replaces; err refuses the ask for anything else it holds.
 func (w *wtx) carriedSource(run AskRun) (d *source.Declaration, carried AskSource, absolute, exists bool, err error) {
 	file := run.Argv[2]
 	if len(run.Carried) != 1 {
@@ -110,16 +112,18 @@ func (w *wtx) carriedSource(run AskRun) (d *source.Declaration, carried AskSourc
 	return d, carried, absolute, exists, nil
 }
 
-// checkSourceAdd is adding a source's own check as the asker: a new
-// source whose bytes the ask can carry may be proposed, and a replacement
-// and an absolute program are the operator's alone, in maySource's words
-// with its mark.
+// checkSourceAdd is adding a source's own check as the asker: a source
+// whose bytes the ask can carry may be proposed, one the yard has
+// included (its card is a replacement's), and an absolute program is the
+// operator's alone, in maySource's words with its mark. PutSource keeps
+// its own check, so a replacement by a crew member's own command is
+// refused as before.
 func checkSourceAdd(ctx context.Context, w *wtx, run AskRun, actor string) error {
-	d, _, absolute, exists, err := w.carriedSource(run)
+	d, _, absolute, _, err := w.carriedSource(run)
 	if err != nil {
 		return err
 	}
-	if absolute || exists {
+	if absolute {
 		return w.may(ctx, actor, ActAddSource, Object{Kind: KindSource, Name: d.Name})
 	}
 	return w.may(ctx, actor, ActAddSource, Object{Kind: KindSource, Name: d.Name, Ask: Askable})
@@ -127,18 +131,26 @@ func checkSourceAdd(ctx context.Context, w *wtx, run AskRun, actor string) error
 
 // sourceAddCard is the card of source add <file>: the whole declaration
 // the ask carries, in the yard's sentences (sourceDoes), held to the name
-// being free (Seen). Asking refuses a name the yard has; an approval
-// reads the card again and stale says the name was taken.
+// being free (Seen). A name the yard has gets a replacement's card
+// (sourceReplaceCard) when the ask is written, and when an approval reads
+// the card again for an ask that was written as one; an ask written for
+// a free name is stale if the name was taken since, and is never turned
+// into a replacement.
 func (w *wtx) sourceAddCard(run AskRun, asking bool) (AskRun, error) {
 	d, carried, absolute, exists, err := w.carriedSource(run)
 	if err != nil {
 		return AskRun{}, err
 	}
+	// What the yard's copies hold is the yard's own record, made for a
+	// replacement from the yard as it stands. The ask's, which an approval
+	// reads back from the stored card and a writer may have sent, is thrown
+	// away as its Does and Seen are.
+	carried.Old, carried.Removed, carried.Inventory = nil, nil, nil
 	switch {
 	case absolute:
 		return AskRun{}, fmt.Errorf("source %s: a command of its declaration names an absolute program, which is the operator's own to have installed: add it with yardr source add %s in a terminal", d.Name, run.Argv[2])
-	case exists && asking:
-		return AskRun{}, fmt.Errorf("source %s is in the yard already: adding it again would replace it, which is the operator's to type in a terminal (yardr source add %s)", d.Name, run.Argv[2])
+	case exists && (asking || run.Seen["source "+d.Name] != ""):
+		return w.sourceReplaceCard(run, d, carried)
 	case exists:
 		// The name was taken since the card was written: say so in one
 		// sentence, so the approval is held to it as stale.
@@ -161,7 +173,7 @@ func (w *wtx) sourceAddCard(run AskRun, asking bool) (AskRun, error) {
 	}
 	does := sourceDoes(d, carried)
 	if len(does) > MaxRunSourceCardLines {
-		return AskRun{}, fmt.Errorf("source %s: its card would run to %d lines: a card is read whole, so this is the operator's to type in a terminal (yardr source add %s)", d.Name, len(does), run.Argv[2])
+		return AskRun{}, cardTooLong(d.Name, len(does), run.Argv[2])
 	}
 	return AskRun{
 		Argv:    run.Argv,
@@ -174,7 +186,9 @@ func (w *wtx) sourceAddCard(run AskRun, asking bool) (AskRun, error) {
 }
 
 // sourceAddStale says why the ask seq for source add is approved no more:
-// the name was free when the card was written and is taken now.
+// the name was free when the card was written and is taken now, or the
+// source a replacement's card was written about is another
+// (sourceReplaceStale).
 func (w *wtx) sourceAddStale(seq uint64, was, now AskRun) error {
 	if len(was.Carried) == 0 {
 		return staleCard(seq, was, now)
@@ -182,30 +196,35 @@ func (w *wtx) sourceAddStale(seq uint64, was, now AskRun) error {
 	name := was.Carried[0].Name
 	if key := "source " + name; was.Seen[key] == now.Seen[key] {
 		return staleCard(seq, was, now)
+	} else if was.Seen[key] != "" {
+		return w.sourceReplaceStale(seq, name, was, now)
 	}
 	e := lastEvent(w.Tx, "source_added", naming("source", name))
 	return fmt.Errorf("ask %d was written when the source %s was not in the yard: it was added since%s. %s", seq, name, since(e), nothingRan)
 }
 
-// runSourceAdd adds the carried source as actor: a commands-free
-// declaration in this write, through the same put PutSource makes, and
-// one that names commands with its declaration stored and its files left
-// to the server's carrying out (B3).
+// runSourceAdd adds or replaces the carried source as actor: a
+// commands-free declaration in this write, through the same put PutSource
+// makes, and one that names commands, or replaces a source whose command
+// copies stand, with its declaration stored and its files left to the
+// server's carrying out (B3), which makes the copies anew as source add
+// does. The ask's Seen says which it was written as.
 func runSourceAdd(ctx context.Context, w *wtx, run AskRun, actor string, by *approvedOn) (string, error) {
 	d, carried, _, _, err := w.carriedSource(run)
 	if err != nil {
 		return "", err
 	}
-	if err := w.putCarriedSource(ctx, d, carried.Text, actor, by); err != nil {
+	src, err := w.putCarriedSource(ctx, d, carried.Text, actor, run.Seen["source "+d.Name] != "", by)
+	if err != nil {
 		return "", err
 	}
-	if len(d.Commands()) > 0 {
+	if len(d.Commands()) > 0 || len(carried.Inventory) > 0 {
 		return CarryPending, nil
 	}
 	if len(d.Calls) == 0 {
 		return fmt.Sprintf("source %s saved: no call, its limits command alone", d.Name), nil
 	}
-	return fmt.Sprintf("source %s saved: %s under %s", d.Name, pluralCalls(len(d.Calls)), d.Address()), nil
+	return fmt.Sprintf("source %s saved: %s under %s", d.Name, pluralCalls(len(d.Calls)), src.CalledAt(d)), nil
 }
 
 // pluralCalls is n with call or calls, as yardr source add prints it.
@@ -826,37 +845,23 @@ func showCommand(argv []string) string {
 }
 
 // putCarriedSource stores the declaration text declares under d's name,
-// as PutSource does inside its write, with the approval that asked for it
-// on the event. It refuses a name the yard has: this row adds only.
-func (w *wtx) putCarriedSource(ctx context.Context, d *source.Declaration, text, actor string, by *approvedOn) error {
+// as PutSource does inside its write (putSource), with the approval that
+// asked for it on the event. It adds a name the yard does not have and
+// replaces one it does, keeping the source's settings, as the ask was
+// written: an ask for a free name refuses a name taken since, and one for
+// a replacement refuses a source gone since, so neither is turned into
+// the other.
+func (w *wtx) putCarriedSource(ctx context.Context, d *source.Declaration, text, actor string, replace bool, by *approvedOn) (*Source, error) {
 	if err := w.may(ctx, actor, ActAddSource, Object{Kind: KindSource, Name: d.Name, Ask: Askable}); err != nil {
-		return err
+		return nil, err
 	}
-	if w.Bucket(bSources).Get([]byte(d.Name)) != nil {
-		return fmt.Errorf("source %s is in the yard already", d.Name)
+	if standing := w.Bucket(bSources).Get([]byte(d.Name)) != nil; standing && !replace {
+		return nil, fmt.Errorf("source %s is in the yard already", d.Name)
+	} else if !standing && replace {
+		return nil, fmt.Errorf("source %s is not in the yard any more", d.Name)
 	}
 	if err := hearSubscribeKeys(d); err != nil {
-		return err
+		return nil, err
 	}
-	if d.Limits != nil {
-		if err := limitsKindsFree(w.Tx, d); err != nil {
-			return err
-		}
-	}
-	src := Source{Name: d.Name, Text: text, AddedAt: now(), AddedBy: actor}
-	if err := put(w.Tx, bSources, d.Name, src); err != nil {
-		return err
-	}
-	calls := make([]string, len(d.Calls))
-	for i, c := range d.Calls {
-		calls[i] = c.Name
-	}
-	data := map[string]any{"source": d.Name, "base": d.Base, "calls": calls}
-	if d.Limits != nil {
-		data["limits"] = d.Limits.KindNames()
-	}
-	if by != nil {
-		data["approved"] = by
-	}
-	return w.event("", "source_added", actor, data)
+	return w.putSource(d, text, actor, by)
 }
