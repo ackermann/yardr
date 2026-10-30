@@ -128,7 +128,7 @@ func TestDevicePairedByItsCode(t *testing.T) {
 	if !strings.HasPrefix(got.Token, store.DeviceTokenPrefix) || got.User != "sam" || got.Device != "phone" || got.Yard != "south" {
 		t.Fatalf("the code is answered %+v", got)
 	}
-	if status, me := y.get(t, "/user/me", got.Token); status != http.StatusOK || me != `{"user":"sam","said_by":"phone","yard":"south"}` {
+	if status, me := y.get(t, "/user/me", got.Token); status != http.StatusOK || me != `{"user":"sam","said_by":"phone","yard":"south","yardmaster":"yardmaster"}` {
 		t.Errorf("/user/me with the token = %d %s", status, me)
 	}
 	devices, err := y.st.Devices(ctx, "")
@@ -309,7 +309,7 @@ func TestDevicePairPresenter(t *testing.T) {
 	// No other call reads it: the device just paired calls as sam, whoever
 	// the header says presents the call.
 	if status, me := y.do(t, http.MethodGet, "/user/me", got.Token, http.Header{PresenterHeader: {"jo@example.net"}}, ""); status != http.StatusOK ||
-		me != `{"user":"sam","said_by":"phone","yard":"south"}` {
+		me != `{"user":"sam","said_by":"phone","yard":"south","yardmaster":"yardmaster"}` {
 		t.Errorf("/user/me naming jo as the presenter = %d %s", status, me)
 	}
 

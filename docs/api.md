@@ -912,11 +912,13 @@ nothing else. What is not the same:
   client on the machine takes](#who-you-are):
 
   ```json
-  {"user": "jo", "said_by": "phone", "yard": "south"}
+  {"user": "jo", "said_by": "phone", "yard": "south", "yardmaster": "yardmaster"}
   ```
 
   `user` is the user every call is made as, `said_by` the device's name,
-  `yard` the yard's name.
+  `yard` the yard's name, `yardmaster` the name of the yard's coordinator.
+  A client opens its Ask conversation with that name; where the answer has
+  no such field, from a yard older than the field, it asks `yardmaster`.
 - **What it writes says how it came.** Every event a device's call writes as
   its user carries `data.via`, the device's name, and so do the letter and
   the note read back (`via` in `Conversation` and in `Bead`'s `notes[]`). A
@@ -6130,7 +6132,7 @@ Stable, for a client to build on:
 - the socket's path and the form of a call, a reply, an error and the
   stream, as above, and `GET /blobs/<hash>`;
 - the paths under `/user/` on the listener, the header, `/user/me` and its
-  three fields, the 401 and the 404, as [Over the
+  four fields, the 401 and the 404, as [Over the
   network](#over-the-network) says them;
 - the methods of [The calls](#the-calls) and of [For the operator
   alone](#for-the-operator-alone), the names of their arguments, and every

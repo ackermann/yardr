@@ -761,12 +761,21 @@ func TestUserWritesCarryVia(t *testing.T) {
 	}
 }
 
-// /user/me says who the credential is: the user, what says so, the yard.
+// /user/me says who the credential is: the user, what says so, the yard,
+// and the yardmaster setting's name, its default where unset.
 func TestUserMe(t *testing.T) {
-	_, u, token := userYard(t)
+	ctx := context.Background()
+	st, u, token := userYard(t)
 	w := ask(u.Handler(), http.MethodGet, "/user/me", token, nil)
-	if got := strings.TrimSpace(w.Body.String()); w.Code != http.StatusOK || got != `{"user":"jo","said_by":"phone","yard":"south"}` {
+	if got := strings.TrimSpace(w.Body.String()); w.Code != http.StatusOK || got != `{"user":"jo","said_by":"phone","yard":"south","yardmaster":"yardmaster"}` {
 		t.Errorf("GET /user/me = %d %s", w.Code, got)
+	}
+	if err := st.SetSetting(ctx, store.YardmasterSetting, "mayor", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	w = ask(u.Handler(), http.MethodGet, "/user/me", token, nil)
+	if got := strings.TrimSpace(w.Body.String()); w.Code != http.StatusOK || got != `{"user":"jo","said_by":"phone","yard":"south","yardmaster":"mayor"}` {
+		t.Errorf("GET /user/me with the yardmaster setting mayor = %d %s", w.Code, got)
 	}
 }
 

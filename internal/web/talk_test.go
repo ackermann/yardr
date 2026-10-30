@@ -198,6 +198,48 @@ func TestTalk(t *testing.T) {
 		!strings.Contains(r.body, `<span class="pill" aria-hidden="true">9</span>`) {
 		t.Errorf("an acknowledgement elsewhere did not lower the next render: %s", r.body)
 	}
+
+	// The configured yardmaster wins even when another crew member comes
+	// first; a name no crew member bears and the unset default keep the
+	// first-crew fallback.
+	defaults, _ := talkFixture(t, "jo")
+	defaultCtx := context.Background()
+	if _, err := defaults.st.AddUser(defaultCtx, "jo", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"aaron", "mayor"} {
+		if _, err := defaults.st.PutCrew(defaultCtx, store.CrewMember{Name: name, Runner: "herdr"}, "jo"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	defaultPartner := func() string {
+		t.Helper()
+		var got web.Talk
+		defaults.getJSON("/talk", &got)
+		return got.With
+	}
+	if err := defaults.st.SetSetting(defaultCtx, store.YardmasterSetting, "mayor", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if got := defaultPartner(); got != "mayor" {
+		t.Errorf("/talk with the yardmaster setting mayor opens on %q, want mayor", got)
+	}
+	if r := defaults.get("/talk"); r.status != http.StatusOK ||
+		!strings.Contains(r.body, `<form id="send" method="post" action="/talk?with=mayor"`) {
+		t.Errorf("the page's form is not to mayor (status %d):\n%s", r.status, r.body)
+	}
+	if err := defaults.st.SetSetting(defaultCtx, store.YardmasterSetting, "nosuch", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if got := defaultPartner(); got != "aaron" {
+		t.Errorf("/talk with the yardmaster setting naming no crew member opens on %q, want the first crew member", got)
+	}
+	if err := defaults.st.SetSetting(defaultCtx, store.YardmasterSetting, "", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if got := defaultPartner(); got != "aaron" {
+		t.Errorf("/talk with the yardmaster setting unset opens on %q, want the first crew member", got)
+	}
 }
 
 // The conversation as JSON: the user, the member, the letters oldest
@@ -733,6 +775,22 @@ func TestTalkPost(t *testing.T) {
 	// To no crew member: 404.
 	if r := f.postForm("/talk?with=nosuch", form, "Origin", f.ts.URL); r.status != 404 {
 		t.Errorf("with=nosuch: status %d, want 404", r.status)
+	}
+	ctx := context.Background()
+	if _, err := f.st.PutCrew(ctx, store.CrewMember{Name: "mayor", Runner: "herdr"}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.st.SetSetting(ctx, store.YardmasterSetting, "mayor", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	custom := url.Values{"text": {"the configured yardmaster"}}
+	r = f.postForm("/talk", custom, "Origin", f.ts.URL)
+	if r.status != http.StatusSeeOther || r.header.Get("Location") != "/talk?with=mayor" {
+		t.Fatalf("POST /talk without a partner: status %d, location %q, want 303 to mayor", r.status, r.header.Get("Location"))
+	}
+	conv, _, err = f.st.Conversation(ctx, "jo", "mayor", 0, 0, 0)
+	if err != nil || len(conv) != 1 || conv[0].Text != "the configured yardmaster" || conv[0].From != "jo" {
+		t.Errorf("conversation with the configured yardmaster: %+v, %v", conv, err)
 	}
 }
 

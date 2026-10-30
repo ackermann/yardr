@@ -252,7 +252,7 @@ func TestUserDeviceOnTheListener(t *testing.T) {
 		body, _ := io.ReadAll(resp.Body)
 		return resp.StatusCode, strings.TrimSpace(string(body))
 	}
-	if code, body := ask(addr, http.MethodGet, "/user/me", d.Token); code != http.StatusOK || body != `{"user":"jo","said_by":"phone","yard":"south"}` {
+	if code, body := ask(addr, http.MethodGet, "/user/me", d.Token); code != http.StatusOK || body != `{"user":"jo","said_by":"phone","yard":"south","yardmaster":"yardmaster"}` {
 		t.Errorf("GET /user/me with the token = %d %s", code, body)
 	}
 	if code, body := ask(addr, http.MethodPost, "/user/call/GetUser", d.Token); code != http.StatusOK || !strings.Contains(body, `"name":"jo"`) {

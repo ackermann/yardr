@@ -15,7 +15,6 @@ import (
 	"os"
 	"reflect"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -44,7 +43,7 @@ import (
 //	                             (deviceEvent)
 //	GET  /user/blobs/<hash>      a blob the caller may read, as the web
 //	                             view serves it (userBlob)
-//	GET  /user/me                {"user": ..., "said_by": ..., "yard": ...}
+//	GET  /user/me                {"user": ..., "said_by": ..., "yard": ..., "yardmaster": ...}
 //	POST /user/pair              a pairing's code for the device's token (pair);
 //	                             a redemption the edge forwards names its
 //	                             presenter in PresenterHeader, and only the
@@ -727,8 +726,9 @@ func (u *UserServer) Handler() http.Handler {
 		c := callerOf(r)
 		writeJSON(w, struct {
 			Caller
-			Yard string `json:"yard"`
-		}{*c, u.yard(r.Context())})
+			Yard       string `json:"yard"`
+			Yardmaster string `json:"yardmaster"`
+		}{*c, u.yard(r.Context()), u.yardmaster(r.Context())})
 	})
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// A device that has no token yet comes for one with a pairing's
@@ -1625,29 +1625,6 @@ func fromRouter(r *http.Request, router string) bool {
 	return true
 }
 
-// routerAddr is the yard's router_addr setting: the address of its router
-// on the user's network, "" when unset. It is read on every call, so a
-// change moves nothing that runs; what cannot be read is no router.
-func (u *UserServer) routerAddr(ctx context.Context) string {
-	all, err := u.st.Settings(ctx)
-	if err != nil {
-		return ""
-	}
-	return all[store.RouterAddrSetting]
-}
-
-// hosted reports whether the yard is one the service hosts: its hosted
-// setting, which the provisioner writes. It is read on every call, as
-// router_addr is, so a change moves nothing that runs; what cannot be read is
-// not hosted, so that a failure to look refuses a secret and never takes one.
-func (u *UserServer) hosted(ctx context.Context) bool {
-	all, err := u.st.Settings(ctx)
-	if err != nil {
-		return false
-	}
-	return all[store.HostedSetting] == "true"
-}
-
 func (u *UserServer) call(w http.ResponseWriter, r *http.Request) {
 	c, name := callerOf(r), r.PathValue("method")
 	_, listed := Calls[name]
@@ -1774,15 +1751,6 @@ func (u *UserServer) unclaimedPut(ctx context.Context, user, hash string) bool {
 	}
 	mailed, err := u.st.BlobMailed(ctx, hash)
 	return err == nil && !mailed
-}
-
-// blobMax is the yard's cap on a blob, which PutBlob holds its data to.
-func (u *UserServer) blobMax(ctx context.Context) int {
-	all, _ := u.st.Settings(ctx)
-	if n, err := strconv.Atoi(all[store.BlobMaxSetting]); err == nil && n > 0 {
-		return n
-	}
-	return store.DefaultBlobMax
 }
 
 // events is the stream for a device: as the socket's, but for what

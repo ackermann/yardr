@@ -109,10 +109,15 @@ func (s *Server) handleTalk(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	settings, err := s.st.Settings(ctx)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
 	with := r.URL.Query().Get("with")
 	switch {
 	case with == "":
-		with = defaultTalkPeer(crew, users, as)
+		with = defaultTalkPeer(crew, users, as, yardmasterName(settings))
 	case isTalkPeer(crew, users, as, with):
 	default:
 		s.fail(w, r, fmt.Errorf("talk partner %s: %w", with, store.ErrNotFound))
@@ -193,12 +198,21 @@ func (s *Server) talkLetters(ctx context.Context, as, with string, letters []sto
 	return shown, nil
 }
 
+// yardmasterName is the name the yard's coordinator carries: the yardmaster
+// setting, its default where unset.
+func yardmasterName(all map[string]string) string {
+	if ym := all[store.YardmasterSetting]; ym != "" {
+		return ym
+	}
+	return "yardmaster"
+}
+
 // defaultTalkPeer is the partner the talk page opens on: the yardmaster
-// where the yard has one, else its first crew member, else its first user
-// other than the one the view acts as.
-func defaultTalkPeer(crew []store.CrewMember, users []store.User, as string) string {
-	if slices.ContainsFunc(crew, func(r store.CrewMember) bool { return r.Name == "yardmaster" }) {
-		return "yardmaster"
+// where a crew member bears that name, else its first crew member, else
+// its first user other than the one the view acts as.
+func defaultTalkPeer(crew []store.CrewMember, users []store.User, as, yardmaster string) string {
+	if slices.ContainsFunc(crew, func(r store.CrewMember) bool { return r.Name == yardmaster }) {
+		return yardmaster
 	}
 	if len(crew) > 0 {
 		return crew[0].Name
@@ -310,9 +324,14 @@ func (s *Server) handleTalkPost(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	settings, err := s.st.Settings(ctx)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
 	with := r.URL.Query().Get("with")
 	if with == "" {
-		with = defaultTalkPeer(crew, users, s.acting(ctx))
+		with = defaultTalkPeer(crew, users, s.acting(ctx), yardmasterName(settings))
 	}
 	if with == "" || !isTalkPeer(crew, users, s.acting(ctx), with) {
 		s.fail(w, r, fmt.Errorf("talk partner %s: %w", with, store.ErrNotFound))
