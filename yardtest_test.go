@@ -45,6 +45,12 @@ type filesizeRow struct {
 	ceil int
 }
 
+// What the tests of the gate share, in the order a case uses it: the
+// repository a run is made in (gateRepo, copyFixture, goModTemplate), the
+// fakes it runs against (fakeBins, boxEnv), the run (runCmd, modGate.box),
+// and what a case asserts of it (wantRun, wantGoCalls, wantSteps, wantEmpty,
+// wantQueued). A case that needs more than these writes it beside the case.
+
 // writeSizeTree writes every filesizes-listed file at exactly its ceiling,
 // as valid Go, so a fixture that runs the whole gate passes the file size
 // budget: a sparse fixture would fail it on every row whose file is gone.
@@ -93,24 +99,64 @@ func copyFixture(t *testing.T, template string) string {
 	return dir
 }
 
+// writeFile writes a text file under dir, making the directories it is in.
+func writeFile(t *testing.T, dir, name, text string) {
+	t.Helper()
+	path := filepath.Join(dir, name)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// The gate's script is executable, as it is in the checkout: the fake perl
+	// that stands in for the race lock's runs it as it is given.
+	mode := os.FileMode(0o644)
+	if name == yardTest {
+		mode = 0o755
+	}
+	if err := os.WriteFile(path, []byte(text), mode); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// writeFiles writes text files under dir, by name.
+func writeFiles(t *testing.T, dir string, files map[string]string) {
+	t.Helper()
+	for name, text := range files {
+		writeFile(t, dir, name, text)
+	}
+}
+
+// commitBase commits everything in dir as "base" on main, in a repository it
+// makes there, and returns the commit. A directory with nothing in it is
+// committed too.
+func commitBase(t *testing.T, dir string) string {
+	t.Helper()
+	gitT(t, dir, "init", "-q", "-b", "main")
+	gitT(t, dir, "add", "-A")
+	gitT(t, dir, "commit", "-q", "--allow-empty", "-m", "base")
+	return gitT(t, dir, "rev-parse", "HEAD")
+}
+
+// gateRepo is the repository a run of the gate is made in: files, and the
+// filesizes-listed files at their ceilings, so that a run of the whole gate
+// passes the file size budget, committed as the base. It returns the directory
+// and the base commit.
+func gateRepo(t *testing.T, files map[string]string) (dir, base string) {
+	t.Helper()
+	dir = t.TempDir()
+	writeFiles(t, dir, files)
+	_, _, _, sizeRows := yardTestProbe(t)
+	writeSizeTree(t, dir, sizeRows)
+	return dir, commitBase(t, dir)
+}
+
 // goModTemplate is the repository the whole-suite rows run the script
 // against: a module with nothing in it, committed, and the base commit and
 // short sha every row's copy shares. A row copies it, changes go.mod, and
 // runs.
 func goModTemplate(t *testing.T) (template, base, short string) {
 	t.Helper()
-	template = t.TempDir()
-	if err := os.WriteFile(filepath.Join(template, "go.mod"), []byte("module m.test/m\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	_, _, _, sizeRows := yardTestProbe(t)
-	writeSizeTree(t, template, sizeRows)
-	gitT(t, template, "init", "-q", "-b", "main")
-	gitT(t, template, "add", "-A")
-	gitT(t, template, "commit", "-q", "-m", "base")
-	base = gitT(t, template, "rev-parse", "HEAD")
-	short = gitT(t, template, "rev-parse", "--short", "HEAD")
-	return template, base, short
+	template, base = gateRepo(t, map[string]string{"go.mod": "module m.test/m\n"})
+	return template, base, gitT(t, template, "rev-parse", "--short", "HEAD")
 }
 
 // scriptEnv is this test's environment without what the run it is in gave
@@ -148,12 +194,149 @@ func scriptEnvFrom(environ []string) []string {
 	return append(env, "YARDR_TEST_LOADAVG=1.5", "YARDR_TEST_CORES=10", "YARDR_HOME="+noYardHome)
 }
 
-func yardTestRows(t *testing.T) (script string, rows []readsRow) {
+// gateScript is the test command as this checkout has it.
+func gateScript(t *testing.T) []byte {
 	t.Helper()
 	b, err := os.ReadFile(yardTest)
 	if err != nil {
 		t.Fatal(err)
 	}
+	return b
+}
+
+// needTool skips a case that drives a program the machine lacks, and returns
+// where the program is.
+func needTool(t *testing.T, name string) string {
+	t.Helper()
+	path, err := exec.LookPath(name)
+	if err != nil {
+		t.Skip("no " + name + " in PATH")
+	}
+	return path
+}
+
+// exitCode is the status a command ended with, 0 for none. A command that
+// could not be run at all fails the case.
+func exitCode(t *testing.T, err error) int {
+	t.Helper()
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		return ee.ExitCode()
+	} else if err != nil {
+		t.Fatal(err)
+	}
+	return 0
+}
+
+// runCmd runs cmd and returns what it printed, both streams in one, and the
+// status it ended with.
+func runCmd(t *testing.T, cmd *exec.Cmd) (string, int) {
+	t.Helper()
+	out, err := cmd.CombinedOutput()
+	return string(out), exitCode(t, err)
+}
+
+// writeBins writes fake programs into dir.
+func writeBins(t *testing.T, dir string, bins map[string]string) {
+	t.Helper()
+	for name, text := range bins {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(text), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// fakeBins is the directory of fake programs a run finds first on its PATH:
+// bins, and a gofmt that finds nothing to format unless bins brings its own.
+// The programs write down their calls in it, as FAKE names it to them. A
+// directory for the run's TMPDIR is in it, which the run is to leave empty.
+func fakeBins(t *testing.T, bins map[string]string) (fake, tmp string) {
+	t.Helper()
+	fake = t.TempDir()
+	writeBins(t, fake, map[string]string{"gofmt": "#!/bin/sh\n"})
+	writeBins(t, fake, bins)
+	tmp = filepath.Join(fake, "tmp")
+	if err := os.Mkdir(tmp, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return fake, tmp
+}
+
+// pathWith is a PATH that finds the programs in dir before the machine's.
+func pathWith(dir string) string {
+	return "PATH=" + dir + string(os.PathListSeparator) + os.Getenv("PATH")
+}
+
+// boxEnv is the environment of a run against fakeBins: scriptEnv, the fakes
+// first on PATH, their directory as FAKE and the run's TMPDIR, then the
+// case's own variables, which win.
+func boxEnv(fake, tmp string, own ...string) []string {
+	return append(scriptEnv(), append([]string{pathWith(fake), "FAKE=" + fake, "TMPDIR=" + tmp}, own...)...)
+}
+
+// wantRun fails the case unless a run ended with the status wanted, and then
+// unless its output holds each of has.
+func wantRun(t *testing.T, out string, code, want int, has ...string) {
+	t.Helper()
+	if code != want {
+		t.Fatalf("exit %d, output %q, want exit %d", code, out, want)
+	}
+	for _, w := range has {
+		if !strings.Contains(out, w) {
+			t.Errorf("output %q, want it to contain %q", out, w)
+		}
+	}
+}
+
+// modGate is goModTemplate's repository and the script, for the rows that run
+// the whole gate against fakes: a row boxes a copy of the repository.
+type modGate struct {
+	script      []byte
+	repo        string
+	base, short string
+}
+
+func newModGate(t *testing.T) modGate {
+	t.Helper()
+	repo, base, short := goModTemplate(t)
+	return modGate{gateScript(t), repo, base, short}
+}
+
+// gateBox is one row's copy of a modGate repository, with the fakes it runs
+// against.
+type gateBox struct {
+	modGate
+	dir  string // the copy
+	fake string // the fakes' directory, where they write down their calls
+	tmp  string // the run's TMPDIR, which it is to leave empty
+}
+
+// box copies the repository for a row, and changes its go.mod as a branch that
+// did: a plain run then tests every package, and asks go for no list of them.
+// bins are the fake programs of the row (fakeBins).
+func (m modGate) box(t *testing.T, bins map[string]string) gateBox {
+	t.Helper()
+	fake, tmp := fakeBins(t, bins)
+	dir := copyFixture(t, m.repo)
+	writeFile(t, dir, "go.mod", "module m.test/m\n\ngo 1.21\n")
+	return gateBox{m, dir, fake, tmp}
+}
+
+// run is the script run in the copy: the template's commit is the base, and
+// the race lock is shared with the run this test is in (YARDR_RACE_HELD). The
+// row's own variables come last, so a landing's nowhere base wins over the
+// commit.
+func (b gateBox) run(t *testing.T, env ...string) (string, int) {
+	t.Helper()
+	cmd := exec.Command("sh", "-c", string(b.script))
+	cmd.Dir = b.dir
+	cmd.Env = boxEnv(b.fake, b.tmp, append([]string{"YARDR_BASE=" + b.base, "YARDR_RACE_HELD=1"}, env...)...)
+	return runCmd(t, cmd)
+}
+
+func yardTestRows(t *testing.T) (script string, rows []readsRow) {
+	t.Helper()
+	b := gateScript(t)
 	_, table, ok := strings.Cut(string(b), "\nreads='\n")
 	if ok {
 		table, _, ok = strings.Cut(table, "\n'\n")
@@ -221,9 +404,7 @@ func TestYardTestRowsAreThere(t *testing.T) {
 // no commit in common with HEAD still fails closed.
 func TestYardTestSaysItsBase(t *testing.T) {
 	t.Parallel()
-	if _, err := exec.LookPath("go"); err != nil {
-		t.Skip("no go in PATH")
-	}
+	needTool(t, "go")
 	script, rows := yardTestRows(t)
 	dir := t.TempDir()
 	// A plain run reads the table's packages before it prints its first line,
@@ -241,37 +422,16 @@ func TestYardTestSaysItsBase(t *testing.T) {
 	files["emb/p.go"] = "package emb\n\nimport _ \"embed\"\n\n//go:embed a.txt\nvar A string\n"
 	files["emb/a.txt"] = "a\n"
 	files["top/p.go"] = "package top\n\nimport _ \"m.test/m/emb\"\n"
-	write := func(name, text string) {
-		t.Helper()
-		if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, name)), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(text), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for name, text := range files {
-		write(name, text)
-	}
-	gitT(t, dir, "init", "-q", "-b", "main")
-	gitT(t, dir, "add", "-A")
-	gitT(t, dir, "commit", "-q", "-m", "base")
+	writeFiles(t, dir, files)
+	commitBase(t, dir)
 	short := gitT(t, dir, "rev-parse", "--short", "HEAD")
 	gitT(t, dir, "branch", "other")
 	run := func(env ...string) (string, int) {
 		t.Helper()
 		cmd := exec.Command("sh", "-c", script)
 		cmd.Dir = dir
-		cmd.Env = append(scriptEnv(), "YARDR_TEST_PLAN=1")
-		cmd.Env = append(cmd.Env, env...)
-		out, err := cmd.CombinedOutput()
-		var ee *exec.ExitError
-		if errors.As(err, &ee) {
-			return string(out), ee.ExitCode()
-		} else if err != nil {
-			t.Fatal(err)
-		}
-		return string(out), 0
+		cmd.Env = append(append(scriptEnv(), "YARDR_TEST_PLAN=1"), env...)
+		return runCmd(t, cmd)
 	}
 	for _, c := range []struct {
 		name string
@@ -313,7 +473,7 @@ func TestYardTestSaysItsBase(t *testing.T) {
 	})
 	t.Run("a base ahead of HEAD", func(t *testing.T) {
 		gitT(t, dir, "checkout", "-q", "other")
-		write("alone/p.go", "package p\n\nvar Future int\n")
+		writeFile(t, dir, "alone/p.go", "package p\n\nvar Future int\n")
 		gitT(t, dir, "add", "-A")
 		gitT(t, dir, "commit", "-q", "-m", "a later test line")
 		ahead := gitT(t, dir, "rev-parse", "HEAD")
@@ -341,7 +501,7 @@ func TestYardTestSaysItsBase(t *testing.T) {
 			t.Errorf("a base ahead of HEAD on a clean tree: exit %d, output:\n%s\nwant exit 0 and:\n%s", code, out, want)
 		}
 
-		write("alone/p.go", "package p\n\nvar Touched int\n")
+		writeFile(t, dir, "alone/p.go", "package p\n\nvar Touched int\n")
 		out, code = run("YARDR_BASE=" + ahead)
 		const tested = "test: testing, without -race, what changed, what imports it and what reads it:"
 		want = warn +
@@ -350,7 +510,7 @@ func TestYardTestSaysItsBase(t *testing.T) {
 		if code != 0 || out != want {
 			t.Errorf("a base ahead of HEAD with an uncommitted change: exit %d, output:\n%s\nwant exit 0 and:\n%s", code, out, want)
 		}
-		write("alone/p.go", "package p\n")
+		writeFile(t, dir, "alone/p.go", "package p\n")
 	})
 	t.Run("a base with no common history", func(t *testing.T) {
 		gitT(t, dir, "checkout", "-q", "--orphan", "lone")
@@ -358,7 +518,7 @@ func TestYardTestSaysItsBase(t *testing.T) {
 			gitT(t, dir, "checkout", "-q", "-f", "main")
 			gitT(t, dir, "branch", "-q", "-D", "lone")
 		})
-		write("lone.txt", "lone\n")
+		writeFile(t, dir, "lone.txt", "lone\n")
 		gitT(t, dir, "add", "-A")
 		gitT(t, dir, "commit", "-q", "-m", "lone")
 		lone := gitT(t, dir, "rev-parse", "HEAD")
@@ -383,11 +543,11 @@ func TestYardTestSaysItsBase(t *testing.T) {
 			gitT(t, dir, "checkout", "-q", "-f", "main")
 			gitT(t, dir, "branch", "-q", "-D", "feature")
 		})
-		write("alone/p.go", "package p\n\nvar Built int\n")
+		writeFile(t, dir, "alone/p.go", "package p\n\nvar Built int\n")
 		gitT(t, dir, "add", "-A")
 		gitT(t, dir, "commit", "-q", "-m", "builder")
 		built := gitT(t, dir, "rev-parse", "HEAD")
-		write("emb/a.txt", "fixed\n")
+		writeFile(t, dir, "emb/a.txt", "fixed\n")
 		gitT(t, dir, "add", "-A")
 		gitT(t, dir, "commit", "-q", "-m", "review fix")
 		const tested = "test: testing, without -race, what changed, what imports it and what reads it:"
@@ -398,7 +558,7 @@ func TestYardTestSaysItsBase(t *testing.T) {
 			t.Errorf("a base on the branch: exit %d, output:\n%s\nwant exit 0 and:\n%s", code, out, want)
 		}
 		gitT(t, dir, "checkout", "-q", "main")
-		write("docs/web.md", "moved\n")
+		writeFile(t, dir, "docs/web.md", "moved\n")
 		gitT(t, dir, "add", "-A")
 		gitT(t, dir, "commit", "-q", "-m", "main moves")
 		gitT(t, dir, "checkout", "-q", "feature")
@@ -435,24 +595,12 @@ func TestYardTestSaysItsBase(t *testing.T) {
 func TestYardTestSelects(t *testing.T) {
 	t.Parallel()
 	script, rows := yardTestRows(t)
-	if _, err := exec.LookPath("go"); err != nil {
-		t.Skip("no go in PATH")
-	}
+	needTool(t, "go")
 	const pre = "test: "
 	// In the row tables below, sincePH and shortPH stand for the shared
 	// base: the row fills it in before it compares.
 	const sincePH = "\x00since\x00"
 	const shortPH = "\x00short\x00"
-	writeFile := func(t *testing.T, dir, name, text string) {
-		t.Helper()
-		path := filepath.Join(dir, name)
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
 	// selectsFixture is one row's copy of the module the script runs
 	// against: its own directory, and the shared base commit with the words
 	// the script prints for them.
@@ -468,11 +616,8 @@ func TestYardTestSelects(t *testing.T) {
 	// the shared table rows, which no row writes. Each row copies it.
 	newFixture := func(t *testing.T) selectsFixture {
 		t.Helper()
-		dir := t.TempDir()
-		write := func(name, text string) {
-			t.Helper()
-			writeFile(t, dir, name, text)
-		}
+		files := map[string]string{}
+		write := func(name, text string) { files[name] = text }
 		write("go.mod", "module m.test/m\n\ngo 1.21\n")
 		for _, row := range rows {
 			for _, pkg := range row.pkgs {
@@ -529,15 +674,7 @@ func TestYardTestSelects(t *testing.T) {
 		write("packs/starter/pack.yaml", "pack\n")
 		write("packs/starter/roles/reviewer.md", "reviewer\n")
 		write("packtop/p.go", "package packtop\n\nimport _ \"m.test/m/packs\"\n")
-		// The filesizes-listed files at their ceilings: rows that run the
-		// whole gate would fail the file size budget on every row whose
-		// file is gone. Valid Go, as the list below runs the real go.
-		_, _, _, sizeRows := yardTestProbe(t)
-		writeSizeTree(t, dir, sizeRows)
-		gitT(t, dir, "init", "-q", "-b", "main")
-		gitT(t, dir, "add", "-A")
-		gitT(t, dir, "commit", "-q", "-m", "base")
-		base := gitT(t, dir, "rev-parse", "HEAD")
+		dir, base := gateRepo(t, files)
 		short := gitT(t, dir, "rev-parse", "--short", "HEAD")
 		return selectsFixture{dir: dir, base: base, short: short, since: " since " + base + " (YARDR_BASE), from " + short}
 	}
@@ -877,39 +1014,21 @@ func TestYardTestSelects(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			fx := rowFixture(t)
-			realGo, err := exec.LookPath("go")
-			if err != nil {
-				t.Fatal(err)
-			}
-			fake, home := t.TempDir(), t.TempDir()
-			for name, text := range map[string]string{
-				"go":    "#!/bin/sh\nif [ \"$1\" = list ]; then HOME=$REAL_HOME exec \"$REAL_GO\" \"$@\"; fi\necho \"${GOOS:+$GOOS }$*\" >>\"$FAKE/calls\"\n",
-				"gofmt": "#!/bin/sh\n",
-			} {
-				if err := os.WriteFile(filepath.Join(fake, name), []byte(text), 0o755); err != nil {
-					t.Fatal(err)
-				}
-			}
-			env := append([]string{"YARDR_TEST_PLAN=", "HOME=" + home, "REAL_HOME=" + os.Getenv("HOME"), "FAKE=" + fake, "REAL_GO=" + realGo,
-				"PATH=" + fake + string(os.PathListSeparator) + os.Getenv("PATH")}, c.env...)
+			realGo := needTool(t, "go")
+			fake, _ := fakeBins(t, map[string]string{
+				"go": "#!/bin/sh\nif [ \"$1\" = list ]; then HOME=$REAL_HOME exec \"$REAL_GO\" \"$@\"; fi\necho \"${GOOS:+$GOOS }$*\" >>\"$FAKE/calls\"\n",
+			})
+			home := t.TempDir()
+			env := append([]string{"YARDR_TEST_PLAN=", "HOME=" + home, "REAL_HOME=" + os.Getenv("HOME"), "FAKE=" + fake, "REAL_GO=" + realGo, pathWith(fake)}, c.env...)
 			first, rest, err := planned(t, fx, script, env, c.changed...)
 			firstWant := strings.ReplaceAll(c.first, sincePH, fx.since)
 			if err != nil || first != firstWant {
 				t.Errorf("err %v, output:\n%s\n%s", err, first, rest)
 			}
-			calls, _ := os.ReadFile(filepath.Join(fake, "calls"))
-			if got, want := strings.TrimSpace(string(calls)), strings.Join(c.calls, "\n"); got != want {
-				t.Errorf("go was run as:\n%s\nwant:\n%s", got, want)
-			}
+			wantGoCalls(t, fake, c.calls)
 			// Each step is timed, choosing the packages too, after the first
 			// line: that one says which run it is.
-			var took []string
-			for _, m := range regexp.MustCompile(`(?m)^test: (.*) took \d+ s$`).FindAllStringSubmatch(rest, -1) {
-				took = append(took, m[1])
-			}
-			if !slices.Equal(took, c.steps) {
-				t.Errorf("the steps the output times: %q, want %q", took, c.steps)
-			}
+			wantSteps(t, rest, c.steps)
 			// No lock: the home never saw the yard's directory, and the test
 			// line says the run waited for nothing.
 			if _, err := os.Stat(filepath.Join(home, ".yardr")); !errors.Is(err, os.ErrNotExist) {
@@ -965,21 +1084,11 @@ func TestYardTestSelects(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			fx := rowFixture(t)
-			realGo, err := exec.LookPath("go")
-			if err != nil {
-				t.Fatal(err)
-			}
-			fake := t.TempDir()
-			for name, text := range map[string]string{
-				"go":    "#!/bin/sh\nif [ \"$1\" = list ]; then exec \"$REAL_GO\" \"$@\"; fi\necho \"${YARDR_TEST_RPC:+rpc }${GOOS:+$GOOS }$*\" >>\"$FAKE/calls\"\n",
-				"gofmt": "#!/bin/sh\n",
-			} {
-				if err := os.WriteFile(filepath.Join(fake, name), []byte(text), 0o755); err != nil {
-					t.Fatal(err)
-				}
-			}
-			first, rest, err := planned(t, fx, script, append([]string{"YARDR_LANDING=1", "YARDR_TEST_PLAN=", "YARDR_RACE_HELD=1", "FAKE=" + fake, "REAL_GO=" + realGo,
-				"PATH=" + fake + string(os.PathListSeparator) + os.Getenv("PATH")}, c.load...), c.changed)
+			realGo := needTool(t, "go")
+			fake, _ := fakeBins(t, map[string]string{
+				"go": "#!/bin/sh\nif [ \"$1\" = list ]; then exec \"$REAL_GO\" \"$@\"; fi\necho \"${YARDR_TEST_RPC:+rpc }${GOOS:+$GOOS }$*\" >>\"$FAKE/calls\"\n",
+			})
+			first, rest, err := planned(t, fx, script, append([]string{"YARDR_LANDING=1", "YARDR_TEST_PLAN=", "YARDR_RACE_HELD=1", "FAKE=" + fake, "REAL_GO=" + realGo, pathWith(fake)}, c.load...), c.changed)
 			if err != nil || first != landing+c.reason+fx.since+c.suffix {
 				t.Errorf("err %v, output:\n%s\n%s", err, first, rest)
 			}
@@ -994,28 +1103,8 @@ func TestYardTestSelects(t *testing.T) {
 			if got := regexp.MustCompile(`(?m)^test: go test -p=.*$`).FindAllString(rest, -1); !slices.Equal(got, wantPar) {
 				t.Errorf("the output's -p lines:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(wantPar, "\n"))
 			}
-			// The socket leg runs beside go test -race, so which of the
-			// two go is called for first is not told: its calls are
-			// compared after the others, where its output is.
-			calls, _ := os.ReadFile(filepath.Join(fake, "calls"))
-			var ran, beside []string
-			for _, call := range strings.Split(strings.TrimSpace(string(calls)), "\n") {
-				if strings.HasPrefix(call, "rpc ") {
-					beside = append(beside, call)
-				} else {
-					ran = append(ran, call)
-				}
-			}
-			if got, want := strings.Join(append(ran, beside...), "\n"), strings.Join(c.calls, "\n"); got != want {
-				t.Errorf("go was run as:\n%s\nwant:\n%s", got, want)
-			}
-			var took []string
-			for _, m := range regexp.MustCompile(`(?m)^test: (.*) took \d+ s$`).FindAllStringSubmatch(rest, -1) {
-				took = append(took, m[1])
-			}
-			if !slices.Equal(took, c.steps) {
-				t.Errorf("the steps the output times:\n%s\nwant:\n%s", strings.Join(took, "\n"), strings.Join(c.steps, "\n"))
-			}
+			wantGoCalls(t, fake, c.calls)
+			wantSteps(t, rest, c.steps)
 		})
 	}
 	// A row whose package is gone fails the run, whatever changed. A plain run
@@ -1080,6 +1169,76 @@ func TestYardTestSelects(t *testing.T) {
 // What go vet said on 7 Oct 2026, when a file of the shared build cache was
 // gone under a run.
 const cacheLost = "vet: internal/store/sources.go:10:2: could not import yardr.dev/yardr/internal/source (open ../../../../Library/Caches/go-build/43/439f5c1e-d: no such file or directory)"
+
+// fakeLog is what the fakes wrote down in the file of that name in their
+// directory, less its last newline: nothing if they wrote none.
+func fakeLog(fake, name string) string {
+	b, _ := os.ReadFile(filepath.Join(fake, name))
+	return strings.TrimSpace(string(b))
+}
+
+// splitLines is the lines of a text less its last newline: none for none.
+func splitLines(s string) []string {
+	if s = strings.TrimSpace(s); s == "" {
+		return nil
+	}
+	return strings.Split(s, "\n")
+}
+
+// wantCallsAnyOrder checks the calls a fake go wrote down against want,
+// sorted: re-runs that overlap write them in the scheduler's order, not the
+// launch's.
+func wantCallsAnyOrder(t *testing.T, fake string, want []string) {
+	t.Helper()
+	got := strings.Split(fakeLog(fake, "calls"), "\n")
+	slices.Sort(got)
+	if !slices.Equal(got, want) {
+		t.Errorf("go was run as:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+// wantGoCalls checks the calls the fake go wrote down against want, in order,
+// but for the landing's socket step: it runs beside go test -race, so which of
+// the two go is called for first is not told, and its calls are compared after
+// the others, where its output is.
+func wantGoCalls(t *testing.T, fake string, want []string) {
+	t.Helper()
+	var ran, beside []string
+	for _, call := range strings.Split(fakeLog(fake, "calls"), "\n") {
+		if strings.HasPrefix(call, "rpc ") {
+			beside = append(beside, call)
+		} else {
+			ran = append(ran, call)
+		}
+	}
+	if got, want := strings.Join(append(ran, beside...), "\n"), strings.Join(want, "\n"); got != want {
+		t.Errorf("go was run as:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// tookLine is the line a run prints of the seconds a step took.
+var tookLine = regexp.MustCompile(`(?m)^test: (.*) took \d+ s$`)
+
+// wantSteps checks the steps a run's output says it timed, in the order it ran
+// them.
+func wantSteps(t *testing.T, out string, want []string) {
+	t.Helper()
+	var took []string
+	for _, m := range tookLine.FindAllStringSubmatch(out, -1) {
+		took = append(took, m[1])
+	}
+	if !slices.Equal(took, want) {
+		t.Errorf("the steps the output times:\n%s\nwant:\n%s", strings.Join(took, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+// wantEmpty fails the case if a run left anything in its TMPDIR.
+func wantEmpty(t *testing.T, tmp string) {
+	t.Helper()
+	if left, _ := filepath.Glob(filepath.Join(tmp, "*")); len(left) > 0 {
+		t.Errorf("left behind: %v", left)
+	}
+}
 
 // wantLoads checks the load factor the fake go below saw on each call, from
 // the loads it wrote down: the race leg's go, its reruns with it, has the
@@ -1195,13 +1354,7 @@ func TestYardTestRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 	landing := []string{"vet ./...", "linux vet ./...", "test -race -p=3 ./...", "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"}
 	plain := []string{"vet ./...", "build ./...", "test ./..."}
 	noBase := []string{"YARDR_LANDING=1", "YARDR_BASE=nowhere", "YARDR_TEST_LOADAVG=25.3", "YARDR_TEST_CORES=10"}
-	// One template repository for every row: each copies it, changes go.mod
-	// and runs, so no row commits the same module again.
-	script, err := os.ReadFile(yardTest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	template, base, _ := goModTemplate(t)
+	m := newModGate(t)
 	for _, c := range []struct {
 		name   string
 		step   string // the step that fails,
@@ -1259,68 +1412,22 @@ func TestYardTestRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			fake := t.TempDir()
-			dir := copyFixture(t, template)
-			for name, text := range map[string]string{"go": fakeGo, "gofmt": "#!/bin/sh\n"} {
-				if err := os.WriteFile(filepath.Join(fake, name), []byte(text), 0o755); err != nil {
-					t.Fatal(err)
-				}
+			b := m.box(t, map[string]string{"go": fakeGo})
+			out, code := b.run(t, append([]string{"FAKE_STEP=" + c.step, "FAKE_TIMES=" + c.times, "FAKE_LINE=" + c.line}, c.env...)...)
+			if (code == 0) != c.ok {
+				t.Errorf("exit %d, want ok %v", code, c.ok)
 			}
-			tmp := filepath.Join(fake, "tmp")
-			if err := os.Mkdir(tmp, 0o755); err != nil {
-				t.Fatal(err)
-			}
-			// A branch that changed go.mod: a plain run tests every
-			// package, and asks go for no list of them.
-			mod := filepath.Join(dir, "go.mod")
-			if err := os.WriteFile(mod, []byte("module m.test/m\n\ngo 1.21\n"), 0o644); err != nil {
-				t.Fatal(err)
-			}
-			cmd := exec.Command("sh", "-c", string(script))
-			cmd.Dir = dir
-			// Without the YARDR_TEST_RPC of the run this test is in (CI's rpc
-			// job, a landing's last step): the fake go writes "rpc" for it,
-			// and only the script's own step is to have it. The same holds
-			// of GOOS, which a landing sets for its linux vet (scriptEnv).
-			// The case's own variables come last, so a landing's nowhere
-			// base wins over the commit below.
-			env := scriptEnv()
-			cmd.Env = append(env,
-				"PATH="+fake+string(os.PathListSeparator)+os.Getenv("PATH"),
-				"YARDR_BASE="+base,
-				"TMPDIR="+tmp, "FAKE="+fake, "FAKE_STEP="+c.step, "FAKE_TIMES="+c.times, "FAKE_LINE="+c.line, "YARDR_RACE_HELD=1")
-			cmd.Env = append(cmd.Env, c.env...)
-			b, err := cmd.CombinedOutput()
-			out := string(b)
-			if (err == nil) != c.ok {
-				t.Errorf("err %v, want ok %v", err, c.ok)
-			}
-			// A landing's socket step runs beside its go test -race, so which
-			// of the two go is called for first is not told: the socket
-			// step's calls are compared after the others, where its output is.
-			calls, _ := os.ReadFile(filepath.Join(fake, "calls"))
-			var ran, beside []string
-			for _, call := range strings.Split(strings.TrimSpace(string(calls)), "\n") {
-				if strings.HasPrefix(call, "rpc ") {
-					beside = append(beside, call)
-				} else {
-					ran = append(ran, call)
-				}
-			}
-			if got, want := strings.Join(append(ran, beside...), "\n"), strings.Join(c.calls, "\n"); got != want {
-				t.Errorf("go was run as:\n%s\nwant:\n%s", got, want)
-			}
-			wantLoads(t, fake, slices.Contains(c.env, "YARDR_LANDING=1"))
+			wantGoCalls(t, b.fake, c.calls)
+			wantLoads(t, b.fake, slices.Contains(c.env, "YARDR_LANDING=1"))
 			// Each of those had -trimpath after the caller's own flags: a
 			// line a call, so a go that missed it is told from the rest.
-			flags, _ := os.ReadFile(filepath.Join(fake, "goflags"))
 			wantFlags := "-trimpath"
 			for _, kv := range c.env {
 				if v, ok := strings.CutPrefix(kv, "GOFLAGS="); ok {
 					wantFlags = v + " " + wantFlags
 				}
 			}
-			for i, got := range strings.Split(strings.TrimSpace(string(flags)), "\n") {
+			for i, got := range strings.Split(fakeLog(b.fake, "goflags"), "\n") {
 				if got != wantFlags {
 					t.Errorf("go call %d had GOFLAGS %q, want %q", i+1, got, wantFlags)
 				}
@@ -1358,13 +1465,7 @@ func TestYardTestRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 					break
 				}
 			}
-			var took []string
-			for _, m := range regexp.MustCompile(`(?m)^test: (.*) took \d+ s$`).FindAllStringSubmatch(out, -1) {
-				took = append(took, m[1])
-			}
-			if !slices.Equal(took, steps) {
-				t.Errorf("the steps the output times:\n%s\nwant:\n%s", strings.Join(took, "\n"), strings.Join(steps, "\n"))
-			}
+			wantSteps(t, out, steps)
 			if strings.Contains(out, "test: FAILED") != (c.summed != "") || !strings.Contains(out, c.summed) {
 				t.Errorf("the output's summary of a failed step: want %q", c.summed)
 			}
@@ -1383,9 +1484,7 @@ func TestYardTestRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 				t.Logf("output:\n%s", out)
 			}
 			// The log the step's output was kept in is gone again.
-			if left, _ := filepath.Glob(filepath.Join(tmp, "*")); len(left) > 0 {
-				t.Errorf("left behind: %v", left)
-			}
+			wantEmpty(t, b.tmp)
 		})
 	}
 }
@@ -1516,11 +1615,7 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 	noBase := []string{"YARDR_LANDING=1", "YARDR_BASE=nowhere", "YARDR_TEST_LOADAVG=25.3", "YARDR_TEST_CORES=10"}
 	// One template repository for every row: each copies it, changes go.mod
 	// and runs, so no row commits the same module again.
-	script, err := os.ReadFile(yardTest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	template, base, short := goModTemplate(t)
+	m := newModGate(t)
 	for _, c := range []struct {
 		name     string
 		testName string // override the failed test name
@@ -1687,38 +1782,20 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 			if slices.Contains(c.env, "YARDR_LANDING=1") {
 				failedStep = "go test -race -p=3 ./..."
 			}
-			fake := t.TempDir()
-			dir := copyFixture(t, template)
-			bins := map[string]string{"go": fakeGo, "gofmt": "#!/bin/sh\n"}
+			bins := map[string]string{"go": fakeGo}
 			if c.yardr {
 				bins["yardr"] = fakeYardr
 			}
-			for name, text := range bins {
-				if err := os.WriteFile(filepath.Join(fake, name), []byte(text), 0o755); err != nil {
-					t.Fatal(err)
-				}
-			}
-			tmp := filepath.Join(fake, "tmp")
-			if err := os.Mkdir(tmp, 0o755); err != nil {
-				t.Fatal(err)
-			}
-			// A branch that changed go.mod: a plain run tests every
-			// package, and asks go for no list of them.
-			mod := filepath.Join(dir, "go.mod")
-			if err := os.WriteFile(mod, []byte("module m.test/m\n\ngo 1.21\n"), 0o644); err != nil {
-				t.Fatal(err)
-			}
+			b := m.box(t, bins)
 			if c.glob {
-				if err := os.WriteFile(filepath.Join(dir, "TestX-match"), nil, 0o644); err != nil {
-					t.Fatal(err)
-				}
+				writeFile(t, b.dir, "TestX-match", "")
 			}
-			common := gitT(t, dir, "rev-parse", "--git-common-dir")
+			common := gitT(t, b.dir, "rev-parse", "--git-common-dir")
 			if !filepath.IsAbs(common) {
-				common = filepath.Join(dir, common)
+				common = filepath.Join(b.dir, common)
 			}
 			flakyLog := filepath.Join(common, "yardr-flaky.log")
-			sha := short
+			sha := b.short
 			// The sha each line of the log carries, in file order: the run's
 			// own is the last.
 			var lineShas []string
@@ -1746,69 +1823,39 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 				}
 			}
 			lineShas = append(lineShas, sha)
-			cmd := exec.Command("sh", "-c", string(script))
-			cmd.Dir = dir
-			// The case's own variables come last, so a landing's nowhere
-			// base wins over the commit below. The bead and depot of the
-			// run this test is in are cleared first: the script files a
-			// repeat into them, and the test's own would leak in. The
-			// locale is C: the script sorts test names with sort, whose
-			// order for a name with brackets differs by locale, and the
+			// The bead and depot of the run this test is in are cleared first:
+			// the script files a repeat into them, and the test's own would
+			// leak in. The locale is C: the script sorts test names with sort,
+			// whose order for a name with brackets differs by locale, and the
 			// rows pin the order it lists and notes them in.
 			line := c.line
 			if line == "" {
 				line = "--- FAIL: " + testName + " (0.00s)\nFAIL\nFAIL\t" + pkg + " 0.123s"
 			}
-			env := scriptEnv()
-			pathEnv := "PATH=" + fake + string(os.PathListSeparator) + os.Getenv("PATH")
+			env := []string{"LC_ALL=C", "YARDR_BEAD=", "YARDR_DEPOT=", "FAKE_STEP=test", "FAKE_TIMES=" + c.times, "FAKE_LINE=" + line}
 			if c.barePath {
-				pathEnv = "PATH=" + fake + string(os.PathListSeparator) + "/usr/bin" + string(os.PathListSeparator) + "/bin"
+				env = append(env, "PATH="+b.fake+string(os.PathListSeparator)+"/usr/bin"+string(os.PathListSeparator)+"/bin")
 			}
-			cmd.Env = append(env, pathEnv,
-				"LC_ALL=C",
-				"YARDR_BASE="+base,
-				"YARDR_BEAD=", "YARDR_DEPOT=",
-				"TMPDIR="+tmp, "FAKE="+fake, "FAKE_STEP=test", "FAKE_TIMES="+c.times, "FAKE_LINE="+line, "YARDR_RACE_HELD=1")
 			if c.rpcTimes != "" {
 				rpcLine := c.rpcLine
 				if rpcLine == "" {
 					rpcLine = line
 				}
-				cmd.Env = append(cmd.Env, "FAKE_RPC_TIMES="+c.rpcTimes, "FAKE_RPC_LINE="+rpcLine)
+				env = append(env, "FAKE_RPC_TIMES="+c.rpcTimes, "FAKE_RPC_LINE="+rpcLine)
 			}
 			if c.yardr {
-				cmd.Env = append(cmd.Env, "YARDR_FAKE_LIST="+c.list, "YARDR_FAKE_SHOW="+c.show)
+				env = append(env, "YARDR_FAKE_LIST="+c.list, "YARDR_FAKE_SHOW="+c.show)
 			}
-			cmd.Env = append(cmd.Env, c.env...)
-			b, err := cmd.CombinedOutput()
-			out := string(b)
+			out, code := b.run(t, append(env, c.env...)...)
 			wantCode := 0
 			if !c.ok {
 				wantCode = 1
 			}
-			code := 0
-			var ee *exec.ExitError
-			if errors.As(err, &ee) {
-				code = ee.ExitCode()
-			} else if err != nil {
-				t.Fatal(err)
-			}
 			if code != wantCode {
 				t.Errorf("exit %d, want %d (ok %v)", code, wantCode, c.ok)
 			}
-			calls, _ := os.ReadFile(filepath.Join(fake, "calls"))
-			var ran, beside []string
-			for _, call := range strings.Split(strings.TrimSpace(string(calls)), "\n") {
-				if strings.HasPrefix(call, "rpc ") {
-					beside = append(beside, call)
-				} else {
-					ran = append(ran, call)
-				}
-			}
-			if got, want := strings.Join(append(ran, beside...), "\n"), strings.Join(c.calls, "\n"); got != want {
-				t.Errorf("go was run as:\n%s\nwant:\n%s", got, want)
-			}
-			wantLoads(t, fake, slices.Contains(c.env, "YARDR_LANDING=1"))
+			wantGoCalls(t, b.fake, c.calls)
+			wantLoads(t, b.fake, slices.Contains(c.env, "YARDR_LANDING=1"))
 			// The rerun is said before it: the failed packages, again. A
 			// race is said instead: the failed packages, not run again.
 			if c.raced {
@@ -1845,9 +1892,7 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if s := strings.TrimSpace(string(logb)); s != "" {
-					logged = strings.Split(s, "\n")
-				}
+				logged = splitLines(string(logb))
 				priors := len(c.seed)
 				if c.foreign != "" {
 					priors++
@@ -1930,11 +1975,11 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 			// session's depot or none; a single sighting, an open Flaky
 			// bead, and no CLI file nothing. The body carries the test's
 			// lines of the log, and the filed line the minted id.
-			ycalls, _ := os.ReadFile(filepath.Join(fake, "yardr-calls"))
+			ycalls := fakeLog(b.fake, "yardr-calls")
 			var created string
 			var noteCalls []string
 			creates, lists, shows := 0, 0, 0
-			for _, call := range strings.Split(strings.TrimSpace(string(ycalls)), "\n") {
+			for _, call := range strings.Split(ycalls, "\n") {
 				switch {
 				case strings.HasPrefix(call, "bead create "):
 					created = call
@@ -1972,11 +2017,7 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 			if !slices.Equal(noteCalls, wantCalls) {
 				t.Errorf("the run noted:\n%s\nwant:\n%s", strings.Join(noteCalls, "\n"), strings.Join(wantCalls, "\n"))
 			}
-			recorded, _ := os.ReadFile(filepath.Join(fake, "yardr-notes"))
-			var gotNotes []string
-			if s := strings.TrimSpace(string(recorded)); s != "" {
-				gotNotes = strings.Split(s, "\n")
-			}
+			gotNotes := splitLines(fakeLog(b.fake, "yardr-notes"))
 			if !slices.Equal(gotNotes, wantNotes) {
 				t.Errorf("the notes written are:\n%s\nwant the run's own log line, whole, on each:\n%s", strings.Join(gotNotes, "\n"), strings.Join(wantNotes, "\n"))
 			}
@@ -2007,11 +2048,7 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 				} else if strings.Contains(created, "--depot") {
 					t.Errorf("the create call %q, want no --depot", created)
 				}
-				body, _ := os.ReadFile(filepath.Join(fake, "yardr-body"))
-				var carried []string
-				if s := strings.TrimSpace(string(body)); s != "" {
-					carried = strings.Split(s, "\n")
-				}
+				carried := splitLines(fakeLog(b.fake, "yardr-body"))
 				if len(carried) != len(c.seed)+1 {
 					t.Errorf("the filed body has %d lines, want the %d sightings", len(carried), len(c.seed)+1)
 				}
@@ -2056,19 +2093,13 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 				if shows != wantShows {
 					t.Errorf("the run showed a bead %d times, want %d", shows, wantShows)
 				}
-			} else if len(strings.TrimSpace(string(ycalls))) != 0 {
-				t.Errorf("the run called yardr %q with none on PATH", strings.TrimSpace(string(ycalls)))
+			} else if ycalls != "" {
+				t.Errorf("the run called yardr %q with none on PATH", ycalls)
 			}
 			if c.barePath && strings.Contains(out, "test: warning") {
 				t.Errorf("a run with no CLI warns, want it to log only")
 			}
-			var took []string
-			for _, m := range regexp.MustCompile(`(?m)^test: (.*) took \d+ s$`).FindAllStringSubmatch(out, -1) {
-				took = append(took, m[1])
-			}
-			if !slices.Equal(took, c.steps) {
-				t.Errorf("the steps the output times:\n%s\nwant:\n%s", strings.Join(took, "\n"), strings.Join(c.steps, "\n"))
-			}
+			wantSteps(t, out, c.steps)
 			// The test line: a red run fails naming its failed packages.
 			if !c.ok {
 				lines := strings.Split(strings.TrimSpace(out), "\n")
@@ -2080,9 +2111,7 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 			if t.Failed() {
 				t.Logf("output:\n%s", out)
 			}
-			if left, _ := filepath.Glob(filepath.Join(tmp, "*")); len(left) > 0 {
-				t.Errorf("left behind: %v", left)
-			}
+			wantEmpty(t, b.tmp)
 		})
 	}
 }
@@ -2113,10 +2142,7 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 // run's line, with none it files, and a yard that refuses a call only warns.
 func TestYardTestKeepsTheFailingLinesOfAFlake(t *testing.T) {
 	t.Parallel()
-	b, err := os.ReadFile(yardTest)
-	if err != nil {
-		t.Fatal(err)
-	}
+	b := gateScript(t)
 	// The functions as the script has them, from the separator to the run's
 	// test line: a script the cuts no longer follow fails the test, telling
 	// its editor to move the probe with it.
@@ -2131,10 +2157,8 @@ func TestYardTestKeepsTheFailingLinesOfAFlake(t *testing.T) {
 		t.Fatalf("cannot cut flakyfails, flakystuck, flakylines, flakybeads, flakyopen and flakyfile out of %s: move the probe with the script", yardTest)
 	}
 	dir := t.TempDir()
+	writeFile(t, dir, "probe.sh", fns+"\n\"$@\"\n")
 	probe := filepath.Join(dir, "probe.sh")
-	if err := os.WriteFile(probe, []byte(fns+"\n\"$@\"\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
 	// run calls one of the functions on a file, and returns what it printed
 	// less its last newline.
 	run := func(t *testing.T, in, fn string, args ...string) string {
@@ -2492,9 +2516,7 @@ func TestYardTestKeepsTheFailingLinesOfAFlake(t *testing.T) {
 	// of and the step goes on, so the function runs under sh -e, as the step
 	// does, and must return 0.
 	stub := t.TempDir()
-	if err := os.WriteFile(filepath.Join(stub, "yardr"), []byte(fakeYardr), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	writeBins(t, stub, map[string]string{"yardr": fakeYardr})
 	const line = "2026-10-23 12:00:00 abc1234 TestX TestX/a (m.test/m) passed on rerun | --- FAIL: TestX (0.00s)" + eol + "    x_test.go:3: boom"
 	const flakyLog = "2026-10-22 12:00:00 abc1234 TestX (m.test/m) passed on rerun\n" + line + "\n"
 	const create = "bead create Flaky: TestX (m.test/m) --stage backlog -p 3 -b -"
@@ -2530,10 +2552,8 @@ func TestYardTestKeepsTheFailingLinesOfAFlake(t *testing.T) {
 	} {
 		t.Run("repeat: "+c.name, func(t *testing.T) {
 			fake := t.TempDir()
+			writeFile(t, fake, "flaky.log", flakyLog)
 			logf := filepath.Join(fake, "flaky.log")
-			if err := os.WriteFile(logf, []byte(flakyLog), 0o644); err != nil {
-				t.Fatal(err)
-			}
 			cmd := exec.Command("sh", "-e", probe, "flakyfile", c.test, pkg, logf, c.depot, line)
 			// Only the stub and the system on PATH: no real yardr to reach.
 			cmd.Env = []string{"PATH=" + stub + ":/usr/bin:/bin", "FAKE=" + fake, "YARDR_FAKE_LIST=" + listing(c.list), "YARDR_FAKE_REFUSE=" + c.refuse}
@@ -2572,41 +2592,10 @@ func TestYardTestPrintsItsTestLine(t *testing.T) {
 	t.Parallel()
 	const flaky = "test: flaky: TestX (m.test/m/a) passed on rerun"
 	line := regexp.MustCompile(`^test: sh \.yardr/test @ ([0-9a-f]+): (pass|fail), ([0-9]+) packages ok, ([0-9]+) failed, ([0-9]+) s, waited ([0-9]+) s$`)
-	// One template repository for every row: each copies it, changes go.mod
-	// and runs, so no row commits the same module again.
-	script, err := os.ReadFile(yardTest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	template, base, short := goModTemplate(t)
-	for _, c := range []struct {
-		name  string
-		fails string // how often the test step fails: 0 (green), 1 (flaky), 2 (red)
-		wait  string // a race-lock wait the step reports, "" for none
-		code  int
-		res   string // want result
-		pok   string // want packages ok
-		pfail string // want failed
-		pwait string // want waited seconds
-		flaky bool
-		env   []string // variables of the script's environment beyond the base
-		nosum bool     // want no test line at all
-	}{
-		{"green", "0", "", 0, "pass", "2", "0", "0", false, nil, false},
-		{"a wait is summed", "0", "3", 0, "pass", "2", "0", "3", false, nil, false},
-		{"a pass on rerun counts as passed", "1", "", 0, "pass", "2", "0", "0", true, nil, false},
-		{"red", "2", "", 1, "fail", "0", "1", "0", false, nil, false},
-		{"a plan prints none", "0", "", 0, "", "", "", "", false, []string{"YARDR_TEST_PLAN=1"}, true},
-		{"exit 2 prints none", "0", "", 2, "", "", "", "", false, []string{"YARDR_BASE=nowhere"}, true},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			t.Parallel()
-			fake := t.TempDir()
-			dir := copyFixture(t, template)
-			// A go whose test step reports a wait the way the race lock
-			// would, then fails its first few runs with one package's
-			// FAIL lines and passes with two packages' ok lines.
-			goFake := `#!/bin/sh
+	// A go whose test step reports a wait the way the race lock would, then
+	// fails its first few runs with one package's FAIL lines and passes with
+	// two packages' ok lines.
+	const testGo = `#!/bin/sh
 if [ "$1" = test ]; then
   n=$(cat "$FAKE/n" 2>/dev/null || echo 0)
   n=$((n + 1))
@@ -2621,40 +2610,60 @@ if [ "$1" = test ]; then
   printf 'ok  \tm.test/m/a\t1.234s\nok  \tm.test/m/b\t0.123s\n'
 fi
 `
-			for name, text := range map[string]string{"go": goFake, "gofmt": "#!/bin/sh\n"} {
-				if err := os.WriteFile(filepath.Join(fake, name), []byte(text), 0o755); err != nil {
-					t.Fatal(err)
-				}
+	// The landing's socket leg runs in a background shell. Its package totals
+	// must retain the same retry-aware meaning as the foreground leg: a
+	// package that fails once and passes on retry is passed, not both passed
+	// and failed. This go fails one package of the socket step's first run,
+	// and passes it on the retry; each leg has two packages.
+	const socketGo = `#!/bin/sh
+if [ "$1" = test ] && [ -n "$YARDR_TEST_RPC" ]; then
+  n=$(cat "$FAKE/rpc.n" 2>/dev/null || echo 0)
+  n=$((n + 1))
+  echo "$n" >"$FAKE/rpc.n"
+  if [ "$n" -eq 1 ]; then
+    printf 'ok  m.test/m/b\t1.234s\n'
+    echo '--- FAIL: TestX (0.00s)'
+    echo 'FAIL'
+    printf 'FAIL\tm.test/m/a 0.123s\n'
+    exit 1
+  fi
+  printf 'ok  m.test/m/a\t1.234s\n'
+elif [ "$1" = test ]; then
+  printf 'ok  m.test/m/a\t1.234s\nok  m.test/m/b\t0.123s\n'
+fi
+`
+	m := newModGate(t)
+	for _, c := range []struct {
+		name  string
+		fails string // how often the test step fails: 0 (green), 1 (flaky), 2 (red)
+		wait  string // a race-lock wait the step reports, "" for none
+		code  int
+		res   string // want result
+		pok   string // want packages ok
+		pfail string // want failed
+		pwait string // want waited seconds
+		flaky bool
+		env   []string // variables of the script's environment beyond the base
+		nosum bool     // want no test line at all
+		bin   string   // the go to run against: testGo when empty
+	}{
+		{"green", "0", "", 0, "pass", "2", "0", "0", false, nil, false, ""},
+		{"a wait is summed", "0", "3", 0, "pass", "2", "0", "3", false, nil, false, ""},
+		{"a pass on rerun counts as passed", "1", "", 0, "pass", "2", "0", "0", true, nil, false, ""},
+		{"red", "2", "", 1, "fail", "0", "1", "0", false, nil, false, ""},
+		{"a plan prints none", "0", "", 0, "", "", "", "", false, []string{"YARDR_TEST_PLAN=1"}, true, ""},
+		{"exit 2 prints none", "0", "", 2, "", "", "", "", false, []string{"YARDR_BASE=nowhere"}, true, ""},
+		{"a socket step that passes on retry counts by its final result", "0", "", 0, "pass", "4", "0", "0", true,
+			[]string{"YARDR_LANDING=1", "YARDR_BASE=nowhere"}, false, socketGo},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			bin := testGo
+			if c.bin != "" {
+				bin = c.bin
 			}
-			tmp := filepath.Join(fake, "tmp")
-			if err := os.Mkdir(tmp, 0o755); err != nil {
-				t.Fatal(err)
-			}
-			// A branch that changed go.mod: a plain run tests every
-			// package, and asks go for no list of them.
-			mod := filepath.Join(dir, "go.mod")
-			if err := os.WriteFile(mod, []byte("module m.test/m\n\ngo 1.21\n"), 0o644); err != nil {
-				t.Fatal(err)
-			}
-			cmd := exec.Command("sh", "-c", string(script))
-			cmd.Dir = dir
-			// The case's own variables come last, so a landing's nowhere
-			// base wins over the commit below.
-			env := scriptEnv()
-			cmd.Env = append(env,
-				"PATH="+fake+string(os.PathListSeparator)+os.Getenv("PATH"),
-				"YARDR_BASE="+base,
-				"TMPDIR="+tmp, "FAKE="+fake, "FAKE_FAILS="+c.fails, "FAKE_WAIT="+c.wait, "YARDR_RACE_HELD=1")
-			cmd.Env = append(cmd.Env, c.env...)
-			b, err := cmd.CombinedOutput()
-			out := string(b)
-			code := 0
-			var ee *exec.ExitError
-			if errors.As(err, &ee) {
-				code = ee.ExitCode()
-			} else if err != nil {
-				t.Fatal(err)
-			}
+			b := m.box(t, map[string]string{"go": bin})
+			out, code := b.run(t, append([]string{"FAKE_FAILS=" + c.fails, "FAKE_WAIT=" + c.wait}, c.env...)...)
 			if code != c.code {
 				t.Errorf("exit %d, want %d", code, c.code)
 			}
@@ -2666,13 +2675,13 @@ fi
 			}
 			// The test line closes the run: its last line, at this sha.
 			lines := strings.Split(strings.TrimSpace(out), "\n")
-			m := line.FindStringSubmatch(lines[len(lines)-1])
-			if m == nil {
+			got := line.FindStringSubmatch(lines[len(lines)-1])
+			if got == nil {
 				t.Fatalf("last line %q, want the test line", lines[len(lines)-1])
 			}
-			if m[1] != short || m[2] != c.res || m[3] != c.pok || m[4] != c.pfail || m[6] != c.pwait {
+			if got[1] != b.short || got[2] != c.res || got[3] != c.pok || got[4] != c.pfail || got[6] != c.pwait {
 				t.Errorf("test line %q, want @ %s: %s, %s packages ok, %s failed, waited %s s",
-					lines[len(lines)-1], short, c.res, c.pok, c.pfail, c.pwait)
+					lines[len(lines)-1], b.short, c.res, c.pok, c.pfail, c.pwait)
 			}
 			if strings.Contains(out, flaky) != c.flaky {
 				t.Errorf("the output has the flaky line: %v, want %v", !c.flaky, c.flaky)
@@ -2680,9 +2689,7 @@ fi
 			if t.Failed() {
 				t.Logf("output:\n%s", out)
 			}
-			if left, _ := filepath.Glob(filepath.Join(tmp, "*")); len(left) > 0 {
-				t.Errorf("left behind: %v", left)
-			}
+			wantEmpty(t, b.tmp)
 		})
 	}
 }
@@ -2698,10 +2705,7 @@ fi
 // signals its own process group, so the two run in parallel.
 func TestYardTestKilledGatePrintsNoPass(t *testing.T) {
 	t.Parallel()
-	script, err := os.ReadFile(yardTest)
-	if err != nil {
-		t.Fatal(err)
-	}
+	script := gateScript(t)
 	_, rows := yardTestRows(t)
 	// The selection answers the gate's go list with the changed package
 	// and every package the reads table names, so no row fails the run
@@ -2743,47 +2747,17 @@ func TestYardTestKilledGatePrintsNoPass(t *testing.T) {
 				"  : >\"$FAKE/started\"\n" +
 				"  if [ \"$SIGNAL\" = INT ]; then kill -INT \"$(cat \"$FAKE/gate.pid\")\"; else sleep 30; fi\n" +
 				"fi\n"
-			fake, dir := t.TempDir(), t.TempDir()
-			for name, text := range map[string]string{"go": goFake, "gofmt": "#!/bin/sh\n"} {
-				if err := os.WriteFile(filepath.Join(fake, name), []byte(text), 0o755); err != nil {
-					t.Fatal(err)
-				}
-			}
-			tmp := filepath.Join(fake, "tmp")
-			if err := os.Mkdir(tmp, 0o755); err != nil {
-				t.Fatal(err)
-			}
+			fake, tmp := fakeBins(t, map[string]string{"go": goFake})
 			// A branch that changed one package's .go file: a plain run tests
 			// that package, and asks go for the list of them.
-			if err := os.MkdirAll(filepath.Join(dir, "a"), 0o755); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module m.test/m\n"), 0o644); err != nil {
-				t.Fatal(err)
-			}
-			a := filepath.Join(dir, "a", "a.go")
-			if err := os.WriteFile(a, []byte("package a\n"), 0o644); err != nil {
-				t.Fatal(err)
-			}
-			// The filesizes-listed files at their ceilings: the run would
-			// fail the file size budget on every row whose file is gone.
-			_, _, _, sizeRows := yardTestProbe(t)
-			writeSizeTree(t, dir, sizeRows)
-			gitT(t, dir, "init", "-q", "-b", "main")
-			gitT(t, dir, "add", "-A")
-			gitT(t, dir, "commit", "-q", "-m", "base")
-			if err := os.WriteFile(a, []byte("package a\n\n// touched\n"), 0o644); err != nil {
-				t.Fatal(err)
-			}
+			dir, base := gateRepo(t, map[string]string{"go.mod": "module m.test/m\n", "a/a.go": "package a\n"})
+			writeFile(t, dir, "a/a.go", "package a\n\n// touched\n")
 			cmd := exec.Command("sh", "-c", "echo $$ > \"$FAKE/gate.pid\"\n"+string(script))
 			cmd.Dir = dir
 			// Its own process group, so the TERM below reaches the script and
 			// the go test it holds, and nothing else.
 			cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-			cmd.Env = append(scriptEnv(),
-				"PATH="+fake+string(os.PathListSeparator)+os.Getenv("PATH"),
-				"YARDR_BASE="+gitT(t, dir, "rev-parse", "HEAD"),
-				"TMPDIR="+tmp, "FAKE="+fake, "SIGNAL="+c.name, "YARDR_RACE_HELD=1")
+			cmd.Env = boxEnv(fake, tmp, "YARDR_BASE="+base, "SIGNAL="+c.name, "YARDR_RACE_HELD=1")
 			var stdout, stderr strings.Builder
 			cmd.Stdout, cmd.Stderr = &stdout, &stderr
 			if err := cmd.Start(); err != nil {
@@ -2849,63 +2823,6 @@ func TestYardTestKilledGatePrintsNoPass(t *testing.T) {
 	}
 }
 
-// The landing's socket leg runs in a background shell. Its package totals
-// must retain the same retry-aware meaning as the foreground leg: a package
-// that fails once and passes on retry is passed, not both passed and failed.
-func TestYardTestCountsSocketRetryByFinalResult(t *testing.T) {
-	t.Parallel()
-	script, err := os.ReadFile(yardTest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	fake, dir := t.TempDir(), t.TempDir()
-	goFake := `#!/bin/sh
-if [ "$1" = test ] && [ -n "$YARDR_TEST_RPC" ]; then
-  n=$(cat "$FAKE/rpc.n" 2>/dev/null || echo 0)
-  n=$((n + 1))
-  echo "$n" >"$FAKE/rpc.n"
-  if [ "$n" -eq 1 ]; then
-    printf 'ok  m.test/m/b\t1.234s\n'
-    echo '--- FAIL: TestX (0.00s)'
-    echo 'FAIL'
-    printf 'FAIL\tm.test/m/a 0.123s\n'
-    exit 1
-  fi
-  printf 'ok  m.test/m/a\t1.234s\n'
-elif [ "$1" = test ]; then
-  printf 'ok  m.test/m/a\t1.234s\nok  m.test/m/b\t0.123s\n'
-fi
-`
-	for name, text := range map[string]string{"go": goFake, "gofmt": "#!/bin/sh\n"} {
-		if err := os.WriteFile(filepath.Join(fake, name), []byte(text), 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module m.test/m\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	// The filesizes-listed files at their ceilings: the run would fail the
-	// file size budget on every row whose file is gone.
-	_, _, _, sizeRows := yardTestProbe(t)
-	writeSizeTree(t, dir, sizeRows)
-	gitT(t, dir, "init", "-q", "-b", "main")
-	gitT(t, dir, "add", "-A")
-	gitT(t, dir, "commit", "-q", "-m", "base")
-	cmd := exec.Command("sh", "-c", string(script))
-	cmd.Dir = dir
-	cmd.Env = append(scriptEnv(),
-		"PATH="+fake+string(os.PathListSeparator)+os.Getenv("PATH"),
-		"YARDR_BASE=nowhere", "YARDR_LANDING=1", "YARDR_RACE_HELD=1", "FAKE="+fake)
-	b, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("landing run: %v\n%s", err, b)
-	}
-	line := regexp.MustCompile(`(?m)^test: sh \.yardr/test @ [0-9a-f]+: pass, 4 packages ok, 0 failed, [0-9]+ s, waited 0 s$`)
-	if !line.Match(b) {
-		t.Fatalf("summary does not report four passed package results and no final failures:\n%s", b)
-	}
-}
-
 // The race leg runs under one machine-wide lock: a gate whose race step
 // starts while another holds the lock waits for it, holds it for the run,
 // then releases it, and says how long it waited. Only a landing has a race
@@ -2919,28 +2836,10 @@ fi
 // once the leg has ended. The vets run before the lock is held.
 func TestYardTestRaceLegWaitsForTheLock(t *testing.T) {
 	t.Parallel()
-	if _, err := exec.LookPath("perl"); err != nil {
-		t.Skip("no perl in PATH")
-	}
-	script, err := os.ReadFile(yardTest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	home := t.TempDir()
-	lock := filepath.Join(home, ".yardr", "race.lock")
-	if err := os.MkdirAll(filepath.Dir(lock), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	held, err := os.OpenFile(lock, os.O_RDWR|os.O_CREATE, 0o644)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer held.Close()
-	if err := syscall.Flock(int(held.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		t.Fatalf("holding the lock: %v", err)
-	}
-	fake, dir := t.TempDir(), t.TempDir()
-	for name, text := range map[string]string{
+	needTool(t, "perl")
+	script := gateScript(t)
+	home, held := holdRaceLock(t)
+	fake, tmp := fakeBins(t, map[string]string{
 		// The landing's socket step runs beside the race leg and holds no
 		// lock: this go ignores it, so the calls are the race leg's.
 		"go": `#!/bin/sh
@@ -2959,40 +2858,13 @@ if [ "$1" = test ]; then
   esac
 fi
 `,
-		"gofmt": "#!/bin/sh\n",
-	} {
-		if err := os.WriteFile(filepath.Join(fake, name), []byte(text), 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
-	tmp := filepath.Join(fake, "tmp")
-	if err := os.Mkdir(tmp, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	})
 	// A landing with no comparable base tests every package, and asks go for
 	// no list of them.
-	if err := os.MkdirAll(filepath.Join(dir, ".yardr"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, ".yardr", "test"), script, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module yardr.dev/yardr\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	// The filesizes-listed files at their ceilings: the run would fail the
-	// file size budget on every row whose file is gone.
-	_, _, _, sizeRows := yardTestProbe(t)
-	writeSizeTree(t, dir, sizeRows)
-	gitT(t, dir, "init", "-q", "-b", "main")
-	gitT(t, dir, "add", "-A")
-	gitT(t, dir, "commit", "-q", "-m", "base")
+	dir, _ := gateRepo(t, map[string]string{".yardr/test": string(script), "go.mod": "module yardr.dev/yardr\n"})
 	cmd := exec.Command("sh", ".yardr/test")
 	cmd.Dir = dir
-	cmd.Env = append(scriptEnv(),
-		"PATH="+fake+string(os.PathListSeparator)+os.Getenv("PATH"),
-		"YARDR_LANDING=1", "YARDR_BASE=nowhere",
-		"HOME="+home, "TMPDIR="+tmp, "FAKE="+fake)
+	cmd.Env = boxEnv(fake, tmp, "YARDR_LANDING=1", "YARDR_BASE=nowhere", "HOME="+home)
 	done := make(chan struct{})
 	var out []byte
 	var runErr error
@@ -3051,9 +2923,7 @@ fi
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if wait := time.Until(firstSeen.Add(1100 * time.Millisecond)); wait > 0 {
-		time.Sleep(wait)
-	}
+	holdTicketAge(firstSeen)
 	if err := syscall.Flock(int(held.Fd()), syscall.LOCK_UN); err != nil {
 		t.Fatal(err)
 	}
@@ -3071,17 +2941,7 @@ fi
 	if runErr != nil {
 		t.Fatalf("err %v, output:\n%s", runErr, out)
 	}
-	waits := regexp.MustCompile(`(?m)^test: waited \d+ s for the race lock$`).FindAll(out, -1)
-	if len(waits) != 1 {
-		t.Errorf("the output has %d wait lines, want 1:\n%s", len(waits), out)
-	}
-	if !raceWaitStarted.Match(out) {
-		t.Errorf("the output has no start marker for the active race-lock wait:\n%s", out)
-	}
-	summary := regexp.MustCompile(`(?m)^test: sh \.yardr/test @ [0-9a-f]+: pass, [0-9]+ packages ok, 0 failed, [0-9]+ s, waited [1-9][0-9]* s$`)
-	if !summary.MatchString(string(out)) {
-		t.Errorf("the summary does not include the race-lock wait:\n%s", out)
-	}
+	wantQueued(t, "the run", string(out))
 	calls, _ := os.ReadFile(callsPath)
 	if got, want := strings.TrimSpace(string(calls)), "vet ./...\nlinux vet ./...\ntest -race ./...\ntest -race -count=1 yardr.dev/yardr/internal/dispatch"; got != want {
 		t.Errorf("go was run as:\n%s\nwant:\n%s", got, want)
@@ -3089,8 +2949,38 @@ fi
 	if err := syscall.Flock(int(held.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		t.Errorf("cannot take the lock after the run ended: %v", err)
 	}
-	if left, _ := filepath.Glob(filepath.Join(tmp, "*")); len(left) > 0 {
-		t.Errorf("left behind: %v", left)
+	wantEmpty(t, tmp)
+}
+
+// holdRaceLock takes the race lock under a home of its own, as a run ahead in
+// the queue would, and returns the home and the lock's file, which the case
+// lets go of with Flock once the run behind it may have the lock.
+func holdRaceLock(t *testing.T) (home string, held *os.File) {
+	t.Helper()
+	home = t.TempDir()
+	lock := filepath.Join(home, ".yardr", "race.lock")
+	if err := os.MkdirAll(filepath.Dir(lock), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	held, err := os.OpenFile(lock, os.O_RDWR|os.O_CREATE, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { held.Close() })
+	if err := syscall.Flock(int(held.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		t.Fatalf("holding the lock: %v", err)
+	}
+	return home, held
+}
+
+// holdTicketAge waits until a queued run's ticket is a second old, measured
+// from when it was first seen. The wait timer starts before the ticket is
+// made, so a release before the first lock attempt leaves a zero wait and no
+// wait line; held that long, the first attempt has run while the lock was
+// held, and the summary's waited seconds are positive.
+func holdTicketAge(firstSeen time.Time) {
+	if wait := time.Until(firstSeen.Add(1100 * time.Millisecond)); wait > 0 {
+		time.Sleep(wait)
 	}
 }
 
@@ -3103,24 +2993,14 @@ fi
 func plainLockFixture(t *testing.T, script []byte) (dir, base string, pkgs []string) {
 	t.Helper()
 	_, rows := yardTestRows(t)
-	dir = t.TempDir()
-	write := func(name, text string) {
-		t.Helper()
-		path := filepath.Join(dir, name)
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
+	files := map[string]string{"go.mod": "module m.test/m\n\ngo 1.21\n", ".yardr/test": string(script)}
 	seen := map[string]bool{}
 	add := func(pkg string) {
 		if !seen[pkg] {
 			seen[pkg] = true
 			pkgs = append(pkgs, pkg)
 		}
-		write(pkg+"/p.go", "package p\n")
+		files[pkg+"/p.go"] = "package p\n"
 	}
 	for _, row := range rows {
 		for _, pkg := range row.pkgs {
@@ -3130,25 +3010,18 @@ func plainLockFixture(t *testing.T, script []byte) (dir, base string, pkgs []str
 	for _, leaf := range []string{"a", "b", "c", "d"} {
 		add(leaf)
 	}
-	write("go.mod", "module m.test/m\n\ngo 1.21\n")
-	write(".yardr/test", string(script))
-	// The filesizes-listed files at their ceilings: the runs would fail
-	// the file size budget on every row whose file is gone. Valid Go, as
-	// the list runs the real go. Its new package directories join the
-	// package list, which stays the suite's whole set: the whole-suite
-	// tests change over half of it.
+	// The directories of the filesizes-listed files, which gateRepo writes,
+	// join the package list, which stays the suite's whole set: the
+	// whole-suite tests change over half of it.
 	_, _, _, sizeRows := yardTestProbe(t)
-	writeSizeTree(t, dir, sizeRows)
 	for _, row := range sizeRows {
 		if d := row.path[:strings.LastIndex(row.path, "/")]; !seen[d] {
 			seen[d] = true
 			pkgs = append(pkgs, d)
 		}
 	}
-	gitT(t, dir, "init", "-q", "-b", "main")
-	gitT(t, dir, "add", "-A")
-	gitT(t, dir, "commit", "-q", "-m", "base")
-	return dir, gitT(t, dir, "rev-parse", "HEAD"), pkgs
+	dir, base = gateRepo(t, files)
+	return dir, base, pkgs
 }
 
 // plainLockFake writes the go a plain-lock run drives: the real one for the
@@ -3158,7 +3031,6 @@ func plainLockFixture(t *testing.T, script []byte) (dir, base string, pkgs []str
 // one file.
 func plainLockFake(t *testing.T, realGo string) (fake string) {
 	t.Helper()
-	fake = t.TempDir()
 	text := "#!/bin/sh\n" +
 		"if [ \"$1\" = list ]; then HOME=$REAL_HOME exec \"$REAL_GO\" \"$@\"; fi\n" +
 		"echo \"${GOOS:+$GOOS }$*\" >>\"$FAKE/calls\"\n" +
@@ -3169,12 +3041,7 @@ func plainLockFake(t *testing.T, realGo string) (fake string) {
 		"  echo \"end-$RUN\" >>\"$ORDER\"\n" +
 		"  for p in $OKS; do echo \"ok  $p  0.1s\"; done\n" +
 		"fi\n"
-	if err := os.WriteFile(filepath.Join(fake, "go"), []byte(text), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(fake, "gofmt"), []byte("#!/bin/sh\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	fake, _ = fakeBins(t, map[string]string{"go": text})
 	return fake
 }
 
@@ -3221,7 +3088,7 @@ func plainLockStart(t *testing.T, ctx context.Context, dir, base, home, realGo, 
 	cmd = exec.CommandContext(ctx, "sh", ".yardr/test")
 	cmd.Dir = dir
 	cmd.Env = append(scriptEnv(),
-		"PATH="+fake+string(os.PathListSeparator)+os.Getenv("PATH"),
+		pathWith(fake),
 		"YARDR_BASE="+base, "YARDR_BEAD="+bead,
 		"HOME="+home, "REAL_HOME="+os.Getenv("HOME"),
 		"FAKE="+fake, "REAL_GO="+realGo,
@@ -3260,17 +3127,9 @@ func plainLockSettle(t *testing.T, release string) {
 // worktree and bead, and the two share one lock, as two builders' runs do.
 func TestYardTestWholePlainRunsSerialize(t *testing.T) {
 	t.Parallel()
-	if _, err := exec.LookPath("perl"); err != nil {
-		t.Skip("no perl in PATH")
-	}
-	realGo, err := exec.LookPath("go")
-	if err != nil {
-		t.Skip("no go in PATH")
-	}
-	script, err := os.ReadFile(yardTest)
-	if err != nil {
-		t.Fatal(err)
-	}
+	needTool(t, "perl")
+	realGo := needTool(t, "go")
+	script := gateScript(t)
 	home := t.TempDir()
 	order := filepath.Join(t.TempDir(), "order")
 	release := filepath.Join(t.TempDir(), "release")
@@ -3295,9 +3154,7 @@ func TestYardTestWholePlainRunsSerialize(t *testing.T) {
 	change := func(dir string) {
 		t.Helper()
 		for i, name := range changed {
-			if err := os.WriteFile(filepath.Join(dir, name), []byte(fmt.Sprintf("package p\n\nvar Changed%d int\n", i)), 0o644); err != nil {
-				t.Fatal(err)
-			}
+			writeFile(t, dir, name, fmt.Sprintf("package p\n\nvar Changed%d int\n", i))
 		}
 		gitT(t, dir, "add", "-A")
 	}
@@ -3328,21 +3185,11 @@ func TestYardTestWholePlainRunsSerialize(t *testing.T) {
 	if !strings.HasPrefix(ticket, "1-") {
 		t.Errorf("the second run's ticket is %s, want class 1", ticket)
 	}
-	// The wait timer starts before the ticket is made, so a release before
-	// the first lock attempt leaves a zero wait and no wait line. Hold
-	// until the ticket is a second old, measured from its first sight, so
-	// the first attempt has run while held and the summary's waited
-	// seconds are positive.
-	firstSeen := time.Now()
-	if wait := time.Until(firstSeen.Add(1100 * time.Millisecond)); wait > 0 {
-		time.Sleep(wait)
-	}
+	holdTicketAge(time.Now())
 	if b, _ := os.ReadFile(order); strings.Contains(string(b), "start-run2\n") {
 		t.Errorf("the second run's leg started while the first holds the lock")
 	}
-	if err := os.WriteFile(release, []byte("go\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	plainLockSettle(t, release)
 	b1, err1 := plainLockFinish(cmd1, out1)
 	b2, err2 := plainLockFinish(cmd2, out2)
 	if err1 != nil {
@@ -3363,17 +3210,7 @@ func TestYardTestWholePlainRunsSerialize(t *testing.T) {
 	}
 	// The second run queued: its wait-started line and its waited seconds.
 	// The first took the free lock and printed neither.
-	if !raceWaitStarted.MatchString(b2) {
-		t.Errorf("the second run has no start marker for its race-lock wait:\n%s", b2)
-	}
-	waits := regexp.MustCompile(`(?m)^test: waited \d+ s for the race lock$`).FindAllString(b2, -1)
-	if len(waits) != 1 {
-		t.Errorf("the second run has %d wait lines, want 1:\n%s", len(waits), b2)
-	}
-	summary := regexp.MustCompile(`(?m)^test: sh \.yardr/test @ [0-9a-f]+: pass, [0-9]+ packages ok, 0 failed, [0-9]+ s, waited [1-9][0-9]* s$`)
-	if !summary.MatchString(b2) {
-		t.Errorf("the second run's summary does not include the race-lock wait:\n%s", b2)
-	}
+	wantQueued(t, "the second run", b2)
 	if raceWaitStarted.MatchString(b1) {
 		t.Errorf("the first run queued for a free lock:\n%s", b1)
 	}
@@ -3388,17 +3225,9 @@ func TestYardTestWholePlainRunsSerialize(t *testing.T) {
 // same wait line and waited seconds a landing's wait prints.
 func TestYardTestWholePlainPathsQueue(t *testing.T) {
 	t.Parallel()
-	if _, err := exec.LookPath("perl"); err != nil {
-		t.Skip("no perl in PATH")
-	}
-	realGo, err := exec.LookPath("go")
-	if err != nil {
-		t.Skip("no go in PATH")
-	}
-	script, err := os.ReadFile(yardTest)
-	if err != nil {
-		t.Fatal(err)
-	}
+	needTool(t, "perl")
+	realGo := needTool(t, "go")
+	script := gateScript(t)
 	for _, c := range []struct {
 		name   string
 		change func(t *testing.T, dir string)
@@ -3415,26 +3244,12 @@ func TestYardTestWholePlainPathsQueue(t *testing.T) {
 		}},
 		{"a file no row knows", func(t *testing.T, dir string) {
 			t.Helper()
-			if err := os.WriteFile(filepath.Join(dir, "contrib", "x.txt"), []byte("changed\n"), 0o644); err != nil {
-				t.Fatal(err)
-			}
+			writeFile(t, dir, "contrib/x.txt", "changed\n")
 		}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			home := t.TempDir()
-			lock := filepath.Join(home, ".yardr", "race.lock")
-			if err := os.MkdirAll(filepath.Dir(lock), 0o755); err != nil {
-				t.Fatal(err)
-			}
-			held, err := os.OpenFile(lock, os.O_RDWR|os.O_CREATE, 0o644)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer held.Close()
-			if err := syscall.Flock(int(held.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-				t.Fatalf("holding the lock: %v", err)
-			}
+			home, held := holdRaceLock(t)
 			dir, base, _ := plainLockFixture(t, script)
 			c.change(t, dir)
 			gitT(t, dir, "add", "-A")
@@ -3452,15 +3267,7 @@ func TestYardTestWholePlainPathsQueue(t *testing.T) {
 			if calls, _ := os.ReadFile(filepath.Join(fake, "calls")); strings.Contains(string(calls), "test ./...") {
 				t.Errorf("the run's leg started while the lock is held")
 			}
-			// The wait timer starts before the ticket is made, so a
-			// release before the first lock attempt leaves a zero wait
-			// and no wait line. Hold until the ticket is a second old,
-			// so the first attempt has run while held and the summary's
-			// waited seconds are positive.
-			firstSeen := time.Now()
-			if wait := time.Until(firstSeen.Add(1100 * time.Millisecond)); wait > 0 {
-				time.Sleep(wait)
-			}
+			holdTicketAge(time.Now())
 			if err := syscall.Flock(int(held.Fd()), syscall.LOCK_UN); err != nil {
 				t.Fatal(err)
 			}
@@ -3468,17 +3275,7 @@ func TestYardTestWholePlainPathsQueue(t *testing.T) {
 			if err != nil {
 				t.Fatalf("err %v, output:\n%s", err, got)
 			}
-			if !raceWaitStarted.MatchString(got) {
-				t.Errorf("the output has no start marker for the race-lock wait:\n%s", got)
-			}
-			waits := regexp.MustCompile(`(?m)^test: waited \d+ s for the race lock$`).FindAllString(got, -1)
-			if len(waits) != 1 {
-				t.Errorf("the output has %d wait lines, want 1:\n%s", len(waits), got)
-			}
-			summary := regexp.MustCompile(`(?m)^test: sh \.yardr/test @ [0-9a-f]+: pass, [0-9]+ packages ok, 0 failed, [0-9]+ s, waited [1-9][0-9]* s$`)
-			if !summary.MatchString(got) {
-				t.Errorf("the summary does not include the race-lock wait:\n%s", got)
-			}
+			wantQueued(t, "the run", got)
 			if calls, _ := os.ReadFile(filepath.Join(fake, "calls")); strings.TrimSpace(string(calls)) != "vet ./...\nbuild ./...\ntest ./..." {
 				t.Errorf("go was run as:\n%s\nwant:\n%s", calls, "vet ./...\nbuild ./...\ntest ./...")
 			}
@@ -3495,34 +3292,12 @@ func TestYardTestWholePlainPathsQueue(t *testing.T) {
 // wait line.
 func TestYardTestLeafPlainRunTakesNoTicket(t *testing.T) {
 	t.Parallel()
-	if _, err := exec.LookPath("perl"); err != nil {
-		t.Skip("no perl in PATH")
-	}
-	realGo, err := exec.LookPath("go")
-	if err != nil {
-		t.Skip("no go in PATH")
-	}
-	script, err := os.ReadFile(yardTest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	home := t.TempDir()
-	lock := filepath.Join(home, ".yardr", "race.lock")
-	if err := os.MkdirAll(filepath.Dir(lock), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	held, err := os.OpenFile(lock, os.O_RDWR|os.O_CREATE, 0o644)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer held.Close()
-	if err := syscall.Flock(int(held.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		t.Fatalf("holding the lock: %v", err)
-	}
+	needTool(t, "perl")
+	realGo := needTool(t, "go")
+	script := gateScript(t)
+	home, _ := holdRaceLock(t)
 	dir, base, _ := plainLockFixture(t, script)
-	if err := os.WriteFile(filepath.Join(dir, "a", "p.go"), []byte("package p\n\nvar Changed int\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeFile(t, dir, "a/p.go", "package p\n\nvar Changed int\n")
 	gitT(t, dir, "add", "-A")
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -3550,36 +3325,14 @@ func TestYardTestLeafPlainRunTakesNoTicket(t *testing.T) {
 // the lock is held here and the selection queues without it.
 func TestYardTestHeldWholePlainRunNeverQueues(t *testing.T) {
 	t.Parallel()
-	if _, err := exec.LookPath("perl"); err != nil {
-		t.Skip("no perl in PATH")
-	}
-	realGo, err := exec.LookPath("go")
-	if err != nil {
-		t.Skip("no go in PATH")
-	}
-	script, err := os.ReadFile(yardTest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	home := t.TempDir()
-	lock := filepath.Join(home, ".yardr", "race.lock")
-	if err := os.MkdirAll(filepath.Dir(lock), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	held, err := os.OpenFile(lock, os.O_RDWR|os.O_CREATE, 0o644)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer held.Close()
-	if err := syscall.Flock(int(held.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		t.Fatalf("holding the lock: %v", err)
-	}
+	needTool(t, "perl")
+	realGo := needTool(t, "go")
+	script := gateScript(t)
+	home, _ := holdRaceLock(t)
 	dir, base, pkgs := plainLockFixture(t, script)
 	changed := pkgs[:len(pkgs)/2+1]
 	for i, pkg := range changed {
-		if err := os.WriteFile(filepath.Join(dir, pkg+"/p.go"), []byte(fmt.Sprintf("package p\n\nvar Changed%d int\n", i)), 0o644); err != nil {
-			t.Fatal(err)
-		}
+		writeFile(t, dir, pkg+"/p.go", fmt.Sprintf("package p\n\nvar Changed%d int\n", i))
 	}
 	gitT(t, dir, "add", "-A")
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -3607,10 +3360,7 @@ func TestYardTestHeldWholePlainRunNeverQueues(t *testing.T) {
 // canned pairs: the boundary both ways, and every variant spelling.
 func TestYardTestWholePlainThreshold(t *testing.T) {
 	t.Parallel()
-	b, err := os.ReadFile(yardTest)
-	if err != nil {
-		t.Fatal(err)
-	}
+	b := gateScript(t)
 	_, fn, ok := strings.Cut(string(b), "\nwholeplain() {\n")
 	if ok {
 		fn, _, ok = strings.Cut("\nwholeplain() {\n"+fn, "\n}\n")
@@ -3653,22 +3403,11 @@ func TestYardTestWholePlainThreshold(t *testing.T) {
 			for _, p := range c.run {
 				run.WriteString(p + "\n")
 			}
-			if err := os.WriteFile(filepath.Join(dir, "pkgs"), []byte(pkgs.String()), 0o644); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(filepath.Join(dir, "run"), []byte(run.String()), 0o644); err != nil {
-				t.Fatal(err)
-			}
+			writeFile(t, dir, "pkgs", pkgs.String())
+			writeFile(t, dir, "run", run.String())
 			cmd := exec.Command("sh", probe, "wholeplain", filepath.Join(dir, "pkgs"), filepath.Join(dir, "run"))
 			cmd.Env = scriptEnv()
-			out, err := cmd.CombinedOutput()
-			var exit *exec.ExitError
-			code := 0
-			if errors.As(err, &exit) {
-				code = exit.ExitCode()
-			} else if err != nil {
-				t.Fatal(err)
-			}
+			out, code := runCmd(t, cmd)
 			want := 1
 			if c.whole {
 				want = 0
@@ -3685,52 +3424,18 @@ func TestYardTestWholePlainThreshold(t *testing.T) {
 // ticket queue 0700 and the lock file 0600, whatever the umask.
 func TestYardTestRaceLockIsTheYards(t *testing.T) {
 	t.Parallel()
-	if _, err := exec.LookPath("perl"); err != nil {
-		t.Skip("no perl in PATH")
-	}
-	script, err := os.ReadFile(yardTest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	home, fake, dir := t.TempDir(), t.TempDir(), t.TempDir()
-	for name, text := range map[string]string{
-		"go":    "#!/bin/sh\n",
-		"gofmt": "#!/bin/sh\n",
-	} {
-		if err := os.WriteFile(filepath.Join(fake, name), []byte(text), 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
-	tmp := filepath.Join(fake, "tmp")
-	if err := os.Mkdir(tmp, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	needTool(t, "perl")
+	script := gateScript(t)
+	home := t.TempDir()
+	fake, tmp := fakeBins(t, map[string]string{"go": "#!/bin/sh\n"})
 	// A landing with no comparable base tests every package: only a landing
 	// has a race leg.
-	if err := os.MkdirAll(filepath.Join(dir, ".yardr"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, ".yardr", "test"), script, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module m.test/m\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	// The filesizes-listed files at their ceilings: the run would fail the
-	// file size budget on every row whose file is gone.
-	_, _, _, sizeRows := yardTestProbe(t)
-	writeSizeTree(t, dir, sizeRows)
-	gitT(t, dir, "init", "-q", "-b", "main")
-	gitT(t, dir, "add", "-A")
-	gitT(t, dir, "commit", "-q", "-m", "base")
+	dir, _ := gateRepo(t, map[string]string{".yardr/test": string(script), "go.mod": "module m.test/m\n"})
 	cmd := exec.Command("sh", "-c", "umask 022; sh .yardr/test")
 	cmd.Dir = dir
-	cmd.Env = append(scriptEnv(),
-		"PATH="+fake+string(os.PathListSeparator)+os.Getenv("PATH"),
-		"YARDR_LANDING=1", "YARDR_BASE=nowhere",
-		"HOME="+home, "TMPDIR="+tmp)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("err %v, output:\n%s", err, out)
+	cmd.Env = boxEnv(fake, tmp, "YARDR_LANDING=1", "YARDR_BASE=nowhere", "HOME="+home)
+	if out, code := runCmd(t, cmd); code != 0 {
+		t.Fatalf("exit %d, output:\n%s", code, out)
 	}
 	for path, want := range map[string]os.FileMode{
 		filepath.Join(home, ".yardr"):               0o700,
@@ -3761,31 +3466,8 @@ func TestYardTestRaceLockIsTheYards(t *testing.T) {
 // as a worker that runs no leg, so it pins the holder alone. Its own home
 // stands in for the yard's, so no real gate waits on it.
 func TestYardTestRaceLockDiesWithTheRun(t *testing.T) {
-	if _, err := exec.LookPath("perl"); err != nil {
-		t.Skip("no perl in PATH")
-	}
-	b, err := os.ReadFile(yardTest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// The function as the script has it, to the next function: a script
-	// the cuts no longer follow fails the test, telling its editor to
-	// move the probe with it.
-	_, fn, ok := strings.Cut(string(b), "racelocked() {")
-	if ok {
-		fn, _, ok = strings.Cut("racelocked() {"+fn, "\nagain() {")
-	}
-	if !ok || !strings.Contains(fn, "race.lock") || !strings.Contains(fn, "flock(") || !strings.Contains(fn, "YARDR_TEST_RACE_LEG") {
-		t.Fatalf("cannot cut racelocked out of %s: move the probe with the script", yardTest)
-	}
-	home := t.TempDir()
+	driver, home := raceLockDriver(t)
 	statusFile := filepath.Join(home, "status")
-	driver := filepath.Join(t.TempDir(), "driver.sh")
-	// The probe worker runs no leg: it drops the status file and runs
-	// the command, and the file stays unwritten.
-	if err := os.WriteFile(driver, []byte("#!/bin/sh\n"+fn+"\nif [ -n \"$YARDR_TEST_RACE_LEG\" ]; then shift; exec \"$@\"; fi\nracelocked \"$@\"\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
 	quote := func(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'" }
 	run := func(ctx context.Context, args ...string) (int, []byte) {
 		t.Helper()
@@ -3905,10 +3587,7 @@ func TestYardTestRaceLockDiesWithTheRun(t *testing.T) {
 // still shows there; a factor the caller had is no one's but the gate's.
 func TestYardTestBudgetRerunSharesTheRaceHold(t *testing.T) {
 	t.Parallel()
-	script, err := os.ReadFile(yardTest)
-	if err != nil {
-		t.Fatal(err)
-	}
+	script := gateScript(t)
 	const (
 		underAlone = "test: R1: yardr.dev/yardr/internal/dispatch took 61.2 s in the run, 12.3 s alone: under budget, loaded run"
 		quietSays  = "machine not loaded, or its load unknown"
@@ -3916,23 +3595,7 @@ func TestYardTestBudgetRerunSharesTheRaceHold(t *testing.T) {
 	// One template repository for every row: a landing with no comparable
 	// base tests every package, and asks go for no list of them: only a
 	// landing has a race leg. Each row copies it and runs.
-	template := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(template, ".yardr"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(template, ".yardr", "test"), script, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(template, "go.mod"), []byte("module m.test/m\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	// The filesizes-listed files at their ceilings: the runs would fail
-	// the file size budget on every row whose file is gone.
-	_, _, _, sizeRows := yardTestProbe(t)
-	writeSizeTree(t, template, sizeRows)
-	gitT(t, template, "init", "-q", "-b", "main")
-	gitT(t, template, "add", "-A")
-	gitT(t, template, "commit", "-q", "-m", "base")
+	template, _ := gateRepo(t, map[string]string{".yardr/test": string(script), "go.mod": "module m.test/m\n"})
 	for _, c := range []struct {
 		name  string
 		alone string // the re-run's Go duration: fast passes, over fails
@@ -3966,7 +3629,6 @@ func TestYardTestBudgetRerunSharesTheRaceHold(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			fake := t.TempDir()
 			dir := copyFixture(t, template)
 			// A go whose race leg runs one package over budget and whose
 			// re-run of it reports FAKE_ALONE, writing down every call
@@ -3993,15 +3655,7 @@ YARDR_TEST_RACE_LEG=1
 export YARDR_RACE_HELD YARDR_TEST_RACE_LEG
 exec "$@"
 `
-			for name, text := range map[string]string{"go": goFake, "perl": perlFake, "gofmt": "#!/bin/sh\n"} {
-				if err := os.WriteFile(filepath.Join(fake, name), []byte(text), 0o755); err != nil {
-					t.Fatal(err)
-				}
-			}
-			tmp := filepath.Join(fake, "tmp")
-			if err := os.Mkdir(tmp, 0o755); err != nil {
-				t.Fatal(err)
-			}
+			fake, tmp := fakeBins(t, map[string]string{"go": goFake, "perl": perlFake})
 			home := t.TempDir()
 			cmd := exec.Command("sh", ".yardr/test")
 			cmd.Dir = dir
@@ -4014,18 +3668,16 @@ exec "$@"
 			if avg == "" {
 				avg = "1.5"
 			}
-			cmd.Env = append(scriptEnv(),
-				"PATH="+fake+string(os.PathListSeparator)+os.Getenv("PATH"),
+			cmd.Env = boxEnv(fake, tmp,
 				"YARDR_LANDING=1", "YARDR_BASE=nowhere",
-				"HOME="+home, "TMPDIR="+tmp, "FAKE="+fake, "FAKE_ALONE="+c.alone,
+				"HOME="+home, "FAKE_ALONE="+c.alone,
 				"YARDR_TEST_LOADAVG="+avg, "YARDR_TEST_CORES=10")
 			if c.given != "" {
 				cmd.Env = append(cmd.Env, "YARDR_TEST_LOAD="+c.given)
 			}
-			b, err := cmd.CombinedOutput()
-			out := string(b)
-			if (err == nil) != c.ok {
-				t.Errorf("err %v, want ok %v", err, c.ok)
+			out, code := runCmd(t, cmd)
+			if (code == 0) != c.ok {
+				t.Errorf("exit %d, want ok %v", code, c.ok)
 			}
 			if !strings.Contains(out, c.want+"\n") {
 				t.Errorf("the output has no verdict line %q", c.want)
@@ -4037,12 +3689,11 @@ exec "$@"
 			if c.par != "" {
 				race += " " + c.par
 			}
-			calls, _ := os.ReadFile(filepath.Join(fake, "calls"))
 			wantCalls := "vet ./... held=unset lock=unset load=unset\n" +
 				"linux vet ./... held=unset lock=unset load=unset\n" +
 				race + " ./... held=1 lock=1 load=" + c.factor + "\n" +
 				race + " -count=1 yardr.dev/yardr/internal/dispatch held=1 lock=1 load=unset"
-			if got := strings.TrimSpace(string(calls)); got != wantCalls {
+			if got := fakeLog(fake, "calls"); got != wantCalls {
 				t.Errorf("go was run as:\n%s\nwant:\n%s", got, wantCalls)
 			}
 			// The leg says the factor it was given, once, with the load it read.
@@ -4060,16 +3711,13 @@ exec "$@"
 				t.Errorf("the output's -p lines:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(wantPar, "\n"))
 			}
 			// One hold, for the race leg: the re-run waited on nothing.
-			locks, _ := os.ReadFile(filepath.Join(fake, "locks"))
-			if got, want := strings.TrimSpace(string(locks)), "hold "+filepath.Join(home, ".yardr", "race.lock"); got != want {
+			if got, want := fakeLog(fake, "locks"), "hold "+filepath.Join(home, ".yardr", "race.lock"); got != want {
 				t.Errorf("the lock was held as:\n%s\nwant:\n%s", got, want)
 			}
 			if t.Failed() {
 				t.Logf("output:\n%s", out)
 			}
-			if left, _ := filepath.Glob(filepath.Join(tmp, "*")); len(left) > 0 {
-				t.Errorf("left behind: %v", left)
-			}
+			wantEmpty(t, tmp)
 		})
 	}
 }
@@ -4085,19 +3733,30 @@ var raceTicketName = regexp.MustCompile(`^[01]-\d+-\d+$`)
 // a second.
 var raceWaitStarted = regexp.MustCompile(`(?m)^test: race lock wait started at \d+$`)
 
+// wantQueued fails the case unless the output of a run that queued on the race
+// lock says so, as who did: the marker of its wait's start, one line of the
+// seconds it waited, and a test line whose waited seconds are positive.
+func wantQueued(t *testing.T, who, out string) {
+	t.Helper()
+	if !raceWaitStarted.MatchString(out) {
+		t.Errorf("%s has no start marker for its race-lock wait:\n%s", who, out)
+	}
+	if waits := regexp.MustCompile(`(?m)^test: waited \d+ s for the race lock$`).FindAllString(out, -1); len(waits) != 1 {
+		t.Errorf("%s has %d wait lines, want 1:\n%s", who, len(waits), out)
+	}
+	if !regexp.MustCompile(`(?m)^test: sh \.yardr/test @ [0-9a-f]+: pass, [0-9]+ packages ok, 0 failed, [0-9]+ s, waited [1-9][0-9]* s$`).MatchString(out) {
+		t.Errorf("the summary of %s does not include the race-lock wait:\n%s", who, out)
+	}
+}
+
 // raceLockDriver cuts racelocked out of .yardr/test into a driver script,
 // failing when the script no longer holds that shape, and returns the
 // driver with a home for it to lock under. Each test locks under its own
 // home, never the yard's.
 func raceLockDriver(t *testing.T) (driver, home string) {
 	t.Helper()
-	if _, err := exec.LookPath("perl"); err != nil {
-		t.Skip("no perl in PATH")
-	}
-	b, err := os.ReadFile(yardTest)
-	if err != nil {
-		t.Fatal(err)
-	}
+	needTool(t, "perl")
+	b := gateScript(t)
 	_, fn, ok := strings.Cut(string(b), "racelocked() {")
 	if ok {
 		fn, _, ok = strings.Cut("racelocked() {"+fn, "\nagain() {")
@@ -4482,13 +4141,8 @@ func TestYardTestRaceLockTermDuringTicketCreationLeavesNoQueueFiles(t *testing.T
 // does. Its own home stands in for the yard's, so no real gate waits on it.
 func TestYardTestRaceLockTermToQueuedGateStopsItAtOnce(t *testing.T) {
 	t.Parallel()
-	if _, err := exec.LookPath("perl"); err != nil {
-		t.Skip("no perl in PATH")
-	}
-	script, err := os.ReadFile(yardTest)
-	if err != nil {
-		t.Fatal(err)
-	}
+	needTool(t, "perl")
+	script := gateScript(t)
 	driver, home := raceLockDriver(t)
 	qdir := filepath.Join(home, ".yardr", "race.queue")
 	// beads are the queued tickets by name, each with the bead its
@@ -4555,38 +4209,13 @@ func TestYardTestRaceLockTermToQueuedGateStopsItAtOnce(t *testing.T) {
 	// go.mod changed: the whole suite, so the step queues on the race
 	// lock (lockplain) without asking go for any list. The gate's own
 	// process group, so the TERM below names its shell's pid alone.
-	fake, dir := t.TempDir(), t.TempDir()
-	for name, text := range map[string]string{"go": "#!/bin/sh\nexit 0\n", "gofmt": "#!/bin/sh\n"} {
-		if err := os.WriteFile(filepath.Join(fake, name), []byte(text), 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
-	tmp := filepath.Join(fake, "tmp")
-	if err := os.Mkdir(tmp, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	mod := filepath.Join(dir, "go.mod")
-	if err := os.WriteFile(mod, []byte("module m.test/m\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	// The filesizes-listed files at their ceilings: the run would fail the
-	// file size budget on every row whose file is gone.
-	_, _, _, sizeRows := yardTestProbe(t)
-	writeSizeTree(t, dir, sizeRows)
-	gitT(t, dir, "init", "-q", "-b", "main")
-	gitT(t, dir, "add", "-A")
-	gitT(t, dir, "commit", "-q", "-m", "base")
-	base := gitT(t, dir, "rev-parse", "HEAD")
-	if err := os.WriteFile(mod, []byte("module m.test/m\n\n// touched\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	fake, tmp := fakeBins(t, map[string]string{"go": "#!/bin/sh\nexit 0\n"})
+	dir, base := gateRepo(t, map[string]string{"go.mod": "module m.test/m\n"})
+	writeFile(t, dir, "go.mod", "module m.test/m\n\n// touched\n")
 	gate := exec.Command("sh", "-c", "echo $$ > \"$FAKE/gate.pid\"\n"+string(script))
 	gate.Dir = dir
 	gate.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	gate.Env = append(scriptEnv(),
-		"PATH="+fake+string(os.PathListSeparator)+os.Getenv("PATH"),
-		"YARDR_BASE="+base, "YARDR_BEAD=gate-bead",
-		"TMPDIR="+tmp, "FAKE="+fake, "HOME="+home)
+	gate.Env = boxEnv(fake, tmp, "YARDR_BASE="+base, "YARDR_BEAD=gate-bead", "HOME="+home)
 	var stdout, stderr strings.Builder
 	gate.Stdout, gate.Stderr = &stdout, &stderr
 	if err := gate.Start(); err != nil {
@@ -4986,15 +4615,10 @@ func TestYardTestRaceLegLockDiesWithOrphanDeadline(t *testing.T) {
 
 func testYardTestRaceLegLockDiesWithOrphan(t *testing.T, forceDeadline bool) {
 	t.Helper()
-	if _, err := exec.LookPath("perl"); err != nil {
-		t.Skip("no perl in PATH")
-	}
-	script, err := os.ReadFile(yardTest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	home, fake, dir, tmp := t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir()
-	for name, text := range map[string]string{
+	needTool(t, "perl")
+	script := gateScript(t)
+	home := t.TempDir()
+	fake, tmp := fakeBins(t, map[string]string{
 		// The landing's socket step runs beside the race leg and holds no
 		// lock: this go ignores it, so only the race leg leaves an orphan.
 		"go": `#!/bin/sh
@@ -5015,38 +4639,17 @@ if [ "$1" = test ]; then
   : >"$FAKE/test-done"
 fi
 `,
-		"gofmt": "#!/bin/sh\n",
-	} {
-		if err := os.WriteFile(filepath.Join(fake, name), []byte(text), 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := os.MkdirAll(filepath.Join(dir, ".yardr"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, ".yardr", "test"), script, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	})
 	// A landing with no comparable base tests every package: only a landing
 	// has a race leg.
-	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module m.test/m\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	// The filesizes-listed files at their ceilings: the run would fail the
-	// file size budget on every row whose file is gone.
-	_, _, _, sizeRows := yardTestProbe(t)
-	writeSizeTree(t, dir, sizeRows)
-	gitT(t, dir, "init", "-q", "-b", "main")
-	gitT(t, dir, "add", "-A")
-	gitT(t, dir, "commit", "-q", "-m", "base")
+	dir, _ := gateRepo(t, map[string]string{".yardr/test": string(script), "go.mod": "module m.test/m\n"})
 	cmd := exec.Command("sh", ".yardr/test")
 	cmd.Dir = dir
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	// YARDR_TEST_PID is the test binary's own pid: the fake go's waits end
 	// when it is gone, since a killed binary runs no cleanup.
-	cmd.Env = append(scriptEnv(),
-		"PATH="+fake+string(os.PathListSeparator)+os.Getenv("PATH"),
-		"YARDR_LANDING=1", "YARDR_BASE=nowhere", "HOME="+home, "TMPDIR="+tmp, "FAKE="+fake,
+	cmd.Env = boxEnv(fake, tmp,
+		"YARDR_LANDING=1", "YARDR_BASE=nowhere", "HOME="+home,
 		"FORCE_ORPHAN_DEADLINE="+strconv.FormatBool(forceDeadline),
 		"YARDR_TEST_PID="+strconv.Itoa(os.Getpid()))
 	outFile, err := os.CreateTemp(t.TempDir(), "yardtest-orphan")
@@ -5275,14 +4878,7 @@ func runProbe(t *testing.T, probePath, dir string, inheritedEnv, env []string, a
 	cmd := exec.Command("sh", append([]string{probePath}, args...)...)
 	cmd.Dir = dir
 	cmd.Env = append(scriptEnvFrom(inheritedEnv), env...)
-	out, err := cmd.CombinedOutput()
-	var ee *exec.ExitError
-	if errors.As(err, &ee) {
-		return string(out), ee.ExitCode()
-	} else if err != nil {
-		t.Fatal(err)
-	}
-	return string(out), 0
+	return runCmd(t, cmd)
 }
 
 // r1go is a go for the package budget's re-run: it reports the alone
@@ -5334,14 +4930,8 @@ case " $FAKE_OVER " in
 esac
 printf 'ok  \t%s\t%s\n' "$pkg" "$secs"
 `
-	if err := os.WriteFile(filepath.Join(fake, "go"), []byte(goFake), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	env = []string{
-		"PATH=" + fake + string(os.PathListSeparator) + os.Getenv("PATH"),
-		"FAKE=" + fake, "YARDR_RACE_HELD=1",
-	}
-	return fake, env
+	writeBins(t, fake, map[string]string{"go": goFake})
+	return fake, []string{pathWith(fake), "FAKE=" + fake, "YARDR_RACE_HELD=1"}
 }
 
 // The budgets .yardr/test enforces (docs/testing.md R1 and R2), through the
@@ -5353,10 +4943,9 @@ printf 'ok  \t%s\t%s\n' "$pkg" "$secs"
 func TestYardTestBudgets(t *testing.T) {
 	t.Parallel()
 	probe, overDirs, sleepSites, sizeRows := yardTestProbe(t)
-	probePath := filepath.Join(t.TempDir(), "probe.sh")
-	if err := os.WriteFile(probePath, []byte(probe), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	probeDir := t.TempDir()
+	writeFile(t, probeDir, "probe.sh", probe)
+	probePath := filepath.Join(probeDir, "probe.sh")
 	// The cases run in parallel, each in its own directory with its own
 	// fake go: the probe, the table rows and the counts are read-only once
 	// built. Each takes its own t, as TestYardTestSelects' rows do. The
@@ -5371,59 +4960,66 @@ func TestYardTestBudgets(t *testing.T) {
 		t.Helper()
 		return runEnv(t, dir, nil, args...)
 	}
-	write := func(t *testing.T, dir, name, content string) {
+	// probeWith is the probe with more shell after it, which ends by running
+	// the arguments: the script's budget functions, and a function of the
+	// case's own in place of one of what they call.
+	probeWith := func(t *testing.T, more string) string {
 		t.Helper()
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
-			t.Fatal(err)
+		head, ok := strings.CutSuffix(probe, "\n\"$@\"\n")
+		if !ok {
+			t.Fatal("the probe no longer ends by running its arguments: move this case with it")
+		}
+		dir := t.TempDir()
+		writeFile(t, dir, "probe.sh", head+more)
+		return filepath.Join(dir, "probe.sh")
+	}
+	wantNot := func(t *testing.T, out string, texts ...string) {
+		t.Helper()
+		for _, text := range texts {
+			if strings.Contains(out, text) {
+				t.Errorf("output %q, want it to lack %q", out, text)
+			}
 		}
 	}
 
-	t.Run("a compliant tree passes the sleep budget", func(t *testing.T) {
-		t.Parallel()
-		dir := t.TempDir()
-		write(t, dir, "ok_test.go", "package p\n\nimport (\n\t\"testing\"\n\t\"time\"\n)\n\nfunc TestOk(t *testing.T) {\n\t"+
-			sleepSite("500 * time.Millisecond")+"\n\t"+sleepSite("10 * time.Millisecond")+"\n\tdelay := 300 * time.Millisecond\n\t"+sleepSite("delay")+"\n}\n")
-		// A sleep in a line comment is not code, and a sleep outside a
-		// test file is not judged.
-		write(t, dir, "comment_test.go", "package p\n\n// "+sleepSite("30 * time.Second")+" in a comment is not a sleep.\n")
-		write(t, dir, "other.go", "package p\n\nimport \"time\"\n\nfunc wait() { "+sleepSite("30 * time.Second")+" }\n")
-		out, code := run(t, dir, "sleepbudget")
-		if code != 0 || strings.Contains(out, "over the 500 ms budget") {
-			t.Errorf("exit %d, output %q, want exit 0 and no budget line", code, out)
-		}
-	})
-
-	t.Run("an over-budget site fails the sleep budget", func(t *testing.T) {
-		t.Parallel()
-		dir := t.TempDir()
-		write(t, dir, "bad_test.go", "package p\n\nimport (\n\t\"testing\"\n\t\"time\"\n)\n\nfunc TestBad(t *testing.T) {\n\t"+
-			sleepSite("2 * time.Second")+"\n\t"+sleepSite("600 * time.Millisecond")+"\n\t"+sleepSite("time.Second")+"\n\t"+sleepSite("500.4 * time.Millisecond")+"\n}\n")
-		out, code := run(t, dir, "sleepbudget")
-		if code != 1 {
-			t.Fatalf("exit %d, output %q, want exit 1", code, out)
-		}
-		for _, want := range []string{
+	// The sleep budget, over a directory of Go files.
+	for _, c := range []struct {
+		name   string
+		files  map[string]string
+		code   int
+		has    []string
+		hasNot []string
+	}{
+		// A sleep in a line comment is not code, and a sleep outside a test
+		// file is not judged.
+		{"a compliant tree passes the sleep budget", map[string]string{
+			"ok_test.go": "package p\n\nimport (\n\t\"testing\"\n\t\"time\"\n)\n\nfunc TestOk(t *testing.T) {\n\t" +
+				sleepSite("500 * time.Millisecond") + "\n\t" + sleepSite("10 * time.Millisecond") + "\n\tdelay := 300 * time.Millisecond\n\t" + sleepSite("delay") + "\n}\n",
+			"comment_test.go": "package p\n\n// " + sleepSite("30 * time.Second") + " in a comment is not a sleep.\n",
+			"other.go":        "package p\n\nimport \"time\"\n\nfunc wait() { " + sleepSite("30 * time.Second") + " }\n",
+		}, 0, nil, []string{"over the 500 ms budget"}},
+		{"an over-budget site fails the sleep budget", map[string]string{
+			"bad_test.go": "package p\n\nimport (\n\t\"testing\"\n\t\"time\"\n)\n\nfunc TestBad(t *testing.T) {\n\t" +
+				sleepSite("2 * time.Second") + "\n\t" + sleepSite("600 * time.Millisecond") + "\n\t" + sleepSite("time.Second") + "\n\t" + sleepSite("500.4 * time.Millisecond") + "\n}\n",
+		}, 1, []string{
 			"bad_test.go:9 sleeps 2 * time.Second, over the 500 ms budget (docs/testing.md R2)",
 			"bad_test.go:10 sleeps 600 * time.Millisecond, over the 500 ms budget (docs/testing.md R2)",
 			"bad_test.go:11 sleeps time.Second, over the 500 ms budget (docs/testing.md R2)",
 			"bad_test.go:12 sleeps 500.4 * time.Millisecond, over the 500 ms budget (docs/testing.md R2)",
-		} {
-			if !strings.Contains(out, want) {
-				t.Errorf("output %q, want it to contain %q", out, want)
-			}
-		}
-	})
-
-	t.Run("a duplicate allowed duration does not cover another site", func(t *testing.T) {
-		t.Parallel()
-		dir := t.TempDir()
-		write(t, dir, "yardtest_test.go", "package p\n\nimport \"time\"\n\nfunc f() {\n\t"+
-			sleepSite("3 * time.Second")+"\n\t"+sleepSite("3 * time.Second")+"\n}\n")
-		out, code := run(t, dir, "sleepbudget")
-		if code != 1 || !strings.Contains(out, "yardtest_test.go:7 sleeps 3 * time.Second, over the 500 ms budget") {
-			t.Errorf("exit %d, output %q, want the second 3 s sleep to fail", code, out)
-		}
-	})
+		}, nil},
+		{"a duplicate allowed duration does not cover another site", map[string]string{
+			"yardtest_test.go": "package p\n\nimport \"time\"\n\nfunc f() {\n\t" + sleepSite("3 * time.Second") + "\n\t" + sleepSite("3 * time.Second") + "\n}\n",
+		}, 1, []string{"yardtest_test.go:7 sleeps 3 * time.Second, over the 500 ms budget"}, nil},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			writeFiles(t, dir, c.files)
+			out, code := run(t, dir, "sleepbudget")
+			wantRun(t, out, code, c.code, c.has...)
+			wantNot(t, out, c.hasNot...)
+		})
+	}
 
 	t.Run("the tree's allow-listed sleeps are counted", func(t *testing.T) {
 		t.Parallel()
@@ -5431,12 +5027,7 @@ func TestYardTestBudgets(t *testing.T) {
 		// the tree. A row whose site is gone, or a site no row names,
 		// fails here as it fails the gate.
 		out, code := run(t, ".", "sleepbudget")
-		if code != 0 {
-			t.Fatalf("sleepbudget on the tree: exit %d\n%s", code, out)
-		}
-		if want := "test: " + strconv.Itoa(sleepSites) + " sleeps over 500 ms allow-listed"; !strings.Contains(out, want) {
-			t.Errorf("output %q, want it to contain %q", out, want)
-		}
+		wantRun(t, out, code, 0, "test: "+strconv.Itoa(sleepSites)+" sleeps over 500 ms allow-listed")
 	})
 
 	t.Run("a compliant tree passes the file size budget", func(t *testing.T) {
@@ -5445,154 +5036,91 @@ func TestYardTestBudgets(t *testing.T) {
 		writeSizeTree(t, dir, sizeRows)
 		// Exactly 1000 lines is no row's business, and a test file or a
 		// file under .git is not judged.
-		write(t, dir, "exact.go", strings.Repeat("x\n", 1000))
-		write(t, dir, "big_test.go", strings.Repeat("x\n", 2000))
-		if err := os.MkdirAll(filepath.Join(dir, ".git"), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		write(t, dir, ".git/huge.go", strings.Repeat("x\n", 2000))
+		writeFiles(t, dir, map[string]string{
+			"exact.go":     strings.Repeat("x\n", 1000),
+			"big_test.go":  strings.Repeat("x\n", 2000),
+			".git/huge.go": strings.Repeat("x\n", 2000),
+		})
 		out, code := run(t, dir, "filesizebudget")
-		if code != 0 {
-			t.Fatalf("exit %d, output %q, want exit 0", code, out)
-		}
-		if want := "test: " + strconv.Itoa(len(sizeRows)) + " files over 1000 lines allow-listed"; !strings.Contains(out, want) {
-			t.Errorf("output %q, want it to contain %q", out, want)
-		}
+		wantRun(t, out, code, 0, "test: "+strconv.Itoa(len(sizeRows))+" files over 1000 lines allow-listed")
 	})
 
-	t.Run("a grown listed file fails the file size budget", func(t *testing.T) {
-		t.Parallel()
-		dir := t.TempDir()
-		writeSizeTree(t, dir, sizeRows)
-		row := sizeRows[0]
-		if err := os.WriteFile(filepath.Join(dir, row.path), []byte(strings.Repeat("x\n", row.ceil+1)), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		out, code := run(t, dir, "filesizebudget")
-		if code != 1 {
-			t.Fatalf("exit %d, output %q, want exit 1", code, out)
-		}
-		want := fmt.Sprintf("test: %s has %d lines, over its %d-line ceiling: split it along a concept, one concept per file (a second same-stem file such as routing2.go is not a split); the ceiling only falls", row.path, row.ceil+1, row.ceil)
-		if !strings.Contains(out, want) {
-			t.Errorf("output %q, want it to contain %q", out, want)
-		}
-	})
-
-	t.Run("an unlisted file over 1000 fails the file size budget", func(t *testing.T) {
-		t.Parallel()
-		dir := t.TempDir()
-		writeSizeTree(t, dir, sizeRows)
-		write(t, dir, "new.go", strings.Repeat("x\n", 1001))
-		out, code := run(t, dir, "filesizebudget")
-		if code != 1 {
-			t.Fatalf("exit %d, output %q, want exit 1", code, out)
-		}
-		if want := "test: new.go has 1001 lines, over 1000 with no filesizes row: split it along a concept, one concept per file (a second same-stem file such as routing2.go is not a split)"; !strings.Contains(out, want) {
-			t.Errorf("output %q, want it to contain %q", out, want)
-		}
-	})
-
-	t.Run("a ceiling left above a shrunk file fails the file size budget", func(t *testing.T) {
-		t.Parallel()
-		dir := t.TempDir()
-		writeSizeTree(t, dir, sizeRows)
-		row := sizeRows[0]
-		if err := os.WriteFile(filepath.Join(dir, row.path), []byte(strings.Repeat("x\n", row.ceil-1)), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		out, code := run(t, dir, "filesizebudget")
-		if code != 1 {
-			t.Fatalf("exit %d, output %q, want exit 1", code, out)
-		}
-		want := fmt.Sprintf("test: %s has %d lines, under its %d-line ceiling: lower the row in the same change", row.path, row.ceil-1, row.ceil)
-		if !strings.Contains(out, want) {
-			t.Errorf("output %q, want it to contain %q", out, want)
-		}
-	})
-
-	t.Run("a row whose file is gone fails the file size budget", func(t *testing.T) {
-		t.Parallel()
-		dir := t.TempDir()
-		writeSizeTree(t, dir, sizeRows)
-		row := sizeRows[0]
+	// The file size budget over the tree at its ceilings with the first
+	// listed file, or a file no row lists, changed one way: judged as the
+	// gate judges it, and as a landing does, which keeps the base's row where
+	// the branch lowers or deletes it.
+	grow := func(t *testing.T, dir string, row filesizeRow) {
+		writeFile(t, dir, row.path, strings.Repeat("x\n", row.ceil+1))
+	}
+	shrink := func(t *testing.T, dir string, row filesizeRow) {
+		writeFile(t, dir, row.path, strings.Repeat("x\n", row.ceil-1))
+	}
+	remove := func(t *testing.T, dir string, row filesizeRow) {
 		if err := os.Remove(filepath.Join(dir, row.path)); err != nil {
 			t.Fatal(err)
 		}
-		out, code := run(t, dir, "filesizebudget")
-		if code != 1 {
-			t.Fatalf("exit %d, output %q, want exit 1", code, out)
+	}
+	unlisted := func(t *testing.T, dir string, _ filesizeRow) {
+		writeFile(t, dir, "new.go", strings.Repeat("x\n", 1001))
+	}
+	overCeiling := func(tail string) func(filesizeRow) string {
+		return func(row filesizeRow) string {
+			return fmt.Sprintf("test: %s has %d lines, over its %d-line ceiling: %s", row.path, row.ceil+1, row.ceil, tail)
 		}
-		if want := "test: filesizes row " + row.path + " names a file that is gone: delete the row with the file"; !strings.Contains(out, want) {
-			t.Errorf("output %q, want it to contain %q", out, want)
+	}
+	underCeiling := func(tail string) func(filesizeRow) string {
+		return func(row filesizeRow) string {
+			return fmt.Sprintf("test: %s has %d lines, under its %d-line ceiling: %s", row.path, row.ceil-1, row.ceil, tail)
 		}
-	})
-
-	t.Run("a shrunk file passes the file size budget at landing", func(t *testing.T) {
-		t.Parallel()
-		dir := t.TempDir()
-		writeSizeTree(t, dir, sizeRows)
-		row := sizeRows[0]
-		if err := os.WriteFile(filepath.Join(dir, row.path), []byte(strings.Repeat("x\n", row.ceil-1)), 0o644); err != nil {
-			t.Fatal(err)
+	}
+	gone := func(tail string) func(filesizeRow) string {
+		return func(row filesizeRow) string {
+			return "test: filesizes row " + row.path + " names a file that is gone: " + tail
 		}
-		out, code := runEnv(t, dir, []string{"YARDR_LANDING=1"}, "filesizebudget")
-		if code != 0 {
-			t.Fatalf("exit %d, output %q, want exit 0", code, out)
+	}
+	overOnly := func(tail string) func(filesizeRow) string {
+		return func(filesizeRow) string {
+			return "test: new.go has 1001 lines, over 1000 with no filesizes row: " + tail
 		}
-		want := fmt.Sprintf("test: %s has %d lines, under its %d-line ceiling: landing keeps the higher base row (the branch lowers it)", row.path, row.ceil-1, row.ceil)
-		if !strings.Contains(out, want) {
-			t.Errorf("output %q, want it to contain %q", out, want)
-		}
-	})
-
-	t.Run("a row whose file is gone passes the file size budget at landing", func(t *testing.T) {
-		t.Parallel()
-		dir := t.TempDir()
-		writeSizeTree(t, dir, sizeRows)
-		row := sizeRows[0]
-		if err := os.Remove(filepath.Join(dir, row.path)); err != nil {
-			t.Fatal(err)
-		}
-		out, code := runEnv(t, dir, []string{"YARDR_LANDING=1"}, "filesizebudget")
-		if code != 0 {
-			t.Fatalf("exit %d, output %q, want exit 0", code, out)
-		}
-		if want := "test: filesizes row " + row.path + " names a file that is gone: landing keeps the base row (the branch deletes it)"; !strings.Contains(out, want) {
-			t.Errorf("output %q, want it to contain %q", out, want)
-		}
-	})
-
-	t.Run("a grown listed file fails the file size budget at landing", func(t *testing.T) {
-		t.Parallel()
-		dir := t.TempDir()
-		writeSizeTree(t, dir, sizeRows)
-		row := sizeRows[0]
-		if err := os.WriteFile(filepath.Join(dir, row.path), []byte(strings.Repeat("x\n", row.ceil+1)), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		out, code := runEnv(t, dir, []string{"YARDR_LANDING=1"}, "filesizebudget")
-		if code != 1 {
-			t.Fatalf("exit %d, output %q, want exit 1", code, out)
-		}
-		want := fmt.Sprintf("test: %s has %d lines, over its %d-line ceiling: split it along a concept", row.path, row.ceil+1, row.ceil)
-		if !strings.Contains(out, want) {
-			t.Errorf("output %q, want it to contain %q", out, want)
-		}
-	})
-
-	t.Run("an unlisted file over 1000 fails the file size budget at landing", func(t *testing.T) {
-		t.Parallel()
-		dir := t.TempDir()
-		writeSizeTree(t, dir, sizeRows)
-		write(t, dir, "new.go", strings.Repeat("x\n", 1001))
-		out, code := runEnv(t, dir, []string{"YARDR_LANDING=1"}, "filesizebudget")
-		if code != 1 {
-			t.Fatalf("exit %d, output %q, want exit 1", code, out)
-		}
-		if want := "test: new.go has 1001 lines, over 1000 with no filesizes row: split it along a concept"; !strings.Contains(out, want) {
-			t.Errorf("output %q, want it to contain %q", out, want)
-		}
-	})
+	}
+	for _, c := range []struct {
+		name    string
+		edit    func(t *testing.T, dir string, row filesizeRow)
+		landing bool
+		code    int
+		want    func(row filesizeRow) string
+	}{
+		{"a grown listed file fails the file size budget", grow, false, 1,
+			overCeiling("split it along a concept, one concept per file (a second same-stem file such as routing2.go is not a split); the ceiling only falls")},
+		{"an unlisted file over 1000 fails the file size budget", unlisted, false, 1,
+			overOnly("split it along a concept, one concept per file (a second same-stem file such as routing2.go is not a split)")},
+		{"a ceiling left above a shrunk file fails the file size budget", shrink, false, 1,
+			underCeiling("lower the row in the same change")},
+		{"a row whose file is gone fails the file size budget", remove, false, 1,
+			gone("delete the row with the file")},
+		{"a shrunk file passes the file size budget at landing", shrink, true, 0,
+			underCeiling("landing keeps the higher base row (the branch lowers it)")},
+		{"a row whose file is gone passes the file size budget at landing", remove, true, 0,
+			gone("landing keeps the base row (the branch deletes it)")},
+		{"a grown listed file fails the file size budget at landing", grow, true, 1,
+			overCeiling("split it along a concept")},
+		{"an unlisted file over 1000 fails the file size budget at landing", unlisted, true, 1,
+			overOnly("split it along a concept")},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			writeSizeTree(t, dir, sizeRows)
+			row := sizeRows[0]
+			c.edit(t, dir, row)
+			var env []string
+			if c.landing {
+				env = []string{"YARDR_LANDING=1"}
+			}
+			out, code := runEnv(t, dir, env, "filesizebudget")
+			wantRun(t, out, code, c.code, c.want(row))
+		})
+	}
 
 	t.Run("the tree's listed files are at their ceilings", func(t *testing.T) {
 		t.Parallel()
@@ -5601,48 +5129,42 @@ func TestYardTestBudgets(t *testing.T) {
 		// above its file, or a row whose file is gone fails here as it
 		// fails the gate.
 		out, code := run(t, ".", "filesizebudget")
-		if code != 0 {
-			t.Fatalf("filesizebudget on the tree: exit %d\n%s", code, out)
-		}
-		if want := "test: " + strconv.Itoa(len(sizeRows)) + " files over 1000 lines allow-listed"; !strings.Contains(out, want) {
-			t.Errorf("output %q, want it to contain %q", out, want)
-		}
+		wantRun(t, out, code, 0, "test: "+strconv.Itoa(len(sizeRows))+" files over 1000 lines allow-listed")
 	})
 
-	t.Run("a tracked file carrying the redaction marker fails the marker check", func(t *testing.T) {
-		t.Parallel()
-		dir := t.TempDir()
-		gitT(t, dir, "init", "-q", "-b", "main")
-		// Built from parts, as the step builds it: the literal must not
-		// sit in this file, which the step judges too.
-		marker := "[" + "REDACTED]"
-		write(t, dir, "note.md", "sent as a token\nline two carries "+marker+" here\n")
-		gitT(t, dir, "add", "-A")
-		gitT(t, dir, "commit", "-q", "-m", "base")
-		out, code := run(t, dir, "nomarkers")
-		if code != 1 {
-			t.Fatalf("exit %d, output %q, want exit 1", code, out)
-		}
-		if want := "test: note.md:2:line two carries " + marker + " here"; !strings.Contains(out, want) {
-			t.Errorf("output %q, want it to contain %q", out, want)
-		}
-		if !strings.Contains(out, "test: a tracked file carries the redaction marker") {
-			t.Errorf("output %q, want it to name the failure", out)
-		}
-	})
-
-	t.Run("the product's lowercase markers pass the marker check", func(t *testing.T) {
-		t.Parallel()
-		dir := t.TempDir()
-		gitT(t, dir, "init", "-q", "-b", "main")
-		write(t, dir, "login.go", "package p\n\n// [redacted] and [credential redacted] stay.\n")
-		gitT(t, dir, "add", "-A")
-		gitT(t, dir, "commit", "-q", "-m", "base")
-		out, code := run(t, dir, "nomarkers")
-		if code != 0 || strings.Contains(out, "carries the redaction marker") {
-			t.Errorf("exit %d, output %q, want exit 0 and no marker line", code, out)
-		}
-	})
+	// The redaction marker scan, over a repository with files committed and
+	// files left untracked. The marker is built from parts, as the step builds
+	// it: the literal must not sit in this file, which the step judges too.
+	marker := "[" + "REDACTED]"
+	for _, c := range []struct {
+		name      string
+		tracked   map[string]string
+		untracked map[string]string
+		code      int
+		has       []string
+		hasNot    []string
+	}{
+		{"a tracked file carrying the redaction marker fails the marker check",
+			map[string]string{"note.md": "sent as a token\nline two carries " + marker + " here\n"}, nil, 1,
+			[]string{"test: note.md:2:line two carries " + marker + " here", "test: a tracked file carries the redaction marker"}, nil},
+		{"the product's lowercase markers pass the marker check",
+			map[string]string{"login.go": "package p\n\n// [redacted] and [credential redacted] stay.\n"}, nil, 0,
+			nil, []string{"carries the redaction marker"}},
+		{"an untracked file carrying the marker passes the marker check",
+			nil, map[string]string{"draft.md": "line one carries " + marker + " but is untracked\n"}, 0,
+			nil, []string{"carries the redaction marker"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			writeFiles(t, dir, c.tracked)
+			commitBase(t, dir)
+			writeFiles(t, dir, c.untracked)
+			out, code := run(t, dir, "nomarkers")
+			wantRun(t, out, code, c.code, c.has...)
+			wantNot(t, out, c.hasNot...)
+		})
+	}
 
 	t.Run("a failed marker scan fails the check", func(t *testing.T) {
 		t.Parallel()
@@ -5658,23 +5180,10 @@ func TestYardTestBudgets(t *testing.T) {
 		}
 	})
 
-	t.Run("an untracked file carrying the marker passes the marker check", func(t *testing.T) {
-		t.Parallel()
-		dir := t.TempDir()
-		gitT(t, dir, "init", "-q", "-b", "main")
-		gitT(t, dir, "commit", "-q", "--allow-empty", "-m", "base")
-		marker := "[" + "REDACTED]"
-		write(t, dir, "draft.md", "line one carries "+marker+" but is untracked\n")
-		out, code := run(t, dir, "nomarkers")
-		if code != 0 || strings.Contains(out, "carries the redaction marker") {
-			t.Errorf("exit %d, output %q, want exit 0 and no marker line", code, out)
-		}
-	})
-
 	t.Run("the package budget judges race legs by re-measuring alone", func(t *testing.T) {
 		t.Parallel()
 		dir := t.TempDir()
-		write(t, dir, "red.txt",
+		writeFile(t, dir, "red.txt",
 			"ok  \tyardr.dev/yardr/internal/cli\t1m58.3s\n"+
 				"ok  \tyardr.dev/yardr\t1m5.5s\n"+
 				"ok  \tyardr.dev/yardr/contrib/assembly\t1m40.9s\n"+
@@ -5732,97 +5241,80 @@ func TestYardTestBudgets(t *testing.T) {
 		}
 		// The re-runs overlap, so the journal's order is the scheduler's
 		// rather than the launch's; the set is pinned, in sorted order.
-		calls, _ := os.ReadFile(filepath.Join(fake, "calls"))
-		got := strings.Split(strings.TrimSpace(string(calls)), "\n")
-		slices.Sort(got)
-		want := []string{
+		wantCallsAnyOrder(t, fake, []string{
 			"test -race -count=1 yardr.dev/yardr/internal/dispatch held=1",
 			"test -race -count=1 yardr.dev/yardr/internal/hooks held=1",
 			"test -race -count=1 yardr.dev/yardr/internal/pack held=1",
 			"test -race -count=1 yardr.dev/yardr/internal/server held=1",
 			"test -race -count=1 yardr.dev/yardr/internal/store held=1",
 			"test -race -count=1 yardr.dev/yardr/internal/web held=1",
-		}
-		if !slices.Equal(got, want) {
-			t.Errorf("go was run as:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
-		}
+		})
 	})
 
-	t.Run("a package under budget alone passes", func(t *testing.T) {
-		t.Parallel()
-		dir := t.TempDir()
-		write(t, dir, "loaded.txt", "ok  \tyardr.dev/yardr/internal/dispatch\t1m1.2s\n")
-		fake, env := r1go(t)
-		out, code := runEnv(t, dir, append(env, "FAKE_OVER="),
-			"packagebudget", "loaded.txt", "go", "test", "-race", "./...")
-		if code != 0 {
-			t.Fatalf("exit %d, output %q, want exit 0", code, out)
-		}
-		want := "test: R1: yardr.dev/yardr/internal/dispatch took 61.2 s in the run, 12.3 s alone: under budget, loaded run"
-		if !strings.Contains(out, want+"\n") {
-			t.Errorf("output %q, want it to hold %q", out, want)
-		}
-		if strings.Contains(out, "over the 60 s budget") {
-			t.Errorf("output %q, want no budget failure", out)
-		}
-		calls, _ := os.ReadFile(filepath.Join(fake, "calls"))
-		if got, want := strings.TrimSpace(string(calls)), "test -race -count=1 yardr.dev/yardr/internal/dispatch held=1"; got != want {
-			t.Errorf("go was run as:\n%s\nwant:\n%s", got, want)
-		}
-	})
-
-	t.Run("the alone re-run carries the leg's -p as one word", func(t *testing.T) {
-		t.Parallel()
+	// A leg with one package over budget, re-measured alone by the fake go
+	// under the load the case pins. A row that names calls pins the re-run's
+	// command.
+	const (
+		dispatchLeg  = "ok  \tyardr.dev/yardr/internal/dispatch\t1m1.2s\n"
+		dispatchSlow = "ok  \tyardr.dev/yardr/internal/dispatch\t61.2s\n"
+		dispatchCall = "test -race -count=1 yardr.dev/yardr/internal/dispatch held=1"
+		underAlone   = "test: R1: yardr.dev/yardr/internal/dispatch took 61.2 s in the run, 12.3 s alone: under budget, loaded run"
+		loaded72     = "test: R1: yardr.dev/yardr/internal/dispatch took 61.2 s in the run, 66.6 s alone: over budget, loaded machine (load 72.4 on 10 cores), not failed"
+		overAlone    = "test: yardr.dev/yardr/internal/dispatch took 61.2 s with -race, 66.6 s alone, over the 60 s budget (docs/testing.md R1)"
+		reRunFailed  = "test: yardr.dev/yardr/internal/dispatch took 61.2 s with -race, over the 60 s budget (docs/testing.md R1), and its re-run alone failed"
+		over         = "FAKE_OVER=yardr.dev/yardr/internal/dispatch"
+	)
+	for _, c := range []struct {
+		name   string
+		leg    string
+		flags  []string // the leg's go test flags after -race
+		env    []string
+		code   int
+		has    []string
+		hasNot []string
+		calls  []string // the fake go's calls, in order; none are checked when nil
+	}{
+		{"a package under budget alone passes", dispatchLeg, nil, []string{"FAKE_OVER="}, 0,
+			[]string{underAlone + "\n"}, []string{"over the 60 s budget"}, []string{dispatchCall}},
 		// A loaded landing's race leg has -p=N (gatepar), and the re-run takes
 		// the leg's flags, the dash-words after test: in two words, -p 2 would
 		// reach it as -p -count=1, which go refuses.
-		dir := t.TempDir()
-		write(t, dir, "par.txt", "ok  \tyardr.dev/yardr/internal/dispatch\t1m1.2s\n")
-		fake, env := r1go(t)
-		out, code := runEnv(t, dir, append(env, "FAKE_OVER="),
-			"packagebudget", "par.txt", "go", "test", "-race", "-p=2", "./...")
-		if code != 0 {
-			t.Fatalf("exit %d, output %q, want exit 0", code, out)
-		}
-		want := "test: R1: yardr.dev/yardr/internal/dispatch took 61.2 s in the run, 12.3 s alone: under budget, loaded run"
-		if !strings.Contains(out, want+"\n") {
-			t.Errorf("output %q, want it to hold %q", out, want)
-		}
-		calls, _ := os.ReadFile(filepath.Join(fake, "calls"))
-		if got, want := strings.TrimSpace(string(calls)), "test -race -p=2 -count=1 yardr.dev/yardr/internal/dispatch held=1"; got != want {
-			t.Errorf("go was run as:\n%s\nwant:\n%s", got, want)
-		}
-	})
-
-	t.Run("a package over budget alone on a loaded machine passes", func(t *testing.T) {
-		t.Parallel()
-		dir := t.TempDir()
-		write(t, dir, "heavy.txt", "ok  \tyardr.dev/yardr/internal/dispatch\t1m1.2s\n")
-		fake, env := r1go(t)
-		out, code := runEnv(t, dir, append(env,
-			"FAKE_OVER=yardr.dev/yardr/internal/dispatch",
-			"YARDR_TEST_LOADAVG=72.4", "YARDR_TEST_CORES=10"),
-			"packagebudget", "heavy.txt", "go", "test", "-race", "./...")
-		if code != 0 {
-			t.Fatalf("exit %d, output %q, want exit 0", code, out)
-		}
-		want := "test: R1: yardr.dev/yardr/internal/dispatch took 61.2 s in the run, 66.6 s alone: over budget, loaded machine (load 72.4 on 10 cores), not failed"
-		if !strings.Contains(out, want+"\n") {
-			t.Errorf("output %q, want it to hold %q", out, want)
-		}
-		if strings.Contains(out, "over the 60 s budget") {
-			t.Errorf("output %q, want no budget failure", out)
-		}
-		calls, _ := os.ReadFile(filepath.Join(fake, "calls"))
-		if got, want := strings.TrimSpace(string(calls)), "test -race -count=1 yardr.dev/yardr/internal/dispatch held=1"; got != want {
-			t.Errorf("go was run as:\n%s\nwant:\n%s", got, want)
-		}
-	})
+		{"the alone re-run carries the leg's -p as one word", dispatchLeg, []string{"-p=2"}, []string{"FAKE_OVER="}, 0,
+			[]string{underAlone + "\n"}, nil, []string{"test -race -p=2 -count=1 yardr.dev/yardr/internal/dispatch held=1"}},
+		{"a package over budget alone on a loaded machine passes", dispatchLeg, nil,
+			[]string{over, "YARDR_TEST_LOADAVG=72.4", "YARDR_TEST_CORES=10"}, 0,
+			[]string{loaded72 + "\n"}, []string{"over the 60 s budget"}, []string{dispatchCall}},
+		{"an unreadable load fails the run", dispatchLeg, nil,
+			[]string{over, "YARDR_TEST_LOADAVG=bogus", "YARDR_TEST_CORES=10"}, 1, []string{overAlone + "\n"}, nil, nil},
+		{"a load at the core count fails the run", dispatchLeg, nil,
+			[]string{over, "YARDR_TEST_LOADAVG=10", "YARDR_TEST_CORES=10"}, 1, []string{overAlone + "\n"}, nil, nil},
+		{"a re-run that fails fails the run", dispatchSlow, nil, []string{"FAKE_FAIL=1"}, 1, []string{reRunFailed + "\n"}, nil, nil},
+		// A re-run that prints no seconds, cached where the leg's run was
+		// over budget, clears nothing: the leg saw an over-budget package
+		// the re-run did not clear.
+		{"a re-run that prints no seconds fails the run", dispatchSlow, nil, []string{"FAKE_CACHED=1"}, 1, []string{reRunFailed + "\n"}, nil, nil},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			writeFile(t, dir, "leg.txt", c.leg)
+			fake, env := r1go(t)
+			args := append(append([]string{"packagebudget", "leg.txt", "go", "test", "-race"}, c.flags...), "./...")
+			out, code := runEnv(t, dir, append(env, c.env...), args...)
+			wantRun(t, out, code, c.code, c.has...)
+			wantNot(t, out, c.hasNot...)
+			if c.calls != nil {
+				if got, want := fakeLog(fake, "calls"), strings.Join(c.calls, "\n"); got != want {
+					t.Errorf("go was run as:\n%s\nwant:\n%s", got, want)
+				}
+			}
+		})
+	}
 
 	t.Run("quiet run marks and the race leg's wait factor do not reach the budget probe", func(t *testing.T) {
 		t.Parallel()
 		dir := t.TempDir()
-		write(t, dir, "leak.txt", "ok  \tyardr.dev/yardr/internal/dispatch\t1m1.2s\n")
+		writeFile(t, dir, "leak.txt", dispatchLeg)
 		inheritedEnv := append(os.Environ(), "YARDR_R1_STRICT=1", "YARDR_QUIET_RUN=1", "YARDR_TEST_LOAD=3.0")
 		for _, kv := range scriptEnvFrom(inheritedEnv) {
 			k, _, _ := strings.Cut(kv, "=")
@@ -5832,16 +5324,9 @@ func TestYardTestBudgets(t *testing.T) {
 		}
 		_, env := r1go(t)
 		out, code := runProbe(t, probePath, dir, inheritedEnv, append(env,
-			"FAKE_OVER=yardr.dev/yardr/internal/dispatch",
-			"YARDR_TEST_LOADAVG=72.4", "YARDR_TEST_CORES=10"),
+			over, "YARDR_TEST_LOADAVG=72.4", "YARDR_TEST_CORES=10"),
 			"packagebudget", "leak.txt", "go", "test", "-race", "./...")
-		if code != 0 {
-			t.Fatalf("exit %d, output %q, want exit 0", code, out)
-		}
-		want := "test: R1: yardr.dev/yardr/internal/dispatch took 61.2 s in the run, 66.6 s alone: over budget, loaded machine (load 72.4 on 10 cores), not failed"
-		if !strings.Contains(out, want+"\n") {
-			t.Errorf("output %q, want it to hold %q", out, want)
-		}
+		wantRun(t, out, code, 0, loaded72+"\n")
 	})
 
 	t.Run("the run's yard does not reach the script", func(t *testing.T) {
@@ -5881,20 +5366,16 @@ func TestYardTestBudgets(t *testing.T) {
 		// which the quiet run alone sets, it fails, naming both times
 		// and the load beside them.
 		dir := t.TempDir()
-		write(t, dir, "strict.txt", "ok  \tyardr.dev/yardr/internal/dispatch\t1m1.2s\n")
-		loaded := []string{
-			"FAKE_OVER=yardr.dev/yardr/internal/dispatch",
-			"YARDR_TEST_LOADAVG=72.4", "YARDR_TEST_CORES=10",
-		}
+		writeFile(t, dir, "strict.txt", dispatchLeg)
+		loaded := []string{over, "YARDR_TEST_LOADAVG=72.4", "YARDR_TEST_CORES=10"}
 		_, env := r1go(t)
 		out, code := runEnv(t, dir, append(env, loaded...),
 			"packagebudget", "strict.txt", "go", "test", "-race", "./...")
 		if code != 0 {
 			t.Fatalf("without the setting: exit %d, output %q, want exit 0", code, out)
 		}
-		loud := "test: R1: yardr.dev/yardr/internal/dispatch took 61.2 s in the run, 66.6 s alone: over budget, loaded machine (load 72.4 on 10 cores), not failed"
-		if !strings.Contains(out, loud+"\n") {
-			t.Errorf("without the setting: output %q, want it to hold %q", out, loud)
+		if !strings.Contains(out, loaded72+"\n") {
+			t.Errorf("without the setting: output %q, want it to hold %q", out, loaded72)
 		}
 		_, env = r1go(t)
 		out, code = runEnv(t, dir, append(env, append(loaded, "YARDR_R1_STRICT=1")...),
@@ -5921,22 +5402,14 @@ func TestYardTestBudgets(t *testing.T) {
 		// sets for the side of the re-run it is asked on: the start's while
 		// the fake go has written no call, the end's after. A sample taken
 		// on the wrong side reads the wrong load, and the verdict shows it.
-		sampling, ok := strings.CutSuffix(probe, "\n\"$@\"\n")
-		if !ok {
-			t.Fatal("the probe no longer ends by running its arguments: move this case with it")
-		}
-		sampling += `
+		samplingPath := probeWith(t, `
 loadedmachine() {
   if [ -s "$FAKE/calls" ]; then sample=$FAKE_LOAD_END; else sample=$FAKE_LOAD_START; fi
   [ -n "$sample" ] || return 1
   echo "$sample"
 }
 "$@"
-`
-		samplingPath := filepath.Join(t.TempDir(), "sampling.sh")
-		if err := os.WriteFile(samplingPath, []byte(sampling), 0o644); err != nil {
-			t.Fatal(err)
-		}
+`)
 		const (
 			quiet = ""
 			early = "load 26.4 on 10 cores"
@@ -5966,10 +5439,9 @@ loadedmachine() {
 			t.Run(c.name, func(t *testing.T) {
 				t.Parallel()
 				dir := t.TempDir()
-				write(t, dir, "sampled.txt", "ok  \tyardr.dev/yardr/internal/dispatch\t1m1.2s\n")
+				writeFile(t, dir, "sampled.txt", dispatchLeg)
 				fake, env := r1go(t)
-				env = append(env, "FAKE_OVER=yardr.dev/yardr/internal/dispatch",
-					"FAKE_LOAD_START="+c.start, "FAKE_LOAD_END="+c.end)
+				env = append(env, over, "FAKE_LOAD_START="+c.start, "FAKE_LOAD_END="+c.end)
 				if c.strict {
 					env = append(env, "YARDR_R1_STRICT=1")
 				}
@@ -5983,9 +5455,8 @@ loadedmachine() {
 				}
 				// One alone pass, however the machine was: the re-run is not
 				// run again to wait out a load.
-				calls, _ := os.ReadFile(filepath.Join(fake, "calls"))
-				if got, want := strings.TrimSpace(string(calls)), "test -race -count=1 yardr.dev/yardr/internal/dispatch held=1"; got != want {
-					t.Errorf("go was run as:\n%s\nwant:\n%s", got, want)
+				if got := fakeLog(fake, "calls"); got != dispatchCall {
+					t.Errorf("go was run as:\n%s\nwant:\n%s", got, dispatchCall)
 				}
 			})
 		}
@@ -6004,11 +5475,7 @@ loadedmachine() {
 		// are four moments: before the first re-run, between the first and
 		// the second, between the second and the third, and after the last.
 		// A pair taken from the wrong moments judges the wrong line.
-		sampling, ok := strings.CutSuffix(probe, "\n\"$@\"\n")
-		if !ok {
-			t.Fatal("the probe no longer ends by running its arguments: move this case with it")
-		}
-		sampling += `
+		samplingPath := probeWith(t, `
 loadedmachine() {
   logged=$(grep -c '' "$FAKE/calls" 2>/dev/null) || :
   sample=$(sed -n "$((${logged:-0} + 1))p" "$FAKE/loads")
@@ -6016,11 +5483,7 @@ loadedmachine() {
   echo "$sample"
 }
 "$@"
-`
-		samplingPath := filepath.Join(t.TempDir(), "sampling.sh")
-		if err := os.WriteFile(samplingPath, []byte(sampling), 0o644); err != nil {
-			t.Fatal(err)
-		}
+`)
 		const (
 			early = "load 26.4 on 10 cores"
 			late  = "load 72.4 on 10 cores"
@@ -6052,9 +5515,9 @@ loadedmachine() {
 			t.Run(c.name, func(t *testing.T) {
 				t.Parallel()
 				dir := t.TempDir()
-				write(t, dir, "sampled.txt", leg)
+				writeFile(t, dir, "sampled.txt", leg)
 				fake, env := r1go(t)
-				write(t, fake, "loads", loads)
+				writeFile(t, fake, "loads", loads)
 				env = append(env, "FAKE_OVER=yardr.dev/yardr/internal/bdp yardr.dev/yardr/internal/dispatch yardr.dev/yardr/internal/pack")
 				if c.strict {
 					env = append(env, "YARDR_R1_STRICT=1")
@@ -6071,46 +5534,11 @@ loadedmachine() {
 				}
 				// Each package re-run once; the journal's order is the
 				// scheduler's where the re-runs overlap.
-				calls, _ := os.ReadFile(filepath.Join(fake, "calls"))
-				got := strings.Split(strings.TrimSpace(string(calls)), "\n")
-				slices.Sort(got)
-				wantCalls := []string{
+				wantCallsAnyOrder(t, fake, []string{
 					"test -race -count=1 yardr.dev/yardr/internal/bdp held=1",
 					"test -race -count=1 yardr.dev/yardr/internal/dispatch held=1",
 					"test -race -count=1 yardr.dev/yardr/internal/pack held=1",
-				}
-				if !slices.Equal(got, wantCalls) {
-					t.Errorf("go was run as:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(wantCalls, "\n"))
-				}
-			})
-		}
-	})
-
-	t.Run("unknown load and a load at the core count fail the run", func(t *testing.T) {
-		t.Parallel()
-		for _, c := range []struct {
-			name string
-			avg  string
-		}{
-			{"unreadable", "bogus"},
-			{"at the count", "10"},
-		} {
-			t.Run(c.name, func(t *testing.T) {
-				t.Parallel()
-				dir := t.TempDir()
-				write(t, dir, "stray.txt", "ok  \tyardr.dev/yardr/internal/dispatch\t1m1.2s\n")
-				_, env := r1go(t)
-				out, code := runEnv(t, dir, append(env,
-					"FAKE_OVER=yardr.dev/yardr/internal/dispatch",
-					"YARDR_TEST_LOADAVG="+c.avg, "YARDR_TEST_CORES=10"),
-					"packagebudget", "stray.txt", "go", "test", "-race", "./...")
-				if code != 1 {
-					t.Fatalf("exit %d, output %q, want exit 1", code, out)
-				}
-				want := "test: yardr.dev/yardr/internal/dispatch took 61.2 s with -race, 66.6 s alone, over the 60 s budget (docs/testing.md R1)"
-				if !strings.Contains(out, want+"\n") {
-					t.Errorf("output %q, want it to hold %q", out, want)
-				}
+				})
 			})
 		}
 	})
@@ -6193,15 +5621,7 @@ loadedmachine() {
 		// legflag sets the flag the race leg's command carries and says so in
 		// one line, only where the load made one. The probe here carries a
 		// function that shows the flag it set.
-		showing, ok := strings.CutSuffix(probe, "\n\"$@\"\n")
-		if !ok {
-			t.Fatal("the probe no longer ends by running its arguments: move this case with it")
-		}
-		showing += "\nshowleg() { legflag; echo \"legpar=[$legpar]\"; }\n\"$@\"\n"
-		showingPath := filepath.Join(t.TempDir(), "showing.sh")
-		if err := os.WriteFile(showingPath, []byte(showing), 0o644); err != nil {
-			t.Fatal(err)
-		}
+		showingPath := probeWith(t, "\nshowleg() { legflag; echo \"legpar=[$legpar]\"; }\n\"$@\"\n")
 		for _, c := range []struct {
 			name string
 			avg  string // the machine's one-minute load on 10 cores: quiet where empty, as scriptEnv pins it
@@ -6222,22 +5642,6 @@ loadedmachine() {
 					t.Errorf("exit %d, output %q, want exit 0 and %q", code, out, c.want)
 				}
 			})
-		}
-	})
-
-	t.Run("a re-run that fails fails the run", func(t *testing.T) {
-		t.Parallel()
-		dir := t.TempDir()
-		write(t, dir, "flaky.txt", "ok  \tyardr.dev/yardr/internal/dispatch\t61.2s\n")
-		_, env := r1go(t)
-		out, code := runEnv(t, dir, append(env, "FAKE_FAIL=1"),
-			"packagebudget", "flaky.txt", "go", "test", "-race", "./...")
-		if code != 1 {
-			t.Fatalf("exit %d, output %q, want exit 1", code, out)
-		}
-		want := "test: yardr.dev/yardr/internal/dispatch took 61.2 s with -race, over the 60 s budget (docs/testing.md R1), and its re-run alone failed"
-		if !strings.Contains(out, want+"\n") {
-			t.Errorf("output %q, want it to hold %q", out, want)
 		}
 	})
 
@@ -6284,13 +5688,13 @@ loadedmachine() {
 		} {
 			t.Run(c.name, func(t *testing.T) {
 				dir := t.TempDir()
-				write(t, dir, "wave.txt", leg)
+				writeFile(t, dir, "wave.txt", leg)
 				fake, env := r1go(t)
 				tmp := filepath.Join(t.TempDir(), "tmp with spaces")
 				if err := os.MkdirAll(tmp, 0o700); err != nil {
 					t.Fatal(err)
 				}
-				env = append(env, "FAKE_OVER=yardr.dev/yardr/internal/dispatch")
+				env = append(env, over)
 				env = append(env, "TMPDIR="+tmp)
 				env = append(env, c.env...)
 				timed := c.sleep != ""
@@ -6347,45 +5751,20 @@ loadedmachine() {
 				}
 				// Each package re-run once, with the leg's flags, inside
 				// its hold; the journal's order is the scheduler's.
-				calls, _ := os.ReadFile(filepath.Join(fake, "calls"))
-				got := strings.Split(strings.TrimSpace(string(calls)), "\n")
-				slices.Sort(got)
-				wantCalls := []string{
+				wantCallsAnyOrder(t, fake, []string{
 					"test -race -count=1 yardr.dev/yardr/internal/bdp held=1",
 					"test -race -count=1 yardr.dev/yardr/internal/dispatch held=1",
 					"test -race -count=1 yardr.dev/yardr/internal/pack held=1",
 					"test -race -count=1 yardr.dev/yardr/internal/store held=1",
-				}
-				if !slices.Equal(got, wantCalls) {
-					t.Errorf("go was run as:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(wantCalls, "\n"))
-				}
+				})
 			})
-		}
-	})
-
-	t.Run("a re-run that prints no seconds fails the run", func(t *testing.T) {
-		t.Parallel()
-		// A re-run that prints no seconds, cached where the leg's run was
-		// over budget, clears nothing: the leg saw an over-budget package
-		// the re-run did not clear.
-		dir := t.TempDir()
-		write(t, dir, "cached.txt", "ok  \tyardr.dev/yardr/internal/dispatch\t61.2s\n")
-		_, env := r1go(t)
-		out, code := runEnv(t, dir, append(env, "FAKE_CACHED=1"),
-			"packagebudget", "cached.txt", "go", "test", "-race", "./...")
-		if code != 1 {
-			t.Fatalf("exit %d, output %q, want exit 1", code, out)
-		}
-		want := "test: yardr.dev/yardr/internal/dispatch took 61.2 s with -race, over the 60 s budget (docs/testing.md R1), and its re-run alone failed"
-		if !strings.Contains(out, want+"\n") {
-			t.Errorf("output %q, want it to hold %q", out, want)
 		}
 	})
 
 	t.Run("a leg with nothing over budget runs nothing again", func(t *testing.T) {
 		t.Parallel()
 		dir := t.TempDir()
-		write(t, dir, "green.txt",
+		writeFile(t, dir, "green.txt",
 			"ok  \tyardr.dev/yardr/internal/cli\t51.2s\n"+
 				"ok  \tyardr.dev/yardr/internal/web\t32.4s\n"+
 				"ok  \tyardr.dev/yardr/contrib/isolated-yard\t118.3s\n"+
@@ -6396,7 +5775,7 @@ loadedmachine() {
 		if out, code := runEnv(t, dir, env, "packagebudget", "green.txt", "go", "test", "-race", "./..."); code != 0 || out != "" {
 			t.Errorf("exit %d, output %q, want exit 0 and no output", code, out)
 		}
-		if calls, _ := os.ReadFile(filepath.Join(fake, "calls")); len(calls) != 0 {
+		if calls := fakeLog(fake, "calls"); calls != "" {
 			t.Errorf("go was run as:\n%s\nwant no re-run", calls)
 		}
 	})
