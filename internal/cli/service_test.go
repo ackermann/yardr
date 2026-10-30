@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1084,6 +1085,128 @@ func TestWebStart(t *testing.T) {
 		return 7, nil, func() error { stopped = true; return nil }, nil
 	})
 	if _, err := run(t, a().rootCmd(), "web", "start"); err == nil || !strings.Contains(err.Error(), "stopped it") || !stopped {
+		t.Fatalf("err = %v, stopped = %v", err, stopped)
+	}
+
+	// A start with port 0 takes a free port: it waits on the spawned
+	// view's record and prints the bound addresses, not the :0 asked
+	// for. The listeners are real, so the printed addresses answer.
+	stub(t, &answers, realAnswers)
+	view, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer view.Close()
+	pages, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pages.Close()
+	bound, pagesBound := view.Addr().String(), pages.Addr().String()
+	cfg := &config.Config{Home: home}
+	var clear func()
+	stub(t, &spawn, func(_ []string, _ *config.Config, _ *longRunning, args []string) (int, <-chan error, func() error, error) {
+		if want := []string{"--addr", "127.0.0.1:0", "--pages-addr", "127.0.0.1:0"}; !slices.Equal(args, want) {
+			t.Errorf("started with %q, want %q", args, want)
+		}
+		var err error
+		if clear, err = kindOf(svcWeb).announce(cfg, map[string]any{"addr": bound, "pages_addr": pagesBound}); err != nil {
+			t.Fatal(err)
+		}
+		return os.Getpid(), nil, func() error { return nil }, nil
+	})
+	out, err = run(t, a().rootCmd(), "web", "start", "--addr", "127.0.0.1:0", "--pages-addr", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantText(t, out, "The web view: http://"+bound+"/", "The sandbox origin: http://"+pagesBound+"/")
+	for _, addr := range []string{bound, pagesBound} {
+		if _, port, _ := net.SplitHostPort(addr); port == "0" {
+			t.Errorf("printed %s, a port 0 ask, not a bound address", addr)
+		}
+		if !realAnswers(addr) {
+			t.Errorf("nothing answers on the printed %s", addr)
+		}
+	}
+	clear()
+
+	// The same as JSON: the bound addresses, not the :0 asked for.
+	out, err = run(t, a().rootCmd(), "web", "start", "--addr", "127.0.0.1:0", "--pages-addr", "127.0.0.1:0", "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("not JSON:\n%s", out)
+	}
+	if got["address"] != bound || got["url"] != "http://"+bound+"/" ||
+		got["pages_address"] != pagesBound || got["pages_url"] != "http://"+pagesBound+"/" {
+		t.Errorf("json = %v, want the bound addresses", got)
+	}
+	clear()
+
+	// The origin alone on port 0: a fixed view address waits as before,
+	// and the bound origin is printed beside it.
+	origin, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer origin.Close()
+	originBound := origin.Addr().String()
+	spawned := false
+	stub(t, &spawn, func(_ []string, _ *config.Config, _ *longRunning, _ []string) (int, <-chan error, func() error, error) {
+		spawned = true
+		var err error
+		if clear, err = kindOf(svcWeb).announce(cfg, map[string]any{"addr": "127.0.0.1:9000", "pages_addr": originBound}); err != nil {
+			t.Fatal(err)
+		}
+		return os.Getpid(), nil, func() error { return nil }, nil
+	})
+	stub(t, &answers, func(addr string) bool { return spawned && addr == "127.0.0.1:9000" })
+	out, err = run(t, a().rootCmd(), "web", "start", "--addr", "127.0.0.1:9000", "--pages-addr", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantText(t, out, "The web view: http://127.0.0.1:9000/", "The sandbox origin: http://"+originBound+"/")
+	if !realAnswers(originBound) {
+		t.Errorf("nothing answers on the printed %s", originBound)
+	}
+	clear()
+
+	// One that never says it runs is stopped before start returns, and
+	// the refusal names the log.
+	stopped = false
+	stub(t, &startWait, 10*time.Millisecond)
+	stub(t, &spawn, func([]string, *config.Config, *longRunning, []string) (int, <-chan error, func() error, error) {
+		return 7, nil, func() error { stopped = true; return nil }, nil
+	})
+	stub(t, &answers, func(string) bool { return false })
+	if _, err := run(t, a().rootCmd(), "web", "start", "--addr", "127.0.0.1:0"); err == nil ||
+		!strings.Contains(err.Error(), "did not say that it runs") ||
+		!strings.Contains(err.Error(), "stopped it") ||
+		!strings.Contains(err.Error(), home+"/web.log") || !stopped {
+		t.Fatalf("err = %v, stopped = %v", err, stopped)
+	}
+
+	// A fixed view port can answer before the view has recorded the
+	// sandbox's ephemeral port. Start waits for that record too, and
+	// stops a child that never records it.
+	stopped = false
+	stub(t, &spawn, func([]string, *config.Config, *longRunning, []string) (int, <-chan error, func() error, error) {
+		return 8, nil, func() error { stopped = true; return nil }, nil
+	})
+	checks := 0
+	stub(t, &answers, func(addr string) bool {
+		if addr != "127.0.0.1:9000" {
+			return false
+		}
+		checks++
+		return checks > 1
+	})
+	if _, err := run(t, a().rootCmd(), "web", "start", "--addr", "127.0.0.1:9000", "--pages-addr", "127.0.0.1:0"); err == nil ||
+		!strings.Contains(err.Error(), "did not say that it runs") ||
+		!strings.Contains(err.Error(), "stopped it") ||
+		!strings.Contains(err.Error(), home+"/web.log") || !stopped {
 		t.Fatalf("err = %v, stopped = %v", err, stopped)
 	}
 }

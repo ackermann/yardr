@@ -23,7 +23,11 @@ import (
 type webView struct {
 	// Addr is the address it listens on, as the listener gave it.
 	Addr string `json:"addr"`
-	PID  int    `json:"pid"`
+	// PagesAddr is the address its sandbox origin listens on, as that
+	// listener gave it, "" for a view from before the origin was
+	// recorded. A start with --pages-addr port 0 prints it.
+	PagesAddr string `json:"pages_addr,omitempty"`
+	PID       int    `json:"pid"`
 	// Unsafe is whether it was started with --unsafe.
 	Unsafe bool `json:"unsafe"`
 	// As is the user it acts as (--as, YARDR_WEB_AS or web_as), "" when it
@@ -58,13 +62,14 @@ type webView struct {
 func webViewsDir(cfg *config.Config) string { return cfg.WebViews() }
 
 // announceWeb records this process as a web view of the home listening on
-// addr, acting as the user as ("" for none) or verifying the tokens of
-// jwtFrom in JWT mode ("" for none), until clear is called. A view that acts
-// keeps its token in the record (token, "" for none): the record is a file
-// of mode 0600 in the home's own directory of them, which is where the
-// operator, and yardr web open for them, find it.
-func announceWeb(cfg *config.Config, addr string, unsafe bool, as, jwtFrom, token string) (clear func(), err error) {
-	fields := map[string]any{"addr": addr, "unsafe": unsafe, "as": as, "jwt_from": jwtFrom}
+// addr with its sandbox origin on pagesAddr, acting as the user as ("" for
+// none) or verifying the tokens of jwtFrom in JWT mode ("" for none), until
+// clear is called. A view that acts keeps its token in the record (token, ""
+// for none): the record is a file of mode 0600 in the home's own directory
+// of them, which is where the operator, and yardr web open for them, find
+// it.
+func announceWeb(cfg *config.Config, addr, pagesAddr string, unsafe bool, as, jwtFrom, token string) (clear func(), err error) {
+	fields := map[string]any{"addr": addr, "pages_addr": pagesAddr, "unsafe": unsafe, "as": as, "jwt_from": jwtFrom}
 	if token != "" {
 		fields["token"] = token
 	}
@@ -92,6 +97,17 @@ func webViews(cfg *config.Config) []webView {
 	}
 	slices.SortStableFunc(views, func(a, b webView) int { return a.Started.Compare(b.Started) })
 	return views
+}
+
+// webPagesAddr is the sandbox origin's address the running view of pid
+// recorded, "" when no running view is that pid or it recorded none.
+func webPagesAddr(cfg *config.Config, pid int) string {
+	for _, v := range webViews(cfg) {
+		if v.PID == pid {
+			return v.PagesAddr
+		}
+	}
+	return ""
 }
 
 // reach is the view in words: who can open it, and whom it acts as — or, in

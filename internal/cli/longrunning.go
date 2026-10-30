@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -578,11 +579,31 @@ var spawn = func(environ []string, cfg *config.Config, k *longRunning, args []st
 // startWait is how long a started one gets to be up.
 var startWait = 10 * time.Second
 
+// portZero reports whether addr asks for a free port: one with port 0,
+// which the listener replaces with the port it bound.
+func portZero(addr string) bool {
+	_, port, err := net.SplitHostPort(addr)
+	return err == nil && port == "0"
+}
+
+// recordAddr is the address the running one of pid recorded, "" when no
+// running one of the kind is that pid.
+func (k *longRunning) recordAddr(cfg *config.Config, pid int) string {
+	for _, r := range k.running(cfg) {
+		if r.PID == pid {
+			return r.Addr
+		}
+	}
+	return ""
+}
+
 // start starts one of the kind in the background and returns once it is
-// up: it listens on addr, or, for a kind that listens nowhere, holds its
-// file. Such a kind is started once: nothing tells a second from the first.
-func (k *longRunning) start(environ []string, cfg *config.Config, args []string, addr string) (int, error) {
-	if addr != "" && answers(addr) {
+// up: it listens on addr, or, for a kind that listens nowhere or needs a
+// record to name a bound address, its spawned pid appears in the kind's
+// running records. Such a kind is started once: nothing tells a second
+// from the first.
+func (k *longRunning) start(environ []string, cfg *config.Config, args []string, addr string, waitForRecord bool) (int, error) {
+	if addr != "" && !portZero(addr) && answers(addr) {
 		return 0, fmt.Errorf("something listens on %s already: a %s that runs, perhaps (http://%s/). --%s takes another port", addr, k.What, addr, k.Addr)
 	}
 	if run := k.running(cfg); addr == "" && len(run) > 0 {
@@ -593,7 +614,9 @@ func (k *longRunning) start(environ []string, cfg *config.Config, args []string,
 		return 0, err
 	}
 	up, did := func() bool { return answers(addr) }, "listen on "+addr
-	if addr == "" {
+	if addr == "" || portZero(addr) || waitForRecord {
+		// Without a listener address or with an ephemeral listener, use
+		// the running record as the readiness signal.
 		up, did = func() bool {
 			return slices.ContainsFunc(k.running(cfg), func(r instance) bool { return r.PID == pid })
 		}, "say that it runs"
@@ -705,17 +728,37 @@ are handed on to it.`, line, k.logName(), k.Name),
 				}
 			}
 			addr := k.addr(c.Flags())
-			pid, err := k.start(a.environ(), cfg, k.args(c.Flags()), addr)
+			waitForRecord := k.Name == svcWeb && portZero(c.Flags().Lookup("pages-addr").Value.String())
+			pid, err := k.start(a.environ(), cfg, k.args(c.Flags()), addr, waitForRecord)
 			if err != nil {
 				return err
 			}
+			shown := addr
+			if portZero(addr) {
+				// Start waited on this record; it is gone only when
+				// the serve ended with it.
+				if shown = k.recordAddr(cfg, pid); shown == "" {
+					return fmt.Errorf("the %s ended right after it started; see %s", k.What, k.Log(cfg))
+				}
+			}
+			pagesShown := ""
+			if k.Name == svcWeb && portZero(c.Flags().Lookup("pages-addr").Value.String()) {
+				pagesShown = webPagesAddr(cfg, pid)
+			}
 			res := map[string]any{"pid": pid, "log": k.Log(cfg)}
 			if addr != "" {
-				res["address"], res["url"] = addr, webURL(addr)
+				res["address"], res["url"] = shown, webURL(shown)
+				if pagesShown != "" {
+					res["pages_address"], res["pages_url"] = pagesShown, webURL(pagesShown)
+				}
 			}
 			return a.out(c.OutOrStdout(), res, func(w io.Writer) {
 				if addr != "" {
-					fmt.Fprintf(w, "The %s: %s\n\n", k.What, webURL(addr))
+					fmt.Fprintf(w, "The %s: %s\n", k.What, webURL(shown))
+					if pagesShown != "" {
+						fmt.Fprintf(w, "The sandbox origin: %s\n", webURL(pagesShown))
+					}
+					fmt.Fprintf(w, "\n")
 				}
 				fmt.Fprintf(w, "The %s runs in the background (pid %d) and logs to %s. To stop it: %s %s stop\n",
 					k.What, pid, k.Log(cfg), yardrAt(cfg.Home), k.Name)

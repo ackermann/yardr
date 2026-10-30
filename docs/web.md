@@ -36,6 +36,11 @@ YARDR_WEB_ADDR=127.0.0.1:8793 yardr web start # the environment overrides the se
 yardr web start --addr 127.0.0.1:9000        # --addr still wins
 ```
 
+A port of 0 asks for a free port: with `--addr 127.0.0.1:0` the view
+listens where the machine has room, and the start prints the bound
+address (the serve logs it); `--pages-addr 127.0.0.1:0` does the same
+for the sandbox origin beside it.
+
 The setting takes what `--addr` takes on loopback (next) and refuses the
 rest with the same sentence. It moves nothing that runs: a view keeps its
 address until it is stopped and started again, and a login service keeps

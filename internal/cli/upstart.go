@@ -28,5 +28,5 @@ func (a *app) startPart(ctx context.Context, cfg *config.Config, k *longRunning,
 		a.loginPATHMerged = true
 		addLoginPATH(ctx)
 	}
-	return k.start(a.environ(), cfg, args, addr)
+	return k.start(a.environ(), cfg, args, addr, false)
 }

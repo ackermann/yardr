@@ -271,6 +271,9 @@ func TestServeTakesThePagesSetting(t *testing.T) {
 		if up[0].Addr != viewAddr {
 			t.Errorf("web serve listens on %s, want %s", up[0].Addr, viewAddr)
 		}
+		if views := webViews(cfg); len(views) != 1 || views[0].PagesAddr != pagesAddr {
+			t.Errorf("the record's sandbox origin is %+v, want %s", views, pagesAddr)
+		}
 		get := func(addr, target string, host string) (int, http.Header, string) {
 			t.Helper()
 			req, err := http.NewRequest("GET", "http://"+addr+target, nil)

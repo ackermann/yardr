@@ -41,7 +41,7 @@ var upgradeStopDaemon = stopDaemon
 // upgradeStartDaemon starts the home's daemon in the background; tests
 // replace it.
 var upgradeStartDaemon = func(environ []string, cfg *config.Config) (int, error) {
-	return kindOf(svcDaemon).start(environ, cfg, nil, "")
+	return kindOf(svcDaemon).start(environ, cfg, nil, "", false)
 }
 
 // upgradeExecutable is this process's binary; tests replace it.
