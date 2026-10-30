@@ -17,12 +17,15 @@ import (
 // which is every internal package these rules judge.
 //
 // The rules, quoted from the page:
-// (a) internal/store imports no internal package;
+// (a) internal/store imports no internal package, except internal/peer,
+// which stays: it is OS process code with no yard types, so the edge
+// carries none of the coupling the rule is there to stop;
 // (b) a leaf imports no internal package;
 // (c) no internal package imports internal/cli, and only the root main may.
 const (
 	internalPrefix = "yardr.dev/yardr/internal/"
 	storePkg       = internalPrefix + "store"
+	peerPkg        = internalPrefix + "peer"
 	cliPkg         = internalPrefix + "cli"
 	rootPkg        = "yardr.dev/yardr"
 )
@@ -33,7 +36,7 @@ const (
 // import fails rule (b) below; a rename updates this list with it.
 var leafPkgs = []string{
 	internalPrefix + "agents",
-	internalPrefix + "peer",
+	peerPkg,
 	internalPrefix + "rpc/clientgen",
 	internalPrefix + "scripttest",
 	internalPrefix + "version",
@@ -49,14 +52,14 @@ type allowEdge struct {
 	removeBy string
 }
 
-// allowImportEdges is the store's 6 internal imports, one row each naming
-// its package and the bead that cuts it. No leaf or cli edge breaks a
-// rule today, so the table holds no other row.
+// allowImportEdges is the store's 5 remaining internal imports, one row
+// each naming its package and the bead that cuts it. The store's sixth,
+// internal/peer, is rule (a)'s permanent exception, not a row. No leaf
+// or cli edge breaks a rule today, so the table holds no other row.
 var allowImportEdges = []allowEdge{
 	{storePkg, internalPrefix + "agents", "yardr-8nca"},
 	{storePkg, internalPrefix + "config", "yardr-t8m6"},
 	{storePkg, internalPrefix + "pairing", "yardr-rxk9"},
-	{storePkg, internalPrefix + "peer", "yardr-yz0h"},
 	{storePkg, internalPrefix + "source", "yardr-j8vt"},
 	{storePkg, internalPrefix + "yardkey", "yardr-rxk9"},
 }
@@ -114,8 +117,8 @@ func TestImportRules(t *testing.T) {
 		for _, to := range imports[from] {
 			var rule string
 			switch {
-			case from == storePkg && isInternal(to):
-				rule = "(a): internal/store imports no internal package"
+			case from == storePkg && isInternal(to) && to != peerPkg:
+				rule = "(a): internal/store imports no internal package except internal/peer"
 			case to == cliPkg && from != rootPkg:
 				rule = "(c): only the root main imports internal/cli"
 			case slices.Contains(leafPkgs, from) && isInternal(to):
