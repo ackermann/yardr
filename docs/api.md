@@ -5318,11 +5318,12 @@ What a give through a device writes says how it came, as its other writes
 do: the `noted` event of the answer, and `source_set` (for a user's own
 address or credential `user_set`) where the file is new, carry `data.via`.
 So does what an approval through a device writes: the `noted` event of the
-answer, and the event of the change the command made (`peer_allowed`,
-`source_set`, `source_granted`, `subscribed`, `user_set`, `user_added`,
-`user_removed`, `crew_defined`, `setting_changed`, `peer_renamed`,
-`originator_changed`, `timer_removed`), which also carries `approved` with
-the bead and the ask. A `source_set` that points a source at a file or sets
+answer, and the event of the change the command made (`peer_added`,
+`peer_allowed`, `peer_url_set`, `peer_intake`, `peer_identity_set`,
+`peer_removed`, `peer_renamed`, `source_set`, `source_granted`,
+`subscribed`, `user_set`, `user_added`, `user_removed`, `crew_defined`,
+`setting_changed`, `originator_changed`, `timer_removed`), which also
+carries `approved` with the bead and the ask. A `source_set` that points a source at a file or sets
 its mint command names it, a `user_set` that points a user at a file names
 it, and a `hook_blocked` names the file of the hook's secret: the stream
 tells these to a device of the operator alone, and to any other device the

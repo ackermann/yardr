@@ -447,6 +447,14 @@ peer laptop is never called now: it calls this yard and asks for what waits here
 incoming it posts to this yard under /peers/: …
 ```
 
+A crew member that wants the address moved proposes the command for the
+operator to approve, with a run ask (`yardr bead ask --run "peer set
+<name> --url <url>"`, [chat.md](chat.md#questions-for-you)): the card
+names the peer and the address now and proposed, each whole. The card is
+strong, so the operator approves it with a fresh sign-in in the hosted
+web, or at a terminal on the yard's machine; a paired device alone cannot
+approve it. Taking the address away (`--url ""`) stays in a terminal.
+
 As with a rename, the other yard hears nothing of it, and the link stays
 what it is. It is one write, which logs `peer_url_set`.
 
@@ -477,16 +485,21 @@ no longer (`--no-trust`), sending a user's asks to one no longer
 narrow, and anyone may.
 Like that check it is a line, not a wall.
 
-**A crew member proposes some of them, and the operator approves.** What a
-link that is made carries, where the beads a peer sends go, who a peer's
-crew member is in a source and removing the link go on a run ask ([chat.md](chat.md#questions-for-you)),
-as `peer rename` does: `peer allow <peer> --send <kinds>` and `--receive
-<kinds>` of any kind (and `--mail-limit`), `peer intake <peer> --depot <depot>
---flow <flow>`, `peer identity <peer> <crew> --source <source> --id <id>` and
-`peer rm <name>`.
-The operator approves the card from this yard, in a terminal or in footplate
-paired with it, and the yard runs the command as the operator, under the
-command's own check. The card says what the command does to the link:
+**A crew member proposes some of them, and the operator approves.** Linking
+a yard from an invite, what a link that is made carries, where the beads a
+peer sends go, who a peer's crew member is in a source, removing the link
+and moving where it is called go on a run ask ([chat.md](chat.md#questions-for-you)),
+as `peer rename` does: `peer add <name> <invite>`, `peer allow <peer>
+--send <kinds>` and `--receive <kinds>` of any kind (and `--mail-limit`),
+`peer intake <peer> --depot <depot> --flow <flow>`, `peer identity <peer>
+<crew> --source <source> --id <id>`, `peer rm <name>` and `peer set <name>
+--url <url>`.
+The operator approves the card from this yard, in a terminal or, where the
+card's weight permits, in footplate paired with it, and the yard runs the
+command as the operator, under the command's own check. `peer add` and
+`peer set` are strong: the operator approves them with a fresh sign-in in
+the hosted web, or at a terminal on the yard's machine; a paired device
+alone cannot approve them. The card says what the command does to the link:
 
 - `peer allow` says what the link will carry to the peer and take from it
   after the command, and what it carries and takes now, then which kinds the
@@ -526,9 +539,9 @@ reach cannot approve its own link: `ApproveAsk` is refused for a `bead@peer`,
 and an answer from a peer link cannot approve a run ask. The refusal keeps a
 peer from approving a change to the link it came through.
 
-Still typed in a terminal and refused as a card: `peer add`, a pairing, `peer
-set --url`, `--expose`, `--trust` and `--reach` (alone or beside a
-kind), and taking an id back (`peer identity --rm`). A command that only
+Still typed in a terminal and refused as a card: a pairing, `--expose`,
+`--trust` and `--reach` (alone or beside a kind), and taking an id back
+(`peer identity --rm`). A command that only
 narrows (`--no-send`, `--no-receive`, `peer intake --none`) needs no approval,
 and is refused as a card for that.
 
@@ -1208,11 +1221,14 @@ mail: takes 100 mails and asks an hour, and 800 files
   the limit: the kinds and the limit are two asks. A kind of any sort is
   askable, each way ([who may do what](#who-may-do-what)); `peer allow`
   with `--trust`, `--reach` or `--expose`, alone or beside either, is
-  refused as the operator's alone. So are `peer add`, a pairing and `peer
-  set --url`: who speaks and answers as a person of this
-  yard, and where another yard is, are the operator's to type in a
-  terminal. Renaming the link is proposed the same way (`peer rename
-  <old> <new>`), as removing it is (`peer rm <name>`).
+  refused as the operator's alone. So is a pairing: who speaks and answers
+  as a person of this yard is the operator's to type in a terminal.
+  Linking a yard from an invite is proposed the same way (`peer add <name>
+  <invite>`), as moving where it is called is (`peer set <name> --url
+  <url>`), renaming the link (`peer rename <old> <new>`) and removing it
+  (`peer rm <name>`). The `peer add` and `peer set` cards are strong: the
+  operator approves them with a fresh sign-in in the hosted web, or at a
+  terminal on the yard's machine.
 - **One limit for the link, whoever writes.** Mail from [a name trusted as
   a user of this yard](#trusting-a-name-as-a-person-of-this-yard) counts as
   any other mail of that peer, against the same number. The name is the
@@ -3145,13 +3161,13 @@ with is 401, as any request that is no peer's.
 
 | event | when | data |
 |---|---|---|
-| `peer_added` | `peer add`, and a pairing that ended with a link | `peer`, `key`, `url` |
+| `peer_added` | `peer add`, and a pairing that ended with a link | `peer`, `key`, `url`; `approved`, the `bead` and `ask` of the run ask the operator approved, when it was added that way |
 | `peer_pair_opened` | `peer pair` opened a pairing on this yard | `pairing`, its id; `expires`; `url`; `role` `host` |
 | `peer_paired` | a pairing ended with a link: with it `peer_added` and `peer_allowed`, in the same write | `peer`, `key`, `url`, `calls`, `role` (`host`: this yard was called; `joiner`: it called), `pairing` on the host |
 | `peer_pair_refused` | a pairing ended without one | `reason`: `wrong_code` (on the host after five, with `wrong_codes`; on the yard that called for each), `declined` (this yard's operator), `peer_declined` (the other's), `timed_out`, `closed` (`--end`, Ctrl+C), `already_peer`, `bad_name`, `own_key`; `role`; `pairing` on the host; `peer`, `calls` and `key` once the other yard is known |
-| `peer_removed` | `peer rm` | `peer`, `messages_dropped`, `identities` (each `source`, `id`, `crew`) that went with it, `crew` that could mail it and no longer can, `beads` it sent that now say their link is removed, `beads_away` of this yard's that were there and ended as `undelivered`, `asks` it asked that were dropped (each person they were for gets one mail from `yard` listing theirs) |
-| `peer_renamed` | `peer rename` | `from`, `to`; `peer`, the new name; `messages` that waited and moved with it; `crew` whose `peers` setting followed, `groups` whose `peer` setting did, `subscriptions`: who holds a subscription whose `peer=` or `speaker=` filter did |
-| `peer_url_set` | `peer set --url` | `peer`; `url` as it is now, absent for a peer that is no longer called; `was`, the URL it had, absent when it had none |
+| `peer_removed` | `peer rm` | `peer`, `messages_dropped`, `identities` (each `source`, `id`, `crew`) that went with it, `crew` that could mail it and no longer can, `beads` it sent that now say their link is removed, `beads_away` of this yard's that were there and ended as `undelivered`, `asks` it asked that were dropped (each person they were for gets one mail from `yard` listing theirs); `approved`, the `bead` and `ask` of the run ask the operator approved, when it was removed that way |
+| `peer_renamed` | `peer rename` | `from`, `to`; `peer`, the new name; `messages` that waited and moved with it; `crew` whose `peers` setting followed, `groups` whose `peer` setting did, `subscriptions`: who holds a subscription whose `peer=` or `speaker=` filter did; `approved`, the `bead` and `ask` of the run ask the operator approved, when it was renamed that way |
+| `peer_url_set` | `peer set --url` | `peer`; `url` as it is now, absent for a peer that is no longer called; `was`, the URL it had, absent when it had none; `approved`, the `bead` and `ask` of the run ask the operator approved, when it was set that way |
 | `peer_intake` | `peer intake` | `peer`; `depot`, `flow`, `limit`, `default`, or `none` (with `depot`, one intake's; without it, all); `approved`, the `bead` and `ask` of the run ask the operator approved, when it was set that way |
 | `peer_identity_set` | `peer identity --id` | `peer`, `crew`, `source`, `id`; `was`, the id the crew member had in the source, when it replaced another; `approved`, the `bead` and `ask` of the run ask the operator approved, when it was set that way. A `sender_unignored` follows when the id was on the source's ignore list |
 | `peer_identity_removed` | `peer identity --rm` | `peer`, `crew`, `source`, `id` taken back |
