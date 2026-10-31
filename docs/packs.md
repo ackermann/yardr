@@ -1576,7 +1576,7 @@ yardr knows the verbs alone:
 | verb | direction | in this pack |
 |---|---|---|
 | `makes` | source -> yard: an event makes a bead for a thread no open bead tracks | an issue opened makes an `issue` bead in `triage`; a pull request opened, marked ready or reopened a `pr` bead in `triage`, or in `review` when its author is an owner or a member of the repository (`association=`) or a bot (`sender=bot`: a kind, never a login, so every bot) |
-| `says` | source -> bead: an event reports an outcome to the bead that tracks its thread | the label `accepted` says `accepted`; new commits on a pull request say `pushed` in `contributor`, and in `review` and `ciwait` `pushed` when a bot pushed and `changes` when a person did; a merge says `merged`, a close `dropped`: for a pull request in `triage`, `review`, `ciwait`, `contributor`, `approved` and `decide`, for an issue in `triage`, `backlog`, `new`, `review`, `approved` and `decide`. No event of GitHub's CI says anything: the pull request's CI is the yard's own |
+| `says` | source -> bead: an event reports an outcome to the bead that tracks its thread | the label `accepted`, put on by a person, says `accepted`; new commits on a pull request that waited in `triage` say `unaccepted` in `review`, `ciwait` and `contributor`, whoever pushed and even if the label was removed; new commits on any other pull request say `pushed` in `contributor`, and in `review` and `ciwait` `pushed` when a bot pushed and `changes` when a person did; a merge says `merged`, a close `dropped`: for a pull request in `triage`, `review`, `ciwait`, `contributor`, `approved` and `decide`, for an issue in `triage`, `backlog`, `new`, `review`, `approved` and `decide`. No event of GitHub's CI says anything: the pull request's CI is the yard's own |
 | `hears` | bead -> source: a stage of the bead sets a status on the thread | an issue is closed when its bead reaches `merged` or `closed`, a pull request when its bead reaches `closed` |
 
 - **Triage is the pack's advice, and no rule of yardr.** Its stage file
@@ -1584,11 +1584,21 @@ yardr knows the verbs alone:
   before anything of a pull request is run anywhere. Which stage a bead
   starts in is a line of `makes`: a trusted author's pull request starts in
   `review`, and a copy of the pack may trust more authors, or all.
+- **A maintainer's yes is of one commit.** The label `accepted`, put on by a
+  person (one a bot puts moves nothing), moves a pull request's bead out of
+  `triage` and records the head the event named as the bead's `accepted_head`.
+  New commits on a pull request that waited in `triage` take its bead back to
+  `triage` from `review`, `ciwait` and `contributor`, whoever pushed and even
+  if the label was removed, so nothing of another commit is read or run until
+  a person has said yes to it again.
+  A pull request no maintainer accepted, a trusted author's or a bot's own,
+  keeps the lines below for its pushes.
 - **A reopened pull request gets a new bead.** Its close ended the old
   bead, so no open bead tracks the thread, and the lines of `makes` judge it
   again. `sender` is then whoever reopened it, so a person who reopens a bot's
   pull request leaves it in `triage`. The new bead starts with none of the old
-  one's notes, labels or heads (`reviewed_head`, `ci_head`, `merge_head`), and
+  one's notes, labels or heads (`accepted_head`, `reviewed_head`, `ci_head`,
+  `merge_head`), and
   the old bead stays closed with a link to the thread that only relates.
 - **`merge-ok` is the reviewer's to give for one kind of pull request.** A
   bump of Go modules from a bot (title opening `build(deps)`, diff changing
@@ -1606,7 +1616,11 @@ yardr knows the verbs alone:
   read it. The head tested is the one the reviewer read: it records the
   commit as the bead's `reviewed_head` before it reports `done`, and `pr-ci`
   holds a bead whose pull request has another head when it starts, or none
-  recorded, instead of running unread code. The script works as the yard's
+  recorded, instead of running unread code. For a pull request that waited
+  in `triage` the head must also be its `accepted_head`, the commit a
+  maintainer accepted; a bead moved out of `triage` by hand has none until a
+  maintainer records the commit they looked at (`yardr bead update <id> --meta
+  accepted_head=<sha>`). The script works as the yard's
   GitHub App, whose id and key file are the group's `env_file`, so a yard
   makes the group first and maps it
   (`--group pr-ci=pr-ci`, [line.md](line.md#the-yard-as-the-ci-of-a-pull-request)).
@@ -1618,6 +1632,8 @@ yardr knows the verbs alone:
   and a new session reads the new head; from `ciwait` it goes back to be
   read, and waits for CI on the new head after. A person's push says
   `changes`, as before, and waits in `contributor` for the next commits.
+  Both are for a pull request no maintainer accepted: on one that waited in
+  `triage`, every push says `unaccepted`, even after the label was removed.
 - **`contributor` is held by `outside`, a people group with no members.**
   A bead there waits for the pull request to change; nobody of the yard
   works it, and `yardr review` shows where it waits.

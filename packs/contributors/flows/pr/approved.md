@@ -41,8 +41,11 @@ CI on its new head: `yardr bead advance <id> --to ciwait` has the yard run
 them again (the bead is held, so `yardr bead unhold <id>` too), and the bead
 comes back here. The yard tests only a head a reviewer read, so for a head
 none did, `ciwait` holds the bead instead and its note says how to send it to
-`review`: it comes back here after the reviewer and the tests. The yard
-reports a bead merged or dropped and nothing else.
+`review`: it comes back here after the reviewer and the tests. For a pull
+request that waited in `triage` it tests only a head a maintainer accepted
+too, and a head that was not has the note say how to record it
+(`accepted_head`). The yard reports a bead merged or dropped and nothing
+else.
 
 What of the review reaches the contributor is the maintainer's to post, in
 their own words or the note's, approved text only: `yardr reply --crew

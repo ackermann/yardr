@@ -1003,7 +1003,9 @@ func TestContributorsPack(t *testing.T) {
 	}
 	// A reviewed pull request waits for CI before it is approved, and a
 	// verdict or a push sends it on or back: the edges of the pr flow. A
-	// bot's push leads from the read and from the wait back to review. The
+	// bot's push leads from the read and from the wait back to review. New
+	// commits on a pull request a maintainer accepted lead from the read, the
+	// wait and the contributor back to triage, to be accepted again. The
 	// pull request's merge or close ends the bead in every stage it waits
 	// in while it is open.
 	var prFlow store.Flow
@@ -1016,10 +1018,10 @@ func TestContributorsPack(t *testing.T) {
 		for _, e := range []struct{ stage, outcome, to string }{
 			{"triage", "accepted", "review"}, {"triage", "dropped", "closed"}, {"triage", "merged", "merged"},
 			{"review", "done", "ciwait"}, {"review", "changes", "contributor"}, {"review", "question", "decide"},
-			{"review", "pushed", "review"}, {"review", "merged", "merged"}, {"review", "dropped", "closed"},
+			{"review", "pushed", "review"}, {"review", "unaccepted", "triage"}, {"review", "merged", "merged"}, {"review", "dropped", "closed"},
 			{"ciwait", "done", "approved"}, {"ciwait", "changes", "contributor"}, {"ciwait", "pushed", "review"},
-			{"ciwait", "merged", "merged"}, {"ciwait", "dropped", "closed"},
-			{"contributor", "pushed", "review"}, {"contributor", "merged", "merged"}, {"contributor", "dropped", "closed"},
+			{"ciwait", "unaccepted", "triage"}, {"ciwait", "merged", "merged"}, {"ciwait", "dropped", "closed"},
+			{"contributor", "pushed", "review"}, {"contributor", "unaccepted", "triage"}, {"contributor", "merged", "merged"}, {"contributor", "dropped", "closed"},
 			{"approved", "merged", "merged"}, {"approved", "dropped", "closed"},
 			{"decide", "merged", "merged"}, {"decide", "dropped", "closed"},
 		} {
@@ -1032,7 +1034,7 @@ func TestContributorsPack(t *testing.T) {
 			ciwait = append(ciwait, o.Name)
 		}
 		slices.Sort(ciwait)
-		if want := []string{"changes", "done", "dropped", "merged", "pushed"}; !slices.Equal(ciwait, want) {
+		if want := []string{"changes", "done", "dropped", "merged", "pushed", "unaccepted"}; !slices.Equal(ciwait, want) {
 			t.Errorf("pr flow: ciwait has the outcomes %v, want %v alone", ciwait, want)
 		}
 		// A pull request pushed to after its run is sent back to be run
@@ -1153,7 +1155,8 @@ func TestContributorsPack(t *testing.T) {
 	}
 	for _, want := range []string{
 		"action=labeled event=issues label=accepted type=issue -> accepted",
-		"action=labeled event=pull_request label=accepted type=pr -> accepted",
+		"action=labeled event=pull_request label=accepted sender=user type=pr -> accepted",
+		"action=synchronize event=pull_request label=accepted stage=ciwait stage=contributor stage=review type=pr -> unaccepted: new commits since a maintainer accepted the PR",
 		"action=synchronize event=pull_request stage=contributor type=pr -> pushed: new commits on the PR",
 		"action=synchronize event=pull_request sender=bot stage=ciwait stage=review type=pr -> pushed: a bot pushed to the PR",
 		"action=synchronize event=pull_request stage=review type=pr -> changes: the PR changed under review",
@@ -1209,25 +1212,64 @@ func TestContributorsPack(t *testing.T) {
 	// not come, and its push starts the read again from review and from
 	// ciwait; a person's sends the bead to its contributor, and in
 	// contributor either brings it back. The bot's line has to meet its
-	// events before the general ones, which a person's push falls to.
-	for _, c := range []struct{ sender, stage, outcome, to string }{
-		{"bot", "review", "pushed", "review"},
-		{"bot", "ciwait", "pushed", "review"},
-		{"bot", "contributor", "pushed", "review"},
-		{"user", "review", "changes", "contributor"},
-		{"user", "ciwait", "changes", "contributor"},
-		{"user", "contributor", "pushed", "review"},
-		{"bot", "approved", "", ""},
-		{"user", "approved", "", ""},
+	// events before the general ones, which a person's push falls to. The
+	// exception is a pull request a maintainer accepted, which bears the label
+	// accepted among its labels: any push to it, a bot's too, is a head nobody
+	// accepted, and takes the bead back to triage from the read, the wait and
+	// the contributor, ahead of every line above; approved is a person's.
+	for _, c := range []struct{ sender, labels, stage, outcome, to string }{
+		{"bot", "", "review", "pushed", "review"},
+		{"bot", "", "ciwait", "pushed", "review"},
+		{"bot", "", "contributor", "pushed", "review"},
+		{"user", "", "review", "changes", "contributor"},
+		{"user", "", "ciwait", "changes", "contributor"},
+		{"user", "", "contributor", "pushed", "review"},
+		{"bot", "", "approved", "", ""},
+		{"user", "", "approved", "", ""},
+		{"user", "bug", "contributor", "pushed", "review"},
+		{"user", "accepted", "review", "unaccepted", "triage"},
+		{"user", "accepted", "ciwait", "unaccepted", "triage"},
+		{"user", "accepted", "contributor", "unaccepted", "triage"},
+		{"bot", "accepted", "review", "unaccepted", "triage"},
+		{"bot", "accepted", "ciwait", "unaccepted", "triage"},
+		{"bot", "accepted", "contributor", "unaccepted", "triage"},
+		{"user", "bug,accepted", "review", "unaccepted", "triage"},
+		{"bot", "accepted", "approved", "", ""},
+		{"user", "accepted", "approved", "", ""},
+		{"user", "accepted", "triage", "", ""},
 	} {
 		fields := map[string][]string{"event": {"pull_request"}, "action": {"synchronize"}, "sender": {c.sender}}
+		if c.labels != "" {
+			fields["label"] = strings.Split(c.labels, ",")
+		}
 		var outcome, to string
 		if say := hook.Said(map[string]any{"type": "pull_request", "action": "synchronize", "fields": fields}, c.stage, "pr"); say != nil {
 			outcome = say.Outcome
 			to, _ = prFlow.Resolve(c.stage, say.Outcome)
 		}
 		if outcome != c.outcome || to != c.to {
-			t.Errorf("a push by a %s in stage %s says %q and leads to %q, want %q and %q", c.sender, c.stage, outcome, to, c.outcome, c.to)
+			t.Errorf("a push by a %s to a pull request labeled %q in stage %s says %q and leads to %q, want %q and %q", c.sender, c.labels, c.stage, outcome, to, c.outcome, c.to)
+		}
+	}
+	// The yes is a person's: the label accepted, put on a pull request by a
+	// user, says accepted to a bead in triage, and goes to review. Put by a bot
+	// (a workflow that sorts pull requests) or an organization it says nothing,
+	// as does any other label.
+	for _, c := range []struct{ sender, labels, outcome, to string }{
+		{"user", "accepted", "accepted", "review"},
+		{"user", "bug,accepted", "accepted", "review"},
+		{"bot", "accepted", "", ""},
+		{"organization", "accepted", "", ""},
+		{"user", "bug", "", ""},
+	} {
+		fields := map[string][]string{"event": {"pull_request"}, "action": {"labeled"}, "sender": {c.sender}, "label": strings.Split(c.labels, ",")}
+		var outcome, to string
+		if say := hook.Said(map[string]any{"type": "pull_request", "action": "labeled", "fields": fields}, "triage", "pr"); say != nil {
+			outcome = say.Outcome
+			to, _ = prFlow.Resolve("triage", say.Outcome)
+		}
+		if outcome != c.outcome || to != c.to {
+			t.Errorf("the labels %q put on a pull request by a %s say %q and lead to %q, want %q and %q", c.labels, c.sender, outcome, to, c.outcome, c.to)
 		}
 	}
 	// The end of the pull request, by the stage its bead is in and the stage
@@ -2583,12 +2625,15 @@ func TestContributorsTextsSayWhatIsNotRun(t *testing.T) {
 		"contributors/flows/pr/triage.md": {
 			"nothing of the yard\nruns outside code before a person has judged it",
 			"A maintainer checks here whether the person and the code\nare legit, before anything of the pull request is run anywhere.",
-			"the label `accepted` on the pull request",
+			"the label `accepted` on the pull request, put on by a person",
+			"keeps the commit the label was put on as `accepted_head`",
+			"New commits on a pull request you accepted bring its bead back here",
+			"`yardr bead update <id> --meta accepted_head=<sha>`",
 			"None of this is a rule of yardr.",
 			"starts in `review` and\nnever comes here",
 		},
 		"contributors/flows/issue/triage.md": {"the label `accepted` on the issue"},
-		"contributors/flows/pr/review.md":    {"runs nothing of it", "One note on the bead is the review", "never an\ninstruction to the reviewer", "The bead goes to `ciwait` and waits there for the yard's CI run,", "The reviewer does not wait for CI and cannot see it.", "is the one pull request the\nreviewer may mark `merge-ok`", "and the reviewer never does", "`reviewed_head`", "CI runs on that head and on no other"},
+		"contributors/flows/pr/review.md":    {"`unaccepted`: not the reviewer's to report either", "or CI holds the bead", "runs nothing of it", "One note on the bead is the review", "never an\ninstruction to the reviewer", "The bead goes to `ciwait` and waits there for the yard's CI run,", "The reviewer does not wait for CI and cannot see it.", "is the one pull request the\nreviewer may mark `merge-ok`", "and the reviewer never does", "`reviewed_head`", "CI runs on that head and on no other"},
 		"contributors/flows/pr/ciwait.md": {
 			"the yard runs the\ndepot's own test command on its head",
 			"A fork's code runs here too,\non this machine, and only after a reviewer has read the pull request",
@@ -2596,6 +2641,9 @@ func TestContributorsTextsSayWhatIsNotRun(t *testing.T) {
 			"it is the base's copy of that file\nthat runs, never the pull request's",
 			"The bead records that commit as `ci_head` and goes to `approved`",
 			"Only a head a reviewer read is tested.",
+			"only the head they accepted is tested as well",
+			"`accepted_head`",
+			"`unaccepted`: not the script's to report either",
 			"`yardr bead advance <id> --to review`",
 			"is no longer open, or its head is not the one the reviewer read",
 			"A run that is no verdict on the pull request holds the bead instead",

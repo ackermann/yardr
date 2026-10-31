@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -67,6 +68,16 @@ const (
 	// pull_request (or review) event for it gave it: what CI must have run
 	// on for its conclusion to count.
 	metaPRHead = "pr_head"
+	// metaAcceptedHead is the head commit an event told when the source said
+	// accepted and the bead moved on it: the commit a maintainer accepted the
+	// pull request at (the contributors pack's triage stage). Unlike pr_head it
+	// stays what was accepted when the pull request is pushed to, and pr-ci
+	// tests a pull request that waited in triage at this commit and no other.
+	metaAcceptedHead = "accepted_head"
+	// outcomeAccepted is the outcome whose move records metaAcceptedHead.
+	outcomeAccepted = "accepted"
+	// outcomeUnaccepted returns a changed pull request head to triage.
+	outcomeUnaccepted = "unaccepted"
 
 	// metaPRURL, metaPRNumber and metaPRHeadRepo bind the train to one pull
 	// request: its URL, its number, and the repository its head branch is
@@ -97,7 +108,7 @@ type ruleEvent struct {
 	at               time.Time
 	hook             string // the hook that recorded it
 	data             map[string]any
-	typ              string
+	typ, action      string
 	sha, train       string
 	repo, number     string
 	headRepo, source string
@@ -128,7 +139,7 @@ func readRuleEvent(e store.Event, decl *source.Declaration) ruleEvent {
 	}
 	thread, _ := e.Data["thread"].(map[string]any)
 	who, _ := e.Data["actor"].(map[string]any)
-	ev := ruleEvent{seq: e.Seq, at: e.At, hook: str(e.Data["hook"]), data: e.Data, typ: str(e.Data["type"]),
+	ev := ruleEvent{seq: e.Seq, at: e.At, hook: str(e.Data["hook"]), data: e.Data, typ: str(e.Data["type"]), action: str(e.Data["action"]),
 		source: str(e.Data["source"]), sha: field("head_sha"), train: field("train"),
 		repo: field("repo"), number: field("number"), headRepo: field("head_repo"),
 		threadURL: str(thread["url"]), actor: str(who["id"])}
@@ -145,6 +156,76 @@ func readRuleEvent(e store.Event, decl *source.Declaration) ruleEvent {
 		}
 	}
 	return ev
+}
+
+// unacceptedPullRequestHead finds the pack's unaccepted line for a new head
+// on a pull request that waited in triage. The label is usually still on the
+// pull request, but the recorded acceptance must keep working if it was
+// removed. Newer beads keep triage history in rounds, and older ones in
+// visited; pull requests with neither keep their ordinary routes.
+func unacceptedPullRequestHead(h *store.Hook, bead *store.Bead, ev ruleEvent) *store.Say {
+	if bead.Type != "pr" || ev.typ != "pull_request" || ev.action != "synchronize" || !ev.tellsHead {
+		return nil
+	}
+	if _, triaged := bead.Rounds["triage"]; !triaged && !slices.Contains(bead.Visited, "triage") {
+		return nil
+	}
+	accepted, _ := bead.Metadata[metaAcceptedHead].(string)
+	if accepted != "" && ev.sha != "" && strings.EqualFold(accepted, ev.sha) {
+		return nil
+	}
+
+	// Match the declarative outcome the pack already gives a changed accepted
+	// head, without adding a label to the event that is logged as evidence.
+	data := maps.Clone(ev.data)
+	fields, _ := data["fields"].(map[string]any)
+	fields = maps.Clone(fields)
+	if fields == nil {
+		fields = map[string]any{}
+	}
+	fields["label"] = []string{"accepted"}
+	data["fields"] = fields
+	line := h.Said(data, bead.Stage, bead.Type)
+	if line == nil || line.Outcome != outcomeUnaccepted {
+		return nil
+	}
+	return line
+}
+
+// withoutAcceptedLabel copies the event fields before the pack table is
+// matched again, so the label on a pull request that never waited in triage
+// does not change the route its author already had.
+func withoutAcceptedLabel(data map[string]any) map[string]any {
+	data = maps.Clone(data)
+	fields, _ := data["fields"].(map[string]any)
+	fields = maps.Clone(fields)
+	if fields == nil {
+		return data
+	}
+	switch labels := fields["label"].(type) {
+	case []any:
+		kept := make([]any, 0, len(labels))
+		for _, label := range labels {
+			if name, _ := label.(string); name != "accepted" {
+				kept = append(kept, label)
+			}
+		}
+		fields["label"] = kept
+	case []string:
+		kept := make([]string, 0, len(labels))
+		for _, label := range labels {
+			if label != "accepted" {
+				kept = append(kept, label)
+			}
+		}
+		fields["label"] = kept
+	case string:
+		if labels == "accepted" {
+			delete(fields, "label")
+		}
+	}
+	data["fields"] = fields
+	return data
 }
 
 // rulePage bounds the events one read of the log returns.
@@ -324,6 +405,12 @@ func (d *Dispatcher) hookEvent(ctx context.Context, ev ruleEvent, pass *hookPass
 		return
 	}
 	line := h.Said(ev.data, bead.Stage, bead.Type)
+	if unaccepted := unacceptedPullRequestHead(h, bead, ev); unaccepted != nil {
+		line = unaccepted
+	} else if bead.Type == "pr" && ev.typ == "pull_request" && ev.action == "synchronize" &&
+		line != nil && line.Outcome == outcomeUnaccepted {
+		line = h.Said(withoutAcceptedLabel(ev.data), bead.Stage, bead.Type)
+	}
 	head := ev.tellsHead
 	// An event the table has no line for moves nothing and logs nothing.
 	// It is still judged when it tells the pull request's head or that CI
@@ -376,6 +463,13 @@ func (d *Dispatcher) hookEvent(ctx context.Context, ev ruleEvent, pass *hookPass
 	}
 	if head && ev.sha != "" && elsewhere == "" {
 		meta[metaPRHead] = ev.sha
+		// A maintainer's yes is of the commit its event names, written with
+		// the mark that the event was judged: a yes whose commit was not told
+		// leaves none, and what waits on it holds the bead for a person to
+		// record one.
+		if res != nil && res.action != "" && line != nil && line.Outcome == outcomeAccepted {
+			meta[metaAcceptedHead] = ev.sha
+		}
 	}
 	seen, err := d.Store.UpdateBead(ctx, bead.ID, store.BeadPatch{Metadata: meta}, store.Expect{}, actor)
 	if err != nil {

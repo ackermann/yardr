@@ -1765,7 +1765,7 @@ internal/rpc/user.go 1792 the user server, callers and pairing
 internal/source/declaration.go 1736 source declarations, credentials and calls
 internal/standin/standin.go 1540 the fake Linear, GitHub and edge APIs
 internal/store/asks.go 1790 ask and answer parsing and storage
-internal/store/beads.go 2671 bead CRUD, queries and dispatch reads
+internal/store/beads.go 2563 bead CRUD, queries and dispatch reads
 internal/store/crew.go 1585 crew records and their events
 internal/store/flows.go 1454 flow parsing and storage
 internal/store/graph.go 1316 the dependency graph and its queries

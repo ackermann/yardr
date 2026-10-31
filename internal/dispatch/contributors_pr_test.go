@@ -142,6 +142,28 @@ func authorIs(association string) func(map[string]any) {
 	}
 }
 
+// bearing edits the pull_request fixtures to a pull request that carries the
+// labels, as GitHub lists a pull request's labels in every event about it.
+func bearing(labels ...string) func(map[string]any) {
+	return func(m map[string]any) {
+		var list []any
+		for _, l := range labels {
+			list = append(list, map[string]any{"name": l})
+		}
+		m["pull_request"].(map[string]any)["labels"] = list
+	}
+}
+
+// labeledBy edits the pull_request fixtures to login, a user or a bot, putting
+// the label on the pull request.
+func labeledBy(label, login, kind string) func(map[string]any) {
+	return func(m map[string]any) {
+		m["action"], m["label"] = "labeled", map[string]any{"name": label}
+		bearing(label)(m)
+		pushedBy(login, kind)(m)
+	}
+}
+
 // ciRun edits the workflow_run and check_suite fixtures to a run that
 // concluded, on the pull request number, or on none when number is 0, as a
 // fork's runs are told.
@@ -219,6 +241,28 @@ func (r *ghDepot) reviewedBy(t *testing.T, group string) {
 	pr, everyone := "pr", store.OriginatorAny
 	_, err := r.api.AddRoute(ctx, store.Route{Stage: "review", Type: &pr, Originator: &everyone, Group: group}, "me")
 	must(t, err)
+}
+
+// peopleStages gives the stages of the pr flow that people work their groups
+// and routes, and returns the group of each. Triage, contributor and decide
+// are stages of people, crossed as the hook's crew member: the members of the
+// maintainers and of the decisions include it, as an import's must for the
+// label accepted to move a bead, and the contributor's group has none. Their
+// runner starts nothing of the yard's, as the daemon's manual one.
+func (r *ghDepot) peopleStages(t *testing.T) map[string]string {
+	t.Helper()
+	ctx := context.Background()
+	r.d.Runners["manual"] = &fakeRunner{dead: map[string]bool{}}
+	must(t, r.api.PutGroup(ctx, store.Group{Name: "maintainers", Runner: "manual", Limit: 50, Members: []string{"mckean", "yardmaster"}}, "me"))
+	must(t, r.api.PutGroup(ctx, store.Group{Name: "decisions", Runner: "manual", Limit: 50, Members: []string{"mckean", "yardmaster"}}, "me"))
+	must(t, r.api.PutGroup(ctx, store.Group{Name: "outside", Runner: "manual", Limit: 50}, "me"))
+	pr, everyone := "pr", store.OriginatorAny
+	groups := map[string]string{"triage": "maintainers", "contributor": "outside", "decide": "decisions"}
+	for stage, group := range groups {
+		_, err := r.api.AddRoute(ctx, store.Route{Stage: stage, Type: &pr, Originator: &everyone, Group: group}, "me")
+		must(t, err)
+	}
+	return groups
 }
 
 // sessionsFor are the sessions the daemon started for bead id, oldest first.
@@ -501,21 +545,7 @@ func TestContributorsClosedPullRequestEndsItsBead(t *testing.T) {
 	r := newContributorsYard(t)
 	r.reviewedBy(t, "pr-reviewers")
 	ctx := context.Background()
-	// Triage, contributor and decide are stages of people, crossed as the
-	// hook's crew member: the members of the maintainers and of the decisions
-	// include it, as an import's must for the label accepted to move a bead,
-	// and the contributor's group has none. Their runner starts nothing of the
-	// yard's, as the daemon's manual one.
-	r.d.Runners["manual"] = &fakeRunner{dead: map[string]bool{}}
-	must(t, r.api.PutGroup(ctx, store.Group{Name: "maintainers", Runner: "manual", Limit: 50, Members: []string{"mckean", "yardmaster"}}, "me"))
-	must(t, r.api.PutGroup(ctx, store.Group{Name: "decisions", Runner: "manual", Limit: 50, Members: []string{"mckean", "yardmaster"}}, "me"))
-	must(t, r.api.PutGroup(ctx, store.Group{Name: "outside", Runner: "manual", Limit: 50}, "me"))
-	pr, everyone := "pr", store.OriginatorAny
-	peopleGroup := map[string]string{"triage": "maintainers", "contributor": "outside", "decide": "decisions"}
-	for stage, group := range peopleGroup {
-		_, err := r.api.AddRoute(ctx, store.Route{Stage: stage, Type: &pr, Originator: &everyone, Group: group}, "me")
-		must(t, err)
-	}
+	peopleGroup := r.peopleStages(t)
 
 	// arrive makes the bead of a new pull request and takes it to stage as its
 	// events and reports would: a stranger's waits in triage, a bot's goes
@@ -597,6 +627,143 @@ func TestContributorsClosedPullRequestEndsItsBead(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// A maintainer's yes to a pull request from outside is of a commit, and only
+// a person's label says it: the label accepted put on it by a user moves its
+// bead out of triage and records the head the event named as accepted_head,
+// where one put by a bot, or another label, moves nothing. New commits on a
+// pull request that bears the label, whoever pushed and wherever the bead
+// waits (read, run, or with the contributor), take the bead back to triage
+// with the accepted head as it was, where pr_head follows the last event; a
+// person's label says yes again, to the head it then has. A pull request no
+// maintainer accepted keeps the lines for its author's pushes.
+func TestContributorsAcceptanceIsOfACommit(t *testing.T) {
+	t.Parallel()
+	r := newContributorsYard(t)
+	r.peopleStages(t)
+	ctx := context.Background()
+	number := 70
+	// outsider is the edits of an event about a pull request from a stranger.
+	outsider := func(n int, edits ...func(map[string]any)) []func(map[string]any) {
+		return append([]func(map[string]any){prEvent(n, "someone", "User"), authorIs("NONE")}, edits...)
+	}
+	// where is the stage bead id is in after the pass, with the heads it carries.
+	where := func(id string) (stage string, accepted, pr any) {
+		r.pass(t)
+		b := r.bead(t, id)
+		return b.Stage, b.Metadata["accepted_head"], b.Metadata["pr_head"]
+	}
+	// accept makes the bead of a new pull request from outside, which waits in
+	// triage with no head accepted, and has a person put the label on it at
+	// fixtureSHA: it is in review with that head accepted.
+	accept := func() (*store.Bead, int) {
+		number++
+		r.deliverJSON(t, "pull_request", "pull_request_opened", outsider(number)...)
+		b := r.madeIn(t, number, "triage")
+		if stage, accepted, _ := where(b.ID); accepted != nil {
+			t.Fatalf("%s in %s has accepted_head %v before anyone accepted it", b.ID, stage, accepted)
+		}
+		r.deliverJSON(t, "pull_request", "pull_request_opened", outsider(number, labeledBy("accepted", "a-maintainer", "User"))...)
+		if stage, accepted, pr := where(b.ID); stage != "review" || accepted != fixtureSHA || pr != fixtureSHA {
+			t.Fatalf("%s in %s with accepted_head %v and pr_head %v after the label, want review with both %s", b.ID, stage, accepted, pr, fixtureSHA)
+		}
+		return b, number
+	}
+
+	// The yes is a person's: a label a bot put, and another label, leave the
+	// bead in triage with nothing recorded.
+	number++
+	r.deliverJSON(t, "pull_request", "pull_request_opened", outsider(number)...)
+	waiting := r.madeIn(t, number, "triage")
+	r.deliverJSON(t, "pull_request", "pull_request_opened", outsider(number, labeledBy("accepted", "a-labeler[bot]", "Bot"))...)
+	r.deliverJSON(t, "pull_request", "pull_request_opened", outsider(number, labeledBy("bug", "a-maintainer", "User"))...)
+	if stage, accepted, _ := where(waiting.ID); stage != "triage" || accepted != nil {
+		t.Fatalf("%s in %s with accepted_head %v after a bot's label and another label, want triage with none", waiting.ID, stage, accepted)
+	}
+
+	// New commits in each stage the bead can wait in after the yes, from a
+	// person and from a bot: back to triage, nothing recorded anew.
+	var last *store.Bead
+	var lastN int
+	for _, stage := range []string{"review", "ciwait", "contributor"} {
+		for _, who := range []struct{ login, kind string }{{"someone", "User"}, {"an-app[bot]", "Bot"}} {
+			b, n := accept()
+			switch stage {
+			case "ciwait":
+				r.reviewerSays(t, b.ID, false)
+			case "contributor":
+				_, err := r.api.Done(ctx, b.ID, "changes", "needs work", store.Expect{Stage: "review"}, "me")
+				must(t, err)
+			}
+			if got := r.stageOf(t, b.ID); got != stage {
+				t.Fatalf("%s in %s, want %s", b.ID, got, stage)
+			}
+			r.deliverJSON(t, "pull_request", "pull_request_synchronize", outsider(n, bearing("accepted"), atHead(movedSHA), pushedBy(who.login, who.kind))...)
+			if got, accepted, pr := where(b.ID); got != "triage" || accepted != fixtureSHA || pr != movedSHA {
+				t.Errorf("%s pushed to by a %s in %s: %s in %s with accepted_head %v and pr_head %v, want triage with %s and %s",
+					b.ID, who.kind, stage, b.ID, got, accepted, pr, fixtureSHA, movedSHA)
+			}
+			if note := r.lastNote(t, b.ID); !strings.Contains(note, "new commits since a maintainer accepted the PR") {
+				t.Errorf("%s pushed to in %s: note of the move: %q", b.ID, stage, note)
+			}
+			if stage == "ciwait" {
+				// The yard's CI stopped with the move, and a report it still
+				// makes is refused: nothing approves the head nobody accepted.
+				if _, err := r.api.Done(ctx, b.ID, "done", "the tests passed", store.Expect{Stage: "ciwait"}, "me"); err == nil {
+					t.Errorf("a report from ciwait on %s was taken after it went back to triage", b.ID)
+				}
+			}
+			last, lastN = b, n
+		}
+	}
+
+	// The label may be removed before a later push. The bead's triage history
+	// still sends the changed head back for a person's acceptance.
+	for _, stage := range []string{"review", "ciwait", "contributor"} {
+		b, n := accept()
+		switch stage {
+		case "ciwait":
+			r.reviewerSays(t, b.ID, false)
+		case "contributor":
+			_, err := r.api.Done(ctx, b.ID, "changes", "needs work", store.Expect{Stage: "review"}, "me")
+			must(t, err)
+		}
+		r.deliverJSON(t, "pull_request", "pull_request_synchronize", outsider(n, bearing(), atHead(movedSHA))...)
+		if got, accepted, pr := where(b.ID); got != "triage" || accepted != fixtureSHA || pr != movedSHA {
+			t.Errorf("%s pushed to in %s after its accepted label was removed: %s with accepted_head %v and pr_head %v, want triage with %s and %s",
+				b.ID, stage, got, accepted, pr, fixtureSHA, movedSHA)
+		}
+	}
+
+	// Back in triage, the label is still on the pull request: a bot's label
+	// leaves it there, and a person's says yes to the head it now has.
+	r.deliverJSON(t, "pull_request", "pull_request_synchronize", outsider(lastN, labeledBy("size/M", "a-labeler[bot]", "Bot"), bearing("accepted", "size/M"), atHead(movedSHA))...)
+	if stage, accepted, _ := where(last.ID); stage != "triage" || accepted != fixtureSHA {
+		t.Fatalf("%s in %s with accepted_head %v after a bot labeled it, want triage with %s", last.ID, stage, accepted, fixtureSHA)
+	}
+	r.deliverJSON(t, "pull_request", "pull_request_opened", outsider(lastN, labeledBy("accepted", "a-maintainer", "User"), atHead(movedSHA))...)
+	if stage, accepted, _ := where(last.ID); stage != "review" || accepted != movedSHA {
+		t.Fatalf("%s in %s with accepted_head %v after a person's label, want review with %s", last.ID, stage, accepted, movedSHA)
+	}
+
+	// A pull request no maintainer accepted has no label: a trusted author's
+	// own pushes keep the lines they had, and nothing is recorded for it.
+	number++
+	r.deliverJSON(t, "pull_request", "pull_request_opened", prEvent(number, "a-member", "User"), authorIs("MEMBER"))
+	member := r.madeIn(t, number, "review")
+	for _, c := range []struct{ push, to string }{{"first", "contributor"}, {"second", "review"}} {
+		r.deliverJSON(t, "pull_request", "pull_request_synchronize", prEvent(number, "a-member", "User"), authorIs("MEMBER"), atHead(movedSHA))
+		if got, accepted, _ := where(member.ID); got != c.to || accepted != nil {
+			t.Fatalf("%s after its author's %s push: %s with accepted_head %v, want %s with none", member.ID, c.push, got, accepted, c.to)
+		}
+	}
+	// A matching label alone does not make a trusted author's pull request one
+	// that waited in triage, so their push keeps its existing route.
+	r.deliverJSON(t, "pull_request", "pull_request_synchronize", prEvent(number, "a-member", "User"), authorIs("MEMBER"), bearing("accepted"), atHead(movedSHA))
+	if got, accepted, _ := where(member.ID); got != "contributor" || accepted != nil {
+		t.Fatalf("%s after its author's push with the accepted label: %s with accepted_head %v, want contributor with none", member.ID, got, accepted)
 	}
 }
 

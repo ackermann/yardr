@@ -42,7 +42,9 @@ flows:
   # which the pack does not carry: docs/line.md, "Merging pull requests").
   # Nothing of the yard pushes to the pull request, and nothing of it runs on
   # the yard's machine until a reviewer has read it, and then only the depot's
-  # tests, in ciwait.
+  # tests, in ciwait. A maintainer's yes is of one commit: new commits on a
+  # pull request they accepted take its bead back to triage, and the tests run
+  # only at the commit that was accepted.
   #
   # What became of the pull request is the source's word, and it can come
   # while its bead waits in triage, review, ciwait, contributor or decide: a
@@ -55,8 +57,12 @@ flows:
       triage:      { group: maintainers,  file: flows/pr/triage.md,   outcomes: { accepted: review, dropped: closed, merged: merged }, manual: [review, closed] }
       # pushed is the source's word, never the reviewer's: a bot pushed while
       # the pull request was read, so the bead stays and is read again, as a
-      # new stay, at the new head (the says table has the line).
-      review:      { group: pr-reviewers, file: flows/pr/review.md,   outcomes: { done: ciwait, changes: contributor, question: decide, pushed: review, merged: merged, dropped: closed } }
+      # new stay, at the new head (the says table has the line). So is
+      # unaccepted: new commits on a pull request a maintainer accepted are a
+      # head nobody accepted, and the bead goes back to triage, from here and
+      # from ciwait and contributor, to be looked at again before the new head
+      # is read or run.
+      review:      { group: pr-reviewers, file: flows/pr/review.md,   outcomes: { done: ciwait, changes: contributor, question: decide, pushed: review, unaccepted: triage, merged: merged, dropped: closed } }
       # The yard's own CI: the depot's test command, run on the head the
       # reviewer read, by pr-ci, which says done or changes. Not the end of
       # review because the reviewer runs nothing, and the code runs only once
@@ -64,10 +70,10 @@ flows:
       # the new head. A merge or a close ends the bead, and the script's
       # report of a run that was of a pull request now over is refused, as
       # after a push, since the bead has left the stage.
-      ciwait:      { group: pr-ci, file: flows/pr/ciwait.md, outcomes: { done: approved, changes: contributor, pushed: review, merged: merged, dropped: closed } }
+      ciwait:      { group: pr-ci, file: flows/pr/ciwait.md, outcomes: { done: approved, changes: contributor, pushed: review, unaccepted: triage, merged: merged, dropped: closed } }
       # Waits for the pull request to change: nobody of the yard works it, and
       # a maintainer can still merge it on GitHub.
-      contributor: { group: outside,      outcomes: { pushed: review, dropped: closed, merged: merged } }
+      contributor: { group: outside,      outcomes: { pushed: review, unaccepted: triage, dropped: closed, merged: merged } }
       # Back to ciwait by hand when the head moved after its run: the yard
       # merges only a head its CI passed on.
       approved:    { group: maintainers,  file: flows/pr/approved.md, outcomes: { merged: merged, dropped: closed }, manual: [merged, closed, ciwait] }
@@ -159,14 +165,31 @@ sources:
       # merged (hears issue, below) finds the bead already terminal and
       # is refused quietly, as a close for a bead past deciding is.
       - { where: "event=issues action=closed stage=triage stage=backlog stage=new stage=review stage=approved stage=decide type=issue", outcome: dropped }
-      - { where: "event=pull_request action=labeled label=accepted type=pr", outcome: accepted }
+      # The yes is a person's: sender is a kind, as in makes, so the label put
+      # by a bot (a workflow that sorts or sizes pull requests) is no
+      # maintainer's. The yard records the head the event named as the bead's
+      # accepted_head, which the tests run at and no other. A label is read as
+      # the pull request carries it, so a bead that came back to triage
+      # (below) is accepted again by a person's next label on a pull request
+      # that still bears this one: taking it off and putting it on again is
+      # the plain way.
+      - { where: "event=pull_request action=labeled label=accepted sender=user type=pr", outcome: accepted }
+      # New commits on a pull request that waited in triage are a head nobody
+      # accepted, whoever pushed and wherever the bead waits: it goes back to
+      # triage, and nothing of the new head is read or run until a person has
+      # said yes again. The line catches a pull request that still bears the
+      # label; the dispatcher also uses the bead's triage history when the
+      # label was removed. This line comes before the trusted authors' and
+      # bots' lines: the first line an event matches counts.
+      - { where: "event=pull_request action=synchronize label=accepted stage=review stage=ciwait stage=contributor type=pr", outcome: unaccepted, note: "new commits since a maintainer accepted the PR" }
       - { where: "event=pull_request action=synchronize stage=contributor type=pr", outcome: pushed, note: "new commits on the PR" }
       # A bot's push while the pull request is read or waits on CI starts the
       # read again at its new head. A bot's rebase is the only push it makes,
       # so a bead sent to contributor would wait there for one that never
       # comes. sender is a kind, as in makes, so this is every bot; a
       # person's push is the general lines below, and the first line an event
-      # matches counts, so this one comes before them.
+      # matches counts, so this one comes before them. A pull request a
+      # maintainer accepted never gets here: its push is the line above.
       - { where: "event=pull_request action=synchronize sender=bot stage=review stage=ciwait type=pr", outcome: pushed, note: "a bot pushed to the PR" }
       - { where: "event=pull_request action=synchronize stage=review type=pr", outcome: changes, note: "the PR changed under review" }
       # CI is the yard's own, run by pr-ci, which reports through the yard's

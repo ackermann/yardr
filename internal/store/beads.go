@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"maps"
 	"regexp"
 	"slices"
 	"sort"
@@ -60,6 +59,9 @@ type Bead struct {
 	// rounds.go). It does not read the ETA's visited list, which stops at
 	// ETAVisitedCap stages. Absent on a bead from before the record.
 	Rounds map[string]int `json:"rounds,omitempty"`
+	// Visited is the stages the bead has reached, in first-visit order under
+	// ETAVisitedCap. It is the history older beads have when Rounds is absent.
+	Visited []string `json:"visited,omitempty"`
 	// Revision is an opaque token that changes on every real state change.
 	Revision string `json:"revision"`
 	// Train is the handle of the train the bead is a child of (see Family),
@@ -105,9 +107,6 @@ type beadRow struct {
 	StayClaimAt      *time.Time `json:"stay_claim_at,omitempty"`
 	StayClaimGroup   string     `json:"stay_claim_group,omitempty"`
 	StayClaimSession string     `json:"stay_claim_session,omitempty"`
-	// Visited is the stages the bead has reached, in first-visit order
-	// under ETAVisitedCap: what the send-back rule reads.
-	Visited []string `json:"visited,omitempty"`
 }
 
 type NewBead struct {
@@ -620,6 +619,9 @@ func (w *wtx) checkAgentCreate(ctx context.Context, f *Flow, b Bead, stage strin
 	}
 	if _, ok := b.Metadata[metaReviewedHead]; ok {
 		return fmt.Errorf("the session %s of a bead's agent may not create a bead with reviewed_head, whatever actor the command names; a reviewer records it on the pull request it read", sess.ID)
+	}
+	if _, ok := b.Metadata[metaAcceptedHead]; ok {
+		return fmt.Errorf("the session %s of a bead's agent may not create a bead with accepted_head, whatever actor the command names; a maintainer's acceptance is theirs", sess.ID)
 	}
 	if pin := PinnedFlow(&b); pin != "" {
 		return fmt.Errorf("the session %s of a bead's agent may not pin a new bead's flow (metadata flow %s), whatever actor the command names; file it without, and the yard chooses its flow", sess.ID, pin)
@@ -1276,46 +1278,12 @@ func (s *Store) openBeads(tx *bolt.Tx) ([]*beadRow, error) {
 	return rows, err
 }
 
-// clone is b sharing nothing with it but its Peer, which a row of openBeads
-// never has: a caller is free to change what a listing handed it.
-func (b *Bead) clone() Bead {
-	c := *b
-	c.Depot, c.Group, c.Session = copyOf(b.Depot), copyOf(b.Group), copyOf(b.Session)
-	c.CloseReason, c.CreatedBy, c.ClosedAt = copyOf(b.CloseReason), copyOf(b.CreatedBy), copyOf(b.ClosedAt)
-	c.Labels = slices.Clone(b.Labels)
-	c.Rounds = maps.Clone(b.Rounds)
-	if b.Metadata != nil {
-		c.Metadata = cloneJSON(b.Metadata).(map[string]any)
-	}
-	return c
-}
-
 func copyOf[T any](p *T) *T {
 	if p == nil {
 		return nil
 	}
 	v := *p
 	return &v
-}
-
-// cloneJSON copies a value as encoding/json decodes one into an any: the
-// maps and slices are new, and the rest cannot be changed in place.
-func cloneJSON(v any) any {
-	switch v := v.(type) {
-	case map[string]any:
-		m := make(map[string]any, len(v))
-		for k, e := range v {
-			m[k] = cloneJSON(e)
-		}
-		return m
-	case []any:
-		l := make([]any, len(v))
-		for i, e := range v {
-			l[i] = cloneJSON(e)
-		}
-		return l
-	}
-	return v
 }
 
 type BeadPatch struct {
@@ -1377,7 +1345,8 @@ func (w *wtx) setOriginator(ctx context.Context, id, to string, exp Expect, acto
 // may not change a bead's type or depot (checkFlowChange), may say
 // merge-ok only on its own bead and may not record merge_head on any
 // (checkMergeOK), may record reviewed_head only on its own (checkReviewedHead),
-// and may not record ci_head on any (checkCIHead).
+// and may not record ci_head or accepted_head on any (checkCIHead,
+// checkAcceptedHead).
 func (s *Store) UpdateBead(ctx context.Context, id string, p BeadPatch, exp Expect, actor string) (*Bead, error) {
 	if p.Title != nil && strings.TrimSpace(*p.Title) == "" {
 		return nil, fmt.Errorf("a bead needs a title")
@@ -1462,6 +1431,9 @@ func (s *Store) UpdateBead(ctx context.Context, id string, p BeadPatch, exp Expe
 				return "", nil, err
 			}
 			if err := w.checkCIHead(ctx, b, p); err != nil {
+				return "", nil, err
+			}
+			if err := w.checkAcceptedHead(ctx, b, p); err != nil {
 				return "", nil, err
 			}
 			if err := w.check(ctx, exp, b); err != nil {
@@ -2255,86 +2227,6 @@ func (w *wtx) checkFlowChange(ctx context.Context, b *beadRow, p BeadPatch) erro
 	}
 	return fmt.Errorf("bead %s: the session %s of a bead's agent may not change a bead's %s, which chooses the flow it goes by, whatever actor the command names; ask the yardmaster: yardr bead note %s \"which %s, and why\"",
 		b.ID, sess.ID, what, b.ID, what)
-}
-
-// labelMergeOK says the yard may merge the pull request a pr bead tracks
-// (the contributors pack's approved stage, merge-pr); metaMergeHead is the
-// head commit a maintainer's yes recorded for it.
-const (
-	labelMergeOK  = "merge-ok"
-	metaMergeHead = "merge_head"
-)
-
-// checkMergeOK refuses a bead's agent (beadAgent) a patch that records
-// merge_head, on any bead, its own included, and one that grants or takes the
-// merge-ok label on a bead its session does not own. merge_head is the commit
-// a maintainer said yes to, so it is a person's to write; the reviewer's part
-// is the label, for a bot's bump, which merge-pr merges at the head it has.
-// The label is the whole of the permission to merge the pull request, so an
-// agent that could say it on another bead could have the yard merge a pull
-// request nobody cleared. check alone lets a pane write any bead no session
-// owns, which a pull request waiting at approved is.
-func (w *wtx) checkMergeOK(ctx context.Context, b *beadRow, p BeadPatch) error {
-	_, yes := p.Metadata[metaMergeHead]
-	if !yes && !slices.Contains(p.AddLabels, labelMergeOK) && !slices.Contains(p.RemoveLabel, labelMergeOK) {
-		return nil
-	}
-	sess, err := beadAgent(w.Tx, ctx)
-	if err != nil || sess == nil || (sess.Bead == b.UUID && !yes) {
-		return err
-	}
-	return fmt.Errorf("bead %s: the session %s of a bead's agent may say merge-ok only on its own bead %s and may not record merge_head on any, whatever actor the command names; the reviewer says merge-ok on the pull request it read, and a maintainer's yes is theirs: yardr bead note %s \"why it is merge-ok\"",
-		b.ID, sess.ID, handlesIn(w.Tx).of(sess.Bead), b.ID)
-}
-
-// metaReviewedHead is the commit a reviewer read, as the reviewer records it
-// on the pull request's bead before it reports done (the contributors pack's
-// review stage): pr-ci runs the depot's tests on the head the bead names and
-// on no other.
-const metaReviewedHead = "reviewed_head"
-
-// checkReviewedHead refuses a bead's agent (beadAgent) a patch that records
-// reviewed_head on a bead its session does not own, as checkMergeOK does for
-// merge-ok. pr-ci runs a pull request's code only on the head the bead says
-// was read, so an agent that could say it on another bead could have the yard
-// run a head nobody read, as the operator. On its own bead the agent may: what
-// the field answers is a push between the read and the run, not a reviewer
-// that lies about what it read. A person may write it anywhere, a maintainer
-// who read the head themselves included.
-func (w *wtx) checkReviewedHead(ctx context.Context, b *beadRow, p BeadPatch) error {
-	if _, ok := p.Metadata[metaReviewedHead]; !ok {
-		return nil
-	}
-	sess, err := beadAgent(w.Tx, ctx)
-	if err != nil || sess == nil || sess.Bead == b.UUID {
-		return err
-	}
-	return fmt.Errorf("bead %s: the session %s of a bead's agent may record reviewed_head only on its own bead %s, whatever actor the command names; it says which head the reviewer read, and the reviewer records it on the pull request it read: yardr bead note %s \"which head should be read\"",
-		b.ID, sess.ID, handlesIn(w.Tx).of(sess.Bead), b.ID)
-}
-
-// metaCIHead is the commit the yard's own CI passed on, as the script that runs
-// the depot's tests on a pull request's head records it (the contributors
-// pack's ciwait stage, pr-ci), and as merge-pr takes it: the whole of the
-// pull request's CI.
-const metaCIHead = "ci_head"
-
-// checkCIHead refuses a bead's agent (beadAgent) a patch that records ci_head,
-// on any bead, its own included. merge-pr merges on ci_head as it finds it, so
-// an agent that could write it could have the yard merge a pull request nothing
-// ran the tests of, and the agent that reads a pull request's text is exactly
-// the one a pull request would try to talk into it. The script that ran the
-// tests writes it, as a person may.
-func (w *wtx) checkCIHead(ctx context.Context, b *beadRow, p BeadPatch) error {
-	if _, ok := p.Metadata[metaCIHead]; !ok {
-		return nil
-	}
-	sess, err := beadAgent(w.Tx, ctx)
-	if err != nil || sess == nil {
-		return err
-	}
-	return fmt.Errorf("bead %s: the session %s of a bead's agent may not record ci_head, whatever actor the command names; it says which head the yard's CI passed on, and the script that ran the tests writes it: yardr bead note %s \"why CI should run again\"",
-		b.ID, sess.ID, b.ID)
 }
 
 // closeBead is CloseBead's write inside the caller's transaction, for the

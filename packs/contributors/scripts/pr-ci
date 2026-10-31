@@ -26,6 +26,14 @@
 # the bead for a new review before anything of it is fetched or run. A bead with
 # no reviewed_head holds too, since nothing says which head was read.
 #
+# And, for a pull request that waited in triage, the head a maintainer accepted.
+# The bead carries that commit as its metadata accepted_head (the yard records
+# the head the accepting event named, and a maintainer who moved the bead by
+# hand records the one they read), and the head is tested only if it is that
+# commit: a head no person judged is not run, however the bead came back to
+# ciwait. A bead that never waited in triage, one the pack's own lines let into
+# review (a trusted author's, a bot's), is held to the reviewer's record alone.
+#
 # The code is the head GitHub says the pull request has now. It is fetched from
 # the depot's remote origin by the ref GitHub keeps for the pull request, a
 # fork's included (git fetch origin refs/pull/<n>/head), with the operator's own
@@ -312,6 +320,26 @@ case ${#head} in 40 | 64) ;; *) head= ;; esac
 [ -n "$head" ] || hold "GitHub gave a head for $url that is no commit sha; not running the tests."
 at=$(short "$head")
 number=${url##*/}
+
+# The head is the one a maintainer accepted, where a maintainer was asked, or
+# nothing of it is fetched or run. A pull request that waited in triage was let
+# in by a person looking at one commit: the bead carries it as accepted_head,
+# which is read as a full sha and compared without regard to case, as the
+# reviewer's record is. A head that differs, or none recorded, needs a person to
+# say they accept the head as it now is; the record is theirs to write, so the
+# command that does is named. Newer beads keep rounds, and older ones keep
+# visited, so both say whether triage was reached.
+triaged=$(printf '%s' "$bead" | jq -r 'if ((.rounds // {}) | has("triage")) or ((.visited // []) | index("triage") != null) then "yes" else empty end')
+if [ -n "$triaged" ]; then
+  accepted=$(printf '%s' "$bead" | jq -r '.metadata.accepted_head // empty')
+  case $accepted in *[!0-9a-fA-F]*) accepted= ;; esac
+  case ${#accepted} in 40 | 64) ;; *) accepted= ;; esac
+  accept="A maintainer who has read the head records the commit they accept: yardr bead update $BEAD --meta accepted_head=<sha>, then yardr bead unhold $BEAD."
+  [ -n "$accepted" ] ||
+    hold "$BEAD waited in triage and has no accepted_head that is a full commit sha (40 hex digits; 64 for a repository on sha256), so there is no telling that the head of $url, $head, is the one a maintainer accepted. Not running anything. $accept"
+  [ "$(lower "$accepted")" = "$(lower "$head")" ] ||
+    hold "head $head is not the accepted $accepted: needs a maintainer's acceptance. Nothing of $url was fetched or run. $accept"
+fi
 
 # The head is the one a reviewer read, or nothing of it is fetched or run. The
 # reviewer's record is taken as a full sha, as merge-pr takes merge_head, and

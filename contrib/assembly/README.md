@@ -208,11 +208,13 @@ a test holds equal, and is the yard's CI of it:
 GitHub Actions is off, so it runs the depot's test command on the pull
 request's head. It asks GitHub as the yard's App, as merge-pr does (the same
 `env_file` and mint, and the same text for the tracks link and the token, held
-equal by a test), reads the head and compares it with the bead's
-`reviewed_head`, the commit its reviewer recorded as the one it read (a full
-sha, compared without regard to case): another head, or none recorded, holds
-the bead, naming both commits and the command that sends it back to review,
-and nothing is fetched. Then it fetches `refs/pull/<n>/head` from the
+equal by a test), reads the head and compares it, for a bead that waited
+in `triage`, with the bead's `accepted_head`, the commit a maintainer accepted
+(the yard records it from the label; a full sha, compared without regard to
+case), and with the bead's `reviewed_head`, the commit its reviewer recorded as
+the one it read (likewise): another head, or none recorded, holds the bead,
+naming both commits and the command that records the acceptance or sends the
+bead back to review, and nothing is fetched. Then it fetches `refs/pull/<n>/head` from the
 depot's `origin` and checks that commit out, detached, in a worktree of its
 own (`<worktrees>/<depot>/<bead>-ci`), removed when the script ends. It runs
 `YARDR_TEST` there as merge-local does, with the base's copy of a test file

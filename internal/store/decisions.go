@@ -511,6 +511,9 @@ type BeadView struct {
 	// times an outcome brought it back to it. Absent on a bead from before
 	// the record, and on one of another yard's.
 	Rounds map[string]int `json:"rounds,omitempty"`
+	// Visited is the stored list of stages reached, which is the history on a
+	// bead from before rounds were recorded. Absent on one of another yard's.
+	Visited []string `json:"visited,omitempty"`
 	// Moves is the bead's recorded stage-move history, oldest first: its
 	// advanced events still in the log, at most beadMovesCap of them.
 	// Absent where none remain, and on one of another yard's.
@@ -599,7 +602,7 @@ func (s *Store) Bead(ctx context.Context, id string, viewer ...string) (*BeadVie
 	}
 	v := &BeadView{
 		ID: b.ID, Title: b.Title, Body: b.Body, Stage: b.Stage, Topic: topicOf(*b), Labels: b.Labels,
-		Notes: []BeadNote{}, Asks: []BeadAsk{}, Rounds: b.Rounds,
+		Notes: []BeadNote{}, Asks: []BeadAsk{}, Rounds: b.Rounds, Visited: b.Visited,
 	}
 	for _, n := range notes {
 		if n.Kind == NoteAsk || n.Kind == NoteAnswer {

@@ -36,6 +36,19 @@ lets a reviewer have it. A maintainer who has read the head themselves may
 instead record it (`yardr bead update <id> --meta reviewed_head=<sha>`) and
 unhold the bead.
 
+Where a maintainer was asked, only the head they accepted is tested as well.
+A pull request that waited in `triage` carries the commit the maintainer
+accepted as the bead's `accepted_head`: the yard records the head the label
+`accepted` was put on, and a maintainer who moved the bead by hand records the
+one they read (`yardr bead update <id> --meta accepted_head=<sha>`). The
+script compares it with the head GitHub says the pull request has before it
+fetches anything, and when they differ, or none is recorded, it holds the
+bead, names both heads, and fetches and runs nothing of it. A maintainer who
+has read the head records it as the commit they accept and
+`yardr bead unhold <id>` lets the run go on. A pull request that never waited
+in `triage` (a trusted author's, a bot's) has none, and is held to the
+reviewer's record alone.
+
 The bead leaves on how the run went, or on what comes of the pull request
 meanwhile:
 
@@ -53,6 +66,12 @@ meanwhile:
   rebase is the only push it makes, so the bead does not wait for another:
   it goes back to `review`, to be read at the new head, and waits here again
   after.
+- `unaccepted`: not the script's to report either. New commits arrived on a
+  pull request a maintainer accepted while the bead waited here or the tests
+  ran, and the source says so. The bead goes back to `triage`, and the run is
+  stopped with it: the yes was of another commit, and nothing of the new head
+  runs before a maintainer has said yes to it. A report the script still
+  makes is refused, as it is after a push.
 - `merged`: not the script's to report either. The pull request was merged
   on GitHub while the bead waited here or the tests ran, and the source says
   so. The bead goes to `merged`, and the run is stopped with it: there is no
@@ -65,7 +84,8 @@ A run that is no verdict on the pull request holds the bead instead, in
 this stage, with a note and no outcome: the tests could not run (they
 exited 2, a tool is missing), a signal ended them twice, the depot has no
 test command, the fetch, GitHub or the App's token failed, the pull request
-is no longer open, or its head is not the one the reviewer read. That is
+is no longer open, or its head is not the one the reviewer read (or, for a
+pull request a maintainer accepted, the one they accepted). That is
 the yard's to put right and not the contributor's: act on what the note
 says, then `yardr bead unhold <id>` runs the tests again. A pull request
 that is no longer open is usually the source's to say first (`merged`,

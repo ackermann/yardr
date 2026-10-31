@@ -12,7 +12,8 @@ package assembly
 // Each case has a yard of its own (a copy of the template yard, which is
 // cheaper than a run of the script), so the cases run beside one another. A
 // bead in ciwait carries reviewed_head, the commit its reviewer recorded
-// before it reported done, as the pr flow's bead does.
+// before it reported done, as the pr flow's bead does. One that waited in
+// triage first carries accepted_head too, the commit a maintainer accepted.
 
 import (
 	"context"
@@ -64,6 +65,11 @@ echo "test: ci.sh @ $(git rev-parse --short HEAD): pass"
 // reporting or holding. The daemon stops a script as soon as it has, so what is
 // to be taken away must be gone by then.
 const endsAt = `#!/bin/sh
+if [ "$1" = bead ] && [ "$2" = show ] && [ "$4" = --json ] && [ "${YARDR_TEST_LEGACY_TRIAGE-}" = "$3" ]; then
+  out=$({yardr} "$@") || exit $?
+  printf '%s\n' "$out" | jq 'del(.rounds)'
+  exit $?
+fi
 case "$1 $2" in
 "bead done" | "bead hold")
   printf '%s: in %s, checkout %s\n' "$1 $2" "$(pwd)" "$([ -e "${YARDR_WORKTREE}-ci" ] && echo there || echo gone)" >>"$FAKE_GH/ended"
@@ -85,7 +91,7 @@ func newCIYard(t *testing.T) *ciYard {
 	y, gh := mergeYard(t)
 	c := &ciYard{yard: y, gh: gh, origin: filepath.Join(t.TempDir(), "origin.git"), work: filepath.Join(t.TempDir(), "work")}
 	wrapper := filepath.Join(t.TempDir(), "yardr")
-	scripttest.Write(t, wrapper, strings.Replace(endsAt, "{yardr}", shellQuote(yardrBin), 1))
+	scripttest.Write(t, wrapper, strings.ReplaceAll(endsAt, "{yardr}", shellQuote(yardrBin)))
 	y.bin = wrapper
 	y.commit(y.repo, "ci.sh", baseCI)
 	y.tests("ci.sh")
@@ -123,6 +129,27 @@ func (c *ciYard) reviewed(id, head string) {
 	ctx, st := context.Background(), rpc.NewClient((&config.Config{Home: c.home}).Socket())
 	if _, err := st.UpdateBead(ctx, id, store.BeadPatch{Metadata: map[string]any{"reviewed_head": head}}, store.Expect{}, "test"); err != nil {
 		c.t.Fatal(err)
+	}
+}
+
+// accepted brings pr bead id to ciwait the way the pr flow does for a pull
+// request a maintainer let in: made in triage, accepted into review and
+// reported done by its reviewer (which records its own head, as reviewed does).
+// The commit the maintainer accepted is recorded as the yard records it for the
+// label; "-" records none, as for a bead a maintainer moved by hand.
+func (c *ciYard) accepted(id, url, head string) {
+	c.t.Helper()
+	c.prBeadIn(id, url, "triage", false)
+	ctx, st := context.Background(), rpc.NewClient((&config.Config{Home: c.home}).Socket())
+	if head != "-" {
+		if _, err := st.UpdateBead(ctx, id, store.BeadPatch{Metadata: map[string]any{"accepted_head": head}}, store.Expect{}, "test"); err != nil {
+			c.t.Fatal(err)
+		}
+	}
+	for _, outcome := range []struct{ stage, outcome string }{{"triage", "accepted"}, {"review", "done"}} {
+		if _, err := st.Done(ctx, id, outcome.outcome, "", store.Expect{Stage: outcome.stage}, "test"); err != nil {
+			c.t.Fatal(err)
+		}
 	}
 }
 
@@ -219,6 +246,7 @@ func TestPRCIJudgesTheHead(t *testing.T) {
 		stand    map[string]string // the stand-in's, besides the head; {sha} is the pull request's commit
 		head     string            // what GitHub says the head is at first, the pull request's commit unless written
 		reviewed string            // what the reviewer recorded, the head GitHub says unless written; {SHA} is the pull request's commit in capitals
+		accepted string            // what a maintainer accepted, for a bead that waited in triage (it did not unless written); {sha} and {SHA} as above
 		tests    string            // the depot's test command, ci.sh (a file of the base) unless written
 		opts     string            // more for the group's cmd
 		stage    string            // where the bead ends
@@ -230,6 +258,11 @@ func TestPRCIJudgesTheHead(t *testing.T) {
 	}{
 		{what: "green", files: map[string]string{"feature.txt": "new\n"}, reviewed: "{SHA}", stage: "approved",
 			wants: []string{"the tests passed on {url} at {sha} (the base's copy of ci.sh,", "ci_head={sha}", "Its last line: test: ci.sh @ {short}: pass"}},
+		// A pull request a maintainer accepted is tested at the commit they
+		// accepted, however the letters of the record are cased, and records that
+		// commit as it does any other.
+		{what: "green at the head a maintainer accepted", files: map[string]string{"feature.txt": "new\n"}, accepted: "{SHA}", stage: "approved",
+			wants: []string{"the tests passed on {url} at {sha} (the base's copy of ci.sh,", "ci_head={sha}"}},
 		// A command no file of the base has runs with sh -c, and gets the landing
 		// run's switch as the base's copy does. The group's cmd leaves the switch
 		// empty, as a stray one in the daemon's environment would: a depot's command
@@ -261,7 +294,11 @@ func TestPRCIJudgesTheHead(t *testing.T) {
 			id, num := "r-j", 20
 			sha := c.pull(num, tc.files)
 			fill := strings.NewReplacer("{url}", prURLn(num), "{sha}", sha, "{short}", sha[:7], "{SHA}", strings.ToUpper(sha))
-			c.prBeadIn(id, prURLn(num), "ciwait", false)
+			if tc.accepted != "" {
+				c.accepted(id, prURLn(num), fill.Replace(tc.accepted))
+			} else {
+				c.prBeadIn(id, prURLn(num), "ciwait", false)
+			}
 			c.reviewed(id, fill.Replace(or(tc.reviewed, or(tc.head, sha))))
 			c.tests(or(tc.tests, "ci.sh"))
 			opts := c.opts
@@ -429,6 +466,47 @@ func TestPRCIJudgesTheHead(t *testing.T) {
 			t.Errorf("GitHub was asked for CI, which is the yard's own:\n%v", ghCalls(t, c.gh))
 		}
 	})
+
+	// A pull request from outside that a maintainer accepted, then pushed to with
+	// the event of the push lost, so that the bead is still in ciwait with a
+	// reviewer's record of the new head: pr-ci holds it, fetching nothing, though
+	// the reviewer read exactly what GitHub says. The way back the hold gives is
+	// the maintainer's: they read the head, record it as the commit they accept
+	// and unhold the bead, and pr-ci tests it.
+	t.Run("a pull request pushed to after its acceptance", func(t *testing.T) {
+		c := newCIYard(t)
+		ctx, st := context.Background(), rpc.NewClient((&config.Config{Home: c.home}).Socket())
+		id, num := "r-a", 62
+		accepted := c.pull(num, map[string]string{"feature.txt": "accepted\n"})
+		c.accepted(id, prURLn(num), accepted)
+		pushed := c.pull(num, map[string]string{"feature.txt": "pushed\n"})
+		c.reviewed(id, pushed)
+		c.ci(id, mergeOpts{head: pushed}, nil)
+		what := "pushed to after its acceptance"
+		c.has(id, what, "ciwait", true)
+		c.noted(id, what, "head "+pushed+" is not the accepted "+accepted+": needs a maintainer's acceptance", "Nothing of "+prURLn(num)+" was fetched or run")
+		c.clean(id, what)
+		if c.fetched(pushed) {
+			t.Errorf("pr-ci fetched the head %s, which no maintainer accepted", pushed)
+		}
+		if b := c.beadOf(id); b.Metadata["ci_head"] != nil {
+			t.Errorf("ci_head = %v on a bead held for a head no maintainer accepted", b.Metadata["ci_head"])
+		}
+		if strings.Contains(c.log, "ci.sh of the base") {
+			t.Errorf("%s: the tests ran:\n%s", what, c.log)
+		}
+
+		if _, err := st.UpdateBead(ctx, id, store.BeadPatch{Metadata: map[string]any{"accepted_head": pushed}}, store.Expect{}, "test"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.SetHold(ctx, id, false, store.Expect{}, "test"); err != nil {
+			t.Fatal(err)
+		}
+		c.ci(id, mergeOpts{head: pushed}, nil)
+		if b := c.has(id, "tested at the head a maintainer then accepted", "approved", false); b.Metadata["ci_head"] != pushed {
+			t.Fatalf("ci_head = %v, want the head the maintainer accepted, %s", b.Metadata["ci_head"], pushed)
+		}
+	})
 }
 
 // What is no verdict on a pull request holds the bead, with a note that says
@@ -451,6 +529,8 @@ func TestPRCIHoldsWhatItCannotJudge(t *testing.T) {
 		stand     map[string]string // the stand-in's, besides the head
 		head      string            // what GitHub says the head is, the pull request's unless written
 		reviewed  string            // what the reviewer recorded, the head GitHub says unless written, - for nothing
+		accepted  string            // what a maintainer accepted, for a bead that waited in triage (it did not unless written), - for nothing
+		legacy    bool              // omit rounds and retain the stage list, as a bead from before rounds were recorded
 		tests     *string           // the depot's test command, ci.sh unless written
 		change    func(c *ciYard)   // changes the group for this run
 		wants     []string          // in its notes, {n}, {id} and {sha} being the pull request's number, the bead and the commit
@@ -466,6 +546,20 @@ func TestPRCIHoldsWhatItCannotJudge(t *testing.T) {
 			wants: []string{"{id} has no reviewed_head that is a full commit sha", "the head of https://github.com/o/r/pull/{n}, {sha}", "yardr bead advance {id} --to review"}},
 		{what: "a recorded head that is no sha, and not copied to the bead", reviewed: strings.Repeat("z", 40), asked: true, unfetched: true,
 			wants: []string{"{id} has no reviewed_head that is a full commit sha"}, not: []string{strings.Repeat("z", 40)}},
+		// A pull request that waited in triage is tested at the commit a
+		// maintainer accepted, whatever its reviewer read: another head, none
+		// recorded and a record that is no sha each hold it before the pull
+		// request is fetched, with the command that records an acceptance.
+		{what: "a pull request pushed to since a maintainer accepted it", accepted: headB, asked: true, unfetched: true,
+			wants: []string{"head {sha} is not the accepted " + headB + ": needs a maintainer's acceptance", "Nothing of https://github.com/o/r/pull/{n} was fetched or run", "yardr bead update {id} --meta accepted_head=<sha>, then yardr bead unhold {id}"}},
+		// Older beads lack rounds but keep their visited stages, which still
+		// show that the pull request waited in triage.
+		{what: "a pull request from before rounds were recorded", accepted: headB, legacy: true, asked: true, unfetched: true,
+			wants: []string{"head {sha} is not the accepted " + headB + ": needs a maintainer's acceptance", "Nothing of https://github.com/o/r/pull/{n} was fetched or run"}},
+		{what: "a pull request whose acceptance recorded no head", accepted: "-", asked: true, unfetched: true,
+			wants: []string{"{id} waited in triage and has no accepted_head that is a full commit sha", "the head of https://github.com/o/r/pull/{n}, {sha}", "yardr bead update {id} --meta accepted_head=<sha>"}},
+		{what: "an accepted head that is no sha, and not copied to the bead", accepted: strings.Repeat("z", 40), asked: true, unfetched: true,
+			wants: []string{"{id} waited in triage and has no accepted_head that is a full commit sha"}, not: []string{strings.Repeat("z", 40)}},
 		{what: "a depot with no test command", tests: &none,
 			wants: []string{"has no test command", "yardr depot add r ", "a pull request is not called green untested"}},
 		{what: "a link that is no pull request address", url: "https://github.com/o/r/pull/31/files",
@@ -496,8 +590,12 @@ func TestPRCIHoldsWhatItCannotJudge(t *testing.T) {
 			if tc.tests != nil {
 				tests = *tc.tests
 			}
-			c.prBeadIn(id, url, stage, false)
 			fill := strings.NewReplacer("{n}", strconv.Itoa(num), "{id}", id, "{sha}", sha)
+			if tc.accepted != "" {
+				c.accepted(id, url, fill.Replace(tc.accepted))
+			} else {
+				c.prBeadIn(id, url, stage, false)
+			}
 			if reviewed := or(tc.reviewed, or(tc.head, sha)); reviewed != "-" {
 				c.reviewed(id, fill.Replace(reviewed))
 			}
@@ -505,6 +603,9 @@ func TestPRCIHoldsWhatItCannotJudge(t *testing.T) {
 			envFile, opts := c.envFile, c.opts
 			if tc.change != nil {
 				tc.change(c)
+			}
+			if tc.legacy {
+				c.opts = strings.TrimSpace(c.opts + " YARDR_TEST_LEGACY_TRIAGE=" + id)
 			}
 			c.ci(id, mergeOpts{head: or(tc.head, sha)}, tc.stand)
 			c.envFile, c.opts = envFile, opts

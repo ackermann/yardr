@@ -1718,6 +1718,19 @@ merge-pr does (below), and:
 - refuses a bead that is not in `ciwait`, before it fetches anything: the
   stage is the one after a reviewer has read the pull request, and the yard
   runs a pull request's code nowhere before that, a fork's least of all;
+- reads the pull request's head from GitHub and holds the bead, for a pull
+  request that waited in `triage`, unless that is the commit a maintainer
+  accepted there, before it fetches anything. The yard records the commit as
+  the bead's `accepted_head` when the label `accepted`, put on by a person,
+  moves the bead out of `triage`: the head the event named. A maintainer who
+  moved the bead by hand records the one they looked at, `yardr bead update
+  <id> --meta accepted_head=<sha>`, and a bead with none recorded, or one
+  that is no full sha, is held the same way. The note names both commits and
+  the command, and once a maintainer has read the head and recorded it as the
+  one they accept, `yardr bead unhold <id>` runs the tests again. A bead's
+  agent may not write `accepted_head`, on its own bead or another's; a bead
+  that never waited in `triage` (a trusted author's or a bot's pull request,
+  made in `review`) has none and is held to the next check alone;
 - reads the pull request's head from GitHub and holds the bead unless that is
   the commit the bead's reviewer read, before it fetches anything. The
   reviewer records the commit as the bead's `reviewed_head` right before it
@@ -1760,8 +1773,15 @@ merge-pr does (below), and:
 A push to the pull request while the bead waits or the tests run moves the
 bead before any report, by the pack's lines for the source: a person's push is
 `changes`, to `contributor`, and a bot's is `pushed`, back to `review` to be
-read at the new head. The run is stopped with its session, and a report of it
-that still comes is refused. The script's own reads of the head, against
+read at the new head. On a pull request that waited in `triage`, every push
+is `unaccepted` instead, whoever pushed and whether or not the label
+`accepted` is still on it: the bead goes back to `triage` from `review`,
+`ciwait` and `contributor`, and nothing of the new head is read or run until
+a person has said yes to it. After looking at the new head, a maintainer adds
+the label `accepted` again; if it is still there, take it off and put it on
+again. A label put by a bot does not say yes. The run is stopped with its
+session, and a report of it that still comes is refused.
+The script's own reads of the head, against `accepted_head` and
 `reviewed_head` when it starts and against the commit it tested at the end of
 the run, are for a push whose event has not come yet or never will.
 
@@ -1799,7 +1819,8 @@ from their own terminal.
 
 The tests of a pull request run on the yard's machine, as whoever runs the
 yard, in no sandbox: a fork's code runs as the operator, after a reviewer has
-read it. That is the accepted cost of a CI that is free, and a wall around the
+read it, and for a pull request from outside only at the commit a maintainer
+accepted. That is the accepted cost of a CI that is free, and a wall around the
 run is a design of its own (yardr-design-w87q).
 
 ### Setup
@@ -1835,7 +1856,13 @@ reviewer recorded as `reviewed_head`, and the pack's reviewer role is what
 records it, so a yard that upgrades the script applies the pack again too. A
 pull request that waits in `ciwait` before then is held until its head has been
 read and recorded (`yardr bead advance <id> --to review`, then `yardr bead
-unhold <id>`).
+unhold <id>`). Likewise a pull request that waited in `triage` is tested only
+at its `accepted_head`, which the daemon records from the label once it is
+upgraded; applying the pack again brings the flow's `unaccepted` edges. The
+upgraded daemon sends a changed head back to `triage` even if the label was
+removed. One accepted before then has no `accepted_head`, and is held until a
+maintainer records the commit they accept, `yardr bead update <id> --meta
+accepted_head=<sha>`, and unholds it.
 
 ## Merging pull requests
 
