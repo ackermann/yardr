@@ -28,9 +28,9 @@ import (
 	"yardr.dev/yardr/internal/yardkey"
 )
 
-// The link (design yardr-hosted-050n, 3.2) is the one WebSocket a yard keeps
-// open to its edge, so that what reaches the edge for the yard comes down it
-// and needs no port of the yard's own. Its wire, as the edge defines it
+// The link is the one WebSocket a yard keeps open to its edge, so that what
+// reaches the edge for the yard comes down it and needs no port of the
+// yard's own. Its wire, as the edge defines it
 // (yardr-hosted, router/README.md, "The link"):
 //
 //	GET /edge/link        signed as an enrolling call is, with an empty body,
@@ -92,7 +92,7 @@ const (
 	RemoteAddr = "edge:0"
 )
 
-// The link's timing, as 3.2 has it. Each side pings every linkPing and
+// The link's timing. Each side pings every linkPing and
 // counts the socket dead after linkDead with nothing heard: under the 125
 // seconds Cloudflare waits on a silent origin. A dial that fails waits
 // linkBackoff, doubling to linkBackoffMax, with jitter, and the wait starts
@@ -159,7 +159,7 @@ type Link struct {
 	// and must not block it.
 	OnPushAck func(PushAck)
 
-	// The timing of 3.2; tests shorten it. Zero is the design's figure.
+	// The link's timing; tests shorten it. Zero keeps the constants above.
 	PingEvery, DeadAfter, HelloWithin time.Duration
 	Backoff, BackoffMax, Steady       time.Duration
 

@@ -373,8 +373,8 @@ func hostedFetch(s store.API, home string) store.HostedMint {
 	}
 }
 
-// A session's and a crew member's hosted-Google call is refused with
-// the 3.9 words before any mint, while the operator's same call mints
+// A session's and a crew member's hosted-Google call is refused with the
+// confirmation words before any mint, while the operator's same call mints
 // in-process through a stand-in edge and answers: no command is run,
 // the token the edge answers is the call's bearer and is in no error,
 // a second call takes it from the mint cache, and an ungranted source
@@ -425,8 +425,8 @@ func TestSourceCallHostedGoogle(t *testing.T) {
 		{Source: "google-drive", Call: "files", Actor: "yardmaster"},
 	} {
 		_, err := s.CallSource(ctx, call)
-		if err == nil || !strings.Contains(err.Error(), "in-context confirmation of 3.9") {
-			t.Fatalf("an agent caller's hosted-Google call = %v, want the 3.9 refusal", err)
+		if err == nil || !strings.Contains(err.Error(), "in-context confirmation is built") {
+			t.Fatalf("an agent caller's hosted-Google call = %v, want the confirmation refusal", err)
 		}
 		if _, data := lastCall(t, s); !strings.Contains(data, `"status":"hosted_google"`) {
 			t.Fatalf("its event = %s", data)
@@ -464,8 +464,8 @@ func TestSourceCallHostedGoogle(t *testing.T) {
 	if _, err := s.SetSource(ctx, "google-drive", store.SourceMintCommand, "env yardr edge mint-google "+srv.URL+" google-drive", "jo"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CallSource(ctx, store.SourceCall{Source: "google-drive", Call: "files", Session: sess.ID, Actor: "x"}); err == nil || !strings.Contains(err.Error(), "in-context confirmation of 3.9") {
-		t.Fatalf("a session's call through the hosted mint run by env = %v, want the 3.9 refusal", err)
+	if _, err := s.CallSource(ctx, store.SourceCall{Source: "google-drive", Call: "files", Session: sess.ID, Actor: "x"}); err == nil || !strings.Contains(err.Error(), "in-context confirmation is built") {
+		t.Fatalf("a session's call through the hosted mint run by env = %v, want the confirmation refusal", err)
 	}
 	if n := mints(); n != before+1 {
 		t.Fatalf("a refused agent call minted: %d mints, want %d", n, before+1)

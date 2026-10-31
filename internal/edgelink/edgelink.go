@@ -1,8 +1,8 @@
-// Package edgelink is the yard's side of the edge (design
-// yardr-hosted-050n): the service at https://my.yardr.dev that stands in
-// front of yards. It holds what yardr edge connect does: fetch the edge's
-// key, enrol this yard by a code a person approves in a browser, and ask
-// the edge to forget the yard again; and the link the server keeps open to
+// Package edgelink is the yard's side of the edge: the service at
+// https://my.yardr.dev that stands in front of yards. It holds what yardr
+// edge connect does: fetch the edge's key, enrol this yard by a code a
+// person approves in a browser, and ask the edge to forget the yard again;
+// and the link the server keeps open to
 // the edge once the yard is connected (Link, link.go). The edge's half is the router of the
 // yardr-hosted repository; this package is its client and knows no more of
 // it than the calls below.
@@ -440,10 +440,10 @@ type mintAnswer struct {
 	Refused       string   `json:"refused"`
 }
 
-// MintGoogle asks the edge for a Google access token for account (design
-// yardr-hosted-4dx0 3.4): POST /mint/google, signed with the yard's key to
-// the edge's. A refusal is a *Refused in the edge's words, whole; an answer
-// no signature of the edge's covers is ErrUnsigned, whatever it says.
+// MintGoogle asks the edge for a Google access token for account: POST
+// /mint/google, signed with the yard's key to the edge's. A refusal is a
+// *Refused in the edge's words, whole; an answer no signature of the edge's
+// covers is ErrUnsigned, whatever it says.
 func (c *Client) MintGoogle(ctx context.Context, edgeKey string, yard ed25519.PrivateKey, account string) (*GoogleMint, error) {
 	body, err := json.Marshal(map[string]string{"account": account})
 	if err != nil {

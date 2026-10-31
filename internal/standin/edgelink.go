@@ -16,7 +16,7 @@ import (
 	"yardr.dev/yardr/internal/yardkey"
 )
 
-// The edge's half of the link (design yardr-hosted-050n, 3.2), as the
+// The edge's half of the link, as the
 // router of yardr-hosted serves it at GET /edge/link (router/README.md, "The
 // link"): the signed upgrade with the yard's nonce, a challenge signed over
 // both nonces, the hello checked against the key the upgrade named, a

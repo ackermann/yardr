@@ -197,8 +197,7 @@ func startLink(ctx context.Context, c *config.Config, st store.API, l *edgelink.
 }
 
 // withoutPeers is h less /peers/: a linked yard's requests are not carried
-// through the edge (design yardr-hosted-050n, section 4), whose operator
-// would then read the peers' mail.
+// through the edge, whose operator would then read the peers' mail.
 func withoutPeers(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/peers" || strings.HasPrefix(r.URL.Path, "/peers/") {

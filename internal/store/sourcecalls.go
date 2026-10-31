@@ -72,15 +72,15 @@ const (
 	CallLimit      = "limit"
 	CallFromPeer   = "from_peer"
 	// CallHostedGoogle is an agent caller's hosted-Google call refused
-	// until the in-context confirmation of design yardr-hosted-4dx0 3.9
-	// exists (its 3.8 refusal, kept by G4 until G6 builds the gate).
+	// until the in-context confirmation exists: a person confirming the
+	// call before the agent reads what it returns (not built yet).
 	CallHostedGoogle = "hosted_google"
 )
 
 // HostedMint mints one hosted-Google token in-process: the token for
 // account at the edge addr, for the source the hosted mint names, and
 // when it expires. The server is one (internal/server, through
-// internal/edgelink, with the 3.2 scope check before the token is held);
+// internal/edgelink, with the scope check before the token is held);
 // the store knows only the shape, since it cannot call the edge package
 // (which reads the store's edge setting) and the yard's key is the
 // owning process's to hold. It is source.HostedFetch by another name.
@@ -1183,10 +1183,10 @@ func (s *Store) CallSource(ctx context.Context, req SourceCall) (*SourceAnswer, 
 		if why == "" && !caller.operator && hostedGoogleMint(d.MintArgv(s.home, src.MintCommand)) {
 			// An agent caller (a bead's session or a crew member) makes
 			// no hosted-Google call until the in-context confirmation
-			// of 3.9 exists: the operator's own typed call is the
-			// invocation, an agent's is not (3.8). A standing grant
-			// alone does not lift this.
-			why, status = fmt.Sprintf("a hosted-Google call by %s is refused until the in-context confirmation of 3.9 is built: the operator's own call mints through the hosted mint, and an agent's call waits on that confirmation", caller), CallHostedGoogle
+			// exists: the operator's own typed call is the invocation,
+			// an agent's is not. A standing grant alone does not lift
+			// this.
+			why, status = fmt.Sprintf("a hosted-Google call by %s is refused until the in-context confirmation is built: the operator's own call mints through the hosted mint, and an agent's call waits on that confirmation", caller), CallHostedGoogle
 		}
 		if why == "" && req.Note {
 			if note, why, status, err = caller.noteBead(w.Tx); err != nil {

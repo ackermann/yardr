@@ -1265,11 +1265,11 @@ const linkRemoteAddr = "edge:0"
 // The refusal comes after the request has crossed, so it says that too.
 //
 // Over the link from the edge the listener's reason does not hold: the
-// request came down the link. Which secrets cross is the yard's to say
-// (design yardr-hosted-050n 3.6), and only call can say it, since the
-// ask is in the body: crosses is its word that this giving is one the yard
-// takes down the link, and it passes false for every call it judges before the
-// body is read. hosted is the yard's hosted setting, read the same way: on
+// request came down the link. Which secrets cross is the yard's to say, and
+// only call can say it, since the ask is in the body: crosses is its word
+// that this giving is one the yard takes down the link, and it passes false
+// for every call it judges before the body is read. hosted is the yard's
+// hosted setting, read the same way: on
 // a hosted yard the operator's giving crosses, so a giving refused down the
 // link is a member's own, and its refusal names the operator's paired
 // device as the fix. On a hosted yard every secret crosses, for a device of the

@@ -13,9 +13,8 @@ import (
 )
 
 // GoogleMintSources are the sources the hosted mint mints for, with the
-// Google scopes each needs from the connection's granted set (design
-// yardr-hosted-4dx0 3.2): a source whose scope was not granted refuses at
-// its mint, before any token is held.
+// Google scopes each needs from the connection's granted set: a source
+// whose scope was not granted refuses at its mint, before any token is held.
 var GoogleMintSources = []string{"google-drive", "google-docs", "google-slides", "google-calendar"}
 
 var GoogleMintScopes = map[string][]string{
@@ -83,7 +82,7 @@ func MintGoogleThrough(ctx context.Context, st store.API, peerKey string, hc *ht
 
 // CheckGoogleScopes refuses a mint answer whose granted scopes miss what
 // source needs, naming the source, the missing scope and where to
-// reconnect: the 3.2 check every hosted mint makes before its token is
+// reconnect: the scope check every hosted mint makes before its token is
 // held, whose words the setup's probe and the in-process mint share.
 func CheckGoogleScopes(source, addr string, granted []string) error {
 	if err := CheckGoogleMintSource(source); err != nil {

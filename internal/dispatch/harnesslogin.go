@@ -20,7 +20,7 @@ import (
 )
 
 // The yard leads a harness's login itself when a crew member sits at its
-// login screen (yardr-302g). Design yardr-bwm2 3.5 had the yardmaster relay
+// login screen (yardr-302g). An earlier design had the yardmaster relay
 // `yardr harness login <kind> --json` to the person, but the yardmaster is
 // an agent of that harness, and it cannot start while the harness is logged
 // out: on a hosted yard nobody led the first login, and mail to the

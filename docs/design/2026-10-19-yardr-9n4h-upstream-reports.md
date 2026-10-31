@@ -44,7 +44,7 @@ A person's approval already has a shape. An ask is a question as data on a bead 
 
 ### 2.8. Hosted and self-hosted yards are both just yards
 
-Design yardr-bwm2 (hosted v0, [docs/design/2026-10-14-yardr-bwm2-hosted-v0.md](2026-10-14-yardr-bwm2-hosted-v0.md)) gives a hosted customer a whole yard of their own, of which they are the operator user, in a container we run; a self-hosted yard is the same yardr run by its own operator elsewhere. To a peer link both are ordinary yards: their operator adds our yard and approves what leaves it, our operator adds theirs and takes what comes. Who runs the machine changes nothing in sections 2.1 to 2.5, and no hosted-only road is needed for a hosted yard to report to us, or for us to report to anyone.
+Design yardr-bwm2 (hosted v0) gives a hosted customer a whole yard of their own, of which they are the operator user, in a container we run; a self-hosted yard is the same yardr run by its own operator elsewhere. To a peer link both are ordinary yards: their operator adds our yard and approves what leaves it, our operator adds theirs and takes what comes. Who runs the machine changes nothing in sections 2.1 to 2.5, and no hosted-only road is needed for a hosted yard to report to us, or for us to report to anyone.
 
 ### 2.9. What peering cannot carry, checked
 

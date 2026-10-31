@@ -215,7 +215,11 @@ it another at `/ready`, and the cap of three counts hosted and connected
 yards of any name. To change a yard's kind, leave it first — `yardr edge
 disconnect` for a connected yard, the operator's delete for a hosted one —
 then choose the other kind under the same name. Nothing converts in place
-and no data moves.
+and no data moves. The hook URLs carry the account and the yard's name, so
+they are the same across the change. The deliveries the edge kept for a
+connected yard follow its name and account and not its kind, but only a
+connected yard's link reads them, so a hosted yard under a former connected
+yard's name inherits none.
 
 The web view follows the browser's yard. A `GET` or `HEAD` of any page
 with `?yard=<name>` makes that yard the browser's: the edge checks that
@@ -231,9 +235,6 @@ cookie nor the parameter. A device's calls still pick their yard with
 The cost is that a cookie is the browser's and not a tab's: two tabs on
 two yards of one account share it, and the last `?yard=` visit decides
 for both. A subdomain per yard is the later answer and stays left out.
-
-What a hosted yard's name is made of — its objects, its lock, and what a
-change of kind keeps — is in [the design](design/2026-10-20-yardr-hosted-050n-one-edge.md#35-connecting-a-yard-one-command-approved-in-the-browser).
 
 ## While the yard is away: the queue
 

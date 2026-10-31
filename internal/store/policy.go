@@ -1169,11 +1169,11 @@ func memberAllowed(ctx context.Context, tx *bolt.Tx, sess *Session, actor string
 // mayWaitLogin refuses a wait registered from the pane of any agent but
 // the yardmaster: what a wait is handed is a value the operator typed into
 // a secret ask's field, told that no agent is shown it. The yardmaster leads
-// the login in its pane (design yardr-bwm2, 3.5) and the operator may lead
-// one from their own terminal; a bead's agent or another crew member that
-// registered a wait, and asked the operator for its input, would read what
-// the operator typed. It goes by the store's own records of the process
-// that called, as maySource does, and reads no actor.
+// the login in its pane and the operator may lead one from their own
+// terminal; a bead's agent or another crew member that registered a wait,
+// and asked the operator for its input, would read what the operator typed.
+// It goes by the store's own records of the process that called, as
+// maySource does, and reads no actor.
 func mayWaitLogin(ctx context.Context, tx *bolt.Tx, _ string, _ Action, _ Object) error {
 	const why = "a login's input is handed to the login the yardmaster or the operator leads"
 	sess, err := paneSession(tx, callerOf(ctx))

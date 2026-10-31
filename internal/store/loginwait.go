@@ -1,15 +1,15 @@
 // A login-input secret ask is answered unseen, as a source's is, but its
 // value goes to no file: it goes to the harness login that waits for it,
-// the `yardr harness login <kind> --json` leader the yardmaster relays
-// (design yardr-bwm2, 3.5). The leader registers its wait here, in the
-// server's memory, prints the wait's reference in its `input` need, and the
-// yardmaster asks one secret ask naming it per need. GiveSecret hands the
-// value to the wait and records only that it was given; the value is in no
-// note, file, event or mail, only "given". A wait is the login of one user,
-// recorded when it is registered, and an ask of any other user that names
-// its reference is refused at the giving. A server that stops forgets its
-// waits with its memory, as it forgets its pairings: a login led across one
-// ends, and is led again.
+// the `yardr harness login <kind> --json` leader the yardmaster relays. The
+// leader registers its wait here, in the server's memory, prints the wait's
+// reference in its `input` need, and the yardmaster asks one secret ask
+// naming it per need. GiveSecret hands the value to the wait and records
+// only that it was given; the value is in no note, file, event or mail,
+// only "given". A wait is the login of one user, recorded when it is
+// registered, and an ask of any other user that names its reference is
+// refused at the giving. A server that stops forgets its waits with its
+// memory, as it forgets its pairings: a login led across one ends, and is
+// led again.
 package store
 
 import (

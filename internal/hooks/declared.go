@@ -109,12 +109,11 @@ var (
 // A delivery that came down the yard's link to its edge after the edge
 // kept it while the yard was away is checked against when the edge
 // received it, not against the yard's clock: the sender's timestamp would
-// otherwise be outside the window for every delivery that waited (design
-// yardr-hosted-050n, 3.4). The link marks the request with the frame's
-// edge-signed received time, whose signature it checked first; a request
-// on the listener carries no mark, so it is checked against now as before.
-// The mark is the door's, on the request's context, never a header a
-// sender could set.
+// otherwise be outside the window for every delivery that waited. The link
+// marks the request with the frame's edge-signed received time, whose
+// signature it checked first; a request on the listener carries no mark, so
+// it is checked against now as before. The mark is the door's, on the
+// request's context, never a header a sender could set.
 type edgeReceivedKey struct{}
 
 // WithEdgeReceived marks ctx with received, when the edge received the

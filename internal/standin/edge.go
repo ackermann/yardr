@@ -14,15 +14,14 @@ import (
 	"yardr.dev/yardr/internal/yardkey"
 )
 
-// Edge is the edge of design yardr-hosted-050n as far as a yard calls it,
-// written from the design and not from the router, which is another
+// Edge is yardr's edge as far as a yard calls it, written for the calls
+// internal/edgelink makes and not from the router, which is another
 // repository's: it serves the key it signs with at GET /edge/key, takes a
 // yard's enrolment at POST /edge/enrol (answering a code, and the account's
 // handle with the yard's name once a person has approved the yard),
 // drops a yard's row at POST /edge/disconnect, mints a Google access
-// token at POST /mint/google (design yardr-hosted-4dx0 3.4), and serves
-// the link at GET /edge/link (edgelink.go). A
-// request is checked as a peer's is, signed by the yard
+// token at POST /mint/google, and serves the link at GET /edge/link
+// (edgelink.go). A request is checked as a peer's is, signed by the yard
 // whose key it names, to this edge's key, within yardkey.MaxSkew; every
 // answer is signed with the key the stand-in is told to sign with.
 //
@@ -277,8 +276,8 @@ func (e *Edge) mintGoogle(w http.ResponseWriter, r *http.Request) {
 	}
 	granted := b.MintGranted
 	if granted == nil {
-		// The granted set is always an array on the wire, as 3.4 draws
-		// it, even where the test granted nothing.
+		// The granted set is always an array on the wire, even where the
+		// test granted nothing.
 		granted = []string{}
 	}
 	v := map[string]any{"token": b.MintToken, "expires_at": time.Now().Add(time.Hour).UTC().Format(time.RFC3339), "granted_scopes": granted}

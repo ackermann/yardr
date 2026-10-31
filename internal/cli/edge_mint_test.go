@@ -25,9 +25,8 @@ func mintAs(t *testing.T, st store.API, hc *http.Client, actor, stdin string, ar
 	return out, errs.String(), err
 }
 
-// mintScopes is the hosted mint's fixed granted set, as the design's 3.2
-// and 3.6 draw it: literals, not the command's mapping, so a mapping that
-// drifts fails here.
+// mintScopes is the hosted mint's fixed granted set: literals, not the
+// command's mapping, so a mapping that drifts fails here.
 var mintScopes = []string{
 	"openid",
 	"email",

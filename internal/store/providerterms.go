@@ -11,17 +11,17 @@ import (
 // ProviderTermsSetting holds the yard's provider-terms records, one JSON
 // value beside the other settings: what the operator read of a model
 // provider's terms before hosted Google data may reach an agent of that
-// provider (design yardr-hosted-4dx0 3.9). It is written only by the
-// hosted Google setup, on the operator's own reading; no code in the
-// yard reads a provider's terms and judges them.
+// provider. It is written only by the hosted Google setup, on the
+// operator's own reading; no code in the yard reads a provider's terms and
+// judges them.
 const ProviderTermsSetting = "provider_terms"
 
 // ProviderTerms is one provider-terms record: the provider whose terms
 // were read, the terms page relied on, the date it was read, and the
 // operator's statement whether those terms bar creating, training or
 // improving a general model from the data. A yard with no record for a
-// session's provider has not made the reading for it, which the agent
-// gate of 3.9 treats as no allowance.
+// session's provider has not made the reading for it, which the gate on an
+// agent's hosted-Google call treats as no allowance.
 type ProviderTerms struct {
 	Provider string `json:"provider"`
 	// TermsURL is the page the operator read and relied on.

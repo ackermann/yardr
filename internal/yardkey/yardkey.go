@@ -132,15 +132,14 @@ func VerifyRequest(from, to, method, path, ts, sig string, body []byte, now time
 	return nil
 }
 
-// The link (design yardr-hosted-050n, 3.2) is the WebSocket a yard that
-// connects to an edge keeps open to it. The signed upgrade that opens it can
-// be played again for MaxSkew, so the socket is the yard's link only once
-// each end has signed both nonces, the yard's own from its upgrade and the
-// edge's from its challenge, under a label of the link's own: such a
-// signature is no request's and no answer's, and theirs are not it. The two
-// nonces together are the link's session, and every request the edge sends
-// down it is signed over the session, so a frame recorded from one link is
-// refused on the next.
+// The link is the WebSocket a yard that connects to an edge keeps open to
+// it. The signed upgrade that opens it can be played again for MaxSkew, so
+// the socket is the yard's link only once each end has signed both nonces,
+// the yard's own from its upgrade and the edge's from its challenge, under
+// a label of the link's own: such a signature is no request's and no
+// answer's, and theirs are not it. The two nonces together are the link's
+// session, and every request the edge sends down it is signed over the
+// session, so a frame recorded from one link is refused on the next.
 //
 // The edge defines these bytes (yardr-hosted, router/internal/yardkey) and
 // this is their copy: the tests pin the vectors the router's tests pin, so
