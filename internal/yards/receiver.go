@@ -96,10 +96,11 @@ const (
 // checked (the signature covers the body's sha256, so checking it needs the
 // whole body): a stranger who knows a peer's key can make the receiver read
 // megabytes it will then refuse. That read is accepted, and bounded below:
-// a body past maxRequest is read only behind one of maxLargeReads slots.
-// maxLargeReads bounds the bodies past maxRequest read at once, over all
-// peers: four concurrent ~43MB reads hold ~172MB at most inside the
-// listener's timeouts, and a refused large one is reposted by its sender.
+// every non-empty request takes one of maxLargeReads before its first byte,
+// and holds it until its signature is checked; the head is grown as bytes
+// arrive, so a part-written body holds what it sent. Four concurrent reads
+// of at most ~43MB hold ~172MB at most inside the listener's timeouts, and a
+// refused request is reposted by its sender.
 const (
 	maxRequest     = store.MaxPeerBody + 4<<10
 	maxFileRequest = store.MaxPeerFileBody + 4<<10
@@ -135,8 +136,8 @@ type Receiver struct {
 	// and maxHeld how many there may be.
 	held    map[string]chan struct{}
 	maxHeld int
-	// largeReads is how many large request bodies are being read now, and
-	// maxLargeReads how many may be at once.
+	// largeReads is how many non-empty request bodies are being read or
+	// verified, and maxLargeReads how many may be at once.
 	largeReads    int
 	maxLargeReads int
 }
@@ -188,7 +189,20 @@ func (rc *Receiver) verify(w http.ResponseWriter, r *http.Request) (*from, bool)
 	// listener. Whether it is that yard's is the signature's to say, below.
 	p, known := rc.st.PeerByKey(r.Context(), r.Header.Get(yardkey.HeaderKey))
 	var body []byte
+	var held bool
 	if known == nil {
+		if r.ContentLength != 0 {
+			if !rc.takeLarge() {
+				rc.reject(w, "", "too_many_large", http.StatusServiceUnavailable, errors.New("too many large requests in flight"))
+				return nil, false
+			}
+			held = true
+			defer func() {
+				if held {
+					rc.releaseLarge()
+				}
+			}()
+		}
 		var ok bool
 		if body, ok = rc.readLarge(w, r); !ok {
 			return nil, false
@@ -223,6 +237,10 @@ func (rc *Receiver) verify(w http.ResponseWriter, r *http.Request) (*from, bool)
 	}
 	sig := r.Header.Get(yardkey.HeaderSig)
 	err = yardkey.VerifyRequest(p.Key, store.Public(key), r.Method, r.URL.RequestURI(), r.Header.Get(yardkey.HeaderTime), sig, body, rc.now())
+	if held {
+		rc.releaseLarge()
+		held = false
+	}
 	if err != nil {
 		return unauthorized(p.Name, "unauthorized", err)
 	}
@@ -238,33 +256,25 @@ func (rc *Receiver) verify(w http.ResponseWriter, r *http.Request) (*from, bool)
 }
 
 // readLarge reads a request that names a peer's key, which may be a file:
-// up to maxFileRequest, in two steps. The first maxRequest+1 bytes are read
-// with no slot, so small traffic goes exactly as before; only a body past
-// maxRequest takes one of the large-read slots before its tail is read. With
-// no slot free the request is refused 503, so its sender keeps it and posts
-// it again. False means the request was answered here.
+// up to maxFileRequest, in two steps. The caller holds a large-read slot
+// before any non-empty body is read and until its signature is checked. The
+// head is grown as bytes arrive, so a part-written body holds what it sent;
+// only a body past maxRequest reads its tail. False means the request was
+// answered here.
 func (rc *Receiver) readLarge(w http.ResponseWriter, r *http.Request) ([]byte, bool) {
-	head := make([]byte, maxRequest+1)
-	n, err := io.ReadFull(r.Body, head)
-	switch err {
-	case nil:
-		// Past maxRequest: the tail goes behind the bound, below.
-	case io.EOF, io.ErrUnexpectedEOF:
-		return head[:n], true
-	default:
+	head, err := readHead(r.Body)
+	if err != nil {
 		rc.reject(w, "", "read", http.StatusBadRequest, err)
 		return nil, false
 	}
-	if !rc.takeLarge() {
-		rc.reject(w, "", "too_many_large", http.StatusServiceUnavailable, errors.New("too many large requests in flight"))
-		return nil, false
+	if len(head) <= maxRequest {
+		return head, true
 	}
-	defer rc.releaseLarge()
-	body := bytes.NewBuffer(head)
-	if r.ContentLength > int64(body.Len()) && r.ContentLength <= int64(maxFileRequest) {
-		body.Grow(int(r.ContentLength) - body.Len())
+	buf := bytes.NewBuffer(head)
+	if r.ContentLength > int64(buf.Len()) && r.ContentLength <= int64(maxFileRequest) {
+		buf.Grow(int(r.ContentLength) - buf.Len())
 	}
-	_, err = io.Copy(body, http.MaxBytesReader(w, r.Body, int64(maxFileRequest-body.Len())))
+	_, err = io.Copy(buf, http.MaxBytesReader(w, r.Body, int64(maxFileRequest-buf.Len())))
 	var tooBig *http.MaxBytesError
 	if errors.As(err, &tooBig) {
 		rc.reject(w, "", "too_large", http.StatusRequestEntityTooLarge, err)
@@ -273,11 +283,44 @@ func (rc *Receiver) readLarge(w http.ResponseWriter, r *http.Request) ([]byte, b
 		rc.reject(w, "", "read", http.StatusBadRequest, err)
 		return nil, false
 	}
-	return body.Bytes(), true
+	return buf.Bytes(), true
 }
 
-// takeLarge takes a large-read slot, false when none is free. releaseLarge
-// gives one back when its read ends.
+// readHead reads up to maxRequest+1 bytes, growing its buffer as bytes
+// arrive: a body that stalls part-written holds what it sent, not the whole
+// head. A head longer than maxRequest says the body is past it, and its tail
+// is read behind a large-read slot.
+func readHead(r io.Reader) ([]byte, error) {
+	var head []byte
+	var tmp [32 << 10]byte
+	emptyReads := 0
+	for len(head) <= maxRequest {
+		want := len(tmp)
+		if room := maxRequest + 1 - len(head); room < want {
+			want = room
+		}
+		n, err := r.Read(tmp[:want])
+		head = append(head, tmp[:n]...)
+		if n == 0 && err == nil {
+			emptyReads++
+			if emptyReads >= 100 {
+				return nil, io.ErrNoProgress
+			}
+		} else {
+			emptyReads = 0
+		}
+		if err != nil {
+			if err == io.EOF || err == io.ErrUnexpectedEOF {
+				return head, nil
+			}
+			return nil, err
+		}
+	}
+	return head, nil
+}
+
+// takeLarge takes a pre-verification read slot, false when none is free.
+// releaseLarge gives one back after its body's signature is checked.
 func (rc *Receiver) takeLarge() bool {
 	rc.mu.Lock()
 	defer rc.mu.Unlock()

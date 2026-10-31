@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -303,16 +304,41 @@ func TestReceiverPost(t *testing.T) {
 	t.Run("large reads", checkReceiverBoundsLargeReads)
 }
 
-// checkReceiverBoundsLargeReads pins how a large peer request is read and
-// how the receiver refuses one when no large-read slot is free.
+// checkReceiverBoundsLargeReads pins how a peer request is read before its
+// signature is checked and how the receiver refuses one when no large-read
+// slot is free.
 func checkReceiverBoundsLargeReads(t *testing.T) {
 	t.Helper()
 	a, b := newYard(t), newYard(t)
 	b.add(t, "a", a, true, ping, ping)
-	head := store.MaxPeerBody + 4<<10 // maxRequest, the slot-free head
+	head := store.MaxPeerBody + 4<<10 // maxRequest
 	large, _ := json.Marshal(store.PeerMessage{ID: "big", Kind: "ping", Body: json.RawMessage(`"` + strings.Repeat("x", head) + `"`)})
 	bad := bytes.Clone(large)
 	bad[len(bad)-10] ^= 0xff // signed below, then changed: no peer's
+
+	// The head is grown as bytes arrive: a small body holds near what it
+	// sent, not the whole head, and a longer one stops past maxRequest.
+	smallHead, err := yards.ReadHead(bytes.NewReader(message("m1")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(smallHead) != len(message("m1")) || cap(smallHead) >= head+1 {
+		t.Fatalf("a small head holds %d bytes in %d of cap", len(smallHead), cap(smallHead))
+	}
+	fullHead, err := yards.ReadHead(bytes.NewReader(large))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fullHead) != head+1 {
+		t.Fatalf("a large head holds %d bytes, want %d", len(fullHead), head+1)
+	}
+	emptyHead, err := yards.ReadHead(bytes.NewReader(nil))
+	if err != nil || len(emptyHead) != 0 {
+		t.Fatalf("an empty head = %d bytes, %v", len(emptyHead), err)
+	}
+	if _, err = yards.ReadHead(noProgressReader{}); err != io.ErrNoProgress {
+		t.Fatalf("a body that makes no read progress: %v, want %v", err, io.ErrNoProgress)
+	}
 
 	// Read, then refused: the 401 for a bad signature needs the whole body.
 	// Repeating it with one slot proves the first read released that slot.
@@ -327,8 +353,8 @@ func checkReceiverBoundsLargeReads(t *testing.T) {
 	if resp, _ := r.send(t, b); resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("a second large request after its slot was released: %d, want 401", resp.StatusCode)
 	}
-	// With no slot free the same request is 503'd, unsigned: its sender
-	// keeps it and posts it again.
+	// With no slot free a non-empty request is 503'd, unsigned: its sender
+	// keeps it and posts it again. Pulls and empty posts take no slot.
 	b.rc.SetMaxLargeReads(0)
 	r = signed(a, b, "POST", yards.Path, large)
 	r.body = bad
@@ -339,10 +365,27 @@ func checkReceiverBoundsLargeReads(t *testing.T) {
 	if resp.Header.Get(yardkey.HeaderSig) != "" {
 		t.Fatal("the 503 is signed")
 	}
+	if resp, _ := signed(a, b, "POST", yards.Path, message("m1")).send(t, b); resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("a small post with no slot free: %d, want 503", resp.StatusCode)
+	}
+	small := signed(a, b, "POST", yards.Path, message("m2"))
+	small.body = message("m3")
+	if resp, _ := small.send(t, b); resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("a small bad signature with no slot free: %d, want 503", resp.StatusCode)
+	}
+	if resp, _ := signed(a, b, "GET", yards.Path+"?after=0", nil).send(t, b); resp.StatusCode != http.StatusOK {
+		t.Fatalf("a pull with no slot free: %d", resp.StatusCode)
+	}
+	ereq := httptest.NewRequest(http.MethodPost, yards.Path, nil)
+	ereq.Header.Set(yardkey.HeaderKey, a.pub())
+	erec := httptest.NewRecorder()
+	b.rc.Handler().ServeHTTP(erec, ereq)
+	if erec.Code != http.StatusUnauthorized {
+		t.Fatalf("an empty post with no slot free: %d, want 401", erec.Code)
+	}
 
-	// Unread past the head: the body stalls after maxRequest+1 bytes, and
-	// the 503 still comes back. Served straight at the handler, so what the
-	// handler read is what the body gave it.
+	// Refused before reading: a part-written body is not read when no slot
+	// is free. Served straight at the handler, so what it read is counted.
 	stall := &stallBody{left: bytes.Clone(large[:head+1]), release: make(chan struct{})}
 	req := httptest.NewRequest(http.MethodPost, yards.Path, stall)
 	req.Header.Set(yardkey.HeaderKey, a.pub())
@@ -352,43 +395,88 @@ func checkReceiverBoundsLargeReads(t *testing.T) {
 	select {
 	case code := <-done:
 		if code != http.StatusServiceUnavailable {
-			t.Fatalf("a stalled large request with no slot free: %d, want 503", code)
+			t.Fatalf("a stalled request with no slot free: %d, want 503", code)
 		}
 	case <-time.After(10 * time.Second):
 		close(stall.release)
 		<-done
-		t.Fatal("a large request with no slot free was read past its head")
+		t.Fatal("a large request with no slot free waited on its body")
 	}
 	close(stall.release)
-	if stall.read != head+1 {
-		t.Fatalf("the handler read %d bytes past the head", stall.read-(head+1))
+	if stall.read != 0 {
+		t.Fatalf("the handler read %d bytes before refusing", stall.read)
 	}
 
-	// Small traffic never takes a slot: a post, a bad signature and a pull
-	// go as before with none free.
-	if resp, _ := signed(a, b, "POST", yards.Path, message("m1")).send(t, b); resp.StatusCode != http.StatusOK {
-		t.Fatalf("a small post with no slot free: %d", resp.StatusCode)
+	// A part-written body holds its slot while it stalls: a further
+	// non-empty read is refused, a pull goes as before, and the held body
+	// is answered once it ends. Signed over the whole body, then part-sent:
+	// no peer's.
+	b.rc.SetMaxLargeReads(1)
+	part := &stallBody{left: bytes.Clone(large[:1024]), release: make(chan struct{}), waiting: make(chan struct{})}
+	preq := httptest.NewRequest(http.MethodPost, yards.Path, part)
+	ts, sig := yardkey.SignRequest(a.key, b.pub(), "POST", yards.Path, b.now, large)
+	preq.Header.Set(yardkey.HeaderKey, a.pub())
+	preq.Header.Set(yardkey.HeaderTime, ts)
+	preq.Header.Set(yardkey.HeaderSig, sig)
+	prec := httptest.NewRecorder()
+	pdone := make(chan int, 1)
+	go func() { b.rc.Handler().ServeHTTP(prec, preq); pdone <- prec.Code }()
+	select {
+	case <-part.waiting:
+	case <-time.After(10 * time.Second):
+		close(part.release)
+		<-pdone
+		t.Fatal("a part-written body was not read")
 	}
-	small := signed(a, b, "POST", yards.Path, message("m2"))
-	small.body = message("m3")
-	if resp, _ := small.send(t, b); resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("a small bad signature with no slot free: %d, want 401", resp.StatusCode)
+	if resp, _ := signed(a, b, "POST", yards.Path, message("m4")).send(t, b); resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("a further non-empty read while the slot is held: %d, want 503", resp.StatusCode)
 	}
 	if resp, _ := signed(a, b, "GET", yards.Path+"?after=0", nil).send(t, b); resp.StatusCode != http.StatusOK {
-		t.Fatalf("a pull with no slot free: %d", resp.StatusCode)
+		t.Fatalf("a pull while the slot is held: %d", resp.StatusCode)
+	}
+	close(part.release)
+	select {
+	case code := <-pdone:
+		if code != http.StatusUnauthorized {
+			t.Fatalf("the held body once ended: %d, want 401", code)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the held body was not answered once it ended")
+	}
+	if part.read != 1024 || part.asked > 32<<10 {
+		t.Fatalf("part-written body read %d bytes into a %d-byte buffer", part.read, part.asked)
+	}
+	if resp, _ := signed(a, b, "POST", yards.Path, message("m5")).send(t, b); resp.StatusCode != http.StatusOK {
+		t.Fatalf("a small post after the slot was released: %d, want 200", resp.StatusCode)
+	}
+	r = signed(a, b, "POST", yards.Path, large)
+	r.body = bad
+	if resp, _ := r.send(t, b); resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("a large read after the slot was released: %d, want 401", resp.StatusCode)
 	}
 }
 
 // stallBody gives its bytes, then waits for release: a body that stalls
-// where the test wants it to, counting what it gave.
+// where the test wants it to, counting what it gave and the read buffer
+// size. waiting, when non-nil, closes when the body is asked for more than
+// it has, so the read is still pending when the test continues.
 type stallBody struct {
 	left    []byte
 	read    int
+	asked   int
 	release chan struct{}
+	waiting chan struct{}
+	wonce   sync.Once
 }
 
 func (s *stallBody) Read(p []byte) (int, error) {
+	if s.read == 0 {
+		s.asked = len(p)
+	}
 	if len(s.left) == 0 {
+		if s.waiting != nil {
+			s.wonce.Do(func() { close(s.waiting) })
+		}
 		<-s.release
 		return 0, io.EOF
 	}
@@ -399,6 +487,10 @@ func (s *stallBody) Read(p []byte) (int, error) {
 }
 
 func (s *stallBody) Close() error { return nil }
+
+type noProgressReader struct{}
+
+func (noProgressReader) Read([]byte) (int, error) { return 0, nil }
 
 // A yard with no key of its own, or one whose key file is open to others,
 // takes nothing: it could sign no answer.

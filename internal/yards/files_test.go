@@ -733,21 +733,39 @@ func TestFilesPastTheHourAreRefused(t *testing.T) {
 		}
 	}
 	// Simultaneous batches at the boundary must not both write a blob based
-	// on the same pre-write quota snapshot.
+	// on the same pre-write quota snapshot. A full read gate answers with an
+	// unsigned 503, so retry those posts after the first batch has finished;
+	// this assertion is about the file quota, not the read gate.
 	const concurrent = 8
-	start := make(chan struct{})
 	errs := make([]error, concurrent)
-	var wg sync.WaitGroup
+	pending := make([]int, concurrent)
 	for i := range concurrent {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			<-start
-			errs[i] = file("edge"+strconv.Itoa(i), store.PeerFileLimit+i)
-		}(i)
+		pending[i] = i
 	}
-	close(start)
-	wg.Wait()
+	for attempt := 0; attempt < 2 && len(pending) > 0; attempt++ {
+		batch := pending
+		pending = nil
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		for _, i := range batch {
+			wg.Add(1)
+			go func(i int) {
+				defer wg.Done()
+				<-start
+				errs[i] = file("edge"+strconv.Itoa(i), store.PeerFileLimit+i)
+			}(i)
+		}
+		close(start)
+		wg.Wait()
+		for _, i := range batch {
+			if errs[i] != nil && !errors.Is(errs[i], yards.ErrRefused) {
+				pending = append(pending, i)
+			}
+		}
+	}
+	if len(pending) > 0 {
+		t.Fatalf("concurrent files still failed after retry: %v", errs[pending[0]])
+	}
 	taken, refusedCount := 0, 0
 	for _, err := range errs {
 		if err == nil {
