@@ -2202,6 +2202,7 @@ contrib/release/               contrib/release .
 README.md                      contrib/release .
 LICENSE                        contrib/release .
 NOTICE                         contrib/release
+.github/SECURITY.md           .
 docs/pushover.md               internal/cli
 docs/integrations.md           internal/cli packs
 docs/groups.md                 internal/agents

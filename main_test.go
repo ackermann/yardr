@@ -444,6 +444,33 @@ func TestReadmeLinksResolve(t *testing.T) {
 	}
 }
 
+// GitHub links a repository's SECURITY.md (here .github/SECURITY.md) from its
+// Security tab and from the page that starts a new issue, so it is where a
+// stranger who found a vulnerability learns how to say so. It has to keep
+// saying two things: where a report goes, which is the private advisory form
+// and never an issue anyone can read, and what a report may be about. This
+// holds it to the link that opens the form and to a heading each for what is
+// in scope and what is not.
+func TestSecurityPolicy(t *testing.T) {
+	// It only reads .github/SECURITY.md.
+	t.Parallel()
+	body, err := os.ReadFile(".github/SECURITY.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy := string(body)
+	const route = "https://github.com/yardr-dev/yardr/security/advisories/new"
+	if !strings.Contains(policy, route) {
+		t.Errorf("SECURITY.md does not link %s, the repository's private vulnerability reporting", route)
+	}
+	have := anchors(policy)
+	for _, heading := range []string{"in-scope", "out-of-scope"} {
+		if !slices.Contains(have, heading) {
+			t.Errorf("SECURITY.md has no heading with the anchor #%s", heading)
+		}
+	}
+}
+
 // anchors is the anchor of each heading of a Markdown page, as GitHub makes
 // it: lowercase, spaces to hyphens, everything but letters, digits, hyphens
 // and underscores dropped. Headings inside a code block are not headings.
