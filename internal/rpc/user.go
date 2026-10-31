@@ -1577,12 +1577,12 @@ func (u *UserServer) call(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, reply{Error: toWire(err)})
 		return
 	}
-	// What a device writes says how it came (store.WithVia): the device's
-	// name, and down the link that it came by the edge.
+	// What a device writes says how it came (store.WithVia): its name, " via edge" down the link.
 	via := c.SaidBy
 	if r.RemoteAddr == linkRemoteAddr {
 		via += " via edge"
 	}
+	r.Header.Del(FreshWitnessHeader) // its call carries no fresh sign-in (store.FreshWitness)
 	u.api.call(w, r.WithContext(store.WithVia(r.Context(), c.User, via)), name, args)
 }
 

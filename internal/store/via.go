@@ -106,11 +106,10 @@ const WitnessFreshSignIn = "fresh sign-in"
 // sign-in: who the gateway authenticated, and when (its auth_time claim).
 // The web sets it from the token it verified on the request that approves
 // (WithFreshWitness); the socket's server reads it back from the header
-// the call crossed with, and the listener reads the same header from a
-// device's request. So a device's call may carry one, and it gains nothing
-// by it: the gate judges it as it judges the web's, and witnessStrong
-// claims no witness for a call that came through a device. No approval
-// argument carries it either, so a device that adds a field gains nothing.
+// the call crossed with. The listener drops that header from a device's
+// request before the call is made, so a device's call carries none and
+// the gate judges its approval as the device's own. No approval argument
+// carries it either, so a device that adds a field gains nothing.
 type FreshWitness struct {
 	User     string
 	AuthTime time.Time

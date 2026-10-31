@@ -215,28 +215,33 @@ func TestUserApprovesARunAsk(t *testing.T) {
 		}
 	})
 
-	// The header a witness crosses with is read from any request that
-	// reaches the yard's calls, a device's too. With the gateway's window
-	// set the yard judges it as it would the web's, and it makes the
-	// approval no witnessed one: a device cannot pass its approval of a
-	// strong card off as a fresh sign-in's.
+	// The header a witness crosses with is dropped from a device's
+	// request before the call is made, so the yard judges the approval
+	// as the device's own: one the fresh gate would refuse if it read
+	// it is approved, and the answer's event names the device and claims
+	// no witness.
 	t.Run("a device that sends a fresh witness is witnessed by none", func(t *testing.T) {
 		y := newRunYard(t)
 		if err := y.st.SetSetting(ctx, store.WebJWTPrivilegedSessionMaxAgeSetting, "15m", "jo"); err != nil {
 			t.Fatal(err)
 		}
-		lee := y.strongAsk(t, "jo", "lee")
-		fresh := []string{FreshWitnessHeader, "jo " + strconv.FormatInt(time.Now().Unix(), 10)}
-		w := y.approve(onTheMachine, y.jo, strings.NewReader(strongArgs(lee)), fresh...)
-		if !strings.Contains(w.Body.String(), `"result"`) || strings.Contains(w.Body.String(), `"error"`) {
-			t.Fatalf("the approval is answered %s", w.Body)
-		}
-		if _, err := y.st.GetUser(ctx, "lee"); err != nil {
-			t.Fatalf("the approval did not add lee: %v", err)
-		}
-		noted := eventsOfKind(t, y.st, "noted")
-		if last := noted[len(noted)-1]; store.Via(last) != "phone" || last.Data["witness"] != nil {
-			t.Errorf("the answer's event is %+v, want via phone with no witness", last)
+		now := strconv.FormatInt(time.Now().Unix(), 10)
+		// Each header is one the yard would refuse if it read it: made
+		// as another user, or naming no user and time.
+		for i, witness := range []string{"sam " + now, "bogus"} {
+			name := fmt.Sprintf("lee%d", i)
+			seq := y.strongAsk(t, "jo", name)
+			w := y.approve(onTheMachine, y.jo, strings.NewReader(strongArgs(seq)), FreshWitnessHeader, witness)
+			if !strings.Contains(w.Body.String(), `"result"`) || strings.Contains(w.Body.String(), `"error"`) {
+				t.Fatalf("the approval carrying %q is answered %s", witness, w.Body)
+			}
+			if _, err := y.st.GetUser(ctx, name); err != nil {
+				t.Fatalf("the approval carrying %q added no user: %v", witness, err)
+			}
+			noted := eventsOfKind(t, y.st, "noted")
+			if last := noted[len(noted)-1]; last.Actor != "jo" || store.Via(last) != "phone" || last.Data["witness"] != nil {
+				t.Errorf("the answer's event carrying %q is %+v, want jo's via phone with no witness", witness, last)
+			}
 		}
 	})
 }
