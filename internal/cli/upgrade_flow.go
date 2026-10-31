@@ -18,10 +18,11 @@ import (
 	"yardr.dev/yardr/internal/version"
 )
 
-// upgradeRun installs the depot's build, verified, or rolls back: the
-// command of design yardr-6ja6 sections 3.1-3.3 and 3.6. The scripts the
-// covered yards already run from their homes are refreshed with the build
-// and put back with it (upgrade_scripts.go). Timeout bounds the
+// upgradeRun installs the depot's build, or the latest signed release
+// where no depot is named, verified, or rolls back: the command of
+// design yardr-6ja6 sections 3.1-3.3 and 3.6. The scripts the
+// covered yards already run from their homes are refreshed with a
+// depot's build and put back with it (upgrade_scripts.go). Timeout bounds the
 // whole multi-yard gate; noRestore overrides the upgrade_restore setting
 // for one run, and fromFlag names the depot for one run instead of the
 // upgrade_from setting.
@@ -63,24 +64,52 @@ func (a *app) upgradeRun(w, warn io.Writer, ctx context.Context, cfg *config.Con
 	if from == "" {
 		from = settings[store.UpgradeFromSetting]
 	}
-	if from == "" {
-		return fmt.Errorf("upgrade_from is not set: the yard installs nothing until it names a depot (%s settings set upgrade_from <depot>)", yardrAt(cfg.Home))
-	}
-	depot, err := st.GetDepot(ctx, from)
-	if err != nil {
-		return fmt.Errorf("upgrade_from names depot %s, which is not in the yard: %v", from, err)
-	}
-	if fi, err := os.Stat(depot.Path); err != nil || !fi.IsDir() {
-		return fmt.Errorf("depot %s has no checkout on this machine (%s): pull it first", from, depot.Path)
-	}
-	if _, err := lookPath("go"); err != nil {
-		return fmt.Errorf("go is not on PATH: the install builds from the checkout, so it needs the toolchain (%v)", err)
+	// With no depot named, by the flag or the setting, there is no
+	// checkout to build from: the release road serves a yardr installed
+	// from an archive, with no Go beside it. The assembly never takes
+	// it — merge-local runs this command only when upgrade_from names
+	// its depot — so the automatic path still installs only what the
+	// operator configured. The fetch proves the release before the
+	// lock, the backups or any write below, so a refusal there leaves
+	// the old binary whole and the store untouched.
+	var depot *store.Depot
+	var release *fetchedRelease
+	if from != "" {
+		d, err := st.GetDepot(ctx, from)
+		if err != nil {
+			return fmt.Errorf("upgrade_from names depot %s, which is not in the yard: %v", from, err)
+		}
+		depot = d
+		if fi, err := os.Stat(depot.Path); err != nil || !fi.IsDir() {
+			return fmt.Errorf("depot %s has no checkout on this machine (%s): pull it first", from, depot.Path)
+		}
+		if _, err := lookPath("go"); err != nil {
+			return fmt.Errorf("go is not on PATH: the install builds from the checkout, so it needs the toolchain (%v)", err)
+		}
+	} else {
+		// A release over the yard's binary is the operator's to start, as
+		// the depot it replaces is: it migrates every covered store one
+		// way and restarts their servers, and an agent's plain run must
+		// not be what sets that off.
+		if err := st.May(ctx, a.who(), store.ActInstallRelease, store.Object{Kind: store.KindYard}); err != nil {
+			return err
+		}
+		fetched, err := upgradeFetchRelease(ctx)
+		if errors.Is(err, errReleaseCurrent) {
+			fmt.Fprintf(w, "%-9s  already on %s, the latest release\n", "release", releaseCurrentVersion(err))
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		release = fetched
+		fmt.Fprintf(w, "%-9s  %s (%s)\n", "release", release.version, release.archive)
 	}
 	target, err := upgradeInstallTarget()
 	if err != nil {
 		return err
 	}
-	if goos == "darwin" {
+	if depot != nil && goos == "darwin" {
 		if home, herr := userHomeDir(); herr == nil {
 			if in := protectedDepots([]store.Depot{*depot}, home); len(in) > 0 {
 				fmt.Fprintf(warn, "warn: the depot is in a folder macOS protects (%s): the new build may need its access granted again\n", strings.Join(in, ", "))
@@ -203,7 +232,13 @@ func (a *app) upgradeRun(w, warn io.Writer, ctx context.Context, cfg *config.Con
 	// into the time the new build has to prove itself.
 	installStarted := time.Now()
 	gateDeadline := installStarted.Add(timeout)
-	if out, err := upgradeInstall(ctx, depot.Path, target); err != nil {
+	install := func() (string, error) {
+		if release != nil {
+			return "", upgradeInstallRelease(target, release.binary)
+		}
+		return upgradeInstall(ctx, depot.Path, target)
+	}
+	if out, err := install(); err != nil {
 		removeGates()
 		reason := err.Error()
 		if trimmed := strings.TrimSpace(out); trimmed != "" {
@@ -261,8 +296,12 @@ func (a *app) upgradeRun(w, warn io.Writer, ctx context.Context, cfg *config.Con
 	// The scripts a yard runs from its home are the depot's too, and a fix
 	// landed in one is live only when this carries it, as it does the
 	// binary. They go in with the build and, on a rollback, come out with
-	// it: a new script may call what only the new binary knows.
-	scripts := upgradeScriptsInstall(ctx, depot.Path, yards, warn)
+	// it: a new script may call what only the new binary knows. A release
+	// carries no checkout to refresh them from, so they stay as they are.
+	scripts := &upgradeScripts{}
+	if release == nil {
+		scripts = upgradeScriptsInstall(ctx, depot.Path, yards, warn)
+	}
 	fmt.Fprintf(w, "%-9s  %s\n", "scripts", scripts.summary())
 
 	// A stopped server is started first, per yard, so there is always a

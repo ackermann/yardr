@@ -132,13 +132,13 @@ const (
 	ActMoveOut   Action = "move a bead out of its stage" // a member of the stage's group
 	ActWaitLogin Action = "wait on a login's input"      // the yardmaster's pane or no agent's
 
-	// The CLI-only gates, asked through May: what the operator did in the
-	// CLI before any write of the store's could refuse it (an edge
-	// connection, upgrade --from, timer list --all, uninstall --purge,
-	// source check --user).
+	// The CLI-only gates, asked through May: what the operator did in the CLI
+	// before any write of the store's could refuse it (an edge connection,
+	// upgrade --from or a release, timer list --all, uninstall --purge, source check --user).
 	ActConnectEdge      Action = "connect this yard to an edge"
 	ActDisconnectEdge   Action = "disconnect this yard from the edge"
 	ActNameUpgradeDepot Action = "name the depot to install from (--from)"
+	ActInstallRelease   Action = "install the latest signed release"
 	ActListAllTimers    Action = "list everyone's timers"
 	ActDeleteYardHome   Action = "delete the yard's home"
 	// The user's own, or the operator's for them, never an agent's
@@ -280,7 +280,7 @@ func init() {
 		ActBringUp,
 		ActAddUser, ActRemoveUser, ActChangeRole, ActMapIdentity, ActChangeSetting, ActPruneStore,
 		ActGiveHarnessKey, ActGiveCrewCredential, ActGiveHookSecret, ActAllowThreads, ActRemoveTimer,
-		ActConnectEdge, ActDisconnectEdge, ActNameUpgradeDepot, ActListAllTimers, ActDeleteYardHome,
+		ActConnectEdge, ActDisconnectEdge, ActNameUpgradeDepot, ActInstallRelease, ActListAllTimers, ActDeleteYardHome,
 	} {
 		coreRules[act] = ruleOperator
 	}

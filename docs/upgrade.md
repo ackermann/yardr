@@ -1,14 +1,19 @@
 # Upgrading yardr
 
-`yardr upgrade` installs the depot's build, verified, or rolls back. It
-does the hand step whole: from the checkout of the depot the
-`upgrade_from` setting names it builds yardr and writes the build over
-the binary it runs from, refreshes the scripts the yard already runs
-from its home from the same checkout, checks every covered yard runs
-the new build, and otherwise puts the previous build back, the scripts
-with it. The assembly calls it after the merge when the setting names
-the depot; by hand it is run after pulling instead of `go install .`. A
-yard without the setting is untouched.
+`yardr upgrade` installs a newer yardr, verified, or rolls back. It
+does the hand step whole, by one of two roads. From the checkout of
+the depot the `upgrade_from` setting names it builds yardr and writes
+the build over the binary it runs from, refreshes the scripts the yard
+already runs from its home from the same checkout, checks every
+covered yard runs the new build, and otherwise puts the previous build
+back, the scripts with it. With no depot named, by `--from` or the
+setting, it takes the latest signed release instead
+([from a signed release](#from-a-signed-release)): the road for a
+yardr installed from a release archive, with no checkout and no Go
+beside it. The assembly calls it after the merge when the setting names
+the depot; by hand, the depot road is run after pulling instead of
+`go install .`, and the release road needs nothing pulled and no
+toolchain.
 
 ```sh
 $ yardr upgrade
@@ -40,6 +45,84 @@ fails removes the temporary file and leaves the old binary as it was. A
 link to the binary stays a link: the file it names is replaced, and
 `yardr.prev` and the lock ([below](#what-it-covers)) sit beside that
 file. The directory has to be one the person upgrading can write to.
+The release road writes the fetched binary the same way: a temporary
+file beside it, the mode of the file it replaces, renamed over it.
+
+## From a signed release
+
+With no depot named, `yardr upgrade` fetches the latest release from
+yardr.dev, the one host it ever fetches from, and installs its yardr
+through the same gate as a build from a checkout. It needs the
+network once, and no checkout and no Go. Taking a release is the
+operator's alone: anyone else, an agent's pane among them, is refused
+before anything is fetched.
+
+```sh
+$ yardr upgrade
+release   v1.2.3 (yardr_1.2.3_darwin_arm64.tar.gz)
+backup    ~/.yardr/backups/yard.db.before-install
+keep      ~/.local/bin/yardr.prev (1904410)
+install   ~/.local/bin/yardr at 1904417
+scripts   current
+health    ok in 24 s
+```
+
+What it trusts is one thing, the release key built into the binary
+([install.md](install.md#signed-checksums)), and it follows the order
+footplate's fetch established. It reads
+`https://yardr.dev/releases/latest.json` for the version and where the
+release's files are — discovery only: nothing is trusted because
+`latest.json` says so, and its per-archive size and checksum are never
+the check. The archive's name is made from the version and this
+system, not taken from the file, so the version `latest.json` claims
+is the version that was signed. It downloads the release's
+`checksums.txt` and `checksums.txt.minisig` first, and verifies the
+signature over the checksums in its own process with the built-in
+key — no `minisign` program is run — so a release that is not signed,
+or whose signature is not the makers', costs no archive download. It
+then downloads this system's archive and checks its SHA-256 against
+the verified checksums, takes the `yardr` member out of the archive
+in memory — a release holds that binary and `server-yard`, the README
+and the licence files beside it, and anything else is refused — and
+writes that binary over the one it runs from, as above. Every answer
+must be a direct 200 from yardr.dev: a redirect is a refusal, as is a
+release with no archive for this system (the releases are for macOS
+and Linux, on arm64 and amd64; this road is not on Windows).
+
+All of that happens before the lock, the backups, the gate files or
+any write, and before the store can be opened by the new build, whose
+migrations are one-way. A release that fails anywhere in it — no
+network, no signature, a bad signature, a checksum that differs, an
+archive that holds what a release does not — fails the run saying
+why, and the old binary stands whole, the same file, with the store
+untouched. Only a proved release reaches the gate, which is the
+depot road's own from there: backups, the previous binary kept, each
+covered yard checked on the new build, and the same rollback when
+the check fails.
+
+A yardr already on the latest release is told so and left as it is,
+with nothing fetched past `latest.json`:
+
+```sh
+$ yardr upgrade
+release   already on v1.2.3, the latest release
+```
+
+A latest release older than the build that runs — a `go install` of
+a newer commit, say — is refused the same way: this road installs a
+newer release, never a downgrade. Which release a build was made for
+is the tag `yardr version` prints; a build from a checkout carries
+none, so any latest release is newer to it. There are no scripts to
+refresh from a release, which carries no checkout: the `scripts` line
+reads `current` and the yard's copies stay as they are. Signing on
+macOS ([below](#signing-the-binary)) and the covered yards, the lock,
+the gate and the rollback are the depot road's, unchanged.
+
+Nothing polls for a release: this road runs when a person runs
+`yardr upgrade`, and not at any other time. The assembly never takes
+it — it runs the command only when `upgrade_from` names its depot —
+so the automatic path still installs only the depot the operator
+configured.
 
 ## The assembly step
 
@@ -130,9 +213,11 @@ the assembly, `integrate-train`, `pr-train` and `pr-merge` for trains,
 operator installs each once by hand (`install contrib/assembly/merge-local
 ~/.yardr/scripts/`, [line.md](line.md#setup)), and a copy is only as new
 as that step. A fix that lands in a script then reaches no landing until
-someone installs it again. So after the install the upgrade refreshes
+someone installs it again. So after the install the depot road refreshes
 the copies from the same checkout, and a fix to a script is live for the
-next landing, as a fix to the binary is. It reads the nine scripts from
+next landing, as a fix to the binary is. (The release road has no
+checkout to refresh from, as [its section](#from-a-signed-release)
+says, and leaves the copies as they are.) It reads the nine scripts from
 where the docs have the operator install them from, `contrib/assembly/`
 (`merge-local`, `integrate-train`, `pr-train`, `pr-merge`, `merge-pr`, `pr-ci`),
 `contrib/deploy/` (`deploy-dokku`, `deploy-void`) and
@@ -215,10 +300,12 @@ agent, so no pass on the new build ever starts a session; the file is
 removed once the gate passes or the rollback completes. The backup is
 unconditional: `upgrade_restore` governs restoring, never copying.
 
-It refuses when `go` is not on its PATH and when the depot has no
-checkout on this machine. Where a depot sits in a folder macOS
-protects, it warns that the new build may need its access granted
-again, without failing.
+On the depot road it refuses when `go` is not on its PATH and when
+the depot has no checkout on this machine. Where a depot sits in a
+folder macOS protects, it warns that the new build may need its
+access granted again, without failing. The release road refuses
+before any of this, as [its section](#from-a-signed-release) says:
+it needs neither `go` nor a checkout.
 
 ## The gate
 

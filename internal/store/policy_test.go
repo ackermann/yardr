@@ -212,6 +212,7 @@ func TestMayAsksThePolicyForTheCLIGates(t *testing.T) {
 		{store.ActConnectEdge, store.Object{Kind: store.KindYard}},
 		{store.ActDisconnectEdge, store.Object{Kind: store.KindYard}},
 		{store.ActNameUpgradeDepot, store.Object{Kind: store.KindYard}},
+		{store.ActInstallRelease, store.Object{Kind: store.KindYard}},
 		{store.ActListAllTimers, store.Object{Kind: store.KindTimer}},
 		{store.ActDeleteYardHome, store.Object{Kind: store.KindYard}},
 		{store.ActPair, store.Object{Kind: store.KindPeer}},

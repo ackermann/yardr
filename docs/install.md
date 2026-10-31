@@ -524,12 +524,18 @@ hook_addr 127.0.0.1:8791`
 
 ## Upgrading
 
-Install the newer build over the old one, by either of two ways: run
+Install the newer build over the old one, by any of three ways: run
 `install.sh` again, which installs the latest release over it (`./install.sh
---from-source` does the same from a checkout), or run `yardr upgrade` on a
+--from-source` does the same from a checkout), run `yardr upgrade` on a
 depot's checkout, which builds it and writes the build over the binary it runs
-from, wherever that is ([upgrade.md](upgrade.md#where-it-writes)). The server
-and daemon notice the new file and replace themselves
+from, wherever that is ([upgrade.md](upgrade.md#where-it-writes)), or, with
+no depot named, run `yardr upgrade` and let it fetch the latest signed
+release itself: it reads the release from yardr.dev, verifies its signature
+with the release key built into the binary and checks the archive against
+the signed checksums, with no checkout and no Go, and installs the proved
+binary through the same checked gate
+([upgrade.md](upgrade.md#from-a-signed-release)). The server and daemon notice
+the new file and replace themselves
 ([configuration.md](configuration.md#upgrading)).
 
 The ways mix: a release replaces a build from a checkout of an earlier commit,

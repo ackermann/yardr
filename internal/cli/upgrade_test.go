@@ -501,18 +501,19 @@ func TestDialAddr(t *testing.T) {
 }
 
 // Without --check the command installs: on a home with no yard it says so,
-// and on a yard without the setting it refuses and installs nothing.
+// and on a yard with no depot named it takes the release road, which
+// installs nothing where the site does not answer.
 func TestUpgradeWithoutCheck(t *testing.T) {
-	t.Parallel()
 	a := testApp(t, nil, newHomeDir(t))
 	a.actor = "me"
 	out, err := run(t, a.rootCmd(), "upgrade")
 	if err == nil || !strings.Contains(err.Error(), "no yard in") {
 		t.Fatalf("err = %v\n%s", err, out)
 	}
+	stubNoRelease(t)
 	_, _, mk := upgradeYard(t)
 	out, err = run(t, mk().rootCmd(), "upgrade")
-	if err == nil || !strings.Contains(err.Error(), "upgrade_from is not set") {
+	if err == nil || !strings.Contains(err.Error(), "does not answer") {
 		t.Fatalf("err = %v\n%s", err, out)
 	}
 }
@@ -521,9 +522,9 @@ func TestUpgradeWithoutCheck(t *testing.T) {
 // and no operator notify source: an unknown depot fails with the "not in
 // the yard" line, and a depot with no checkout with the "no checkout"
 // line. A value the setting would refuse is refused the same way, and an
-// empty one reads as unset.
+// empty one reads as unset, which takes the release road.
 func TestUpgradeFromFlag(t *testing.T) {
-	t.Parallel()
+	stubNoRelease(t)
 	ctx := context.Background()
 	_, st, a := upgradeYard(t)
 	if err := st.SetSetting(ctx, store.OperatorSetting, "probeuser", "probeuser"); err != nil {
@@ -546,7 +547,7 @@ func TestUpgradeFromFlag(t *testing.T) {
 		t.Fatalf("bad name: err = %v\n%s", err, out)
 	}
 	out, err = run(t, a().rootCmd(), "--actor", "probeuser", "upgrade", "--from", "")
-	if err == nil || !strings.Contains(err.Error(), "upgrade_from is not set") {
+	if err == nil || !strings.Contains(err.Error(), "does not answer") {
 		t.Fatalf("empty flag: err = %v\n%s", err, out)
 	}
 }
@@ -586,9 +587,10 @@ func TestUpgradeFromFlagBeatsSetting(t *testing.T) {
 
 // --from stands in for upgrade_from, which only the operator may set, so
 // only the operator may name it: anyone else, a bead's agent among them,
-// is refused before the depot is looked up, and a plain run is not.
+// is refused before the depot is looked up, and a plain run is not: it
+// names no source, so it takes the release road whoever runs it.
 func TestUpgradeFromFlagOperatorOnly(t *testing.T) {
-	t.Parallel()
+	stubNoRelease(t)
 	ctx := context.Background()
 	_, st, a := upgradeYard(t)
 	if err := st.SetSetting(ctx, store.OperatorSetting, "jo", "jo"); err != nil {
@@ -602,7 +604,7 @@ func TestUpgradeFromFlagOperatorOnly(t *testing.T) {
 		t.Fatalf("err = %v\n%s", err, out)
 	}
 	out, err = run(t, a().rootCmd(), "--actor", "hal", "upgrade")
-	if err == nil || !strings.Contains(err.Error(), "upgrade_from is not set") {
+	if err == nil || !strings.Contains(err.Error(), "only the operator (jo) may install the latest signed release; this is hal") {
 		t.Fatalf("plain run: err = %v\n%s", err, out)
 	}
 }

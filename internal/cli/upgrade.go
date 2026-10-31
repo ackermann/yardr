@@ -106,8 +106,8 @@ func (a *app) upgradeCmd() *cobra.Command {
 	var from string
 	cmd := &cobra.Command{
 		Use:   "upgrade",
-		Short: "Install the depot's build, verified, or roll back",
-		Long: `Install the depot's build, verified, or roll back.
+		Short: "Install a newer yardr, verified, or roll back",
+		Long: `Install a newer yardr, verified, or roll back.
 
 Without --check it does the hand step whole: from the checkout of the
 depot --from names for one run, or the upgrade_from setting where the
@@ -121,6 +121,18 @@ yard runs it, and otherwise puts the previous build back, the scripts
 with it. The covered yards are this yard plus every yard registered on
 this machine whose login service runs the shared binary. A yard with
 neither is untouched.
+
+With no depot named, by the flag or the setting, it takes the latest
+signed release instead, for a yardr installed from an archive with no
+checkout and no Go beside it: it reads the release's latest.json from
+yardr.dev, the one host it fetches from, verifies the minisign
+signature over the release's checksums in this process with the
+release key built into the binary, checks the archive for this system
+against those checksums, and writes its yardr over the binary this
+yardr runs from, through the same gate. A release that is not proved
+is not installed, and the old binary is left as it is; a yardr already
+on the latest release is told so and left as it is. Taking a release
+is the operator's alone, like the flag below.
 
 --from is how a hosted-style yard takes an upgrade: one whose operator
 names no notify source cannot set upgrade_from, which stays refused so

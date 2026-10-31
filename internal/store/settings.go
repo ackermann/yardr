@@ -430,7 +430,7 @@ var KnownSettings = append([]Setting{
 			}
 			return nil
 		}},
-	{Key: UpgradeFromSetting, Help: "the depot whose landed build the yard installs itself after the assembly lands on it (yardr upgrade); unset, nothing is installed. " +
+	{Key: UpgradeFromSetting, Help: "the depot whose landed build the yard installs itself after the assembly lands on it (yardr upgrade); unset, the assembly installs nothing and a hand run with no depot named takes the latest signed release. " +
 		"It names a depot of the yard: a depot the yard has not got is refused, and the named depot is not removed until the setting is cleared",
 		Check: func(v string) error { return checkName("depot name", v) }},
 	{Key: UpgradeRestoreSetting, Help: "whether a failed yardr upgrade restores the pre-install store copies (true) or leaves refused stores down for a person to restore (false); default: true",
