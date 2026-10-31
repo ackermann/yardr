@@ -154,9 +154,12 @@ crew:
 #     note:     optional, the words the move's note begins with
 #
 # So here: a pull request merged by hand says merged from approved, in-pr or
-# land, one closed unmerged asks a person, and changes a person requests or
-# a failed run on its head send a train under review back to open. CI green
-# or red in in-pr is read as state and put to the same table.
+# land, one closed unmerged asks a person, and changes requested by one of
+# the repository's own people (association: its owner, a member or a
+# collaborator, as GitHub tells what the reviewer is to it) or a failed run
+# on its head send a train under review back to open. A review from anyone
+# else moves nothing. CI green or red in in-pr is read as state and put to
+# the same table.
 #
 # Every line is for trains alone (type=train). The yard has one hook of the
 # source, and another pack's lines for its pull requests (the contributors
@@ -178,7 +181,7 @@ sources:
     says:
       - { where: "event=pull_request action=closed merged=true type=train", outcome: merged, note: "PR merged" }
       - { where: "event=pull_request action=closed merged=false type=train", outcome: question, note: "PR closed unmerged: reopen, or drop the train?" }
-      - { where: "event=pull_request_review action=submitted state=changes_requested sender=user type=train", outcome: changes, note: "Changes requested on the PR" }
+      - { where: "event=pull_request_review action=submitted state=changes_requested sender=user association=owner association=member association=collaborator type=train", outcome: changes, note: "Changes requested on the PR" }
       - { where: "event=workflow_run event=check_suite action=completed conclusion=failure conclusion=timed_out stage=review stage=review-security type=train", outcome: changes, note: "CI failed on the head of the PR" }
       - { where: "event=ci conclusion=success stage=in-pr type=train", outcome: done }
       - { where: "event=ci conclusion=failure stage=in-pr type=train", outcome: changes }

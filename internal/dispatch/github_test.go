@@ -29,7 +29,7 @@ const fixtureSHA = "4f2c9e1a7b3d5e6f8091a2b3c4d5e6f708192a3b"
 var yardSays = []string{
 	"event=pull_request action=closed merged=true type=train -> merged: PR merged",
 	"event=pull_request action=closed merged=false type=train -> question: PR closed unmerged: reopen, or drop the train?",
-	"event=pull_request_review action=submitted state=changes_requested sender=user type=train -> changes: Changes requested on the PR",
+	"event=pull_request_review action=submitted state=changes_requested sender=user association=owner association=member association=collaborator type=train -> changes: Changes requested on the PR",
 	"event=workflow_run event=check_suite action=completed conclusion=failure conclusion=timed_out stage=review type=train -> changes: CI failed on the head of the PR",
 	"event=ci conclusion=success stage=in-pr type=train -> done",
 	"event=ci conclusion=failure stage=in-pr type=train -> changes",
@@ -436,7 +436,7 @@ func TestGitHubRulesSkipHeldTrains(t *testing.T) {
 	_, err := r.api.SetHold(ctx, "yard-a", true, store.Expect{}, "human")
 	must(t, err)
 	r.deliver(t, "pull_request", "pull_request_synchronize", "yard-a", "")
-	r.deliver(t, "pull_request_review", "pull_request_review_changes_requested", "yard-a", "")
+	r.deliverEdited(t, "pull_request_review", "pull_request_review_changes_requested", "yard-a", "", byAssociation("MEMBER"))
 	r.pass(t)
 
 	e := r.bead(t, "yard-a")
@@ -532,23 +532,54 @@ func TestGitHubPRClosedUnmerged(t *testing.T) {
 	wantRules(t, r.rules(t, "yard-b"), "question refused: bead yard-b: flow yard.train has no outcome question for stage open")
 }
 
-// A human's changes_requested review sends the train to open with the
-// review in a note; approving or commenting reviews, and bots, do not.
+// byAssociation edits a review fixture to say what its writer is to the
+// repository, in the capitals GitHub writes it in; "" leaves the review as it
+// is, which says nothing of its writer.
+func byAssociation(association string) func(string) string {
+	return func(s string) string {
+		if association == "" {
+			return s
+		}
+		return strings.Replace(s, `"review": {`, `"review": {"author_association": "`+association+`",`, 1)
+	}
+}
+
+// A changes_requested review from one of the repository's own people sends
+// the train to open with the review in a note; approving or commenting
+// reviews, bots, and anyone else's do not. A table that does not ask who
+// wrote the review still moves the train for anyone's, but its note leaves
+// out the words of those who are not the repository's own.
 func TestGitHubChangesRequested(t *testing.T) {
 	t.Parallel()
 	r := newGHDepot(t)
+	ctx := context.Background()
 	r.train(t, "yard-a", "in-pr")
 	r.train(t, "yard-b", "open")
 	r.train(t, "yard-c", "in-pr")
 	for _, e := range []string{"yard-a", "yard-b"} {
-		r.deliver(t, "pull_request_review", "pull_request_review_approved", e, "")
-		r.deliver(t, "pull_request_review", "pull_request_review_commented", e, "")
-		r.deliver(t, "pull_request_review", "pull_request_review_changes_requested", e, "")
+		for _, name := range []string{"approved", "commented", "changes_requested"} {
+			r.deliverEdited(t, "pull_request_review", "pull_request_review_"+name, e, "", byAssociation("MEMBER"))
+		}
 	}
 	body, err := os.ReadFile("../hooks/testdata/github/pull_request_review_changes_requested.json")
 	must(t, err)
 	bot := strings.ReplaceAll(strings.ReplaceAll(string(body), "yard-sv6b", "yard-c"), `"login": "yardmaster"`, `"login": "ci-helper[bot]"`)
-	r.record(t, "gh", "pull_request_review", bot)
+	r.record(t, "gh", "pull_request_review", byAssociation("MEMBER")(bot))
+	// Its owner and collaborators are the repository's own people as its
+	// members are. Nobody else is, and nor is a writer the review does not
+	// name.
+	others := []struct {
+		train, association string
+		moves              bool
+	}{
+		{"yard-d", "OWNER", true}, {"yard-e", "COLLABORATOR", true},
+		{"yard-f", "CONTRIBUTOR", false}, {"yard-g", "FIRST_TIME_CONTRIBUTOR", false}, {"yard-h", "FIRST_TIMER", false},
+		{"yard-i", "NONE", false}, {"yard-j", "", false},
+	}
+	for _, c := range others {
+		r.train(t, c.train, "in-pr")
+		r.deliverEdited(t, "pull_request_review", "pull_request_review_changes_requested", c.train, "", byAssociation(c.association))
+	}
 	r.pass(t)
 
 	if st := r.stageOf(t, "yard-a"); st != "open" {
@@ -567,6 +598,40 @@ func TestGitHubChangesRequested(t *testing.T) {
 		t.Fatalf("a bot's review moved yard-c to %s", st)
 	}
 	wantRules(t, r.rules(t, "yard-c"))
+	for _, c := range others {
+		want, rules := "in-pr", []string(nil)
+		if c.moves {
+			want, rules = "open", []string{"changes in-pr -> open"}
+		}
+		if st := r.stageOf(t, c.train); st != want {
+			t.Errorf("%s in %s after a review by %q, want %s", c.train, st, c.association, want)
+		}
+		wantRules(t, r.rules(t, c.train), rules...)
+	}
+
+	// A hook set before the starter pack's line asked who wrote the review
+	// still moves the train for anyone's. The note says what the line says
+	// and where to look, with the words only of the repository's own people.
+	_, err = r.api.PutHook(ctx, store.Hook{Name: "gh", Source: "github", SecretFile: "/nonexistent/github.secret", As: "yardmaster",
+		Says: says(t, "event=pull_request_review action=submitted state=changes_requested sender=user type=train -> changes: Changes requested on the PR")}, "me")
+	must(t, err)
+	r.train(t, "yard-k", "in-pr")
+	r.train(t, "yard-l", "in-pr")
+	r.deliverEdited(t, "pull_request_review", "pull_request_review_changes_requested", "yard-k", "", byAssociation("NONE"))
+	r.deliverEdited(t, "pull_request_review", "pull_request_review_changes_requested", "yard-l", "", byAssociation("COLLABORATOR"))
+	r.pass(t)
+	for _, id := range []string{"yard-k", "yard-l"} {
+		if st := r.stageOf(t, id); st != "open" {
+			t.Fatalf("%s in %s under a table that asks nothing of the writer, want open", id, st)
+		}
+	}
+	const outside = "Changes requested on the PR: https://github.com/acme/yardr/pull/17#pullrequestreview-1\n(github pull_request_review submitted, by yardmaster)"
+	if n := r.lastNote(t, "yard-k"); n != outside {
+		t.Errorf("note for a review by someone outside:\ngot  %q\nwant %q", n, outside)
+	}
+	if n := r.lastNote(t, "yard-l"); !strings.Contains(n, "\n@jane-doe the tests are red, see the race.\n") {
+		t.Errorf("note for a review by a collaborator: %q", n)
+	}
 }
 
 // Hook events for branches that are not a train's and issue comments move

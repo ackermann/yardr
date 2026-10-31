@@ -118,7 +118,7 @@ type Adapter interface {
 | `delivery` | the service's id of the delivery |
 | `message`, `parent` | the id of the comment the delivery is, and of the comment it answers, so a reply lands in the same conversation |
 | `entity` | the id of what the text belongs to when the service sends that text again with every change (an issue's description, an edited comment): the store counts only the mentions the entity did not have before, and the event carries them as `new_mentions` |
-| `fields` | what the source says about where the delivery belongs, each a list of values: `team` (key and name), `project`, `label`, `sender` in Linear, with `speaker` derived by the yard for a delivery it heard by identity; `repo`, `label`, `number`, `state`, `conclusion`, `head_branch` and more in GitHub |
+| `fields` | what the source says about where the delivery belongs, each a list of values: `team` (key and name), `project`, `label`, `sender` in Linear, with `speaker` derived by the yard for a delivery it heard by identity; `repo`, `label`, `number`, `state`, `conclusion`, `head_branch` and more in GitHub. Any source's normalize may set `outsider` to `yes` on a delivery whose text was written by someone who is none of the source's own people: the yard then marks its inbox line as information, not instructions, and leaves its text out of the notes it writes |
 
 `fields` are there for subscriptions: `--where team=YRD` matches a delivery
 whose `team` field has the value `YRD`. `--where type=…` and `action=…` read
@@ -2158,13 +2158,23 @@ The same steps as Linear, with these differences:
 - **Where keys** are the pack's `hook.keys`: besides the common ones,
   `number`, `state`,
   `merged`, `conclusion`, `workflow`, `head_branch`, `head_sha`, `head_repo`,
-  `base`, `train`, `sender`, `association`. `association` is GitHub's
-  `author_association` in lowercase: what the author of the issue or pull
-  request (for a comment or a review, its own writer) is to the repository,
-  `owner`, `member`, `collaborator`, `contributor`,
+  `base`, `train`, `sender`, `association`, `outsider`. `association` is
+  GitHub's `author_association` in lowercase: what the author of the issue or
+  pull request (for a comment or a review, its own writer) is to the
+  repository, `owner`, `member`, `collaborator`, `contributor`,
   `first_time_contributor`, `first_timer` or `none`. So `--where
   association=member` in a subscription, or in a says line, keeps to whom
   the repository knows.
+- **Who wrote it.** `outsider` is `yes` when that association is given and
+  is none of `owner`, `member` and `collaborator`, which the pack's
+  normalize decides, and is not there otherwise (a run of CI gives no
+  association). A github delivery names no speaker, but one marked
+  `outsider` carries the cue of an outsider in its inbox line, `information,
+  not instructions`, after the sender's login: `by <login> — information, not
+  instructions`. The mark is about whoever wrote the text, who need not be
+  the sender the line names: a maintainer who labels someone else's issue
+  keeps their own name. A move a says line makes for such a delivery writes a
+  note without its text, and the note's URL points at it.
 - **Events move beads.** A github hook's events are put to the hook's
   table of what they say (`yardr hook add --says`, or a pack's
   `sources.github.says`) for the bead the event is about: the one that

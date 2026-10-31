@@ -1398,7 +1398,7 @@ yardr hook add gh --source github --secret-file ~/.yardr/github.secret \
   --as yardmaster \
   --says "event=pull_request action=closed merged=true type=train -> merged: PR merged" \
   --says "event=pull_request action=closed merged=false type=train -> question: PR closed unmerged: reopen, or drop the train?" \
-  --says "event=pull_request_review action=submitted state=changes_requested sender=user type=train -> changes: Changes requested on the PR" \
+  --says "event=pull_request_review action=submitted state=changes_requested sender=user association=owner association=member association=collaborator type=train -> changes: Changes requested on the PR" \
   --says "event=workflow_run event=check_suite action=completed conclusion=failure conclusion=timed_out stage=review stage=review-security type=train -> changes: CI failed on the head of the PR" \
   --says "event=ci conclusion=success stage=in-pr type=train -> done" \
   --says "event=ci conclusion=failure stage=in-pr type=train -> changes"
@@ -1424,13 +1424,18 @@ no `ci` command (the `github` pack's setup notes walk it).
 2. **PR closed unmerged** is `question`: a train in `review`,
    `review-security` or `in-pr` goes to `decide` with "PR closed unmerged:
    reopen, or drop the train?".
-3. **Changes requested** by a person (`sender=user`: a login ending in
-   `[bot]` is a bot; the yard posts no reviews, as pr-train writes its
-   review into the PR's body) is `changes`: from `review`, `review-security`,
+3. **Changes requested** by one of the repository's own people
+   (`sender=user`: a login ending in `[bot]` is a bot; the yard posts no
+   reviews, as pr-train writes its review into the PR's body; and
+   `association=owner association=member association=collaborator`, what
+   GitHub says the reviewer is to the repository, so a review from anyone
+   else moves nothing) is `changes`: from `review`, `review-security`,
    `approved` and `in-pr` the train goes back to `open` with the review in the
-   note, where its integrators take it up again. Comments (`issue_comment`)
-   have no line: a crew member subscribed to github with `--scope mentions`
-   gets them.
+   note, where its integrators take it up again. A table that does not ask
+   who wrote the review still moves the train, and its note leaves out the
+   words of anyone outside those three and points at the review by its URL.
+   Comments (`issue_comment`) have no line: a crew member subscribed to
+   github with `--scope mentions` gets them.
 4. **CI red, in `review` or `review-security`**: a `workflow_run` or
    `check_suite` completed with conclusion `failure` or `timed_out` on the
    head is `changes` too, and the line holds in those two only

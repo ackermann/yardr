@@ -766,7 +766,7 @@ const githubSays = `  github:
     says:
       - { where: "event=pull_request action=closed merged=true type=train", outcome: merged, note: "PR merged" }
       - { where: "event=pull_request action=closed merged=false type=train", outcome: question, note: "PR closed unmerged: reopen, or drop the train?" }
-      - { where: "event=pull_request_review action=submitted state=changes_requested sender=user type=train", outcome: changes, note: "Changes requested on the PR" }
+      - { where: "event=pull_request_review action=submitted state=changes_requested sender=user association=owner association=member association=collaborator type=train", outcome: changes, note: "Changes requested on the PR" }
       - { where: "event=workflow_run event=check_suite action=completed conclusion=failure conclusion=timed_out stage=review stage=review-security type=train", outcome: changes, note: "CI failed on the head of the PR" }
       - { where: "event=ci conclusion=success stage=in-pr type=train", outcome: done }
       - { where: "event=ci conclusion=failure stage=in-pr type=train", outcome: changes }
@@ -780,7 +780,7 @@ func starterSays(t *testing.T) []store.Say {
 	for _, l := range []string{
 		"event=pull_request action=closed merged=true type=train -> merged: PR merged",
 		"event=pull_request action=closed merged=false type=train -> question: PR closed unmerged: reopen, or drop the train?",
-		"event=pull_request_review action=submitted state=changes_requested sender=user type=train -> changes: Changes requested on the PR",
+		"event=pull_request_review action=submitted state=changes_requested sender=user association=owner association=member association=collaborator type=train -> changes: Changes requested on the PR",
 		"event=workflow_run event=check_suite action=completed conclusion=failure conclusion=timed_out stage=review stage=review-security type=train -> changes: CI failed on the head of the PR",
 		"event=ci conclusion=success stage=in-pr type=train -> done",
 		"event=ci conclusion=failure stage=in-pr type=train -> changes",
@@ -1323,7 +1323,15 @@ func TestSharedTableRoutesByTheBeadsType(t *testing.T) {
 	ci := func(event, conclusion string) map[string][]string {
 		return ev("event", event, "action", "completed", "conclusion", conclusion)
 	}
-	changes := ev("event", "pull_request_review", "action", "submitted", "state", "changes_requested", "sender", "user")
+	// A review that asks for changes, by someone who is association to the
+	// repository; "" for a review that says nothing of its writer.
+	changes := func(association string) map[string][]string {
+		fields := ev("event", "pull_request_review", "action", "submitted", "state", "changes_requested", "sender", "user")
+		if association != "" {
+			fields["association"] = []string{association}
+		}
+		return fields
+	}
 	bot := ev("event", "pull_request", "action", "synchronize", "sender", "bot")
 	// The hook once each pack has been imported, whichever came first.
 	var hooks []store.Hook
@@ -1361,8 +1369,16 @@ func TestSharedTableRoutesByTheBeadsType(t *testing.T) {
 		{"a run succeeded in the wait for CI, a train", ci("workflow_run", "success"), "ciwait", "train", "", ""},
 		{"CI read green, a train", ev("event", "ci", "action", "completed", "conclusion", "success"), "in-pr", "train", "done", ""},
 		{"CI read green, a pull request", ev("event", "ci", "action", "completed", "conclusion", "success"), "in-pr", "pr", "", ""},
-		{"changes requested, a train", changes, "review", "train", "changes", "Changes requested on the PR"},
-		{"changes requested, a pull request", changes, "review", "pr", "", ""},
+		{"changes requested by the owner, a train", changes("owner"), "review", "train", "changes", "Changes requested on the PR"},
+		{"changes requested by a member, a train", changes("member"), "review", "train", "changes", "Changes requested on the PR"},
+		{"changes requested by a collaborator, a train", changes("collaborator"), "in-pr", "train", "changes", "Changes requested on the PR"},
+		{"changes requested by a contributor, a train", changes("contributor"), "review", "train", "", ""},
+		{"changes requested by a first-time contributor, a train", changes("first_time_contributor"), "review", "train", "", ""},
+		{"changes requested by a first timer, a train", changes("first_timer"), "review", "train", "", ""},
+		{"changes requested by someone unknown to the repository, a train", changes("none"), "review", "train", "", ""},
+		{"changes requested by a writer the review does not name, a train", changes(""), "review", "train", "", ""},
+		{"changes requested by a member, a pull request", changes("member"), "review", "pr", "", ""},
+		{"changes requested by someone unknown to the repository, a pull request", changes("none"), "review", "pr", "", ""},
 		{"pushed under review, a pull request", ev("event", "pull_request", "action", "synchronize"), "review", "pr", "changes", "the PR changed under review"},
 		{"pushed under review, a train", ev("event", "pull_request", "action", "synchronize"), "review", "train", "", ""},
 		{"a bot pushed under review, a pull request", bot, "review", "pr", "pushed", "a bot pushed to the PR"},

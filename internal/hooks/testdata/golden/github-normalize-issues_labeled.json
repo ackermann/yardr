@@ -32,6 +32,9 @@
     "number": [
       "23"
     ],
+    "outsider": [
+      "yes"
+    ],
     "repo": [
       "acme/yardr"
     ],

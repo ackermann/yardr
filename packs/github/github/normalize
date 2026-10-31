@@ -76,8 +76,14 @@ def field($o; $k; $v): if ($v // "") == "" then $o else $o + {($k): [$v]} end;
                # What the writer is to the repository, which is whom a
                # filter can trust (association=member): the writer of the
                # comment or review the delivery carries, else the author
-               # of the issue or pull request.
-               | field(.; "association"; (((if $said == null then ($item.author_association // "") else ($said.author_association // "") end) | ascii_downcase)))) as $f2
+               # of the issue or pull request. outsider is yes when that is
+               # given and is none of owner, member and collaborator: the
+               # yard prints such a delivery as information, not
+               # instructions, and leaves its text out of the notes it
+               # writes.
+               | (((if $said == null then ($item.author_association // "") else ($said.author_association // "") end) | ascii_downcase) as $writer
+                   | field(.; "association"; $writer)
+                   | field(.; "outsider"; (if $writer == "" or $writer == "owner" or $writer == "member" or $writer == "collaborator" then "" else "yes" end)))) as $f2
          | . + {thread: {id: ($repo + "#" + (($item.number | tostring))),
                          title: ($item.title // ""), url: ($item.html_url // "")},
                   assignee: ((($item.assignee // {}).login // "") | ascii_downcase),

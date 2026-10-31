@@ -438,12 +438,18 @@ func (d *Dispatcher) report(ctx context.Context, bead *store.Bead, h *store.Hook
 }
 
 // sayNote is the note a move made for an event adds: the line's own words
-// and where to look, what the event said, and what it was.
+// and where to look, what the event said, and what it was. What an outsider
+// (hooks.Outsider) said stays on the thread: the note is written as the
+// hook's crew member and points at it by the URL.
 func sayNote(line *store.Say, env map[string]any) string {
 	str := func(v any) string { s, _ := v.(string); return s }
 	source := str(env["source"])
+	said := str(env["text"])
+	if hooks.Outsider(env) {
+		said = ""
+	}
 	// The line's words come first; a line without any leaves the event's.
-	first, text := line.Note, str(env["text"])
+	first, text := line.Note, said
 	if first == "" {
 		first, text = text, ""
 	}

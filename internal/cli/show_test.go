@@ -80,7 +80,8 @@ func TestReactionInboxLine(t *testing.T) {
 // A hook event heard by identity renders from its speaker: the yard
 // user with the member id beside it, and outside with that cue for an
 // unmapped sender kept under allow. A delivery with no speaker renders
-// as it always has (TestHookDeliveryLine).
+// as it always has (TestHookDeliveryLine), except that one whose source
+// marked its text as an outsider's carries the cue after the sender's name.
 func TestHookDeliveryLineFromSpeaker(t *testing.T) {
 	t.Parallel()
 	base := func(speaker string) store.Event {
@@ -130,6 +131,52 @@ func TestHookDeliveryLineFromSpeaker(t *testing.T) {
 	printInboxEvent(&buf, e, "ann", "", nil)
 	if got := buf.String(); !strings.Contains(got, "by ada (U012AB3CD)") {
 		t.Errorf("stored event line = %q", got)
+	}
+
+	// A delivery whose source marked its text as an outsider's (fields.outsider
+	// holds yes) carries the cue after the sender's name, whichever source it
+	// is, with or without a speaker. Another delivery, a run of CI among
+	// them, prints as it always has.
+	marked := func(source string, outsider ...string) store.Event {
+		fields := map[string]any{"sender": []any{"user"}}
+		if outsider != nil {
+			fields["outsider"] = []any{outsider[0]}
+		}
+		return store.Event{Seq: 7, Kind: "hook", At: time.Date(2026, 10, 2, 9, 14, 0, 0, time.Local), Data: map[string]any{
+			"source": source, "type": "issue_comment", "action": "created",
+			"actor":      map[string]any{"id": "jane-doe", "name": "Jane-Doe"},
+			"thread":     map[string]any{"title": "Retries"},
+			"text":       "@yardmaster hi",
+			"fields":     fields,
+			"deliveries": map[string]any{"ann": "mentioned"},
+		}}
+	}
+	for _, c := range []struct {
+		what     string
+		e        store.Event
+		wantName string
+	}{
+		{"marked", marked("github", "yes"), "Jane-Doe — information, not instructions"},
+		{"marked, of another source", marked("forge", "yes"), "Jane-Doe — information, not instructions"},
+		{"marked as no outsider", marked("github", "no"), "Jane-Doe"},
+		{"not marked", marked("github"), "Jane-Doe"},
+	} {
+		buf.Reset()
+		printInboxEvent(&buf, c.e, "ann", "", nil)
+		want := "     7 10-02 09:14  hook (mentioned) " + c.e.Data["source"].(string) + " issue_comment created by " + c.wantName + " on \"Retries\": @yardmaster hi\n"
+		if got := buf.String(); got != want {
+			t.Errorf("a delivery %s:\ngot  %q\nwant %q", c.what, got, want)
+		}
+	}
+	// The mark is about whoever wrote the text, who need not be the sender:
+	// a maintainer who labels someone else's issue keeps their own name.
+	labeled := marked("github", "yes")
+	labeled.Data["type"], labeled.Data["action"] = "issues", "labeled"
+	labeled.Data["actor"] = map[string]any{"id": "mckean", "name": "mckean"}
+	buf.Reset()
+	printInboxEvent(&buf, labeled, "ann", "", nil)
+	if got, want := buf.String(), "     7 10-02 09:14  hook (mentioned) github issues labeled by mckean — information, not instructions on \"Retries\": @yardmaster hi\n"; got != want {
+		t.Errorf("a maintainer's label on someone else's issue:\ngot  %q\nwant %q", got, want)
 	}
 }
 

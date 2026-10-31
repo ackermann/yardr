@@ -739,7 +739,7 @@ and `mentions`, so a crew member's github identity is its login in lowercase.
 Where keys, besides `type`, `action`, `repo` and `label`: `event`, `number`,
 `state` (the issue's or pull request's, or the review's), `merged`,
 `conclusion`, `workflow` (a run's workflow, or a check suite's app),
-`head_branch`, `head_sha`, `head_repo`, `base`, `sender`, `association`, and `train`: the yardr train
+`head_branch`, `head_sha`, `head_repo`, `base`, `sender`, `association`, `outsider`, and `train`: the yardr train
 when the head branch is `yard/<train>`, so `--where train=yardr-sv6b` follows a
 train's pull request and CI without parsing branch names. `head_repo` is
 owner/name of the repository the head branch is in: a fork's for a fork's
@@ -751,7 +751,9 @@ Actions, whose login ends in `[bot]`) or `organization`. `association` is
 what the author of the issue or pull request is to the repository, and for
 a comment or a review what its writer is: GitHub's `author_association` in
 lowercase (`owner`, `member`, `collaborator`, `contributor`,
-`first_time_contributor`, `first_timer`, `none`).
+`first_time_contributor`, `first_timer`, `none`). `outsider` is `yes` when
+that is given and is none of `owner`, `member` and `collaborator`, and is not
+there otherwise.
 
 ### Redeliveries
 

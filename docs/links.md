@@ -212,7 +212,7 @@ yardr.
 yardr hook add gh --source github --secret-file ~/.yardr/github.secret \
     --says "event=pull_request action=closed merged=true -> merged: PR merged" \
     --says "event=pull_request action=closed merged=false -> question: PR closed unmerged: reopen, or drop the train?" \
-    --says "event=pull_request_review action=submitted state=changes_requested sender=user -> changes"
+    --says "event=pull_request_review action=submitted state=changes_requested sender=user association=owner association=member association=collaborator -> changes"
 
 yardr hook show gh               # the says lines, in order
 yardr events --bead yardr-sv6b   # hook_rule: the move, or why there was none
@@ -227,6 +227,9 @@ type, for a line that holds in some stages or for some types only. The
 event's own type is named with `event` there. The first line an event matches
 is the one that counts, so the order is part of the table. The note begins
 the note the move adds; the event's own text, its URL and who acted follow.
+The text of a delivery its source marks `outsider` (written by someone who is
+none of the source's own people, [integrations.md](integrations.md#github-where-it-differs)
+for GitHub's) is left out, and the URL points at it.
 
 **The bead** an event is about is the open bead that tracks its thread:
 the one with a `tracks` link to the issue or pull request, of any type,

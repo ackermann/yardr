@@ -103,7 +103,7 @@ of its inbox.`,
 		Example: `  yardr hook add linear --source linear --secret-file ~/.yardr/linear.secret
   yardr hook add gh --source github --secret-file ~/.yardr/github.secret \
       --says "event=pull_request action=closed merged=true -> merged: PR merged" \
-      --says "event=pull_request_review action=submitted state=changes_requested sender=user -> changes"
+      --says "event=pull_request_review action=submitted state=changes_requested sender=user association=owner association=member association=collaborator -> changes"
   yardr hook add gh --source github --secret-file ~/.yardr/github.secret \
       --makes "event=issues action=opened -> issue:triage" \
       --makes "event=pull_request action=opened action=ready_for_review -> task:triage@webapp" \
