@@ -610,7 +610,8 @@ func TestPeerBeadPath(t *testing.T) {
 }
 
 // A return that is none is refused, and one for a bead this yard has not
-// sent changes nothing.
+// sent changes nothing of the bead. Every return counts against the peer's
+// hour, refused or stale.
 func TestPeerBeadReturnsThatAreNone(t *testing.T) {
 	t.Parallel()
 	y, _ := newSendingYard(t)
@@ -650,6 +651,12 @@ func TestPeerBeadReturnsThatAreNone(t *testing.T) {
 	y.allow(t, store.PeerAllow{NoSend: []string{"bead"}})
 	if got := y.take(t, ret("r6", id, map[string]any{"v": 1, "bead": "web-x1", "outcome": "done"})); got[0].Refused != store.RefusedKind {
 		t.Fatalf("a return over a link that sends no beads = %+v", got)
+	}
+	// The three refused, the two stale and the one of a kind the link
+	// does not carry each count against the hour, as none of its mail.
+	if p, err := y.api.GetPeer(y.ctx, "north"); err != nil || p.Messages != 6 || p.Pongs != 0 ||
+		p.Mails != 0 || p.Files != 0 || p.Events != 0 || p.Arrivals != 0 {
+		t.Fatalf("the peer's counts = %+v, %v", p, err)
 	}
 }
 

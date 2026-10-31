@@ -72,12 +72,14 @@ func (p *Peer) MailTakes() string {
 
 // hour begins the hour the peer's mail, files, beads and bead events are
 // counted in anew, when the one that began at MailSince has passed by at. Its asks,
-// its reads of beads and its notes on them are counted with the mail.
+// its reads of beads and its notes on them are counted with the mail, and
+// every message it sent and every pong queued for it with them.
 func (p *Peer) hour(at time.Time) {
 	if p.MailSince == nil || !at.Before(p.MailSince.Add(PeerMailWindow)) {
 		p.MailSince, p.Mails, p.MailLimited, p.Files, p.FileLimited = &at, 0, false, 0, false
 		p.Events, p.EventLimited, p.MailTold = 0, false, nil
 		p.Arrivals, p.ArrivalLimited = 0, false
+		p.Messages, p.Pongs = 0, 0
 	}
 }
 

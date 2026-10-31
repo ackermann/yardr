@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -307,9 +308,13 @@ func noBodies(t *testing.T, api store.API) {
 
 // What a peer posts is taken once by its id; a kind the link does not
 // carry in is refused and logged; a ping is answered with a pong in the
-// outbox, and a pong with nothing.
+// outbox, and a pong with nothing. Every message counts against the peer's
+// hour, whatever became of it.
 func TestPeerReceive(t *testing.T) {
-	t.Parallel()
+	// Sequential: the package's fake clock.
+	at := time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)
+	store.SetClockForTest(func() time.Time { return at })
+	t.Cleanup(func() { store.SetClockForTest(time.Now) })
 	y := newPeerYard(t, "http://north.test")
 	receive := func(ms ...store.PeerMessage) []store.PeerTaken {
 		t.Helper()
@@ -397,6 +402,43 @@ func TestPeerReceive(t *testing.T) {
 	}
 	if _, err := y.own.PeerByKey(y.ctx, "someone-else"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("PeerByKey of no peer = %v", err)
+	}
+	// The refused ping, the taken ones and the duplicates each count
+	// against the hour; the one pong queued counts with them. What was no
+	// message counted nothing. None of it is the peer's mail.
+	if p, err := y.api.GetPeer(y.ctx, "north"); err != nil || p.Messages != 6 || p.Pongs != 1 ||
+		p.Mails != 0 || p.Files != 0 || p.Events != 0 || p.Arrivals != 0 || p.MailSince == nil {
+		t.Fatalf("the peer's counts = %+v, %v", p, err)
+	}
+	// Thirty pongs may wait for one peer in an hour. This batch fills the
+	// remaining places; later pings count but are not answered.
+	capPings := make([]store.PeerMessage, store.PeerPongLimit+1)
+	for i := range capPings {
+		capPings[i] = ping(fmt.Sprintf("cap-%d", i))
+	}
+	if got := receive(capPings...); len(got) != len(capPings) {
+		t.Fatalf("pings at the cap = %+v", got)
+	} else {
+		for i, taken := range got {
+			if taken.Refused != "" || taken.Duplicate {
+				t.Fatalf("ping at the cap %d = %+v", i, taken)
+			}
+		}
+	}
+	if out, _ := y.api.PeerOutbox(y.ctx, "north", 0); len(out) != store.PeerPongLimit {
+		t.Fatalf("pongs within the hour = %d, want %d", len(out), store.PeerPongLimit)
+	}
+	if p, err := y.api.GetPeer(y.ctx, "north"); err != nil || p.Messages != 6+store.PeerPongLimit+1 || p.Pongs != store.PeerPongLimit {
+		t.Fatalf("the peer's counts at the cap = %+v, %v", p, err)
+	}
+
+	// Both counts start again once the hour has passed.
+	at = at.Add(store.PeerMailWindow + time.Second)
+	if got := receive(ping("after-hour")); len(got) != 1 || got[0].Refused != "" || got[0].Duplicate {
+		t.Fatalf("a ping once the hour has passed = %+v", got)
+	}
+	if p, err := y.api.GetPeer(y.ctx, "north"); err != nil || p.Messages != 1 || p.Pongs != 1 {
+		t.Fatalf("the peer's counts in the new hour = %+v, %v", p, err)
 	}
 	noBodies(t, y.api)
 }
