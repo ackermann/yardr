@@ -211,6 +211,10 @@ type Store struct {
 	// that counts it. Filing writes blobs before that transaction, so without
 	// this lock concurrent batches could both keep files the write later refuses.
 	peerFileMu sync.Mutex
+	// peerBeadLocks serialize one link's batches of beads from the read of
+	// its hour to the write that counts it, so that no two of them look at
+	// bases for the same room (lockPeerBatch).
+	peerBeadLocks keyedLocks
 	// askLocks keep an external hook registration together with answers to
 	// that ask, and with removal of the hook it is registering.
 	askLocks keyedLocks

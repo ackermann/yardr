@@ -1164,7 +1164,10 @@ func (tk *taking) keep(ctx context.Context, s *Store) {
 
 // taking reads what taking the beads among msgs from the peer name depends
 // on. What cannot be read is not an error here: the bead is then refused,
-// with the reason, where it is taken.
+// with the reason, where it is taken. The base of a bead is looked at only
+// while the link's hour has room for it (beadsInHour), and the caller holds
+// the link's lock from here to its write (lockPeerBatch), so that the room
+// read here is the room the write finds.
 func (s *Store) taking(ctx context.Context, name string, msgs []PeerMessage) *taking {
 	tk := &taking{flows: s.noteFlows(ctx, name, msgs), homes: s.noteHomes(ctx, name, msgs),
 		repos: map[string]*RepoFlows{}, forms: map[string]string{}, depots: map[string]*Depot{},
@@ -1172,10 +1175,17 @@ func (s *Store) taking(ctx context.Context, name string, msgs []PeerMessage) *ta
 	if !slices.ContainsFunc(msgs, func(m PeerMessage) bool { return m.Kind == PeerBead }) {
 		return tk
 	}
+	var look []bool
 	_ = s.read(func(tx *bolt.Tx) error {
-		// A link that takes no beads has nothing fetched for it.
+		// A link that takes no beads has nothing fetched for it, and nor has
+		// a batch whose beads the write refuses for the hour or drops: no
+		// intake is read for those. Should the hour begin anew before the
+		// write, a bead then within it is refused as one the intakes were
+		// not read for, and sent again it is looked at anew.
 		if p, err := loadPeer(tx, name); err == nil && p.carries(PeerBead, true) {
-			tk.intakes = slices.Clone(p.Intakes)
+			if look = beadsInHour(tx, p, msgs); slices.Contains(look, true) {
+				tk.intakes = slices.Clone(p.Intakes)
+			}
 		}
 		return nil
 	})
@@ -1200,44 +1210,7 @@ func (s *Store) taking(ctx context.Context, name string, msgs []PeerMessage) *ta
 			}
 		}
 	}
-	type baseKey struct {
-		depot string
-		g     PeerGit
-	}
-	checked := map[baseKey]string{}
-	for _, m := range msgs {
-		var b struct {
-			Git *PeerGit `json:"git"`
-		}
-		if m.Kind != PeerBead || json.Unmarshal(m.Body, &b) != nil || b.Git == nil {
-			continue
-		}
-		remote := RemoteForm(b.Git.Remote)
-		if remote == "" {
-			continue
-		}
-		depot := ""
-		for _, in := range tk.intakes {
-			if form := tk.forms[in.Depot]; form != "" && form == remote {
-				depot = in.Depot
-				break
-			}
-		}
-		if depot == "" {
-			continue
-		}
-		at, ok := tk.depots[depot]
-		if !ok || at == nil || at.IsDir() {
-			continue
-		}
-		g := PeerGit{Base: b.Git.Base, BaseCommit: b.Git.BaseCommit, Remote: b.Git.Remote}
-		why, ok := checked[baseKey{depot, g}]
-		if !ok {
-			why = checkBase(ctx, *at, g)
-			checked[baseKey{depot, g}] = why
-		}
-		tk.at[m.ID], tk.bases[m.ID] = depot, why
-	}
+	tk.preflight(ctx, msgs, look)
 	return tk
 }
 

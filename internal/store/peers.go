@@ -1244,7 +1244,7 @@ func (w *wtx) receivePeer(p *Peer, msgs []PeerMessage, way string, tk *taking, f
 // not on the API: only the receiver, in the process that owns the store,
 // has checked whose they are, so no client can hand in one of its own.
 func (s *Store) PeerReceive(ctx context.Context, name, key string, msgs []PeerMessage) ([]PeerTaken, error) {
-	unlock := s.lockPeerFiles(msgs)
+	unlock := s.lockPeerBatch(name, msgs)
 	defer unlock()
 	var out []PeerTaken
 	tk, fl, own := s.taking(ctx, name, msgs), s.filing(name, msgs), s.yardKey()
@@ -1262,16 +1262,6 @@ func (s *Store) PeerReceive(ctx context.Context, name, key string, msgs []PeerMe
 		tk.keep(ctx, s)
 	}
 	return out, err
-}
-
-// lockPeerFiles keeps filing's blob writes in step with the quota in the
-// transaction that takes the same batch. A batch without files needs no lock.
-func (s *Store) lockPeerFiles(msgs []PeerMessage) func() {
-	if !slices.ContainsFunc(msgs, func(m PeerMessage) bool { return m.Kind == PeerFile }) {
-		return func() {}
-	}
-	s.peerFileMu.Lock()
-	return s.peerFileMu.Unlock
 }
 
 // PeerHeard keeps what the peer name said of its build with a request
@@ -1401,7 +1391,7 @@ func (s *Store) PeerPulled(ctx context.Context, name string, b PeerBatch) (*Peer
 	if len(page.Messages) == 0 && !told && !said {
 		return res, nil
 	}
-	unlock := s.lockPeerFiles(page.Messages)
+	unlock := s.lockPeerBatch(name, page.Messages)
 	defer unlock()
 	tk, fl, own := s.taking(ctx, name, page.Messages), s.filing(name, page.Messages), s.yardKey()
 	err = s.write(func(w *wtx) error {

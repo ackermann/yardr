@@ -2619,7 +2619,10 @@ base commit must be in the depot, or come with a fetch of the branch the
 bead names, or of the commit by its name. It is then kept by a ref of the
 bead's, `refs/yardr/peer-base/<bead>`, until the bead closes
 ([the refs](#the-refs-a-depot-has-for-it)): a commit fetched by its name is
-on no branch, and `git gc` drops what no ref leads to.
+on no branch, and `git gc` drops what no ref leads to. This comes after the
+link's [hour of beads](#the-intakes): one past the limit is refused as
+`rate_limited`, and a message taken before is dropped, with nothing fetched
+for either.
 
 That failing refuses the bead as `base_unknown`
 ([what arrives](#what-arrives)); `detail` in the yard's

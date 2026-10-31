@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -994,6 +995,142 @@ func TestPeerBeadPulled(t *testing.T) {
 	}
 	if p, _ := y.api.GetPeer(y.ctx, "north"); p.Refused[5].Reason != "already_here" || p.Pulled != 5 {
 		t.Fatalf("the peer after the pull = %+v", p)
+	}
+}
+
+// originBranches is a bare repository with a branch of its own for each of n
+// bases, b00 on: each a root commit the depot below has not got, so that
+// looking at a base fetches it, which is what the depot's refs then say.
+func originBranches(t *testing.T, n int) (origin string, commits []string) {
+	t.Helper()
+	dir := t.TempDir()
+	origin = filepath.Join(dir, "origin.git")
+	git(t, dir, "init", "-q", "--bare", "-b", "main", origin)
+	var stream strings.Builder
+	for i := range n {
+		fmt.Fprintf(&stream, "commit refs/heads/b%02d\ncommitter t <t@t> %d +0000\ndata 3\nb%02d\n\n", i, 1_700_000_000+i, i)
+	}
+	cmd := exec.Command("git", "-C", origin, "fast-import", "--quiet")
+	cmd.Stdin = strings.NewReader(stream.String())
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git fast-import: %v\n%s", err, out)
+	}
+	// Listed by name, which is the order they were made in.
+	return origin, strings.Split(git(t, origin, "for-each-ref", "--format=%(objectname)", "refs/heads"), "\n")
+}
+
+// Looking at the base a bead starts from fetches it into the intake's
+// depot, so the link's hour of beads comes first: a bead past the hour's
+// limit, one this yard took before and what is no message are refused or
+// dropped with no base looked at, however many different ones are sent, and
+// what is within the limit is looked at and taken as before, again once the
+// hour has passed. What the depot has fetched is what was looked at.
+func TestPeerBeadBasesLookedAtWithinTheHour(t *testing.T) {
+	// Sequential: the package's fake clock.
+	at := time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)
+	store.SetClockForTest(func() time.Time { return at })
+	t.Cleanup(func() { store.SetClockForTest(time.Now) })
+
+	origin, commits := originBranches(t, 14)
+	y := newBeadYard(t)
+	depot := filepath.Join(t.TempDir(), "web")
+	git(t, filepath.Dir(depot), "init", "-q", "-b", "main", depot)
+	git(t, depot, "remote", "add", "origin", origin)
+	if err := y.api.PutDepot(y.ctx, store.Depot{Name: "web", Path: depot, Kind: store.DepotGit, Base: "origin/main"}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	// looked is the bases that have been fetched into the depot: each is the
+	// work of one look at one.
+	looked := func() string {
+		t.Helper()
+		return strings.Join(strings.Fields(git(t, depot, "for-each-ref", "--format=%(refname:lstrip=3)", "refs/remotes/origin")), " ")
+	}
+	// from is a bead that starts from the base i of the origin.
+	from := func(id string, i int) store.PeerMessage {
+		return beadMsg(id, "web-"+id, func(b map[string]any) {
+			b["git"] = map[string]any{"base": fmt.Sprintf("b%02d", i), "base_commit": commits[i], "remote": origin}
+		})
+	}
+	// refused checks what became of each message of a batch.
+	refused := func(got []store.PeerTaken, want ...string) {
+		t.Helper()
+		var have []string
+		for _, g := range got {
+			have = append(have, g.Refused)
+		}
+		if !slices.Equal(have, want) {
+			t.Fatalf("what became of the batch = %q, want %q", have, want)
+		}
+	}
+
+	// Within the limit: looked at, and taken.
+	refused(y.take(t, from("d1", 0)), "")
+	if got := looked(); got != "b00" || y.beads(t) != 1 {
+		t.Fatalf("after a bead within the limit: bases %q, %d beads", got, y.beads(t))
+	}
+	// A message taken before is dropped, whatever base it names now; and
+	// what is no message is none of the hour's.
+	if got := y.take(t, from("d1", 1)); !got[0].Duplicate {
+		t.Fatalf("a message taken before = %+v", got)
+	}
+	none := from("x1", 2)
+	none.ID = "not a message"
+	if _, err := y.own.PeerReceive(y.ctx, "north", y.key, []store.PeerMessage{none}); !errors.Is(err, store.ErrNotMessage) {
+		t.Fatalf("what is no message = %v", err)
+	}
+	if got := looked(); got != "b00" {
+		t.Fatalf("after a message taken before and one that is none: bases %q, want b00", got)
+	}
+
+	// Leave the hour room for three more: beads that need no base looked at,
+	// for a remote no intake takes, count as the others do.
+	var fill []store.PeerMessage
+	for i := range store.PeerBeadLimit - 1 - 3 {
+		fill = append(fill, beadMsg(fmt.Sprintf("o%02d", i), fmt.Sprintf("web-o%02d", i), func(b map[string]any) {
+			b["git"] = map[string]any{"base": "main", "base_commit": strings.Repeat("a", 40), "remote": "https://example.com/other.git"}
+		}))
+	}
+	refused(y.take(t, fill...), slices.Repeat([]string{store.RefusedNoIntake}, len(fill))...)
+
+	// A page with one message repeated under its id: it is dropped after its
+	// first take, so it does not use the hour's room or stand in for a base
+	// the write takes.
+	var page []store.PeerMessage
+	for i, base := range []int{3, 4, 5, 6, 7, 8} {
+		id := fmt.Sprintf("a%d", i)
+		if i == 1 {
+			id = "a0"
+		}
+		m := from(id, base)
+		m.Seq = uint64(i + 1)
+		page = append(page, m)
+	}
+	body, _ := json.Marshal(store.PeerPage{Messages: page})
+	res, err := y.api.PeerPulled(y.ctx, "north", store.PeerBatch{RequestSig: "req-1", Signature: store.SignResponse(y.north, 200, "req-1", body), Body: body})
+	if err != nil {
+		t.Fatal(err)
+	}
+	refused(res.Taken, "", "", "", "", store.RefusedRate, store.RefusedRate)
+	if !res.Taken[1].Duplicate {
+		t.Fatalf("the repeated message id = %+v, want duplicate", res.Taken[1])
+	}
+	if got := looked(); got != "b00 b03 b05 b06" || y.beads(t) != 4 {
+		t.Fatalf("after a page of six within an hour of three: bases %q, %d beads", got, y.beads(t))
+	}
+	// Posted one by one, as they are, until the hour has passed.
+	for i := range 3 {
+		refused(y.take(t, from(fmt.Sprintf("p%d", i), 9+i)), store.RefusedRate)
+	}
+	at = at.Add(time.Hour - time.Second)
+	refused(y.take(t, from("n0", 12)), store.RefusedRate)
+	if got := looked(); got != "b00 b03 b05 b06" {
+		t.Fatalf("after the beads over the limit: bases %q, want b00 b03 b05 b06", got)
+	}
+	// The hour has passed: the next is within the limit, looked at and taken.
+	at = at.Add(time.Second)
+	refused(y.take(t, from("n1", 13)), "")
+	if got := looked(); got != "b00 b03 b05 b06 b13" || y.beads(t) != 5 {
+		t.Fatalf("after the hour: bases %q, %d beads", got, y.beads(t))
 	}
 }
 
