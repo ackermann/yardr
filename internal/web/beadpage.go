@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"slices"
@@ -161,6 +162,12 @@ func (s *Server) beadPage(ctx context.Context, id, hostport string) (*BeadPage, 
 	var err error
 	if d.Head, err = s.st.Head(ctx); err != nil {
 		return nil, err
+	}
+	// A bead the acting user may not see reads as missing, as the
+	// socket's Bead reads it. The core lets everyone see every bead,
+	// so today every page reads as before.
+	if err := s.st.May(ctx, as, store.ActSee, store.Object{Kind: store.KindBead, Name: id}); err != nil {
+		return nil, fmt.Errorf("bead %s: %w", id, store.ErrNotFound)
 	}
 	b, err := s.st.GetBead(ctx, id)
 	if err != nil {

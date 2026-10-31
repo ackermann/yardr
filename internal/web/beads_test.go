@@ -17,6 +17,7 @@ import (
 	"sync"
 	"testing"
 
+	bolt "go.etcd.io/bbolt"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 	"yardr.dev/yardr/internal/web"
@@ -583,7 +584,21 @@ func TestBeadJSON(t *testing.T) {
 	}
 }
 
-// The page, for a person; an unknown bead is a 404 in both forms.
+// seePolicy hides the beads it names from the viewers it names, each an
+// (actor, bead) pair, and asks the core for the rest.
+type seePolicy struct {
+	hide map[[2]string]bool
+}
+
+func (p seePolicy) May(ctx context.Context, tx *bolt.Tx, actor string, act store.Action, obj store.Object) error {
+	if act == store.ActSee && obj.Kind == store.KindBead && p.hide[[2]string{actor, obj.Name}] {
+		return errors.New("hidden from " + actor)
+	}
+	return store.CorePolicy.May(ctx, tx, actor, act, obj)
+}
+
+// The page, for a person; an unknown bead is a 404 in both forms. A viewer
+// the policy refuses reads a bead as missing, while one it allows reads it.
 func TestBeadHTML(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
@@ -624,6 +639,23 @@ func TestBeadHTML(t *testing.T) {
 	}
 	if r := f.get("/beads/line-none", "Accept", "application/json"); r.status != 404 || !strings.Contains(r.body, `"error"`) {
 		t.Errorf("an unknown bead as JSON: status %d: %s", r.status, r.body)
+	}
+	ctx := context.Background()
+	must(t, func() error { _, err := f.st.AddUser(ctx, "jo", "jo"); return err }())
+	must(t, func() error { _, err := f.st.AddUser(ctx, "ada", "ada"); return err }())
+	jo, ada := f.as(t, "jo"), f.as(t, "ada")
+	f.own.SetPolicy(seePolicy{hide: map[[2]string]bool{{"jo", b.ID}: true, {"", b.ID}: true}})
+	if r := jo.get("/beads/" + b.ID); r.status != http.StatusNotFound {
+		t.Errorf("jo's page with the bead hidden: status %d, want 404", r.status)
+	}
+	if r := ada.get("/beads/" + b.ID); r.status != http.StatusOK {
+		t.Errorf("ada's page with the bead hidden from jo: status %d, want 200", r.status)
+	}
+	if r := f.get("/beads/" + b.ID); r.status != http.StatusNotFound {
+		t.Errorf("the bare view's page with the bead hidden: status %d, want 404", r.status)
+	}
+	if r := f.get("/beads/" + train.ID); r.status != http.StatusOK {
+		t.Errorf("the bare view's page for a shown bead: status %d, want 200", r.status)
 	}
 }
 
