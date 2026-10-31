@@ -946,25 +946,52 @@ func TestStageVerifyHoldsTheInstallerToTheTag(t *testing.T) {
 	}
 }
 
+// A yardr tag that holds an install.sh files a sync bead naming
+// public/install.sh as the one other path the sync writes; a tag without
+// one files the bead as before.
 func TestStagePublishFilesTheSyncBead(t *testing.T) {
-	s := newStage(t)
-	checkout, _ := s.repo()
-	s.git(checkout, "tag", "v1.2.3")
-	at := strings.TrimSpace(s.git(checkout, "rev-parse", "--short", "refs/tags/v1.2.3"))
-	s.show("yardr v1.2.3", "notes")
-	s.run("publish", "YARDR_DEPOT_PATH="+checkout, "FAKE_CREATE_ID=yardr.dev-s9nc")
-	got := s.log()
-	title := "Sync yardr v1.2.3 to yardr.dev: scripts/sync-release yardr v1.2.3"
-	s.mustContain(got, "gh release edit v1.2.3 --repo yardr-dev/yardr --draft=false")
-	s.mustContain(got, "yardr bead create "+title+" -d yardr.dev -p 1 -b - -l difficulty:1,size:small --json")
-	s.mustContain(got, "https://github.com/yardr-dev/yardr/releases/tag/v1.2.3")
-	s.mustContain(got, "built from "+at)
-	s.mustContain(got, "scripts/sync-release yardr v1.2.3")
-	s.mustContain(got, "yardr bead advance yardr.dev-s9nc --to new")
-	s.mustContain(got, "publish: filed yardr.dev-s9nc")
-	s.mustContain(got, "released from its draft")
-	s.mustContain(got, "yardr bead done yardr-rel1 --note -")
-	s.mustLack(got, "--outcome")
+	for _, tc := range []struct {
+		name      string
+		installer bool // the tag holds an install.sh
+	}{
+		{"without the installer", false},
+		{"with the installer", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newStage(t)
+			checkout, _ := s.repo()
+			if tc.installer {
+				if err := os.WriteFile(filepath.Join(checkout, "install.sh"), []byte("#!/bin/sh\necho hi\n"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				s.git(checkout, "add", "install.sh")
+				s.git(checkout, "commit", "-q", "-m", "installer")
+			}
+			s.git(checkout, "tag", "v1.2.3")
+			at := strings.TrimSpace(s.git(checkout, "rev-parse", "--short", "refs/tags/v1.2.3"))
+			s.show("yardr v1.2.3", "notes")
+			s.run("publish", "YARDR_DEPOT_PATH="+checkout, "FAKE_CREATE_ID=yardr.dev-s9nc")
+			got := s.log()
+			title := "Sync yardr v1.2.3 to yardr.dev: scripts/sync-release yardr v1.2.3"
+			s.mustContain(got, "gh release edit v1.2.3 --repo yardr-dev/yardr --draft=false")
+			s.mustContain(got, "yardr bead create "+title+" -d yardr.dev -p 1 -b - -l difficulty:1,size:small --json")
+			s.mustContain(got, "https://github.com/yardr-dev/yardr/releases/tag/v1.2.3")
+			s.mustContain(got, "built from "+at)
+			s.mustContain(got, "scripts/sync-release yardr v1.2.3")
+			s.mustContain(got, "yardr bead advance yardr.dev-s9nc --to new")
+			s.mustContain(got, "publish: filed yardr.dev-s9nc")
+			s.mustContain(got, "released from its draft")
+			s.mustContain(got, "yardr bead done yardr-rel1 --note -")
+			s.mustLack(got, "--outcome")
+			if tc.installer {
+				s.mustContain(got, "copies the release's install.sh to public/install.sh")
+				s.mustContain(got, "shows only public/releases/ and public/install.sh")
+			} else {
+				s.mustContain(got, "shows only public/releases/ (the yardr paths, not footplate's)")
+				s.mustLack(got, "public/install.sh")
+			}
+		})
+	}
 }
 
 func TestStagePublishFailsWhenTheDraftIsNotReleased(t *testing.T) {

@@ -441,12 +441,21 @@ publish() {
   url="https://github.com/$GHREPO/releases/tag/$v"
   day=$(date +%Y-%m-%d)
   if [ "$PRODUCT" = yardr ]; then other=footplate; else other=yardr; fi
+  # The sync writes the release directory and latest.json, and for a yardr
+  # release whose tag holds an install.sh, public/install.sh too: the filed
+  # bead names it as the one other path, and its Done when allows it.
+  writes="replaces the previous $PRODUCT release directory with $v/ and rewrites public/releases/latest.json"
+  shows="shows only public/releases/"
+  if [ "$PRODUCT" = yardr ] && tagged_installer >/dev/null; then
+    writes="$writes and copies the release's install.sh to public/install.sh"
+    shows="shows only public/releases/ and public/install.sh"
+  fi
   title="Sync $PRODUCT $v to yardr.dev: scripts/sync-release $PRODUCT $v"
   body="$PRODUCT $v is released ($url, built from $at) and its checksums.txt.minisig is uploaded and verified against the release key on $day.
 
-Run, from the depot's checkout: \`scripts/sync-release $PRODUCT $v\` (fetches the release with gh from $GHREPO, verifies the signature and the four archives, replaces the previous $PRODUCT release directory with $v/ and rewrites public/releases/latest.json). Commit what it wrote. Nothing else changes.
+Run, from the depot's checkout: \`scripts/sync-release $PRODUCT $v\` (fetches the release with gh from $GHREPO, verifies the signature and the four archives, $writes). Commit what it wrote. Nothing else changes.
 
-Done when: the depot's test command passes; \`git diff main --stat\` shows only public/releases/ (the $PRODUCT paths, not $other's). After the deploy, https://yardr.dev/releases/latest.json names $v and the page offers it."
+Done when: the depot's test command passes; \`git diff main --stat\` $shows (the $PRODUCT paths, not $other's). After the deploy, https://yardr.dev/releases/latest.json names $v and the page offers it."
   new=$(printf '%s' "$body" | "$Y" bead create "$title" -d yardr.dev -p 1 -b - -l difficulty:1,size:small --json 2>"$tmp/create.err" | jq -r '.id // empty') || new=""
   [ -n "$new" ] || fail failed "filing the sync bead failed" "$(cat "$tmp/create.err")"
   "$Y" bead advance "$new" --to new || fail failed "sync bead $new is filed but advancing it to new failed; advance it by hand, then this bead to published"
