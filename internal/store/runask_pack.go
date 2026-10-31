@@ -301,8 +301,9 @@ func validatePackSource(carried AskSource, packName string) (*source.Declaration
 // packApplyCard is the card of pack apply <name>: the server's own pack
 // in the yard's sentences, for a kind-source pack the whole rendering
 // of sourceDoes under a pack line, for a depot pack the plan's objects
-// (packDepotDoes). Asking refuses what the row refuses; an approval
-// reads it again and stale says what moved.
+// (packDepotDoes), or its summary where the whole card passes the bounds
+// (packSummary). Asking refuses what the row refuses; an approval reads it
+// again and stale says what moved.
 func (w *wtx) packApplyCard(run AskRun, asking bool) (AskRun, error) {
 	name := run.Argv[2]
 	read := w.packReaderOf()
@@ -370,6 +371,9 @@ func (w *wtx) packApplyCard(run AskRun, asking bool) (AskRun, error) {
 		"pack " + name + " build": reading.Build,
 		"pack " + name + " bytes": packBytesSeen(&PackReading{Sources: carried, Plan: reading.Plan}),
 	}
+	if reading.Digest != "" {
+		seenMap[packDigestKey(name)] = reading.Digest
+	}
 	for i := range carried {
 		key := "source " + carried[i].Name
 		if src, _, err := sourceIn(w.Tx, carried[i].Name); err == nil {
@@ -396,7 +400,7 @@ func (w *wtx) packApplyCard(run AskRun, asking bool) (AskRun, error) {
 		reading.Mappings = mappings
 	}
 	card := AskRun{Argv: run.Argv, Seen: seenMap, Carried: carried,
-		Pack: &AskPack{Name: name, Kind: reading.Kind, Depot: reading.Depot, Mappings: reading.Mappings, Label: reading.Label}}
+		Pack: &AskPack{Name: name, Kind: reading.Kind, Depot: reading.Depot, Mappings: reading.Mappings, Label: reading.Label, Digest: reading.Digest}}
 	if reading.Kind == "source" {
 		if named {
 			return AskRun{}, fmt.Errorf("pack %s: it is of kind source, so it goes into the yard and no depot, and a setup card installs it: yardr bead ask <bead> \"<question>\" --setup %s", name, name)
@@ -450,7 +454,11 @@ func (w *wtx) packApplyCard(run AskRun, asking bool) (AskRun, error) {
 	for i := range card.Does {
 		card.Does[i] = safeSourceCardLine(card.Does[i])
 	}
-	if payload > MaxRunPackFiles {
+	summary, err := w.packSummary(&card, reading, carried, decls, named, payload)
+	if err != nil {
+		return AskRun{}, err
+	}
+	if payload > MaxRunPackFiles && !summary {
 		return AskRun{}, fmt.Errorf("pack %s: its carried file texts and diffs run to %d bytes: a card holds at most %d together, so this is the operator's to type in a terminal (yardr pack check %s shows it there)", name, payload, MaxRunPackFiles, name)
 	}
 	if len(card.Does) > MaxRunSourceCardLines {
@@ -787,77 +795,6 @@ func declarationKey(d *source.Declaration, key string) string {
 	return string(raw)
 }
 
-// packDepotDoes is the card of a depot pack: the pack line with its
-// counts, one line to a created or changed object, one to a dropped
-// object left where it stands, the governs, and each declared source
-// as a kind-source card renders it.
-func (w *wtx) packDepotDoes(name string, reading *PackReading, carried []AskSource, decls map[string]*source.Declaration) ([]string, error) {
-	plan := reading.Plan
-	counts := map[string]int{}
-	for _, o := range plan.Objects {
-		counts[o.Action]++
-	}
-	kind := reading.Kind
-	if kind == "" {
-		kind = "of no kind"
-	} else {
-		kind = "kind " + kind
-	}
-	does := []string{fmt.Sprintf("pack %s (%s), of %s, into depot %s: %d to create, %d to change, %d unchanged, and %d dropped and left where they stand. It asks nothing.",
-		name, reading.Label, kind, reading.Depot, counts["create"], counts["change"], counts["unchanged"], counts["dropped"])}
-	for _, flag := range packMappingFlags(reading.Mappings) {
-		does = append(does, "the plan uses mapping "+flag+".")
-	}
-	for _, o := range plan.Objects {
-		switch o.Action {
-		case "create", "change":
-			if o.Kind == "file" {
-				ins, del := Counts(o.Diff)
-				does = append(does, fmt.Sprintf("%s %s: %s, sha256 %s -> sha256 %s (%d insertions, %d deletions).",
-					o.Kind, o.Name, o.Action, or(o.FileOldSHA, "(none)"), or(o.FileNewSHA, "(none)"), ins, del))
-				continue
-			}
-			line := fmt.Sprintf("%s %s: %s", o.Kind, o.Name, o.Action)
-			if len(o.Changes) > 0 {
-				parts := make([]string, len(o.Changes))
-				for i, c := range o.Changes {
-					parts[i] = fmt.Sprintf("%s: %s -> %s", c.Field, or(c.Old, "none"), or(c.New, "none"))
-				}
-				line += " (" + strings.Join(parts, "; ") + ")"
-			}
-			does = append(does, line+".")
-		case "dropped":
-			does = append(does, fmt.Sprintf("%s %s: dropped by the pack, left where it stands.", o.Kind, o.Name))
-		}
-		if len(o.Env) > 0 {
-			does = append(does, fmt.Sprintf("%s %s: cmd sets %s before the script.", o.Kind, o.Name, strings.Join(o.Env, " ")))
-		}
-		for _, k := range o.Keeps {
-			does = append(does, fmt.Sprintf("%s %s: keeps %s.", o.Kind, o.Name, k))
-		}
-		for _, s := range o.Shadows {
-			does = append(does, fmt.Sprintf("%s %s: shadows %s.", o.Kind, o.Name, s))
-		}
-	}
-	for _, g := range plan.Governs {
-		if g.Now != "" && g.Now != g.Flow {
-			if g.Type != "" {
-				does = append(does, fmt.Sprintf("depot %s's beads of type %s would follow flow %s; they follow %s now.", reading.Depot, g.Type, g.Flow, g.Now))
-			} else {
-				does = append(does, fmt.Sprintf("depot %s would follow flow %s; it follows %s now.", reading.Depot, g.Flow, g.Now))
-			}
-		}
-	}
-	for i := range carried {
-		lines, err := w.packOneSourceDoes(carried[i], decls[carried[i].Name], false, "")
-		if err != nil {
-			return nil, err
-		}
-		does = append(does, lines...)
-	}
-	return does, nil
-}
-
 // runPackApply records a pack approval as approved, to be carried out:
 // the yard's server does the applying after this write (B3), and
 // nothing of the pack is written here.
@@ -865,8 +802,12 @@ func runPackApply(ctx context.Context, w *wtx, run AskRun, actor string, by *app
 	return CarryPending, nil
 }
 
-// packApplyStale says why a pack approval is refused: the pack's bytes
-// moved or another embeds it (a build alone is no reason), a source it
+// packDigestKey is the Seen key of a pack's digest. An ask stored before
+// cards held it has none, and is held to its bytes alone.
+func packDigestKey(name string) string { return "pack " + name + " digest" }
+
+// packApplyStale says why a pack approval is refused: the pack's bytes or
+// digest moved or another embeds it (a build alone is no reason), a source it
 // would add or replace moved (naming the command copy that did), what is
 // owed changed, a depot plan is not the stored one, or something a named
 // depot's card rests on (packTargetsSeen) moved.
@@ -904,8 +845,11 @@ func (w *wtx) packApplyStale(seq uint64, was, now AskRun) error {
 	labelKey, bytesKey, buildKey := "pack "+name, "pack "+name+" bytes", "pack "+name+" build"
 	// The build is provenance: the same bytes under the same label without
 	// it are what the card showed, whichever build embeds them.
+	// The digest also names what no plan object shows: the pack's files
+	// this depot's plan does not install.
+	digest := was.Seen[packDigestKey(name)]
 	if LabelWithoutBuild(was.Seen[labelKey], was.Seen[buildKey]) != LabelWithoutBuild(now.Seen[labelKey], now.Seen[buildKey]) ||
-		was.Seen[bytesKey] != now.Seen[bytesKey] {
+		was.Seen[bytesKey] != now.Seen[bytesKey] || digest != "" && digest != now.Seen[packDigestKey(name)] {
 		return fmt.Errorf("%s, whose pack differs. %s", CardedUnder(seq, was.Seen[buildKey], now.Seen[buildKey]), nothingRan)
 	}
 	for i := range was.Carried {

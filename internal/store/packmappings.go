@@ -305,22 +305,39 @@ func sortedMappingKeys(m map[string]string) []string {
 // AskPack is a pack apply ask's pack as the yard's server read it: its
 // name, its kind, the depot a depot kind would be re-applied to, and
 // the build label the pack is embedded in. A depot kind carries the
-// plan the server built inside the write that stored the ask.
+// plan the server built inside the write that stored the ask, and the
+// pack's digest. Summary says the card is the summary shape: Does names
+// the pack by its digest and each file by its hash, and the texts stand
+// in Plan and in the run's Carried, read behind the card. Files then says
+// which line of Does stands for which file.
 type AskPack struct {
-	Name     string   `json:"name"`
-	Kind     string   `json:"kind,omitempty"`
-	Depot    string   `json:"depot,omitempty"`
-	Mappings Mappings `json:"mappings,omitzero"`
-	Label    string   `json:"label"`
-	Plan     *AskPlan `json:"plan,omitempty"`
+	Name     string        `json:"name"`
+	Kind     string        `json:"kind,omitempty"`
+	Depot    string        `json:"depot,omitempty"`
+	Mappings Mappings      `json:"mappings,omitzero"`
+	Label    string        `json:"label"`
+	Plan     *AskPlan      `json:"plan,omitempty"`
+	Digest   string        `json:"digest,omitempty"`
+	Summary  bool          `json:"summary,omitempty"`
+	Files    []AskPackFile `json:"files,omitempty"`
+}
+
+// AskPackFile ties a file of a summary card to its line, so a client
+// opens the text from the line without parsing it: Name is the Plan
+// object of kind file that holds the text, the diff and the hashes, and
+// Line is the line's index in Does, or -1 for a file folded into the
+// card's closing count.
+type AskPackFile struct {
+	Name string `json:"name"`
+	Line int    `json:"line"`
 }
 
 // PackReading is what the server's reading of one embedded pack hands
 // the store: the pack's name and kind, the build label it is embedded
 // in, each declared source's whole text with its command files' bytes,
 // the pack's presets with their grants, and, for a depot kind, the depot
-// it would be re-applied to and the plan built against the yard. Nothing
-// of it is the asker's.
+// it would be re-applied to, the plan built against the yard, the pack's
+// digest and the files of it that run. Nothing of it is the asker's.
 type PackReading struct {
 	Name     string
 	Kind     string // pack.KindSource ("source") for a yard pack, else a depot kind
@@ -331,6 +348,8 @@ type PackReading struct {
 	Sources  []AskSource
 	Presets  []AskPreset
 	Plan     *AskPlan
+	Digest   string   // the plan's: the sha256 of the pack's files, before filling
+	Programs []string // the plan's: the files of the pack that run once installed
 }
 
 // PackReader reads the embedded pack of a name for a pack apply ask,

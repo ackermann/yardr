@@ -23,6 +23,11 @@ type fakePack struct {
 	kind     string
 	depot    string
 	mappings Mappings
+	digest   string
+	programs []string
+	// noSources reads a pack that declares none, as the four large
+	// packs are.
+	noSources bool
 	// What the last reading was asked for.
 	readDepot    string
 	readMappings Mappings
@@ -40,8 +45,12 @@ func (f *fakePack) reading() *PackReading {
 	// In the declaration's command order, as a server reading builds it.
 	var srcs []AskSource
 	_ = srcs
-	return &PackReading{Name: "wired", Kind: kind, Depot: f.depot, Mappings: f.mappings, Label: f.label, Build: f.build,
-		Sources: []AskSource{{Name: "wired", Text: wiredDecl, Files: askFilesOrdered(files)}}, Plan: f.plan}
+	r := &PackReading{Name: "wired", Kind: kind, Depot: f.depot, Mappings: f.mappings, Label: f.label, Build: f.build,
+		Plan: f.plan, Digest: f.digest, Programs: f.programs}
+	if !f.noSources {
+		r.Sources = []AskSource{{Name: "wired", Text: wiredDecl, Files: askFilesOrdered(files)}}
+	}
+	return r
 }
 
 func askFilesOrdered(files map[string]string) []AskFile {
@@ -1090,5 +1099,324 @@ func TestPackApplyStaleSourceAdded(t *testing.T) {
 	}
 	if r := y.asked(t, seq); r.State != AskOpen {
 		t.Fatalf("the ask is %s after a refused approval", r.State)
+	}
+}
+
+// largePlan is a depot plan of n created files of size bytes each, whose
+// texts pass the whole card's bound together, with the objects of a first
+// install beside them.
+func largePlan(n, size int) *AskPlan {
+	plan := firstInstallPlan()
+	plan.Objects = []AskPlanObject{}
+	for i := range n {
+		plan.Objects = append(plan.Objects, AskPlanObject{Kind: "file", Name: "roles/" + itoa(uint64(i)) + ".md", Action: "create",
+			FileNewSHA: strings.Repeat("b", 64), Text: strings.Repeat("r", size) + "\n", Diff: "--- was\n+++ is\n@@ -0,0 +1,1 @@\n+role\n"})
+	}
+	plan.Objects = append(plan.Objects,
+		AskPlanObject{Kind: "group", Name: "web-builders", Action: "create"},
+		AskPlanObject{Kind: "group", Name: "web-assembly", Action: "create", Env: []string{"YARDR_LAND=squash"}},
+		AskPlanObject{Kind: "crew", Name: "yardmaster", Action: "change", Changes: []AskChange{{Field: "on", Old: "a", New: "b"}}},
+		AskPlanObject{Kind: "route", Name: "stage new", Action: "create"},
+		AskPlanObject{Kind: "route", Name: "stage review", Action: "unchanged"},
+		AskPlanObject{Kind: "file", Name: "roles/old.md", Action: "dropped"})
+	plan.Governs = []AskGovern{{Flow: "starter.default", Now: "default"}}
+	return plan
+}
+
+var summaryDigest = strings.Repeat("d", 64)
+
+// summaryAsk is a first install of the fake starter into depot web.
+func summaryAsk() Ask {
+	ask := packAsk()
+	ask.Run.Argv = []string{"pack apply starter --depot web"}
+	return ask
+}
+
+// A depot pack named with its depot past the whole card's bounds is a
+// summary card: its lines name the pack by its digest and each file by its
+// hash, a client reaches each file's text from its line, the texts stay
+// carried, and the approval is gated and held as a whole card's is.
+func TestPackApplySummaryCard(t *testing.T) {
+	y, _ := runYard(t)
+	y.firstInstallDepot(t)
+	f := &fakePack{label: "embedded in yardr test1", kind: "git", depot: "web", digest: summaryDigest,
+		programs: []string{"scripts/merge-local"}, plan: largePlan(20, 5000)}
+	y.setPack(f)
+	seq := y.ask(t, summaryAsk(), "yardmaster")
+	got := y.asked(t, seq)
+	run := got.Ask.Run
+	if !run.Pack.Summary || run.Pack.Digest != summaryDigest || run.Seen[packDigestKey("starter")] != summaryDigest {
+		t.Fatalf("the stored pack = %+v, seen %v", run.Pack, run.Seen)
+	}
+	if len(run.Does) > MaxRunSourceCardLines {
+		t.Fatalf("the summary runs to %d lines", len(run.Does))
+	}
+	joined := strings.Join(run.Does, "\n")
+	for _, want := range []string{
+		"pack starter (embedded in yardr test1), of kind git, into depot web: 23 to create, 1 to change, 1 unchanged, and 1 dropped and left where they stand, digest sha256:" + summaryDigest + ". It asks nothing. It runs 1 program of the pack: scripts/merge-local.",
+		"this is a first install: depot web holds no import of pack starter.",
+		"file roles/0.md: create, sha256 (none) -> sha256 " + strings.Repeat("b", 64) + ", 5001 bytes (1 insertions, 0 deletions).",
+		"groups to create: web-builders, web-assembly.",
+		"group web-assembly: cmd sets YARDR_LAND=squash before the script.",
+		"crew yardmaster: change (on: a -> b).",
+		"routes to create: stage new.",
+		"file roles/old.md: dropped by the pack, left where it stands.",
+		"depot web would follow flow starter.default; it follows default now.",
+		"source wired: added, its calls go to https://wired.example.com/v1, with command files wired/limits sha256 ",
+		"in all: 23 to create, 1 to change, 1 unchanged, 0 not in the pack, 1 no longer in it.",
+		"the full text stands behind this card, on this bead's page: 25 files, ",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("the summary lacks %q:\n%s", want, joined)
+		}
+	}
+	if strings.Contains(joined, "more, ") {
+		t.Errorf("a summary that fits folded files:\n%s", joined)
+	}
+	if len(run.Pack.Files) != 20 {
+		t.Fatalf("the card ties %d files to lines, want 20", len(run.Pack.Files))
+	}
+	for _, file := range run.Pack.Files {
+		if file.Line < 0 || !strings.HasPrefix(run.Does[file.Line], "file "+file.Name+":") {
+			t.Errorf("file %s is tied to line %d: %q", file.Name, file.Line, run.Does[max(file.Line, 0)])
+		}
+		if !slices.ContainsFunc(run.Pack.Plan.Objects, func(o AskPlanObject) bool {
+			return o.Kind == "file" && o.Name == file.Name && o.Text != "" && o.FileNewSHA != ""
+		}) {
+			t.Errorf("file %s has no plan object with its text and hash", file.Name)
+		}
+	}
+	// A terminal reads the texts behind the card, as behind a whole one.
+	if lines := strings.Join(got.Lines(), "\n"); !strings.Contains(lines, "the file roles/19.md as the pack would install it") {
+		t.Errorf("the terminal card lacks a file's text")
+	}
+	if !StrongWeight(got.Ask.Weight) {
+		t.Fatalf("the summary's weight = %+v, want the whole card's strong", got.Ask.Weight)
+	}
+	if !slices.ContainsFunc(got.Ask.Weight, func(a AskWeight) bool { return strings.Contains(a.Line, "file roles/19.md") }) {
+		t.Errorf("the weight lost a file past the card's lines: %+v", got.Ask.Weight)
+	}
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false, nil); err == nil || !strings.Contains(err.Error(), "approve it where its weight is shown") {
+		t.Fatalf("an unweighed approval = %v", err)
+	}
+	if _, err := y.ApproveAsk(WithVia(y.ctx, "mckean", "phone"), y.bead, seq, "mckean", true, nil); err == nil || !strings.Contains(err.Error(), "a strong card is not approved through a device") {
+		t.Fatalf("a device's approval = %v", err)
+	}
+	if done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true, nil); err != nil || done.Result != "approved, to be carried out" {
+		t.Fatalf("the weighed approval = %+v, %v", done, err)
+	}
+
+	for _, c := range []struct {
+		name, want string
+		move       func()
+		back       func()
+	}{
+		{"the digest alone, for a file no plan object shows", "whose pack differs",
+			func() { f.digest = strings.Repeat("e", 64) }, func() { f.digest = summaryDigest }},
+		{"a plan object", "the object file roles/0.md",
+			func() { f.plan.Objects[0].Text += "more" }, func() { f.plan.Objects[0].Text = strings.TrimSuffix(f.plan.Objects[0].Text, "more") }},
+		{"the pack's label", "whose pack differs",
+			func() { f.label = "embedded in yardr other" }, func() { f.label = "embedded in yardr test1" }},
+	} {
+		seq := y.ask(t, summaryAsk(), "yardmaster")
+		c.move()
+		if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true, nil); err == nil || !strings.Contains(err.Error(), c.want) || !strings.Contains(err.Error(), nothingRan) {
+			t.Errorf("%s moved: ApproveAsk = %v", c.name, err)
+		}
+		c.back()
+	}
+	seq = y.ask(t, summaryAsk(), "yardmaster")
+	d, err := y.GetDepot(y.ctx, "web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.Base = "trunk"
+	if err := y.PutDepot(y.ctx, *d, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true, nil); err == nil || !strings.Contains(err.Error(), "the depot web") {
+		t.Errorf("the depot moved: ApproveAsk = %v", err)
+	}
+}
+
+// An ask stored before cards held a digest is not stale for lacking one.
+func TestPackApplyStaleKeepsADigestlessAsk(t *testing.T) {
+	y, _ := runYard(t)
+	y.firstInstallDepot(t)
+	f := &fakePack{label: "embedded in yardr test1", kind: "git", depot: "web", plan: firstInstallPlan()}
+	y.setPack(f)
+	seq := y.ask(t, summaryAsk(), "yardmaster")
+	f.digest = summaryDigest
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true, nil); err != nil {
+		t.Fatalf("the digestless ask = %v", err)
+	}
+}
+
+// The files take what room the owed lines leave of the bound: past it the
+// last room goes to one closing line naming how many files and bytes are
+// folded, each folded file stays tied to its plan object, and a card whose
+// owed lines alone pass the bound is refused. A card that fits stays whole.
+func TestPackApplySummaryFold(t *testing.T) {
+	y, _ := runYard(t)
+	y.firstInstallDepot(t)
+	f := &fakePack{label: "embedded in yardr test1", kind: "git", depot: "web", digest: summaryDigest, noSources: true}
+	y.setPack(f)
+	// The head is 2 lines, the owed object lines 7, the full text's 1.
+	const room = 30
+	const changedDiff = "--- old\n+++ new\n@@ -1 +1 @@\n-old\n+new\n"
+	for _, c := range []struct {
+		files, folded, lines int
+	}{
+		{room, 0, MaxRunSourceCardLines},
+		{room + 1, 2, MaxRunSourceCardLines},
+		{60, 31, MaxRunSourceCardLines},
+	} {
+		f.plan = largePlan(c.files, 3000)
+		for i := range c.files {
+			if i != 0 && (c.folded == 0 || i < c.files-c.folded) {
+				continue
+			}
+			o := &f.plan.Objects[i]
+			o.Action, o.FileOldSHA, o.Diff = "change", strings.Repeat("a", 64), changedDiff
+		}
+		run := y.asked(t, y.ask(t, summaryAsk(), "yardmaster")).Ask.Run
+		if !run.Pack.Summary || len(run.Does) != c.lines {
+			t.Fatalf("%d files: summary %v, %d lines:\n%s", c.files, run.Pack.Summary, len(run.Does), strings.Join(run.Does, "\n"))
+		}
+		var folded []AskPackFile
+		for _, file := range run.Pack.Files {
+			if file.Line == -1 {
+				folded = append(folded, file)
+			}
+		}
+		if len(run.Pack.Files) != c.files || len(folded) != c.folded {
+			t.Fatalf("%d files: tied %d, folded %d, want %d", c.files, len(run.Pack.Files), len(folded), c.folded)
+		}
+		line := ""
+		for _, l := range run.Does {
+			if strings.Contains(l, "without a line of their own") {
+				line = l
+			}
+		}
+		if c.folded == 0 {
+			if line != "" {
+				t.Errorf("%d files fit and were folded: %s", c.files, line)
+			}
+			continue
+		}
+		want := countNoun(c.folded, "more file") + ", " + itoa(uint64(c.folded*(3001+len(changedDiff)))) + " bytes"
+		if !strings.Contains(line, want) || !strings.Contains(line, "under digest sha256:"+summaryDigest) {
+			t.Errorf("%d files: the closing line %q lacks %q", c.files, line, want)
+		}
+		lastFile := run.Pack.Files[c.files-c.folded-1].Line
+		groups := slices.IndexFunc(run.Does, func(line string) bool { return strings.HasPrefix(line, "groups to create:") })
+		counts := slices.IndexFunc(run.Does, func(line string) bool { return strings.HasPrefix(line, "in all:") })
+		fullText := slices.IndexFunc(run.Does, func(line string) bool { return strings.HasPrefix(line, "the full text stands behind this card") })
+		foldLine := slices.Index(run.Does, line)
+		if !(lastFile < foldLine && foldLine < groups && groups < counts && counts < fullText) {
+			t.Errorf("%d files: summary sentences are out of order: file=%d fold=%d groups=%d counts=%d full text=%d",
+				c.files, lastFile, foldLine, groups, counts, fullText)
+		}
+		fullBytes := c.files*3001 + (1+c.folded)*len(changedDiff)
+		wantFullText := "the full text stands behind this card, on this bead's page: " + countNoun(c.files, "file") + ", " + itoa(uint64(fullBytes)) + " bytes."
+		if !slices.Contains(run.Does, wantFullText) {
+			t.Errorf("%d files: full text line lacks changed-file diffs: want %q", c.files, wantFullText)
+		}
+	}
+
+	f.plan = largePlan(60, 3000)
+	for i := range MaxRunSourceCardLines {
+		f.plan.Objects = append(f.plan.Objects, AskPlanObject{Kind: "file", Name: "roles/gone" + itoa(uint64(i)) + ".md", Action: "dropped"})
+	}
+	if _, err := y.AddAsk(y.ctx, y.bead, summaryAsk(), "yardmaster"); err == nil || !strings.Contains(err.Error(), "lines: a card is read whole") {
+		t.Fatalf("owed lines past the bound: AddAsk = %v", err)
+	}
+
+	f.plan = largePlan(3, 100)
+	run := y.asked(t, y.ask(t, summaryAsk(), "yardmaster")).Ask.Run
+	if run.Pack.Summary || run.Pack.Files != nil || run.Pack.Digest != summaryDigest {
+		t.Fatalf("a pack that fits = %+v", run.Pack)
+	}
+	if joined := strings.Join(run.Does, "\n"); strings.Contains(joined, "digest sha256") || !strings.Contains(joined, "group web-builders: create.") {
+		t.Errorf("a pack that fits lost its whole card:\n%s", joined)
+	}
+}
+
+// A summary is written for a named depot and an addition alone: what it
+// cannot bind still refuses to a terminal in the whole card's words.
+func TestPackApplySummaryRefusals(t *testing.T) {
+	y, _ := runYard(t)
+	y.firstInstallDepot(t)
+	f := &fakePack{label: "embedded in yardr test1", kind: "git", depot: "web", digest: summaryDigest, plan: largePlan(20, 5000)}
+	home := y.Store.home
+	y.setPack(f)
+	wholeWords := "a card holds at most 65536 together, so this is the operator's to type in a terminal"
+
+	f.digest = ""
+	if _, err := y.AddAsk(y.ctx, y.bead, summaryAsk(), "yardmaster"); err == nil || !strings.Contains(err.Error(), wholeWords) {
+		t.Errorf("no digest: AddAsk = %v", err)
+	}
+	f.digest = summaryDigest
+
+	bare := packAsk()
+	bare.Run.Argv = []string{"pack apply starter"}
+	if _, err := y.AddAsk(y.ctx, y.bead, bare, "yardmaster"); err == nil || !strings.Contains(err.Error(), wholeWords) {
+		t.Errorf("a bare over-cap re-apply: AddAsk = %v", err)
+	}
+
+	f.plan = largePlan(30, 40000)
+	if _, err := y.AddAsk(y.ctx, y.bead, summaryAsk(), "yardmaster"); err == nil || !strings.Contains(err.Error(), "a summary card carries at most 1048576 together, so this is the operator's to type in a terminal") {
+		t.Errorf("past the carried bound: AddAsk = %v", err)
+	}
+	f.plan = largePlan(20, 5000)
+
+	// Copies a removed source left under its name: no record stands, and
+	// the import would still replace them.
+	left := filepath.Join(home, "sources", "wired", "wired", "limits")
+	if err := os.MkdirAll(filepath.Dir(left), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(left, []byte("left\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.AddAsk(y.ctx, y.bead, summaryAsk(), "yardmaster"); err == nil || !strings.Contains(err.Error(), wholeWords) {
+		t.Errorf("copies left under the name: AddAsk = %v", err)
+	}
+	if err := os.RemoveAll(filepath.Join(home, "sources", "wired")); err != nil {
+		t.Fatal(err)
+	}
+	plantWired(t, y)
+	if _, err := y.AddAsk(y.ctx, y.bead, summaryAsk(), "yardmaster"); err == nil || !strings.Contains(err.Error(), wholeWords) {
+		t.Errorf("a standing source: AddAsk = %v", err)
+	}
+}
+
+// A re-apply to a named depot is a summary too, with the weight its whole
+// card would have: where that is neither trust nor code the unchanged gate
+// lets a device approve it, and a mapping's weight still stands on it.
+func TestPackApplySummaryReapply(t *testing.T) {
+	y, _ := runYard(t)
+	y.firstInstallDepot(t)
+	if _, err := y.RecordPack(y.ctx, PackImport{Pack: "starter", Depot: "web", Source: "x"}, true, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	f := &fakePack{label: "embedded in yardr test1", kind: "git", depot: "web", digest: summaryDigest, noSources: true, plan: largePlan(20, 5000)}
+	y.setPack(f)
+	seq := y.ask(t, summaryAsk(), "yardmaster")
+	got := y.asked(t, seq)
+	if !got.Ask.Run.Pack.Summary || strings.Contains(strings.Join(got.Ask.Run.Does, "\n"), "first install") {
+		t.Fatalf("the re-apply's card = %+v:\n%s", got.Ask.Run.Pack, strings.Join(got.Ask.Run.Does, "\n"))
+	}
+	if StrongWeight(got.Ask.Weight) {
+		t.Fatalf("the re-apply's weight = %+v, want the whole card's, not strong", got.Ask.Weight)
+	}
+	if done, err := y.ApproveAsk(WithVia(y.ctx, "mckean", "phone"), y.bead, seq, "mckean", true, nil); err != nil || done.Result != "approved, to be carried out" {
+		t.Fatalf("a device's approval of a routine re-apply = %+v, %v", done, err)
+	}
+	ask := summaryAsk()
+	ask.Run.Argv = []string{"pack apply starter --depot web --bind reviewers=claude:opus"}
+	bound := y.asked(t, y.ask(t, ask, "yardmaster"))
+	if !bound.Ask.Run.Pack.Summary || !StrongWeight(bound.Ask.Weight) {
+		t.Fatalf("a re-apply with a bind = %+v, weight %+v", bound.Ask.Run.Pack, bound.Ask.Weight)
 	}
 }

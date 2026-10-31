@@ -1028,10 +1028,21 @@ func carryFirstInstallWithMappings(t *testing.T) {
 		t.Fatalf("the first-install reading still asks: depot %q, missing %v, asks %v", reading.Depot, reading.Plan.Missing, reading.Plan.Asks)
 	}
 	run := &store.AskRun{Argv: []string{"pack", "apply", "starter"},
-		Pack:    &store.AskPack{Name: reading.Name, Kind: reading.Kind, Depot: reading.Depot, Mappings: mappings, Label: reading.Label, Plan: reading.Plan},
+		Pack:    &store.AskPack{Name: reading.Name, Kind: reading.Kind, Depot: reading.Depot, Mappings: mappings, Label: reading.Label, Plan: reading.Plan, Digest: reading.Digest},
 		Carried: reading.Sources,
 		Seen:    map[string]string{"pack starter build": reading.Build}}
 	c := testCarrier(st, home, "boot-one")
+	// Held to the card's digest before anything writes.
+	moved := *run.Pack
+	moved.Digest = strings.Repeat("e", 64)
+	held := *run
+	held.Pack = &moved
+	if _, _, failure := c.carryPackApply(ctx, &store.Carry{Bead: bead, Ask: 42, Actor: "mckean"}, &held); !strings.Contains(failure, "is not the one pinned") || !strings.Contains(failure, "nothing further was applied") {
+		t.Fatalf("a digest that moved = %q", failure)
+	}
+	if recs, err := st.Packs(ctx); err != nil || len(recs) != 0 {
+		t.Fatalf("a digest that moved left records %+v, %v", recs, err)
+	}
 	res, plan, failure := c.carryPackApply(ctx, &store.Carry{Bead: bead, Ask: 42, Actor: "mckean"}, run)
 	if failure != "" {
 		t.Fatalf("the first install failed: %s", failure)
@@ -1058,50 +1069,88 @@ func carryFirstInstallWithMappings(t *testing.T) {
 
 // A depot pack's first install runs whole from its ask: the ask's words
 // reach the server's reading, the card weighs strong, and the approval
-// imports what the terminal's command would, into the named depot.
+// imports what the terminal's command would, into the named depot. A pack
+// that fits is a whole card; each pack too large for one is a summary.
 func TestCarryFirstInstallFromItsAsk(t *testing.T) {
-	ctx := context.Background()
-	st, home, bead := carryYard(t)
-	if err := st.PutDepot(ctx, store.Depot{Name: "notes", Path: t.TempDir(), Kind: store.DepotDir}, "mckean"); err != nil {
-		t.Fatal(err)
-	}
-	reading, err := st.ReadPack(ctx, "dir", "notes", store.Mappings{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var words []string
-	for _, line := range reading.Plan.Missing {
-		id, _, _ := strings.Cut(line, ":")
-		parts := strings.Split(id, ".")
-		if parts[0] == "group" && parts[len(parts)-1] == "kind" {
-			words = append(words, "--bind "+strings.TrimPrefix(parts[1], "notes-")+"=claude:opus")
-		}
-		if parts[0] == "group" && parts[len(parts)-1] == "members" {
-			words = append(words, "--members "+strings.TrimPrefix(parts[1], "notes-")+"=mckean")
-		}
-	}
-	ask := packAskOf("dir")
-	ask.Run.Argv = []string{"pack apply dir --depot notes " + strings.Join(words, " ")}
-	seq, err := st.AddAsk(ctx, bead, ask, "yardmaster")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := st.ApproveAsk(ctx, bead, seq, "mckean", false, nil); err == nil {
-		t.Fatalf("an unweighed approval of a first install ran")
-	}
-	if _, err := st.ApproveAsk(ctx, bead, seq, "mckean", true, nil); err != nil {
-		t.Fatal(err)
-	}
-	drain(t, st, home, "boot-one")
-	if rec := carryState(t, st, bead, seq); rec.State != store.CarryDone {
-		t.Fatalf("the carrying record = %+v", rec)
-	}
-	recs, err := st.Packs(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !slices.ContainsFunc(recs, func(r store.PackImport) bool { return r.Pack == "dir" && r.Depot == "notes" }) {
-		t.Fatalf("the import records = %+v, want dir in depot notes", recs)
+	for _, tc := range []struct {
+		pack    string
+		summary bool
+	}{
+		{"dir", false},
+		{"starter", true},
+		{"contributors", true},
+		{"website", true},
+		{"design", true},
+	} {
+		t.Run(tc.pack, func(t *testing.T) {
+			ctx := context.Background()
+			st, home, bead := carryYard(t)
+			if err := st.PutDepot(ctx, store.Depot{Name: "notes", Path: t.TempDir(), Kind: store.DepotDir}, "mckean"); err != nil {
+				t.Fatal(err)
+			}
+			reading, err := st.ReadPack(ctx, tc.pack, "notes", store.Mappings{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var words []string
+			for _, line := range reading.Plan.Missing {
+				id, _, _ := strings.Cut(line, ":")
+				parts := strings.Split(id, ".")
+				if parts[0] == "group" && parts[len(parts)-1] == "kind" {
+					words = append(words, "--bind "+strings.TrimPrefix(parts[1], "notes-")+"=claude:opus")
+				}
+				if parts[0] == "group" && parts[len(parts)-1] == "members" {
+					words = append(words, "--members "+strings.TrimPrefix(parts[1], "notes-")+"=mckean")
+				}
+			}
+			ask := packAskOf(tc.pack)
+			ask.Run.Argv = []string{"pack apply " + tc.pack + " --depot notes " + strings.Join(words, " ")}
+			seq, err := st.AddAsk(ctx, bead, ask, "yardmaster")
+			if err != nil {
+				t.Fatal(err)
+			}
+			run, err := (&carrier{st: st}).askRun(ctx, &store.Carry{Bead: bead, Ask: seq})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if run.Pack.Summary != tc.summary || run.Pack.Digest != reading.Digest || reading.Digest == "" {
+				t.Fatalf("the card = summary %v, digest %q, want summary %v, digest %q", run.Pack.Summary, run.Pack.Digest, tc.summary, reading.Digest)
+			}
+			if len(run.Does) > store.MaxRunSourceCardLines {
+				t.Fatalf("the card runs to %d lines", len(run.Does))
+			}
+			if tc.summary {
+				joined := strings.Join(run.Does, "\n")
+				if !strings.Contains(joined, "digest sha256:"+reading.Digest) || strings.Contains(joined, "without a line of their own") {
+					t.Errorf("the summary:\n%s", joined)
+				}
+				for _, file := range run.Pack.Files {
+					if file.Line < 0 {
+						t.Errorf("file %s is folded on a card the design counts inside the bound", file.Name)
+					}
+				}
+			}
+			if _, err := st.ApproveAsk(ctx, bead, seq, "mckean", false, nil); err == nil {
+				t.Fatalf("an unweighed approval of a first install ran")
+			}
+			if _, err := st.ApproveAsk(store.WithVia(ctx, "mckean", "phone"), bead, seq, "mckean", true, nil); err == nil || !strings.Contains(err.Error(), "a strong card is not approved through a device") {
+				t.Fatalf("a device's approval = %v", err)
+			}
+			if _, err := st.ApproveAsk(ctx, bead, seq, "mckean", true, nil); err != nil {
+				t.Fatal(err)
+			}
+			drain(t, st, home, "boot-one")
+			if rec := carryState(t, st, bead, seq); rec.State != store.CarryDone {
+				t.Fatalf("the carrying record = %+v", rec)
+			}
+			recs, err := st.Packs(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.ContainsFunc(recs, func(r store.PackImport) bool { return r.Pack == tc.pack && r.Depot == "notes" }) {
+				t.Fatalf("the import records = %+v, want %s in depot notes", recs, tc.pack)
+			}
+		})
 	}
 }
 

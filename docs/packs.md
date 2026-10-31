@@ -1812,12 +1812,26 @@ refused, and the operator applies it in a terminal. Google is split into
 packs (`google-mail`, `google-drive`, `google-docs` and `google-calendar`)
 so that each applies by one card, and so does the re-apply of
 `google-docs` over an earlier import.
+A depot pack named with its depot whose card would pass those bounds is
+written as a summary card instead, unless the import would replace a
+standing source or the copies one left, which keep the whole card or its
+refusal. The summary holds at most 40 lines: the pack with its digest
+(`pack check` prints the same one) and the files that run, the mappings,
+each file the import writes with its hashes and size, the other objects by
+kind, what is dropped, the governs, each source it adds, and the counts.
+Where the files do not all fit, the last line of their room counts the
+rest, in files and bytes, under the digest. The whole text stays in the
+ask behind the card, 1 MiB at most (past that the pack is a terminal's),
+and approving does not require opening it. A summary weighs what the whole
+card would, and is gated where that is. A depot pack named with no depot
+is whole or refused.
 The card is written by the yard's server from its own binary: it shows
 each declared source whole as a `source add` card does, what a source it
 would replace changes to with each command file's diff, and for a depot
 pack each object with each changed file's diff. The approval is held to
-the build, the pack's bytes and the yard's sources as carded, and is
-carried out by the server after it. A pack that is a directory, a URL or
+the build, the pack's bytes and digest and the yard's sources as carded,
+and is carried out by the server after it, which holds the plan to the
+digest before anything is written. A pack that is a directory, a URL or
 an earlier import's record, any flag of `pack apply` but the depot and the
 mappings of a depot pack's first install, and a plan that asks, is refused
 to a terminal, where `yardr pack check <name>` shows the plan.

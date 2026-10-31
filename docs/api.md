@@ -842,6 +842,16 @@ nothing else. What is not the same:
   the reason, which is the error of the fetch where it failed and names the
   program of the source and the directory of the yard. The name, the size and
   the type the source gave are the same.
+- **A depot pack's card is whole or a summary.** `run.pack.digest` is the
+  pack's digest, as `yardr pack check` prints it. `run.pack.summary` is true
+  on a card too large to read whole: `run.does` then names the pack by that
+  digest and each file by its hash, and the texts stand behind it.
+  `run.pack.files` ties them together, each entry `{name, line}`: `name` is
+  the object of kind `file` in `run.pack.plan.objects` that holds the text,
+  the diff and the hashes, and `line` is the zero-based index in `run.does`
+  of that file's line, or `-1` for a file folded into the card's closing count. A
+  client opens a file from `files` and never parses `does`. A whole card
+  has no `summary` and no `files`.
 - **`Bead` and `UserAsks` tell a run ask as its asker typed it, to a device
   that is no operator's.** The `run` card has `argv`, `command` and
   `description`, and an approved ask's `ran` has `argv` and `failed`. The
@@ -851,8 +861,10 @@ nothing else. What is not the same:
   back, and is `""`. `ran.result` is what the command printed, and is `""`.
   `run.back_by`, `run.carried` (the declarations and command files a source
   brings), `run.pack.plan` (the paths and the diffs of the files a pack
-  writes) and `run.pack.mappings` (the people, grants and sources that plan
-  was shaped by) are absent. Where the typed words themselves carry a value or a
+  writes), `run.pack.mappings` (the people, grants and sources that plan
+  was shaped by), and `run.pack.digest`, `run.pack.summary` and
+  `run.pack.files` (a summary card's shape, below) are absent. Where the
+  typed words themselves carry a value or a
   path, they are the operator's alone: on a run ask that sets a setting, adds
   a source, or applies a pack with a depot or mappings named, `run.argv` is `[]` and `run.command` is `""` to such a
   device, and an approved ask's `ran.argv` is `[]`, the question and the

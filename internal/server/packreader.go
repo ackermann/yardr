@@ -123,6 +123,7 @@ func readEmbeddedPack(ctx context.Context, name string, depot string, mappings s
 	}
 	reading.Depot = target
 	reading.Plan = askPlanOf(sub, plan, answers, open, calls)
+	reading.Digest, reading.Programs = plan.Digest, plan.Programs
 	return reading, nil
 }
 

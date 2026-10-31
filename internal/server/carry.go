@@ -390,6 +390,14 @@ func (c *carrier) carryPackApply(ctx context.Context, rec *store.Carry, run *sto
 	if err != nil {
 		return nil, nil, failWords(err.Error(), terminal)
 	}
+	// The pin pack apply --sha256 trusts, held to the digest the card
+	// named: a pack that moved since the approval installs nothing. A card
+	// from before digests has none.
+	if run.Pack.Digest != "" {
+		if err := plan.CheckDigest(run.Pack.Digest); err != nil {
+			return nil, nil, staleWords(fmt.Sprintf("ask %d: %s", rec.Ask, err), terminal)
+		}
+	}
 	answers, open, calls := pack.Answers{}, map[string]map[string]bool(nil), map[string]map[string]bool(nil)
 	if !mappings.IsZero() {
 		if answers, open, calls, err = mappingAnswers(ctx, c.st, plan, mappings, c.home); err != nil {

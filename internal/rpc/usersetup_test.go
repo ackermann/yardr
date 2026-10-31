@@ -584,13 +584,14 @@ func blankHeld(q *store.AskQueue) {
 func TestWithoutRunWordsHoldsAPackCardsMappings(t *testing.T) {
 	mappings := store.Mappings{Flow: "default", Members: []string{"decisions=sam"}, Calls: []string{"builders=linear:read"}}
 	run := &store.RunAsked{Argv: []string{"pack", "apply", "starter"},
-		Pack: &store.AskPack{Name: "starter", Depot: "web", Mappings: mappings, Plan: &store.AskPlan{}}}
+		Pack: &store.AskPack{Name: "starter", Depot: "web", Mappings: mappings, Plan: &store.AskPlan{},
+			Digest: "abc", Summary: true, Files: []store.AskPackFile{{Name: "roles/builder.md", Line: 2}}}}
 	bare, _ := withoutRunWords(run, nil)
 	if bare.Pack.Name != "starter" || bare.Pack.Depot != "web" {
 		t.Errorf("the device lost the pack's name or depot: %+v", bare.Pack)
 	}
-	if !bare.Pack.Mappings.IsZero() || bare.Pack.Plan != nil {
-		t.Errorf("the device is told the card's mappings or plan: %+v", bare.Pack)
+	if !bare.Pack.Mappings.IsZero() || bare.Pack.Plan != nil || bare.Pack.Files != nil || bare.Pack.Digest != "" || bare.Pack.Summary {
+		t.Errorf("the device is told the card's mappings, plan, files or digest: %+v", bare.Pack)
 	}
 	if run.Pack.Mappings.IsZero() || run.Pack.Plan == nil {
 		t.Errorf("the cut changed the card it was given: %+v", run.Pack)
