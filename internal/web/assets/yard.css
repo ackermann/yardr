@@ -206,7 +206,7 @@ ul, ol { list-style: none; }
 /* One entry of the centre column's feed. */
 .item { padding: var(--gap); border-bottom: 1px solid var(--hairline); }
 .item-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
-.item-head h2 { font-size: var(--large); }
+.item-head h2 { font-size: var(--large); overflow-wrap: anywhere; }
 .item-count { margin-left: auto; color: var(--dim); }
 .item > p { font-family: var(--sans); }
 .item .panel + .panel { margin-top: var(--gap); }
@@ -218,6 +218,10 @@ ul, ol { list-style: none; }
 .bead { color: var(--accent); }
 .entry-title { color: var(--dim); overflow-wrap: anywhere; }
 .entry-note { margin-top: 6px; padding-left: 10px; border-left: 1px solid var(--hairline-strong); color: var(--faint); font-size: var(--small); white-space: pre-wrap; overflow-wrap: anywhere; }
+/* A sentence of a summary card that opens the text it names: underlined,
+   since the card's sentences read as plain text otherwise. It stays under
+   the link states above (a:hover, a:focus-visible). */
+.opens { color: var(--dim); text-decoration: underline; text-decoration-color: var(--faint); text-underline-offset: 3px; }
 /* Said only by a feed with no entry. */
 .feed .none:not(:first-child) { display: none; }
 .older { display: block; text-align: center; }
@@ -372,6 +376,9 @@ ul, ol { list-style: none; }
 /* A group's runner settings stand under their own small heading, the bare
    key beside each value. */
 .item > .facts + h3 { margin-top: 12px; }
+/* A file of a summary card's full text: its facts under the label that says
+   what the file is. */
+.item > .label + .facts { margin-top: 8px; }
 /* The routes as one row each, as `yardr route list` prints them, the id
    quiet at the end. */
 .routes { width: 100%; border-collapse: collapse; }
@@ -512,10 +519,16 @@ ul, ol { list-style: none; }
 .move-form button { padding: 12px 16px; min-height: 44px; background: var(--panel); color: var(--dim); border: 1px solid var(--hairline-strong); overflow-wrap: anywhere; }
 .move-form button:hover { color: var(--accent-hover); border-color: var(--accent-hover); }
 /* A preview's card: its buttons post to the page, in the move form's
-   dress, and Open is the link dressed as one. */
-.preview-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
-.preview-actions button, .preview-actions a { padding: 12px 16px; min-height: 44px; background: var(--panel); color: var(--dim); border: 1px solid var(--hairline-strong); overflow-wrap: anywhere; }
-.preview-actions button:hover, .preview-actions a:hover { color: var(--accent-hover); border-color: var(--accent-hover); }
+   dress, and Open is the link dressed as one. The pager of a summary card's
+   file pages wears the same dress: Previous, Back to the card and Next in a
+   row that wraps on a phone. At the first or last file the control that has
+   nowhere to go is drawn off. */
+.preview-actions, .file-pager { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.preview-actions button, .preview-actions a, .file-pager a, .file-pager span { padding: 12px 16px; min-height: 44px; background: var(--panel); color: var(--dim); border: 1px solid var(--hairline-strong); overflow-wrap: anywhere; }
+.preview-actions button:hover, .preview-actions a:hover, .file-pager a:hover { color: var(--accent-hover); border-color: var(--accent-hover); }
+.file-pager { max-width: 90ch; }
+.file-pager a, .file-pager span { flex: 1 1 0; min-width: max-content; text-align: center; }
+.file-pager span { color: var(--faint); border-color: var(--hairline); }
 /* An ask's options, numbered as the buttons number them. */
 .options { margin-top: 8px; }
 .options li { padding: 2px 0; overflow-wrap: anywhere; }

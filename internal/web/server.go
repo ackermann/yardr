@@ -188,6 +188,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /flows", s.handleFlows)
 	s.mux.HandleFunc("GET /beads", s.handleBeads)
 	s.mux.HandleFunc("GET /beads/{id}", s.handleBead)
+	// One file of the full text behind a summary card (packfiles.go).
+	s.mux.HandleFunc("GET /beads/{id}/asks/{ask}/files/{n}", s.handlePackFile)
 	// The gateway's return after a strong card's sign-in: the one-use
 	// state the approve minted, bound to its card (approve.go).
 	s.mux.HandleFunc("GET /beads/{id}/fresh/{ask}/{state}", s.handleFresh)

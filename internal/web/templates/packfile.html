@@ -1,0 +1,49 @@
+{{- /* One file of the full text behind a summary card: its name, its hashes
+       as the card gives them, the pager, the change where the file is a
+       changed one, and the text whole. The texts are the pack's own bytes,
+       written as text by html/template in a <pre> that keeps their lines.
+       The page is not live. The ask's text never changes, and a page kept
+       open past the ask's end answers 404 at its next link. */ -}}
+{{define "pager"}}
+<nav class="file-pager" aria-label="Files of the full text">
+  {{- with .Prev}}<a href="{{.}}">Previous</a>{{else}}<span aria-disabled="true">Previous</span>{{end}}
+  <a href="{{.Card}}">Back to the card</a>
+  {{- with .Next}}<a href="{{.}}">Next</a>{{else}}<span aria-disabled="true">Next</span>{{end}}
+</nav>
+{{end}}
+{{define "content"}}
+{{- with .Data}}
+<article class="item">
+  <p class="ask-line"><a class="bead" href="{{.Card}}">{{.Bead}}</a> · ask {{.Ask}} · file {{.N}} of {{.Of}}</p>
+  <header class="item-head">
+    <h2>{{.Name}}</h2>
+  </header>
+  <p class="label">{{.What}} · {{.Bytes}} bytes{{if eq .Kind "file"}} · {{.Insertions}} insertions, {{.Deletions}} deletions{{end}}</p>
+  <dl class="facts">
+    {{- if eq .Kind "file"}}
+    <div><dt>old</dt><dd>sha256 {{if .OldSHA256}}{{.OldSHA256}}{{else}}(none){{end}}</dd></div>
+    {{- end}}
+    {{- with .NewSHA256}}
+    <div><dt>new</dt><dd>sha256 {{.}}</dd></div>
+    {{- end}}
+    <div><dt>pack</dt><dd>{{.Pack}}, digest sha256:{{.Digest}}</dd></div>
+  </dl>
+  {{template "pager" .}}
+</article>
+{{- with .Diff}}
+<section class="item">
+  <h3 class="label">the change, old against new</h3>
+  <pre class="text file">{{.}}</pre>
+</section>
+{{- end}}
+<section class="item">
+  <h3 class="label">{{if eq .Kind "file"}}the file as the pack would install it{{else if eq .Kind "declaration"}}the declaration, as carried{{else}}the command file, as carried{{end}}</h3>
+  {{- if .Text}}
+  <pre class="text file">{{.Text}}</pre>
+  {{- else}}
+  <p class="faint">The file is empty.</p>
+  {{- end}}
+  {{template "pager" .}}
+</section>
+{{- end}}
+{{end}}

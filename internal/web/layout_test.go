@@ -498,3 +498,29 @@ func TestTalkLayout(t *testing.T) {
 		}
 	}
 }
+
+// The files behind a summary card read on a phone: the pager is a row of
+// controls that wraps instead of widening the page, each as high as the
+// move form's buttons; a text keeps its lines and pans inside its block; a
+// file's name, a path with no space to break at, breaks where it would run
+// past the window; and a card's sentence that opens a file reads as a link.
+// What the pixels do is the bead's screenshot.
+func TestFilePagesOnPhone(t *testing.T) {
+	t.Parallel()
+	for selector, wants := range map[string][]string{
+		".preview-actions, .file-pager": {"display: flex;", "flex-wrap: wrap;"},
+		".preview-actions button, .preview-actions a, .file-pager a, .file-pager span": {"min-height: 44px;", "overflow-wrap: anywhere;"},
+		".file-pager a, .file-pager span":                                              {"flex: 1 1 0;", "min-width: max-content;", "text-align: center;"},
+		".file-pager":                                                                  {"max-width: 90ch;"},
+		".text.file":                                                                   {"white-space: pre;", "overflow-x: auto;"},
+		".item-head h2":                                                                {"overflow-wrap: anywhere;"},
+		".opens":                                                                       {"text-decoration: underline;"},
+	} {
+		rule := cssRule(t, selector)
+		for _, want := range wants {
+			if !strings.Contains(rule, want) {
+				t.Errorf("%s lacks %s: %s", selector, want, rule)
+			}
+		}
+	}
+}

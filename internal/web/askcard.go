@@ -94,9 +94,15 @@ type cardSecret struct {
 type cardRun struct {
 	Command string
 	Does    []string
-	Back    string
-	BackBy  string
-	Ask     []string
+	// Pages maps the index of a sentence of Does to the page of the file it
+	// names, and FullText is the page of the first file of the full text:
+	// the links of a summary card (packFileLinks), on the bead's page for
+	// a view that may open them. Both are absent on any other card.
+	Pages    map[int]string
+	FullText string
+	Back     string
+	BackBy   string
+	Ask      []string
 }
 
 // cardSetup is the setup a setup ask proposes: the pack, the yard's
@@ -111,14 +117,16 @@ type cardSetup struct {
 }
 
 // cardSite is where a card stands: the yard for its head and sentences,
-// whether the window holds the gate a strong card is approved under, and
-// the crew and users the viewing user may write to one of.
+// whether the window holds the gate a strong card is approved under, whether
+// the view acts as an operator, who alone may open the files behind a
+// summary card, and the crew and users the viewing user may write to one of.
 type cardSite struct {
-	Yard  string
-	Shade int
-	Gate  bool
-	Crew  []store.CrewMember
-	Users []store.User
+	Yard     string
+	Shade    int
+	Gate     bool
+	Operator bool
+	Crew     []store.CrewMember
+	Users    []store.User
 }
 
 // holdsGate reports whether this window can carry a strong card's approval:
@@ -202,6 +210,11 @@ func (p BeadPage) Card(a store.BeadAsk) AskCard {
 	}
 	if a.Run != nil {
 		out.Run = &cardRun{Command: a.Run.Command, Does: a.Run.Does, Back: a.Run.Back, BackBy: a.Run.BackBy, Ask: a.Run.Ask}
+		// The files behind a summary card open for an operator alone, as the
+		// pages answer: a link to a page that would not open is not drawn.
+		if p.site.Operator {
+			out.Run.Pages, out.Run.FullText = packFileLinks(p.Bead.ID, a)
+		}
 	}
 	if a.Setup != nil {
 		out.Setup = &cardSetup{Pack: a.Setup.Pack, Does: a.Setup.Does, Back: a.Setup.Back, BackBy: a.Setup.BackBy, Account: a.Setup.Account}

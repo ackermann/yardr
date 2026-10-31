@@ -675,6 +675,7 @@ origin; the test allows those and only those ([One bead](#one-bead)).
 | `/beads?depot=<depot>&stage=<stage>` | the same, of one depot, in one stage, or both | `Beads` |
 | `/beads?all=1` | the closed beads too, every one (`yardr bead list --all`) | `Beads` |
 | `/beads/<id>` | one bead: what `yardr prime --bead <id>` knows, for a person ([One bead](#one-bead)) | `BeadPage` |
+| `/beads/<id>/asks/<ask>/files/<n>` | one file of the full text behind a summary card, counted from 1: its hashes, its text whole, and links to the file before it, the file after it and the card. The operator the ask is put to reads it while the ask is open; anyone else gets a 404 ([One bead](#one-bead)) | `PackFilePage` |
 | `/blobs/<hash>` | a note's blob to anyone, and on a view that acts a mail's file to its sender or recipient: the bytes with their type; anything else is a 404 ([One bead](#one-bead)). An image and a page open inline, a file downloads (`Content-Disposition: attachment`) under the first name the lookup finds. On the sandbox origin a note's page runs under the scripted policy, a file downloads the same way | |
 | `/blobs/<hash>/<name>` | the same blob served under that name, when the name passes the rule; a name that fails it is a 404. One blob can carry different names on different letters, so the view's pages link with the name ([One bead](#one-bead)) | |
 | `/sessions` | the running sessions, the oldest first, with bead, stage, group, originator, login, runner, state and age (`yardr session list`), and under them the claims of manual groups, live | `Sessions` |
@@ -1508,6 +1509,41 @@ approves on its bead's page alone, and a card that is weighty but neither
 trust nor code (a credential, a change outside the yard, a call as a
 user, or a widened read, taken alone) approves nowhere in the web.
 
+A depot pack too large for a whole card is written as a summary card
+([packs.md](packs.md#an-integration-pack-kind-source)). Its sentences name the
+pack by its digest and each file by its hash, and the texts stay in the ask.
+The operator the card is asked of reads them file by file on the bead's page.
+Each file's sentence links to that file's page,
+`/beads/<id>/asks/<ask>/files/<n>`. One more line under the sentences links
+the first file, because a file folded into the card's closing count has no
+sentence of its own.
+
+A file's page shows the file's name, what the import does with it, its old
+and new SHA-256 as the sentence gives them (`(none)` for a file the import
+creates), and the pack's digest. A changed file shows its diff next. Then
+comes the text as the pack would install it, whole, with Previous, Back to
+the card and Next above and below it. At the first file Previous is off, and
+at the last Next is.
+
+Files count from 1, in the order of the card's closing line. The files the
+import writes come first, in the order the card lists them. Each source the
+pack adds follows, its declaration and then its command files. The page
+writes each text as the terminal reads it under the card, without control and
+direction characters, in a `<pre class="text file">` that keeps its lines and
+pans sideways inside its block on a narrow window.
+
+The texts are the operator's configuration, so only the operator reads them.
+The page opens for a view that acts as an operator, on an ask that is open and
+put to that user. Every other request gets a 404 in the words of an ask that
+is not there: another viewer, a user who is no operator now, a closed ask, a
+card read whole, a number past the last file. That tells nothing of the card,
+and the card draws a link only where the page would open.
+
+The page renders the stored ask, as the bead's page renders the bead. Reading
+writes nothing, makes no blob or copy of the pack, and ends with the ask. The
+page is not live and has no approval. The card approves on its bead's page, as
+above.
+
 A note's files are what `yardr bead note --file` attached to it. Each
 image shows below the note's words, with those words as its alt text; each
 page stands as a link, `page <hash8>`, opening the bytes top-level and
@@ -1639,6 +1675,26 @@ class="text file">`) is wrapped by hand already, so it keeps its lines as
 written, in the small size, and scrolls sideways inside its block where
 the column is narrower than they are; the page itself never does. `TestBeadEscapes` feeds one through the title, the body, a note, a
 note's author and a stage file, on every page and in the card stream.
+
+**A summary card's file, in JSON.** The file's page answers `PackFilePage`
+from the same request, and `TestPackFilePages` reads every page of one card
+in HTML and in JSON:
+
+```json
+{
+  "bead": "yardr-822r", "ask": 7, "pack": "starter", "digest": "…",
+  "n": 4, "of": 42, "kind": "file", "name": "flows/default.yaml", "action": "change",
+  "old_sha256": "…", "new_sha256": "…", "bytes": 2090, "insertions": 1, "deletions": 1,
+  "diff": "--- was\n+++ is\n@@ -1,2 +1,2 @@\n…", "text": "…",
+  "card": "/beads/yardr-822r",
+  "prev": "/beads/yardr-822r/asks/7/files/3", "next": "/beads/yardr-822r/asks/7/files/5"
+}
+```
+
+`kind` is `file`, `declaration` or `command file`. `action` (create or
+change) and `old_sha256` belong to a file, and `new_sha256` to a file and a
+command file; `diff` to a changed one. `prev` and `next` are absent at the
+ends. A refusal is `{"error": "…"}`, as on every page.
 
 ## Estimates: the ETA and the late mark
 

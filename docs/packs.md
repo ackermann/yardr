@@ -1822,7 +1822,9 @@ kind, what is dropped, the governs, each source it adds, and the counts.
 Where the files do not all fit, the last line of their room counts the
 rest, in files and bytes, under the digest. The whole text stays in the
 ask behind the card, 1 MiB at most (past that the pack is a terminal's),
-and approving does not require opening it. A summary weighs what the whole
+and approving does not require opening it. A terminal reads the texts under
+the card. The web view links each file's line to a page of its own, for the
+operator the card is asked of ([web.md](web.md#one-bead)). A summary weighs what the whole
 card would, and is gated where that is. A depot pack named with no depot
 is whole or refused.
 The card is written by the yard's server from its own binary: it shows

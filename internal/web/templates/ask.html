@@ -59,8 +59,21 @@
   {{- with .Run}}
   <p>in {{$.Yard}}, when you approve, the yard runs this as {{$.User}}, and nothing else:</p>
   <pre class="text file">{{.Command}}</pre>
-  {{- range .Does}}
-  <p class="entry-note">{{.}}</p>
+  {{- /* A summary card's file lines open their files, and one more line
+         opens the first: the files folded into a count, and the sources
+         the pack adds, have no line of their own. Away from the bead's
+         page, and for a view that may not read the texts, no link
+         stands. */}}
+  {{- $pages := .Pages}}
+  {{- range $i, $line := .Does}}
+  {{- with index $pages $i}}
+  <p class="entry-note"><a class="opens" href="{{.}}">{{$line}}</a></p>
+  {{- else}}
+  <p class="entry-note">{{$line}}</p>
+  {{- end}}
+  {{- end}}
+  {{- with .FullText}}
+  <p class="entry-note"><a class="opens" href="{{.}}">Read the full text from the first file</a></p>
   {{- end}}
   {{- /* A weighty run card whose approval does not stand has no gate in
          this window, and the card is approved where the line names. A

@@ -20,6 +20,7 @@ func (s *Server) loadBeadPageAsks(ctx context.Context, page *BeadPage, bead, act
 		if err != nil {
 			return err
 		}
+		site.Operator = s.isOperator(ctx)
 		page.site = site
 	}
 	for _, ask := range asks {
