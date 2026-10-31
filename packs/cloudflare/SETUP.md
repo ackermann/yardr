@@ -61,8 +61,8 @@ write proposed and approved on its own card (step 5).
       uploaded, a Worker secret put, and an Email Routing rule
       made or edited. Whoever holds it makes those calls with no
       card of their own, so offering it makes this setup card a
-      strong one: it is approved at a terminal, or in the hosted
-      web, and not through a device.
+      strong one: approving it hands those calls out for good, and
+      the hosted web asks a fresh sign-in for it.
 
    By hand it is the operator's to type:
    ```sh
@@ -98,8 +98,8 @@ write proposed and approved on its own card (step 5).
    proposed as one call and approved on one card; the card shows
    what the call sends. A crew member who may not make the call
    proposes it, and the operator approves it where the card's
-   weight is approved (a strong card at a terminal or in hosted
-   web after fresh sign-in, never through a device):
+   weight is approved (a strong card in a terminal, in footplate,
+   or in the hosted web after a fresh sign-in):
    ```sh
    yardr bead ask <bead> "Upload the Worker?" --run "call cloudflare worker_upload account=<account id> name=<worker> script=<file>"
    yardr bead ask <bead> "Put the Worker's secret?" --run "call cloudflare worker_secret account=<account id> name=<worker> secret=<SECRET_NAME> value=<secret file>"

@@ -8,7 +8,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -642,6 +641,42 @@ func TestSetupApprovalRecordsCarryPending(t *testing.T) {
 	if ev := lastAnswer(t, y); Witness(ev) != WitnessTerminal || Via(ev) != "" {
 		t.Errorf("the setup approval's event is witnessed %q via %q, want terminal with no device", Witness(ev), Via(ev))
 	}
+
+	// A paired device approves the same strong card, on a plain yard and on
+	// a hosted one: it takes the word that its person saw the weight as the
+	// socket does, and the approval records the carrying out, hands the
+	// values over, and names the device in the answer's event without
+	// claiming a witness.
+	phone := WithVia(y.ctx, "mckean", "phone")
+	typed := map[string]string{"SETUP_ACCOUNT": "ops@example.com"}
+	for _, c := range []struct{ yard, hosted string }{{"a plain yard", "false"}, {"a hosted yard", "true"}} {
+		if err := y.SetSetting(y.ctx, HostedSetting, c.hosted, "mckean"); err != nil {
+			t.Fatal(err)
+		}
+		seq := y.ask(t, setupAsk(), "yardmaster")
+		if _, err := y.ApproveSetup(phone, y.bead, seq, 2, typed, "", "mckean", false); err == nil || !strings.Contains(err.Error(), "approve it where its weight is shown") {
+			t.Fatalf("%s: approving a setup through a device without the word = %v", c.yard, err)
+		}
+		if got := y.asked(t, seq); got.State != AskOpen {
+			t.Fatalf("%s: the ask is %s after the refusal, want it open", c.yard, got.State)
+		}
+		done, err := y.ApproveSetup(phone, y.bead, seq, 2, typed, "", "mckean", true)
+		if err != nil {
+			t.Fatalf("%s: approving a strong setup through a device = %v", c.yard, err)
+		}
+		if done.Result != CarryPending {
+			t.Fatalf("%s: the device's approval recorded %q", c.yard, done.Result)
+		}
+		if rec, err := y.CarryOf(y.ctx, y.bead, seq); err != nil || rec == nil || rec.State != CarryApproved || rec.Actor != "mckean" {
+			t.Fatalf("%s: the carrying record = %+v, %v", c.yard, rec, err)
+		}
+		if got, ok := y.takeSetupSecret(carryKey(y.bead, seq)); !ok || got["SETUP_ACCOUNT"] != "ops@example.com" {
+			t.Fatalf("%s: the handed values = %v, %v", c.yard, got, ok)
+		}
+		if ev := lastAnswer(t, y); Via(ev) != "phone" || Witness(ev) != "" {
+			t.Fatalf("%s: the setup approval's event is via %q witnessed %q, want phone with no witness", c.yard, Via(ev), Witness(ev))
+		}
+	}
 }
 
 // A strong setup is approved under a fresh sign-in as a run card is: the
@@ -1172,25 +1207,5 @@ func TestSetupApprovalRefusals(t *testing.T) {
 	if _, err := y.ApproveSetup(y.ctx, y.bead+"@airy", seq, 1, map[string]string{"SETUP_ACCOUNT": "ops@example.com"}, "", "mckean", true); err == nil ||
 		!strings.Contains(err.Error(), "never over a link") {
 		t.Errorf("an approval over a link was recorded or refused otherwise: %v", err)
-	}
-	// The pack brings a command, so the card is strong (code): through a
-	// device it is refused behind the weight gate, and nothing is
-	// recorded, kept or run.
-	if got := weightClasses(y.asked(t, seq).Ask.Weight); !slices.Contains(got, WeightCode) {
-		t.Fatalf("the setup weighs %v, want code among it", got)
-	}
-	phone := WithVia(y.ctx, "mckean", "phone")
-	want := "ask " + strconv.FormatUint(seq, 10) + " is strong (code): this approval arrived through the device phone, and a strong card is not approved through a device. Approve it at a terminal on the yard's machine. Nothing ran, and the ask stays open"
-	if _, err := y.ApproveSetup(phone, y.bead, seq, 1, map[string]string{"SETUP_ACCOUNT": "ops@example.com"}, "", "mckean", true); err == nil || err.Error() != want {
-		t.Errorf("an approval through a device was recorded or refused otherwise: %v, want %q", err, want)
-	}
-	if rec, err := y.CarryOf(y.ctx, y.bead, seq); err != nil || rec != nil {
-		t.Errorf("a refused approval left a carrying record: %+v, %v", rec, err)
-	}
-	if _, ok := y.takeSetupSecret(carryKey(y.bead, seq)); ok {
-		t.Error("a refused approval kept the values in memory")
-	}
-	if got := y.asked(t, seq); got.State != AskOpen {
-		t.Errorf("the ask is %s after the refusal, want it open", got.State)
 	}
 }

@@ -90,9 +90,9 @@ func Via(e Event) string {
 
 // WitnessTerminal is how an approval made on the yard's socket is
 // witnessed: at a terminal on the yard's machine, outside an agent's
-// pane. A strong card's approval records it on the answer's event, beside
-// the via a device's approval would carry; a device never carries one
-// (design yardr-2nb1 5.1).
+// pane. A strong card's approval records it on the answer's event (design
+// yardr-2nb1 5.1). An approval through a device records none: its event
+// names the device (via) instead.
 const WitnessTerminal = "terminal"
 
 // WitnessFreshSignIn is how a strong card's approval in the hosted web is
@@ -105,9 +105,12 @@ const WitnessFreshSignIn = "fresh sign-in"
 // FreshWitness is the door's statement that the call carries a fresh
 // sign-in: who the gateway authenticated, and when (its auth_time claim).
 // The web sets it from the token it verified on the request that approves
-// (WithFreshWitness); the socket sets none, and a device cannot carry one,
-// since the listener reads no such statement. No approval argument carries
-// it, so a device that adds a field gains nothing.
+// (WithFreshWitness); the socket's server reads it back from the header
+// the call crossed with, and the listener reads the same header from a
+// device's request. So a device's call may carry one, and it gains nothing
+// by it: the gate judges it as it judges the web's, and witnessStrong
+// claims no witness for a call that came through a device. No approval
+// argument carries it either, so a device that adds a field gains nothing.
 type FreshWitness struct {
 	User     string
 	AuthTime time.Time
@@ -132,9 +135,11 @@ func FreshWitnessOf(ctx context.Context) (fw FreshWitness, ok bool) {
 
 // witnessStrong marks a strong card's approval as witnessed, for the
 // answer's event: a fresh sign-in where the call carried one the gate
-// took, else a terminal, on the socket alone, never through a device,
-// which carries no witness. An approval calls it just before it records
-// its answer, so the answer's event alone carries the mark.
+// took, else a terminal, on a call that came through no device. An
+// approval through a device claims neither, whatever its call carries: its
+// event names the device (via), which is all it can say of the way in. An
+// approval calls it just before it records its answer, so the answer's
+// event alone carries the mark.
 func (w *wtx) witnessStrong(stored []AskWeight, actor string) {
 	if StrongWeight(stored) && w.viaOf(actor) == "" {
 		w.witness = WitnessTerminal

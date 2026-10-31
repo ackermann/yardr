@@ -8,8 +8,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"yardr.dev/yardr/internal/edgelink"
 	"yardr.dev/yardr/internal/store"
@@ -43,6 +45,24 @@ func (y *runYard) approve(from, credential string, body io.Reader, header ...str
 
 func (y *runYard) args() string {
 	return fmt.Sprintf(`{"bead":"yd-crm","ask":%d}`, y.run)
+}
+
+// strongAsk puts the run ask that adds the user name on the bead, addressed
+// to the operator to. Adding a user is a trust card, so a strong one.
+func (y *runYard) strongAsk(t *testing.T, to, name string) uint64 {
+	t.Helper()
+	seq, err := y.st.AddAsk(context.Background(), "yd-crm", store.Ask{Question: "Add " + name + "?", To: to, Context: []string{name + " joins on Monday."},
+		Run: &store.AskRun{Argv: []string{"user", "add", name}}}, "yardmaster")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return seq
+}
+
+// strongArgs is the body of an approval of the strong ask seq, with the
+// word that its person saw the card's weight.
+func strongArgs(seq uint64) string {
+	return fmt.Sprintf(`{"bead":"yd-crm","ask":%d,"weighed":true}`, seq)
 }
 
 // nothingRan fails the test when the command ran: the source has the limit
@@ -149,29 +169,30 @@ func TestUserApprovesARunAsk(t *testing.T) {
 		t.Fatalf("the approval with the word left %+v, %v", src, err)
 	}
 
-	// A strong card is refused through a device even with the word: the
-	// listener passes the yard's words on, nothing changes, and the ask
-	// stays open.
-	kim, err := y.st.AddAsk(ctx, "yd-crm", store.Ask{Question: "Add kim?", To: "jo", Context: []string{"kim joins on Monday."},
-		Run: &store.AskRun{Argv: []string{"user", "add", "kim"}}}, "yardmaster")
-	if err != nil {
-		t.Fatal(err)
-	}
-	wantStrong := fmt.Sprintf(`ask %d is strong (trust): this approval arrived through the device phone, and a strong card is not approved through a device. Approve it at a terminal on the yard's machine. Nothing ran, and the ask stays open`, kim)
-	w = y.approve(onTheMachine, y.jo, strings.NewReader(fmt.Sprintf(`{"bead":"yd-crm","ask":%d,"weighed":true}`, kim)))
-	if !strings.Contains(w.Body.String(), wantStrong) {
-		t.Fatalf("a strong approval through a device is answered %s, want %s", w.Body, wantStrong)
+	// A strong card is approved the same way: without the word the
+	// listener passes the yard's words on and nothing changes; with it the
+	// command runs, and the answer's event and the change's own name the
+	// device and claim no witness, as a terminal's or the hosted web's would.
+	kim := y.strongAsk(t, "jo", "kim")
+	wantWeighed := fmt.Sprintf(`ask %d is weighty (trust): approve it where its weight is shown; a client sends \"weighed\": true once its person has passed its gate`, kim)
+	w = y.approve(onTheMachine, y.jo, strings.NewReader(fmt.Sprintf(`{"bead":"yd-crm","ask":%d}`, kim)))
+	if !strings.Contains(w.Body.String(), wantWeighed) {
+		t.Fatalf("a strong approval without the word is answered %s, want %s", w.Body, wantWeighed)
 	}
 	if _, err := y.st.GetUser(ctx, "kim"); err == nil {
 		t.Fatal("the refused approval added kim")
 	}
-	b, err := y.st.Bead(ctx, "yd-crm")
-	if err != nil {
-		t.Fatal(err)
+	w = y.approve(onTheMachine, y.jo, strings.NewReader(strongArgs(kim)))
+	if !strings.Contains(w.Body.String(), `"result"`) || strings.Contains(w.Body.String(), `"error"`) {
+		t.Fatalf("a strong approval with the word is answered %s", w.Body)
 	}
-	for _, a := range b.Asks {
-		if a.Ask == kim && (a.State != "open" || a.Ran != nil) {
-			t.Fatalf("the refused ask is %s, ran %+v, want it open", a.State, a.Ran)
+	if _, err := y.st.GetUser(ctx, "kim"); err != nil {
+		t.Fatalf("the approval did not add kim: %v", err)
+	}
+	for _, kind := range []string{"user_added", "noted"} {
+		evs := eventsOfKind(t, y.st, kind)
+		if last := evs[len(evs)-1]; last.Actor != "jo" || store.Via(last) != "phone" || last.Data["witness"] != nil {
+			t.Errorf("the last %s event is %+v, want jo's via phone with no witness", kind, last)
 		}
 	}
 
@@ -191,6 +212,31 @@ func TestUserApprovesARunAsk(t *testing.T) {
 		}
 		if set := eventsOfKind(t, y.st, "source_set"); len(set) != 1 || set[0].Actor != "sam" || store.Via(set[0]) != "tablet" {
 			t.Fatalf("source_set events: %+v, want one by sam via tablet", set)
+		}
+	})
+
+	// The header a witness crosses with is read from any request that
+	// reaches the yard's calls, a device's too. With the gateway's window
+	// set the yard judges it as it would the web's, and it makes the
+	// approval no witnessed one: a device cannot pass its approval of a
+	// strong card off as a fresh sign-in's.
+	t.Run("a device that sends a fresh witness is witnessed by none", func(t *testing.T) {
+		y := newRunYard(t)
+		if err := y.st.SetSetting(ctx, store.WebJWTPrivilegedSessionMaxAgeSetting, "15m", "jo"); err != nil {
+			t.Fatal(err)
+		}
+		lee := y.strongAsk(t, "jo", "lee")
+		fresh := []string{FreshWitnessHeader, "jo " + strconv.FormatInt(time.Now().Unix(), 10)}
+		w := y.approve(onTheMachine, y.jo, strings.NewReader(strongArgs(lee)), fresh...)
+		if !strings.Contains(w.Body.String(), `"result"`) || strings.Contains(w.Body.String(), `"error"`) {
+			t.Fatalf("the approval is answered %s", w.Body)
+		}
+		if _, err := y.st.GetUser(ctx, "lee"); err != nil {
+			t.Fatalf("the approval did not add lee: %v", err)
+		}
+		noted := eventsOfKind(t, y.st, "noted")
+		if last := noted[len(noted)-1]; store.Via(last) != "phone" || last.Data["witness"] != nil {
+			t.Errorf("the answer's event is %+v, want via phone with no witness", last)
 		}
 	})
 }
@@ -221,6 +267,13 @@ func TestUserApproveAskIsForTheOperatorsDeviceAlone(t *testing.T) {
 		y := newRunYard(t)
 		notThere(t, y.approve(onTheMachine, y.sam, unread{t}))
 		y.nothingRan(t, "sam's device")
+		// A strong card is no way round the door: the call is the operator's
+		// device's, whatever the ask and whatever the word.
+		kim := y.strongAsk(t, "jo", "kim")
+		notThere(t, y.approve(onTheMachine, y.sam, strings.NewReader(strongArgs(kim))))
+		if _, err := y.st.GetUser(ctx, "kim"); err == nil {
+			t.Error("sam's device added kim")
+		}
 	})
 	// On the socket sam approves a subscription of their own. Not here: the
 	// call is the operator's device's, whatever the ask.
@@ -280,6 +333,11 @@ func TestUserApproveAskIsForTheOperatorsDeviceAlone(t *testing.T) {
 		}
 		notThere(t, y.approve(onTheMachine, y.jo, unread{t}))
 		y.nothingRan(t, "an operator made a member")
+		kim := y.strongAsk(t, "sam", "kim")
+		notThere(t, y.approve(onTheMachine, y.jo, strings.NewReader(strongArgs(kim))))
+		if _, err := y.st.GetUser(ctx, "kim"); err == nil {
+			t.Error("the device of an operator made a member added kim")
+		}
 	})
 	// The operator's device calls as the operator and in the one form.
 	t.Run("as anyone else, and the array of yardr's own builds", func(t *testing.T) {

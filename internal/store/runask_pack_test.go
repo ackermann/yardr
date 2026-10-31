@@ -1199,11 +1199,17 @@ func TestPackApplySummaryCard(t *testing.T) {
 	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false, nil); err == nil || !strings.Contains(err.Error(), "approve it where its weight is shown") {
 		t.Fatalf("an unweighed approval = %v", err)
 	}
-	if _, err := y.ApproveAsk(WithVia(y.ctx, "mckean", "phone"), y.bead, seq, "mckean", true, nil); err == nil || !strings.Contains(err.Error(), "a strong card is not approved through a device") {
-		t.Fatalf("a device's approval = %v", err)
-	}
 	if done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true, nil); err != nil || done.Result != "approved, to be carried out" {
 		t.Fatalf("the weighed approval = %+v, %v", done, err)
+	}
+	// A paired device approves a summary as it does a whole card: the weight
+	// is the whole card's, strong, and the word that its person saw it is all
+	// the gate asks of a device.
+	if done, err := y.ApproveAsk(WithVia(y.ctx, "mckean", "phone"), y.bead, y.ask(t, summaryAsk(), "yardmaster"), "mckean", true, nil); err != nil || done.Result != "approved, to be carried out" {
+		t.Fatalf("a device's approval = %+v, %v", done, err)
+	}
+	if ev := lastAnswer(t, y); Via(ev) != "phone" || Witness(ev) != "" {
+		t.Fatalf("the device's approval is via %q witnessed %q, want phone with no witness", Via(ev), Witness(ev))
 	}
 
 	for _, c := range []struct {

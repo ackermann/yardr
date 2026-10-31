@@ -183,35 +183,15 @@ func StrongWords(ws []AskWeight) string {
 	return "strong (" + strings.Join(classes, ", ") + ")"
 }
 
-// strongRefusal says why the approval of the ask seq is refused when it
-// arrived through a device (device) and the card is strong: nil for a
-// routine card, which any door approves, and for an approval that came
-// through none. It stands behind the weight gate, not in its place: the
-// weighed refusal comes first, and this one names where a strong card is
-// approved instead — on a hosted yard the hosted web with a fresh sign-in,
-// elsewhere a terminal on the yard's machine. Nothing runs, and the ask
-// stays open.
-func strongRefusal(seq uint64, stored []AskWeight, device string, hosted bool) error {
-	if device == "" || !StrongWeight(stored) {
-		return nil
-	}
-	place := "at a terminal on the yard's machine"
-	if hosted {
-		place = "in the hosted web, with a fresh sign-in"
-	}
-	return fmt.Errorf("ask %d is %s: this approval arrived through the device %s, and a strong card is not approved through a device. Approve it %s. Nothing ran, and the ask stays open", seq, StrongWords(stored), device, place)
-}
-
 // gateRefusal is a run or setup approval's gate behind the stale check:
-// the weighed refusal first, the strong refusal second, the fresh
-// witness's third (weighedRefusal, strongRefusal, freshRefusal). The door
-// the approval came by and the yard's hosted flag are the write's own,
-// read here so the approval reads as one gate.
+// the weighed refusal first, the fresh witness's second (weighedRefusal,
+// freshRefusal). No door is refused for being the one it is: a paired
+// device of the operator approves a strong card as it approves any card,
+// and the card's own gate is that its person saw its weight. The
+// approvals of a strong card differ in how they are witnessed
+// (witnessStrong), not in whether they are taken.
 func (w *wtx) gateRefusal(seq uint64, weight, stored []AskWeight, actor string, weighed bool) error {
 	if err := weighedRefusal(seq, weight, weighed); err != nil {
-		return err
-	}
-	if err := strongRefusal(seq, stored, w.viaOf(actor), w.settingValue(HostedSetting) == "true"); err != nil {
 		return err
 	}
 	return w.freshRefusal(seq, stored, actor)
@@ -380,8 +360,8 @@ func updatesOf(d *source.Declaration, calls []string) []string {
 // programsOf are the update calls among calls that send a file, which a
 // card of the call weighs as code (sourceCallWeight). A grant of one is
 // that card's approval given for good: its holder makes the call with no
-// card, so a grant a device could approve would go around the card a
-// device may not.
+// card, so the grant weighs code as the card does, and is as strong a card
+// as the one it stands in for.
 func programsOf(d *source.Declaration, calls []string) []string {
 	var out []string
 	for _, name := range updatesOf(d, calls) {

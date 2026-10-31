@@ -115,9 +115,10 @@ func callAsk(command string) Ask {
 const callAccount = "0123456789abcdef0123456789abcdef"
 
 // The upload card shows the file's digest and weighs code and
-// outside (strong); approving it sends the file's bytes, once, and a
-// device approval of it is refused with the strong words. The script
-// text stands in no card, note, event or store file.
+// outside (strong); approving it sends the file's bytes, once, and so
+// does a paired device's approval of it, which names the device and
+// claims no witness. The script text stands in no card, note, event or
+// store file.
 func TestSourceCallUploadCard(t *testing.T) {
 	var hits []callHit
 	dir := t.TempDir()
@@ -145,21 +146,18 @@ func TestSourceCallUploadCard(t *testing.T) {
 	if classes := weightClasses(y.asked(t, ask).Ask.Weight); !slices.Equal(classes, []string{WeightCode, WeightOutside}) && !slices.Equal(classes, []string{WeightOutside, WeightCode}) {
 		t.Fatalf("the upload card weighs %v, want code and outside", classes)
 	}
-	// A device approval of the strong card is refused, and runs nothing.
+	// The approval is a device's: the strong card runs, in two writes with
+	// the call between them, and the answer's event still names the device.
 	phone := WithVia(y.ctx, "mckean", "phone")
-	want := "ask " + itoa(ask) + " is strong (code): this approval arrived through the device phone, and a strong card is not approved through a device. Approve it at a terminal on the yard's machine. Nothing ran, and the ask stays open"
-	if _, err := y.ApproveAsk(phone, y.bead, ask, "mckean", true, nil); err == nil || err.Error() != want {
-		t.Fatalf("approving the upload through a device = %v, want %q", err, want)
-	}
-	if len(hits) != 0 {
-		t.Fatalf("the refused approval sent %d calls", len(hits))
-	}
-	done, err := y.ApproveAsk(y.ctx, y.bead, ask, "mckean", true, nil)
+	done, err := y.ApproveAsk(phone, y.bead, ask, "mckean", true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(done.Result, "cfmail: called worker_upload: 200 in ") {
 		t.Errorf("approval = %q", done.Result)
+	}
+	if ev := lastAnswer(t, y); Via(ev) != "phone" || Witness(ev) != "" {
+		t.Errorf("the upload's approval is via %q witnessed %q, want phone with no witness", Via(ev), Witness(ev))
 	}
 	if len(hits) != 1 || hits[0].method != "PUT" || hits[0].path != "/accounts/"+callAccount+"/workers/scripts/mail-worker" {
 		t.Fatalf("hits = %+v", hits)
@@ -359,8 +357,10 @@ func TestSourceCallAsUserWeighs(t *testing.T) {
 }
 
 // A grant of a call that sends a program is that call's strong card
-// given for good, so a device approves neither: a grant of the upload is
-// refused through a device, and a grant of a call that sends none is not.
+// given for good, so it weighs code as the upload does, and a grant of a
+// call that sends none does not. A paired device approves the grant of the
+// upload as it approves any weighty card, with the word that its person
+// saw the weight.
 func TestSourceGrantOfUploadIsStrong(t *testing.T) {
 	var hits []callHit
 	y := callYard(t, &hits)
@@ -369,8 +369,14 @@ func TestSourceGrantOfUploadIsStrong(t *testing.T) {
 	if classes := weightClasses(y.asked(t, upload).Ask.Weight); !slices.Contains(classes, WeightCode) {
 		t.Fatalf("the grant of the upload weighs %v, want code", classes)
 	}
-	if _, err := y.ApproveAsk(phone, y.bead, upload, "mckean", true, nil); err == nil || !strings.Contains(err.Error(), "a strong card is not approved through a device") {
+	if _, err := y.ApproveAsk(phone, y.bead, upload, "mckean", true, nil); err != nil {
 		t.Fatalf("approving the grant through a device = %v", err)
+	}
+	if grants, err := y.SourceGrants(y.ctx, "cfmail"); err != nil || !slices.ContainsFunc(grants, func(g SourceGrant) bool { return slices.Contains(g.Calls, "worker_upload") }) {
+		t.Fatalf("the grants of cfmail after the device's approval = %+v, %v", grants, err)
+	}
+	if ev := lastAnswer(t, y); Via(ev) != "phone" || Witness(ev) != "" {
+		t.Fatalf("the grant's approval is via %q witnessed %q, want phone with no witness", Via(ev), Witness(ev))
 	}
 	rule := y.ask(t, callAsk("source grant cfmail email_rule --crew yardmaster"), "yardmaster")
 	if classes := weightClasses(y.asked(t, rule).Ask.Weight); slices.Contains(classes, WeightCode) {

@@ -390,87 +390,97 @@ func TestWeightIsHeldAtApproval(t *testing.T) {
 	}
 }
 
-// A strong card — trust or code in its stored weight — is not approved
-// through a device: behind the weight gate the approval is refused, runs
-// nothing, and leaves the ask open, naming where the card is approved
-// instead. On the socket the same cards run, and each answer's event says
-// how it was witnessed. Routine cards approve through a device as before
-// and claim no witness.
-func TestStrongCardRefusesADevicesApproval(t *testing.T) {
+// A strong card — trust or code in its stored weight — is approved through
+// a device as any weighty card is: behind the weight gate, by a call that
+// says its person saw the weight, on a plain yard and on a hosted one. The
+// command runs (a code card's is left for the server to carry out), and
+// the answer's event names the device and claims no witness: the terminal
+// and a fresh sign-in are how the socket and the hosted web witness an
+// approval, and a device is neither. On the socket the same cards run, and
+// each answer's event says how it was witnessed. Routine cards approve
+// through a device as before and claim no witness.
+func TestStrongCardApprovesThroughADevice(t *testing.T) {
 	// Sequential: the package's fake clock (via newAskYard).
 	y := listYard(t)
 	phone := WithVia(y.ctx, "mckean", "phone")
+	wired := sourceAddAsk(carriedOf(t, wiredDecl, wiredFiles))
+	wired.Run.Argv = []string{"source add wired.yaml"}
 
-	trust := y.ask(t, listAsk("mckean", "peer allow airy --mail-limit 300"), "yardmaster")
-	if got := weightClasses(y.asked(t, trust).Ask.Weight); !slices.Equal(got, []string{WeightTrust}) {
-		t.Fatalf("raising the mail limit weighs %v", got)
-	}
-	// The weighed refusal comes first: without the client's word the
-	// refusal is for want of it, not for the door it came through.
-	wantWeighed := "ask " + itoa(trust) + ` is weighty (trust): approve it where its weight is shown; a client sends "weighed": true once its person has passed its gate`
-	if _, err := y.ApproveAsk(phone, y.bead, trust, "mckean", false, nil); err == nil || err.Error() != wantWeighed {
-		t.Fatalf("approving a strong card through a device without the word = %v, want %q", err, wantWeighed)
-	}
-	want := "ask " + itoa(trust) + " is strong (trust): this approval arrived through the device phone, and a strong card is not approved through a device. Approve it at a terminal on the yard's machine. Nothing ran, and the ask stays open"
-	if _, err := y.ApproveAsk(phone, y.bead, trust, "mckean", true, nil); err == nil || err.Error() != want {
-		t.Fatalf("approving a trust card through a device = %v, want %q", err, want)
-	}
-	if got := y.peerOf(t, "airy").MailsAnHour(); got != 30 {
-		t.Fatalf("the refused approval set the mail limit to %d", got)
-	}
-	if r := y.asked(t, trust); r.State != AskOpen {
-		t.Fatalf("the ask is %s after the refusal, want it open", r.State)
-	}
-	if answers := answerNotes(t, y); len(answers) != 0 {
-		t.Fatalf("a refused approval left answers %+v", answers)
-	}
+	for _, c := range []struct {
+		yard, hosted string
+		limit        int
+	}{
+		{"a plain yard", "false", 300},
+		{"a hosted yard", "true", 400},
+	} {
+		// The hosted web asks a strong card a fresh sign-in; a device's
+		// approval is no web's, and the yard being hosted changes nothing
+		// for it.
+		if err := y.SetSetting(y.ctx, HostedSetting, c.hosted, "mckean"); err != nil {
+			t.Fatal(err)
+		}
+		trust := y.ask(t, listAsk("mckean", "peer allow airy --mail-limit "+itoa(uint64(c.limit))), "yardmaster")
+		if got := weightClasses(y.asked(t, trust).Ask.Weight); !slices.Equal(got, []string{WeightTrust}) {
+			t.Fatalf("%s: raising the mail limit weighs %v", c.yard, got)
+		}
+		// The weighed refusal holds for a device as for any door: without the
+		// client's word that its person saw the weight, nothing runs and the
+		// ask stays open.
+		answers := len(answerNotes(t, y))
+		wantWeighed := "ask " + itoa(trust) + ` is weighty (trust): approve it where its weight is shown; a client sends "weighed": true once its person has passed its gate`
+		if _, err := y.ApproveAsk(phone, y.bead, trust, "mckean", false, nil); err == nil || err.Error() != wantWeighed {
+			t.Fatalf("%s: approving a strong card through a device without the word = %v, want %q", c.yard, err, wantWeighed)
+		}
+		if r := y.asked(t, trust); r.State != AskOpen || len(answerNotes(t, y)) != answers {
+			t.Fatalf("%s: the ask is %s with %d answers after the refusal, want it open with %d", c.yard, r.State, len(answerNotes(t, y)), answers)
+		}
+		if _, err := y.ApproveAsk(phone, y.bead, trust, "mckean", true, nil); err != nil {
+			t.Fatalf("%s: approving a trust card through a device = %v", c.yard, err)
+		}
+		if got := y.peerOf(t, "airy").MailsAnHour(); got != c.limit {
+			t.Fatalf("%s: the device's approval left the mail limit at %d, want %d", c.yard, got, c.limit)
+		}
+		if ev := lastAnswer(t, y); Via(ev) != "phone" || Witness(ev) != "" {
+			t.Fatalf("%s: the trust approval's event is via %q witnessed %q, want phone with no witness", c.yard, Via(ev), Witness(ev))
+		}
 
-	// On a hosted yard the refusal names the hosted web and its fresh
-	// sign-in instead of the terminal.
-	if err := y.SetSetting(y.ctx, HostedSetting, "true", "mckean"); err != nil {
-		t.Fatal(err)
-	}
-	wantHosted := "ask " + itoa(trust) + " is strong (trust): this approval arrived through the device phone, and a strong card is not approved through a device. Approve it in the hosted web, with a fresh sign-in. Nothing ran, and the ask stays open"
-	if _, err := y.ApproveAsk(phone, y.bead, trust, "mckean", true, nil); err == nil || err.Error() != wantHosted {
-		t.Fatalf("approving a trust card through a device on a hosted yard = %v, want %q", err, wantHosted)
+		// A code card approves the same way, and its approval leaves the
+		// command for the server to carry out.
+		code := y.ask(t, wired, "yardmaster")
+		if got := weightClasses(y.asked(t, code).Ask.Weight); !slices.Equal(got, []string{WeightCode}) {
+			t.Fatalf("%s: a source add naming commands weighs %v", c.yard, got)
+		}
+		done, err := y.ApproveAsk(phone, y.bead, code, "mckean", true, nil)
+		if err != nil {
+			t.Fatalf("%s: approving a code card through a device = %v", c.yard, err)
+		}
+		if done.Result != CarryPending {
+			t.Fatalf("%s: the device's approval of one naming commands recorded %q", c.yard, done.Result)
+		}
+		if rec, err := y.CarryOf(y.ctx, y.bead, code); err != nil || rec == nil || rec.State != CarryApproved || rec.Actor != "mckean" {
+			t.Fatalf("%s: the carrying record = %+v, %v", c.yard, rec, err)
+		}
+		if ev := lastAnswer(t, y); Via(ev) != "phone" || Witness(ev) != "" {
+			t.Fatalf("%s: the code approval's event is via %q witnessed %q, want phone with no witness", c.yard, Via(ev), Witness(ev))
+		}
 	}
 	if err := y.SetSetting(y.ctx, HostedSetting, "false", "mckean"); err != nil {
 		t.Fatal(err)
 	}
 
-	// A code card is refused the same way, and its source stands nowhere.
-	wired := sourceAddAsk(carriedOf(t, wiredDecl, wiredFiles))
-	wired.Run.Argv = []string{"source add wired.yaml"}
-	code := y.ask(t, wired, "yardmaster")
-	if got := weightClasses(y.asked(t, code).Ask.Weight); !slices.Equal(got, []string{WeightCode}) {
-		t.Fatalf("a source add naming commands weighs %v", got)
-	}
-	wantCode := "ask " + itoa(code) + " is strong (code): this approval arrived through the device phone, and a strong card is not approved through a device. Approve it at a terminal on the yard's machine. Nothing ran, and the ask stays open"
-	if _, err := y.ApproveAsk(phone, y.bead, code, "mckean", true, nil); err == nil || err.Error() != wantCode {
-		t.Fatalf("approving a code card through a device = %v, want %q", err, wantCode)
-	}
-	if _, err := y.GetSource(y.ctx, "wired"); err == nil {
-		t.Fatal("the refused approval added the source")
-	}
-	if r := y.asked(t, code); r.State != AskOpen {
-		t.Fatalf("the ask is %s after the refusal, want it open", r.State)
-	}
-	if answers := answerNotes(t, y); len(answers) != 0 {
-		t.Fatalf("a refused approval left answers %+v", answers)
-	}
-
 	// On the socket both run, and each answer's event is witnessed
 	// terminal, with no device behind it.
+	trust := y.ask(t, listAsk("mckean", "peer allow airy --mail-limit 500"), "yardmaster")
 	if _, err := y.ApproveAsk(y.ctx, y.bead, trust, "mckean", true, nil); err != nil {
 		t.Fatalf("approving the trust card on the socket = %v", err)
 	}
-	if got := y.peerOf(t, "airy").MailsAnHour(); got != 300 {
+	if got := y.peerOf(t, "airy").MailsAnHour(); got != 500 {
 		t.Fatalf("the socket approval left the mail limit at %d", got)
 	}
 	if ev := lastAnswer(t, y); Witness(ev) != WitnessTerminal || Via(ev) != "" {
 		t.Fatalf("the trust approval's event is witnessed %q via %q, want terminal with no device", Witness(ev), Via(ev))
 	}
-	done, err := y.ApproveAsk(y.ctx, y.bead, code, "mckean", true, nil)
+	done, err := y.ApproveAsk(y.ctx, y.bead, y.ask(t, wired, "yardmaster"), "mckean", true, nil)
 	if err != nil {
 		t.Fatalf("approving the code card on the socket = %v", err)
 	}
@@ -506,7 +516,7 @@ func TestStrongCardRefusesADevicesApproval(t *testing.T) {
 
 	// A later event in the same write must not inherit the answer's
 	// witness, even if a future approval path adds work after recording it.
-	followup := y.ask(t, listAsk("mckean", "peer allow airy --mail-limit 400"), "yardmaster")
+	followup := y.ask(t, listAsk("mckean", "peer allow airy --mail-limit 600"), "yardmaster")
 	if err := y.write(func(w *wtx) error {
 		if _, err := w.approveAsk(y.ctx, y.bead, followup, "mckean", true, nil); err != nil {
 			return err
@@ -532,7 +542,8 @@ func TestStrongCardRefusesADevicesApproval(t *testing.T) {
 // against the gateway's own window, and the answer's event records the
 // fresh sign-in. One made as another user, with no authentication time,
 // or outside the window is refused, runs nothing, and leaves the ask open;
-// a routine card takes no witness either way.
+// a routine card takes no witness either way. A device's approval claims
+// none, even one whose call carries a witness.
 func TestStrongCardApprovesUnderAFreshSignIn(t *testing.T) {
 	// Sequential: the package's fake clock (via newAskYard).
 	y := listYard(t)
@@ -598,12 +609,19 @@ func TestStrongCardApprovesUnderAFreshSignIn(t *testing.T) {
 		t.Fatalf("approving under another user's sign-in = %v, want %q", err, wantOther)
 	}
 
-	// Through a device the strong refusal still comes first: the witness
-	// on the call buys it nothing.
+	// A device's call can carry a witness too: the listener reads the header
+	// one crosses with from its request as the socket does. It is judged as
+	// any is, and the answer's event names the device and claims no witness,
+	// so a device cannot make its approval read as the hosted web's.
 	phone := WithFreshWitness(WithVia(y.ctx, "mckean", "phone"), "mckean", y.now)
-	wantDevice := "ask " + itoa(stale) + " is strong (trust): this approval arrived through the device phone, and a strong card is not approved through a device. Approve it at a terminal on the yard's machine. Nothing ran, and the ask stays open"
-	if _, err := y.ApproveAsk(phone, y.bead, stale, "mckean", true, nil); err == nil || err.Error() != wantDevice {
-		t.Fatalf("approving a strong card through a device with a witness = %v, want %q", err, wantDevice)
+	if _, err := y.ApproveAsk(phone, y.bead, stale, "mckean", true, nil); err != nil {
+		t.Fatalf("approving a strong card through a device with a witness = %v", err)
+	}
+	if got := y.peerOf(t, "airy").MailsAnHour(); got != 500 {
+		t.Fatalf("the device's approval left the mail limit at %d", got)
+	}
+	if ev := lastAnswer(t, y); Via(ev) != "phone" || Witness(ev) != "" {
+		t.Fatalf("the device's approval is via %q witnessed %q, want phone with no witness", Via(ev), Witness(ev))
 	}
 
 	// A routine card takes no witness: it approves with one on the call as

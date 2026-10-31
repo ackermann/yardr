@@ -553,7 +553,7 @@ var apiCalls = []apiCall{
 			{"asks[].depot_push.does", "array of string", "what approving changes and what stands now, in the yard's words"},
 			{"asks[].depot_push.back", "string", "the filing that takes the change back"},
 			{"asks[].depot_push.back_by", "string?", "who may file `back`, in words that stand before `can take it back`; absent where that is anyone"},
-			{"asks[].run", "object?", "the command a run ask proposes: one yardr command that is the operator's to give, which the yard runs when the operator approves the ask. Absent on any other ask. Such an ask has no options and takes no words: `AnswerAsk` refuses a pick and words on it, `DeferAsk` and `DeclineAsk` take it as any ask, and it is approved with [`ApproveAsk`](#for-the-operator-alone), by the operator: at the yard (`yardr bead answer <bead> <ask> --approve`, with `--value <name>=<value>` where the card asks for values in the clear), or from a device of the operator. A strong card ([weighty cards](#weighty-cards)) is refused from a device; on a hosted yard the bead page approves it under a fresh sign-in. A command that is a user's own (`subscribe <user> yardr`, `user set <user> tell=<parts>`, `user key <user> <source>`) is approved at the yard by the one it was asked of, that user or the operator. All of `run` is the yard's, made when the ask was written, and none of it the asker's: show it apart from `question` and `context`, which are the asker's words, and draw those as plain text"},
+			{"asks[].run", "object?", "the command a run ask proposes: one yardr command that is the operator's to give, which the yard runs when the operator approves the ask. Absent on any other ask. Such an ask has no options and takes no words: `AnswerAsk` refuses a pick and words on it, `DeferAsk` and `DeclineAsk` take it as any ask, and it is approved with [`ApproveAsk`](#for-the-operator-alone), by the operator: at the yard (`yardr bead answer <bead> <ask> --approve`, with `--value <name>=<value>` where the card asks for values in the clear), or from a device of the operator. A strong card ([weighty cards](#weighty-cards)) is approved from a device as any weighty card is; the bead page approves it only on a hosted yard, under a fresh sign-in. A command that is a user's own (`subscribe <user> yardr`, `user set <user> tell=<parts>`, `user key <user> <source>`) is approved at the yard by the one it was asked of, that user or the operator. All of `run` is the yard's, made when the ask was written, and none of it the asker's: show it apart from `question` and `context`, which are the asker's words, and draw those as plain text"},
 			{"asks[].run.argv", "array of string", "the command in words, without the leading `yardr`, as the yard parsed it. On a run ask that sets a setting, adds a source, or applies a pack with a depot or mappings named, told to a device of the operator alone ([over the network](#over-the-network)): `[]` on any other device's card, and on every device's of a yard with no operator. The socket tells the whole card"},
 			{"asks[].run.command", "string", "the command whole, as it is typed in a terminal and as it would run. Never shorten it: a view that cannot show it whole says where the ask can be read instead. On a run ask that sets a setting, adds a source, or applies a pack with a depot or mappings named, told to a device of the operator alone ([over the network](#over-the-network)): `\"\"` on any other device's card, and on every device's of a yard with no operator. The socket tells the whole card"},
 			{"asks[].run.does", "array of string", "what the command changes and what is there now, in the yard's words, a sentence each, with what it names as the yard knows it"},
@@ -563,7 +563,7 @@ var apiCalls = []apiCall{
 			{"asks[].ran", "object?", "the command the yard ran when a run ask was approved, which reads \"approved, ran: `<command>`\" with `result` under it; the setup a setup ask approved, which reads \"approved, being carried out\", \"approved, ran\" or \"approved, failed\" with the preset and the names given; or the carrying out of a depot-push card, which reads \"approved, to be carried out\", \"approved, ran\" or \"approved, failed\". Absent on any other ask and until it is approved. A depot-push card and its `ran` are absent for devices of nonoperators; the socket tells the whole card"},
 			{"asks[].ran.argv", "array of string", "the command that ran, in words: the one the ask proposed; on a setup ask, `setup` with the pack's name. On a run ask that set a setting or added a source, told to a device of the operator alone ([over the network](#over-the-network)): `[]` on any other device's card, and on every device's of a yard with no operator. A depot-push card and its `ran` are absent for devices of nonoperators. The socket tells the whole card"},
 			{"asks[].ran.result", "string", "what the command printed, made by the yard: a line for each thing it changed, with a line break between them; on a setup ask or depot-push ask not yet carried out, `approved, to be carried out`, and afterwards what the carrying out printed. Its line `the account <names> is set in <file>` names the file the account is set in, which is the candidate's when the approval took one, and the words of a carrying out that failed can name it too, and the candidate's source: both are told to a device of the operator alone ([over the network](#over-the-network)). A depot-push result is told to a device of the operator alone too; any other device is told `the account <names> is set` for that line and, for a failure, that it failed and no more; so is every device of a yard with no operator. The socket tells the whole result"},
-			{"asks[].setup", "object?", "the setup a setup ask proposes: the pack with the yard's sentences for what approving it does, the account to type beside the preset pick or the candidates to take instead (on an update, the account that already stands), and the presets the ask's options count. Absent on any other ask. `AnswerAsk` refuses a pick and words on it, `DeferAsk` and `DeclineAsk` take it as any ask, and it is approved with [`ApproveSetup`](#for-the-operator-alone), by the operator: at the yard (`yardr bead answer <bead> <ask> <n> --secret`, `--account <source>` where the card lists a candidate, or a bare `<n>` where the card is `given`), or from a device of the operator. A strong card ([weighty cards](#weighty-cards)) is refused from a device; on a hosted yard the bead page approves it under a fresh sign-in. All of `setup` is the yard's, made when the ask was written, and none of it the asker's: show it apart from `question` and `context`, which are the asker's words, and draw those as plain text"},
+			{"asks[].setup", "object?", "the setup a setup ask proposes: the pack with the yard's sentences for what approving it does, the account to type beside the preset pick or the candidates to take instead (on an update, the account that already stands), and the presets the ask's options count. Absent on any other ask. `AnswerAsk` refuses a pick and words on it, `DeferAsk` and `DeclineAsk` take it as any ask, and it is approved with [`ApproveSetup`](#for-the-operator-alone), by the operator: at the yard (`yardr bead answer <bead> <ask> <n> --secret`, `--account <source>` where the card lists a candidate, or a bare `<n>` where the card is `given`), or from a device of the operator. A strong card ([weighty cards](#weighty-cards)) is approved from a device as any weighty card is; the bead page approves it only on a hosted yard, under a fresh sign-in. All of `setup` is the yard's, made when the ask was written, and none of it the asker's: show it apart from `question` and `context`, which are the asker's words, and draw those as plain text"},
 			{"asks[].setup.pack", "string", "the embedded pack to set up, of kind source, whose `yardr pack show <pack>` prints the presets numbered"},
 			{"asks[].setup.base", "string?", "the selected region base name; absent when calls go to the declarations' own bases"},
 			{"asks[].setup.label", "string?", "the build the pack is embedded in, as the card shows it"},
@@ -763,7 +763,7 @@ var apiOperatorCalls = []apiCall{
 	},
 	{
 		method: "ApproveAsk",
-		says:   "Approves a run ask (an ask of `Bead` with `run`), and the yard runs the command the ask holds, as the one who approves: `run.command`, whole, and nothing else. It is what `yardr bead answer --approve` does, with `--value <name>=<value>` where the card asks for values in the clear (`run.ask`): a hook add the yard registers itself carries them to its register call with the URL and the secret, and keeps none; where the declaration names a check, a retry first lists what stands and adopts a webhook already aimed at the hook. In one write the yard checks that it would write the same card now, makes the change under the command's own check, and records the answer, which holds `ran`. A refused approval changes nothing, records nothing and leaves the ask open. It is the operator's to approve: on the socket it is refused for anyone else and for a call that comes from the pane of an agent, whatever `actor` says, and on the listener it is there for a device of the operator and for no other caller. A command that is a user's own (`subscribe <user> yardr`, `user set <user> tell=<parts>`, `user key <user> <source>`) is approved by the one it was asked of, that user or the operator, on the socket; a device of that user is not served the call. Refused too: an ask that proposes no command; one that was declined, taken back or approved already, since a command runs once for one ask; a `bead@peer`, since a command is approved in the yard that asked and never over a link; values the card asks for nothing of, and a missing one where it asks for any; and an ask whose card is from before the yard changed, where what the command names was replaced under its name or what it changes is no longer what `run.does` says. That one is declined, and asked again if it is still wanted. A weighty card ([weighty cards](#weighty-cards)) is refused unless the call says `weighed`; that refusal changes nothing and leaves the ask open, as it is. A routine card asks for no such word. A strong card — one the yard weighs `trust` or `code` ([weighty cards](#weighty-cards)) — is refused from a device even with `weighed`: the refusal names where it is approved instead, and the ask stays open. On a hosted yard the bead page approves it under a fresh sign-in, which the answer's event records beside `via` (`data.witness`); a stale witness, or another user's, refuses with the ask open. The answer is then a `noted` event in the stream, and the change is the command's own event, which carries `approved` with the bead and the ask.",
+		says:   "Approves a run ask (an ask of `Bead` with `run`), and the yard runs the command the ask holds, as the one who approves: `run.command`, whole, and nothing else. It is what `yardr bead answer --approve` does, with `--value <name>=<value>` where the card asks for values in the clear (`run.ask`): a hook add the yard registers itself carries them to its register call with the URL and the secret, and keeps none; where the declaration names a check, a retry first lists what stands and adopts a webhook already aimed at the hook. In one write the yard checks that it would write the same card now, makes the change under the command's own check, and records the answer, which holds `ran`. A refused approval changes nothing, records nothing and leaves the ask open. It is the operator's to approve: on the socket it is refused for anyone else and for a call that comes from the pane of an agent, whatever `actor` says, and on the listener it is there for a device of the operator and for no other caller. A command that is a user's own (`subscribe <user> yardr`, `user set <user> tell=<parts>`, `user key <user> <source>`) is approved by the one it was asked of, that user or the operator, on the socket; a device of that user is not served the call. Refused too: an ask that proposes no command; one that was declined, taken back or approved already, since a command runs once for one ask; a `bead@peer`, since a command is approved in the yard that asked and never over a link; values the card asks for nothing of, and a missing one where it asks for any; and an ask whose card is from before the yard changed, where what the command names was replaced under its name or what it changes is no longer what `run.does` says. That one is declined, and asked again if it is still wanted. A weighty card ([weighty cards](#weighty-cards)) is refused unless the call says `weighed`; that refusal changes nothing and leaves the ask open, as it is. A routine card asks for no such word. A strong card — one the yard weighs `trust` or `code` ([weighty cards](#weighty-cards)) — is approved from a device as any weighty card is, with `weighed`: the command runs, and the answer's event carries `via` and no `data.witness`. On a hosted yard the bead page approves it only under a fresh sign-in, which the answer's event records (`data.witness`); a stale witness, or another user's, refuses with the ask open. The answer is then a `noted` event in the stream, and the change is the command's own event, which carries `approved` with the bead and the ask.",
 		args: []field{
 			{"bead", "string", "the bead"},
 			{"ask", "number", "the ask note's seq"},
@@ -789,7 +789,7 @@ var apiOperatorCalls = []apiCall{
 			"The request settles the account in one of three ways: it types it, takes a candidate the card lists, or keeps the account that stands. What the card says (`setup.given`, `setup.missing`, `setup.candidates`) decides which are open to it, and the paragraph under the reply's fields says how. The examples are, in order, a first setup with the account typed, a first setup with a candidate taken, an update that keeps the account that stands, and an update that types the names it is missing. " +
 			"In one write the yard checks that it would write the same card now and records the approval, which holds the preset, the names given, the candidate taken or the account kept, and `ran`; the server carries it out after the call. Typed values live in its memory alone until the account's write; a picked candidate hands none. Where the pack's source names a check call, the typed account is tried with it before the write: a refused check refuses the approval with the check's words. A refused approval changes nothing, records nothing and leaves the ask open. " +
 			"It is the operator's to approve: on the socket it is refused for anyone else and for a call that comes from the pane of an agent, whatever `actor` says, and on the listener it is there for a device of the operator and for no other caller. Picking `you decide` grants the asker's recommended preset, and is refused where none is recommended. " +
-			"Refused too: an ask that sets up no pack; one that was declined, taken back or approved already, since a setup runs once for one ask; a `bead@peer`, since a setup is approved in the yard that asked and never over a link; values and a candidate together; values that are not exactly the names the card asks for, and a candidate the card lists none of; and an ask whose card is from before the yard changed, where the pack's bytes or presets, a source, the account's owed-ness, a candidate or a grantee moved. That one is declined, and asked again if it is still wanted. A newer build alone is no such change. A setup takes the account, so its card is always weighty ([weighty cards](#weighty-cards)): the call is refused unless it says `weighed`, with nothing changed and the ask open. A setup whose pack brings a program the yard will run is a strong card, and a strong card is refused from a device even with `weighed`: the refusal names where it is approved instead, and the ask stays open. On a hosted yard the bead page approves it under a fresh sign-in, which the answer's event records beside `via` (`data.witness`); a stale witness, or another user's, refuses with the ask open. The answer is then a `noted` event in the stream.",
+			"Refused too: an ask that sets up no pack; one that was declined, taken back or approved already, since a setup runs once for one ask; a `bead@peer`, since a setup is approved in the yard that asked and never over a link; values and a candidate together; values that are not exactly the names the card asks for, and a candidate the card lists none of; and an ask whose card is from before the yard changed, where the pack's bytes or presets, a source, the account's owed-ness, a candidate or a grantee moved. That one is declined, and asked again if it is still wanted. A newer build alone is no such change. A setup takes the account, so its card is always weighty ([weighty cards](#weighty-cards)): the call is refused unless it says `weighed`, with nothing changed and the ask open. A setup whose pack brings a program the yard will run is a strong card, and a device approves a strong card as it does any weighty one, with `weighed`: the answer's event carries `via` and no `data.witness`. On a hosted yard the bead page approves it only under a fresh sign-in, which the answer's event records (`data.witness`); a stale witness, or another user's, refuses with the ask open. The answer is then a `noted` event in the stream.",
 		args: []field{
 			{"bead", "string", "the bead"},
 			{"ask", "number", "the ask note's seq"},
@@ -1143,7 +1143,7 @@ var apiEvents = []apiEvent{
 			{"at", "time", "when"},
 			{"data.note", "number?", "the note's seq; absent on a question another yard asked"},
 			{"data.ask", "number?", "the ask's seq on its bead, for a question another yard asked; absent otherwise"},
-			{"data.witness", "string?", "how a strong approval was witnessed: `fresh sign-in` in the hosted web, `terminal` on the socket; absent otherwise"},
+			{"data.witness", "string?", "how a strong approval was witnessed: `fresh sign-in` in the hosted web, `terminal` on the socket; absent otherwise, and on an approval through a device, which names the device in `data.via` instead"},
 		},
 	},
 	{
@@ -1910,29 +1910,6 @@ var apiDelivery uint64
 // fixture last made it.
 var apiRunAsk uint64
 
-// networkSpareAsk files the run ask the network half approves for the
-// doc's: lowering the crm's calls takes standing away, so the card is
-// routine. It is asked here and approved next, so nothing moves under its
-// card; apiRunAsk itself is a trust card, and no strong card is approved
-// through a device. The courier setups have no such sibling: the device
-// half posts them and is refused, in the strong refusal's words
-// (networkRefusal).
-func networkSpareAsk(t *testing.T, st *store.Store) uint64 {
-	t.Helper()
-	ctx := context.Background()
-	src, err := st.GetSource(ctx, "crm")
-	if err != nil {
-		t.Fatal(err)
-	}
-	seq, err := st.AddAsk(ctx, "yd-crm", store.Ask{Question: "Call the CRM less often?", To: "jo",
-		Context: []string{"the import is quiet this week."},
-		Run:     &store.AskRun{Argv: []string{"source", "set", "crm", fmt.Sprintf("calls_per_hour=%d", src.CallsPerHour-60)}}}, "yardmaster")
-	if err != nil {
-		t.Fatal(err)
-	}
-	return seq
-}
-
 // apiSetupAsks are the four setup asks ApproveSetup approves in the doc, by
 // seq, as the fixture last made them: a first setup whose account is typed,
 // a first setup whose account is a candidate's, an update that keeps the
@@ -2049,18 +2026,12 @@ type apiRun struct {
 	refused  []string         // the reply to each of apiErrors
 }
 
-// networkRefusal is the refusal the listener answers for the doc's i'th
-// request of method: the courier setups are code cards, and a strong card
-// is refused through a device even with the word. ok is false where the
-// network replays the call as the doc shows it, the run ask among them:
-// that one the device half files a sibling for instead.
-func networkRefusal(method string, i int) (want string, ok bool) {
-	if method == "ApproveSetup" && i < 2 {
-		return fmt.Sprintf("ask %d is strong (code): this approval arrived through the device phone, and a strong card is not approved through a device. Approve it at a terminal on the yard's machine. Nothing ran, and the ask stays open", apiSetupAsks[i]), true
-	}
+// networkRefusal is the refusal the listener answers for a request of
+// method: the socket's own three are no method at all to a device, the
+// operator's included. ok is false where the network replays the call as
+// the doc shows it, every approval among them.
+func networkRefusal(method string) (want string, ok bool) {
 	if socketOnly[method] {
-		// The socket's own three are no method at all to a
-		// device, the operator's included.
 		return "no such method " + method, true
 	}
 	return "", false
@@ -2087,11 +2058,7 @@ func runAPI(t *testing.T, network bool) *apiRun {
 			if c.method == "GiveSecret" {
 				body = fmt.Sprintf(body, apiSecretAsks[i])
 			} else if c.method == "ApproveAsk" {
-				if network {
-					body = fmt.Sprintf(body, networkSpareAsk(t, st))
-				} else {
-					body = fmt.Sprintf(body, apiRunAsk)
-				}
+				body = fmt.Sprintf(body, apiRunAsk)
 			} else if c.method == "ApproveSetup" {
 				body = fmt.Sprintf(body, apiSetupAsks[i])
 			} else if c.method == "TakeBackAsk" {
@@ -2109,7 +2076,7 @@ func runAPI(t *testing.T, network bool) *apiRun {
 				body = fmt.Sprintf(body, mustInt(t, last[0]))
 			}
 			if network {
-				if want, ok := networkRefusal(c.method, i); ok {
+				if want, ok := networkRefusal(c.method); ok {
 					raw := post(t, hc, c.method, body)
 					reply, ok := parse(t, raw).(object)
 					if !ok {
@@ -2117,7 +2084,7 @@ func runAPI(t *testing.T, network bool) *apiRun {
 					}
 					got, _ := at(reply, "error.message")
 					if len(got) != 1 || got[0] != want {
-						t.Fatalf("%s %s: refused %s, want the strong refusal %q", c.method, body, raw, want)
+						t.Fatalf("%s %s: refused %s, want %q", c.method, body, raw, want)
 					}
 					continue
 				}
@@ -2322,12 +2289,11 @@ func TestTLSSectionNamesHeldCalls(t *testing.T) {
 // shows, answers every field the doc promises, with its type; and so does
 // every event of the doc, read from the stream: on the socket, and under
 // /user/ on the yard's listener for a device, which is the same page over
-// TCP. The two halves differ where the door matters: the doc's run ask is
-// a trust card and its courier setups are code cards, and no strong card
-// is approved through a device, so the device half files and approves a
-// routine sibling for the run ask, and is refused the courier setups in
-// the strong refusal's words. It takes no candidate anywhere, so
-// `account` is checked on the socket half alone.
+// TCP. The two halves differ where the door matters: the socket's own
+// three calls are no method at all to a device, and are checked on the
+// socket half alone. Every approval is made on both, the doc's run ask,
+// a trust card, and its courier setups, code cards, among them: a device
+// approves a strong card as the socket does.
 func TestAPIContract(t *testing.T) {
 	t.Run("socket", func(t *testing.T) { checkContract(t, runAPI(t, false), false) })
 	t.Run("network", func(t *testing.T) { checkContract(t, runAPI(t, true), true) })
@@ -2371,14 +2337,7 @@ func checkContract(t *testing.T, run *apiRun, network bool) {
 			}
 			continue
 		}
-		fields := c.fields
-		if network && c.method == "ApproveSetup" {
-			// The device half is refused the courier setups, and takes
-			// no candidate elsewhere: `account` is answered on the
-			// socket half alone.
-			fields = slices.DeleteFunc(slices.Clone(fields), func(f field) bool { return f.path == "account" })
-		}
-		checkFields(t, c.method, fields, run.replies[c.method])
+		checkFields(t, c.method, c.fields, run.replies[c.method])
 		if len(c.fields) == 0 {
 			for i, r := range run.replies[c.method] {
 				if r != nil {

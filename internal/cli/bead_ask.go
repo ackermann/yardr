@@ -318,11 +318,11 @@ operator's alone is refused as a run ask: what defines what the yard runs
 called elsewhere), what takes a file path, and what reaches another yard.
 Such a command is typed in a terminal. A link card (peer add, peer allow,
 peer intake, peer identity, peer rm, peer set) can be approved from this
-yard in a terminal or from a paired device when its weight permits. Peer
-add and peer set are always strong (trust): a paired device cannot approve
-them; hosted approval needs a fresh sign-in. Approval through a peer's own
-reach is refused: it cannot add, widen, move or remove its link, route its
-beads or identify its crew.
+yard in a terminal or from a paired device. Peer add and peer set are
+always strong (trust): the hosted web approves them only under a fresh
+sign-in, and a paired device approves them as it approves any card.
+Approval through a peer's own reach is refused: it cannot add, widen, move
+or remove its link, route its beads or identify its crew.
 The subscription, the tell, the user's identity and the test
 message to them are a user's own as they are the operator's, since a
 crew member does not decide what a person is told or who they are in

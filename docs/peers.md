@@ -451,9 +451,10 @@ A crew member that wants the address moved proposes the command for the
 operator to approve, with a run ask (`yardr bead ask --run "peer set
 <name> --url <url>"`, [chat.md](chat.md#questions-for-you)): the card
 names the peer and the address now and proposed, each whole. The card is
-strong, so the operator approves it with a fresh sign-in in the hosted
-web, or at a terminal on the yard's machine; a paired device alone cannot
-approve it. Taking the address away (`--url ""`) stays in a terminal.
+strong: the hosted web approves it only with the operator's fresh sign-in,
+and a terminal on the yard's machine or a paired device approves it as it
+approves any card. Taking the address away (`--url ""`) stays in a
+terminal.
 
 As with a rename, the other yard hears nothing of it, and the link stays
 what it is. It is one write, which logs `peer_url_set`.
@@ -494,12 +495,12 @@ as `peer rename` does: `peer add <name> <invite>`, `peer allow <peer>
 `peer intake <peer> --depot <depot> --flow <flow>`, `peer identity <peer>
 <crew> --source <source> --id <id>`, `peer rm <name>` and `peer set <name>
 --url <url>`.
-The operator approves the card from this yard, in a terminal or, where the
-card's weight permits, in footplate paired with it, and the yard runs the
-command as the operator, under the command's own check. `peer add` and
-`peer set` are strong: the operator approves them with a fresh sign-in in
-the hosted web, or at a terminal on the yard's machine; a paired device
-alone cannot approve them. The card says what the command does to the link:
+The operator approves the card from this yard, in a terminal or in
+footplate paired with it, and the yard runs the command as the operator,
+under the command's own check. `peer add` and `peer set` are strong: the
+hosted web approves them only with the operator's fresh sign-in, and a
+paired device approves them as it approves any card. The card says what
+the command does to the link:
 
 - `peer allow` says what the link will carry to the peer and take from it
   after the command, and what it carries and takes now, then which kinds the
@@ -1227,8 +1228,9 @@ mail: takes 100 mails and asks an hour, and 800 files
   <invite>`), as moving where it is called is (`peer set <name> --url
   <url>`), renaming the link (`peer rename <old> <new>`) and removing it
   (`peer rm <name>`). The `peer add` and `peer set` cards are strong: the
-  operator approves them with a fresh sign-in in the hosted web, or at a
-  terminal on the yard's machine.
+  hosted web approves them only with the operator's fresh sign-in, and a
+  terminal on the yard's machine or a paired device approves them as it
+  approves any card.
 - **One limit for the link, whoever writes.** Mail from [a name trusted as
   a user of this yard](#trusting-a-name-as-a-person-of-this-yard) counts as
   any other mail of that peer, against the same number. The name is the

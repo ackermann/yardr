@@ -1999,37 +1999,48 @@ func TestUserOtherCallsTellNoFileOrCommandToADeviceThatIsNotTheOperators(t *test
 }
 
 // Over the link from the edge a device of the operator approves a setup
-// ask that is not strong: pairing is the grant, as for a run ask. The
-// approval is recorded and left for the server to carry out, and the
-// answer's event says it came by the edge. A strong setup is refused
-// instead, in the yard's words, and nothing is recorded.
+// ask: pairing is the grant, as for a run ask. A hosted yard's operator has
+// no terminal to approve at, so the setup that brings a program, a strong
+// card, is approved the same way. The approval is recorded and left for the
+// server to carry out, and the answer's event says it came by the edge and
+// claims no witness.
 func TestUserApprovesASetupAskOverTheLink(t *testing.T) {
 	ctx := context.Background()
 	y, _ := setupYard(t)
-	// The courier pack brings a command, so its card is strong (code):
-	// over the link it is refused, the ask stays open, and no carrying
-	// record is left for the server.
+	if err := y.st.SetSetting(ctx, store.HostedSetting, "true", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	// The courier pack brings a command, so its card is strong (code).
+	// Without the word that its person saw the weight it is refused as any
+	// weighty card is, and nothing is recorded.
 	seq := y.askSetup(t, "jo")
 	w := y.post("ApproveSetup", edgelink.RemoteAddr, y.jo, strings.NewReader(
-		fmt.Sprintf(`{"bead":"yd-crm","ask":%d,"option":1,"account":"courier-existing","weighed":true}`, seq)))
-	want := fmt.Sprintf(`ask %d is strong (code): this approval arrived through the device phone via edge, and a strong card is not approved through a device. Approve it at a terminal on the yard's machine. Nothing ran, and the ask stays open`, seq)
-	if !strings.Contains(w.Body.String(), want) {
-		t.Fatalf("answered %d %s, want %s", w.Code, w.Body, want)
+		fmt.Sprintf(`{"bead":"yd-crm","ask":%d,"option":1,"account":"courier-existing"}`, seq)))
+	if !strings.Contains(w.Body.String(), "approve it where its weight is shown") {
+		t.Fatalf("answered %d %s, want the weighed refusal", w.Code, w.Body)
 	}
 	if rec, err := y.st.CarryOf(ctx, "yd-crm", seq); err != nil || rec != nil {
 		t.Fatalf("the refused approval left %+v, %v", rec, err)
 	}
-	b, err := y.st.Bead(ctx, "yd-crm")
-	if err != nil {
-		t.Fatal(err)
+	// With it the approval is recorded, and left for the server to carry out.
+	w = y.post("ApproveSetup", edgelink.RemoteAddr, y.jo, strings.NewReader(
+		fmt.Sprintf(`{"bead":"yd-crm","ask":%d,"option":1,"account":"courier-existing","weighed":true}`, seq)))
+	var got struct {
+		Result *store.AskSetupApproved `json:"result"`
 	}
-	for _, a := range b.Asks {
-		if a.Ask == seq && (a.State != "open" || a.Ran != nil) {
-			t.Fatalf("the refused ask is %s, ran %+v, want it open", a.State, a.Ran)
-		}
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil || got.Result == nil {
+		t.Fatalf("answered %d %s (%v)", w.Code, w.Body, err)
 	}
-	// The plain pack brings no program, so its card carries no code and
-	// is approved over the link as before.
+	if rec, err := y.st.ClaimCarry(ctx, "boot"); err != nil || rec == nil || rec.Bead != "yd-crm" || rec.Ask != seq {
+		t.Fatalf("the approval left the carrying out %+v, %v", rec, err)
+	}
+	noted := eventsOfKind(t, y.st, "noted")
+	if last := noted[len(noted)-1]; last.Actor != "jo" || store.Via(last) != "phone via edge" || last.Data["witness"] != nil {
+		t.Errorf("the answer's event is %+v, want jo's via phone via edge with no witness", last)
+	}
+	// The plain pack brings no program, so its card carries no code, and
+	// takes the account typed rather than a candidate; it is approved over
+	// the link the same way.
 	plain, err := y.st.AddAsk(ctx, "yd-crm", store.Ask{Question: "Set up the plain source?", To: "jo",
 		Context: []string{"the night run reads through it."},
 		Setup:   &store.AskSetup{Pack: "plain", To: []store.Grantee{{Crew: "yardmaster"}}}}, "yardmaster")
@@ -2038,16 +2049,14 @@ func TestUserApprovesASetupAskOverTheLink(t *testing.T) {
 	}
 	w = y.post("ApproveSetup", edgelink.RemoteAddr, y.jo, strings.NewReader(
 		fmt.Sprintf(`{"bead":"yd-crm","ask":%d,"option":1,"values":{"PLAIN_TOKEN":%q},"weighed":true}`, plain, candidateAddress)))
-	var got struct {
-		Result *store.AskSetupApproved `json:"result"`
-	}
+	got.Result = nil
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil || got.Result == nil {
 		t.Fatalf("answered %d %s (%v)", w.Code, w.Body, err)
 	}
-	if rec, err := y.st.ClaimCarry(ctx, "boot"); err != nil || rec == nil || rec.Bead != "yd-crm" || rec.Ask != plain {
+	if rec, err := y.st.CarryOf(ctx, "yd-crm", plain); err != nil || rec == nil || rec.State != store.CarryApproved {
 		t.Fatalf("the approval left the carrying out %+v, %v", rec, err)
 	}
-	noted := eventsOfKind(t, y.st, "noted")
+	noted = eventsOfKind(t, y.st, "noted")
 	if last := noted[len(noted)-1]; last.Actor != "jo" || store.Via(last) != "phone via edge" {
 		t.Errorf("the answer's event is %+v, want jo's via phone via edge", last)
 	}

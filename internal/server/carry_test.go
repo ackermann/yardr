@@ -1068,9 +1068,10 @@ func carryFirstInstallWithMappings(t *testing.T) {
 }
 
 // A depot pack's first install runs whole from its ask: the ask's words
-// reach the server's reading, the card weighs strong, and the approval
-// imports what the terminal's command would, into the named depot. A pack
-// that fits is a whole card; each pack too large for one is a summary.
+// reach the server's reading, the card weighs strong, and the approval,
+// here a paired device's, imports what the terminal's command would, into
+// the named depot. A pack that fits is a whole card; each pack too large
+// for one is a summary.
 func TestCarryFirstInstallFromItsAsk(t *testing.T) {
 	for _, tc := range []struct {
 		pack    string
@@ -1133,10 +1134,9 @@ func TestCarryFirstInstallFromItsAsk(t *testing.T) {
 			if _, err := st.ApproveAsk(ctx, bead, seq, "mckean", false, nil); err == nil {
 				t.Fatalf("an unweighed approval of a first install ran")
 			}
-			if _, err := st.ApproveAsk(store.WithVia(ctx, "mckean", "phone"), bead, seq, "mckean", true, nil); err == nil || !strings.Contains(err.Error(), "a strong card is not approved through a device") {
-				t.Fatalf("a device's approval = %v", err)
-			}
-			if _, err := st.ApproveAsk(ctx, bead, seq, "mckean", true, nil); err != nil {
+			// A paired device approves the strong card, and the server carries
+			// the install out as it does a terminal's.
+			if _, err := st.ApproveAsk(store.WithVia(ctx, "mckean", "phone"), bead, seq, "mckean", true, nil); err != nil {
 				t.Fatal(err)
 			}
 			drain(t, st, home, "boot-one")

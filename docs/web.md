@@ -1493,7 +1493,9 @@ strong-card re-authentication by the operator inside the gateway's
 window, and the return approves the card it was raised for and no other.
 One fresh sign-in witnesses several strong cards inside the window. A
 self-hosted yard approves strong cards at a terminal on the yard's
-machine, never on the page.
+machine, never on the page. A paired device of the operator approves one
+on any yard with no sign-in at all, as it approves any card
+([users.md](users.md#devices)).
 
 The card is the same wherever it stands, and a strong card approves the
 same way from the needs rows on Home and from the waits on `/line` as on

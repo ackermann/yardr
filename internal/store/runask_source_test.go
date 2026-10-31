@@ -979,8 +979,9 @@ func (y *askYard) lastSourceAdded(t *testing.T) (Event, map[string]any) {
 // Approving a replacement weighed replaces the source exactly as the
 // terminal command does (PutSource): the new declaration, and everything
 // the source had that a declaration does not say, which it keeps. Unweighed
-// it is refused, and so is a device's approval, since the card is strong.
-// A replacement of nothing but where the credential goes is strong too.
+// it is refused. A paired device's approval does the same as the socket's,
+// strong as the card is. A replacement of nothing but where the credential
+// goes is strong too.
 func TestSourceAddReplacementApprove(t *testing.T) {
 	y := standingCRM(t)
 	before := y.source(t)
@@ -1003,25 +1004,26 @@ func TestSourceAddReplacementApprove(t *testing.T) {
 		t.Errorf("the card says a credential is owed for a source that keeps its file:\n%s", strings.Join(got.Ask.Run.Does, "\n"))
 	}
 
-	// Unweighed, through a device, and the ask stays open each time.
+	// Unweighed it is refused, and the ask stays open.
 	want := "ask " + itoa(seq) + ` is weighty (code): approve it where its weight is shown; a client sends "weighed": true once its person has passed its gate`
 	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false, nil); err == nil || err.Error() != want {
 		t.Fatalf("approving unweighed = %v, want %q", err, want)
-	}
-	phone := WithVia(y.ctx, "mckean", "phone")
-	if _, err := y.ApproveAsk(phone, y.bead, seq, "mckean", true, nil); err == nil || !strings.Contains(err.Error(), "is strong (code): this approval arrived through the device phone") {
-		t.Fatalf("approving through a device = %v", err)
 	}
 	if now := y.source(t); !reflect.DeepEqual(now, before) {
 		t.Fatalf("a refused approval changed the source: %+v, was %+v", now, before)
 	}
 	if r := y.asked(t, seq); r.State != AskOpen {
-		t.Fatalf("the ask is %s after the refusals", r.State)
+		t.Fatalf("the ask is %s after the refusal", r.State)
 	}
 
-	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true, nil)
+	// Through a device it is replaced, and everything below holds of the
+	// approval as it did of the socket's.
+	done, err := y.ApproveAsk(WithVia(y.ctx, "mckean", "phone"), y.bead, seq, "mckean", true, nil)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if ev := lastAnswer(t, y); Via(ev) != "phone" || Witness(ev) != "" {
+		t.Fatalf("the replacement's approval is via %q witnessed %q, want phone with no witness", Via(ev), Witness(ev))
 	}
 	if want := "source crm saved: 3 calls under https://eu.crm.example.org/v2 (base eu)"; done.Result != want {
 		t.Fatalf("the approval recorded %q, want %q", done.Result, want)
@@ -1046,6 +1048,12 @@ func TestSourceAddReplacementApprove(t *testing.T) {
 	if data["replaced"] != true || data["source"] != "crm" {
 		t.Fatalf("the event = %v, want it to say crm was replaced", data)
 	}
+	// The change's own event names the device that approved it, and is
+	// the terminal's event in everything else.
+	if Via(ev) != "phone" {
+		t.Fatalf("the event is via %q, want phone", Via(ev))
+	}
+	delete(data, "via")
 
 	// The terminal's own command, on a yard that began the same, leaves the
 	// source and its event as the approval did.

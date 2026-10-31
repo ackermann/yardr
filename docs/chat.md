@@ -459,11 +459,11 @@ set`) is approved from this yard, and an approval that arrives through
 the reach of the peer the card is about is refused: a peer must not add,
 widen, move, rename or remove its own link, say where its own beads go,
 or say who its own crew is here
-([peers.md](peers.md#who-may-do-what)). `peer add` and `peer set` are
-strong: on a hosted yard they are approved with the operator's fresh
-sign-in in the hosted web, and on any yard at a terminal on the yard's
-machine; a paired device alone cannot approve them. The other link cards
-are approved in a terminal or in footplate paired with it. The subscription, the `tell` and the
+([peers.md](peers.md#who-may-do-what)). A link card is approved in a
+terminal on the yard's machine or in footplate paired with it. `peer add`
+and `peer set` are strong: the hosted web approves them only with the
+operator's fresh sign-in, and a paired device approves them as it approves
+any card ([users.md](users.md#devices) says what that risks). The subscription, the `tell` and the
 user identity rows are not the operator's alone: a subscription, what a
 user's phone is told of
 ([users.md](users.md#told-outside-the-yard)) and who the user is in a
