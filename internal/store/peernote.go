@@ -267,7 +267,7 @@ func takingRows(tx *bolt.Tx, p *Peer, m PeerMessage) []*beadRow {
 // that is none, or one for no open bead of p's, was not taken.
 //
 // Every note counts toward the peer's hour beside its mail, asks and reads
-// (PeerMailLimit), the refused too; of those over the limit only the first
+// (Peer.MailsAnHour), the refused too; of those over the limit only the first
 // of the hour is logged. It changes p (the count), which the caller saves.
 func (w *wtx) noteBead(p *Peer, m PeerMessage, way string, tk *taking) (string, error) {
 	actor := "peer:" + p.Name
@@ -277,12 +277,12 @@ func (w *wtx) noteBead(p *Peer, m PeerMessage, way string, tk *taking) (string, 
 		return reason, w.event("", "peer_message_refused", actor, peerEvent(p.Name, m, extra))
 	}
 	p.hour(now())
-	if p.Mails++; p.Mails > PeerMailLimit {
+	if p.Mails++; p.Mails > p.MailsAnHour() {
 		if p.MailLimited {
 			return RefusedRate, nil
 		}
 		p.MailLimited = true
-		extra["limit"], extra["until"] = PeerMailLimit, p.MailSince.Add(PeerMailWindow)
+		extra["limit"], extra["until"] = p.MailsAnHour(), p.MailSince.Add(PeerMailWindow)
 		return refuse(RefusedRate)
 	}
 	var n PeerNoteMessage

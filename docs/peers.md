@@ -1198,9 +1198,10 @@ mail, with a reason:
 #### How much mail a link takes
 
 A yard takes 30 mails from one peer within the hour that began with the
-first. [Asks](#questions-for-a-person-of-another-yard), their answers and
-[reads of a bead](#reading-the-other-yards-bead) count in the same 30, and
-so does everything refused. The limit is what stands between a yard and a
+first. [Asks](#questions-for-a-person-of-another-yard), their answers,
+[reads of a bead](#reading-the-other-yards-bead) and
+[notes on one](#answering-on-the-other-yards-bead) count in the same 30,
+and so does everything refused. The limit is what stands between a yard and a
 peer that floods it, and 30 is sized for letters between yards. A person
 who talks with a crew member through a linked yard, and answers its
 questions there, passes it in a busy hour, so the operator sets it per
@@ -2521,7 +2522,9 @@ note's text, and given up by the yard that sent it:
   name that is not what mail holds a name to. `version` is another `v`,
   `too_large` a text over 16 KB.
 - `rate_limited`: notes count in the peer's hour beside its mail, asks and
-  reads, thirty together, the refused too, logged once for the hour.
+  reads: [as many as the link takes](#how-much-mail-a-link-takes) of them
+  together, thirty unless that is set, the refused too, logged once for the
+  hour.
 - `kind_not_allowed` where this yard's link does not receive `thread`, and
   `kind_unknown`, by name, from a yardr from before this.
 

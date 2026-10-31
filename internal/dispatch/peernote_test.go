@@ -498,39 +498,57 @@ func TestPeerBeadNoteOfNoSuchBead(t *testing.T) {
 	}
 }
 
-// Notes count in the peer's hour beside its mail, asks and reads: the
-// working yard takes thirty, refuses the next as rate_limited, and logs
-// that once.
+// Notes count in the peer's hour beside its mail, asks and reads, as many
+// as the link takes: thirty, or what the link was set to, lower or higher.
+// The working yard takes that many, refuses the next as rate_limited, and
+// logs that once, with the limit it refused at.
 func TestPeerBeadNoteLimit(t *testing.T) {
 	t.Parallel()
-	a, b := readYards(t, true)
-	ctx := context.Background()
-	mine := a.bead(t, "Add the export")
-	a.pass(t)
-	cross(t, a, b)
-	theirs := b.from(t, "a")
-	stay := a.get(t, mine.ID).Away().Message
-	take := func(i int) string {
-		t.Helper()
-		got, err := b.own.PeerReceive(ctx, "a", a.pub, []store.PeerMessage{noteMsg(fmt.Sprintf("n%d", i), stay, fmt.Sprintf("Note %d.", i))})
-		must(t, err)
-		return got[0].Refused
-	}
-	for i := 0; i < store.PeerMailLimit; i++ {
-		if why := take(i); why != "" {
-			t.Fatalf("note %d of the hour was refused: %s", i+1, why)
-		}
-	}
-	for i := 0; i < 2; i++ {
-		if why := take(store.PeerMailLimit + i); why != store.RefusedRate {
-			t.Fatalf("note %d of the hour = %q, want %s", store.PeerMailLimit+i+1, why, store.RefusedRate)
-		}
-	}
-	if notes := b.notes(t, theirs.ID); len(notes) != store.PeerMailLimit {
-		t.Fatalf("b wrote %d notes, want %d", len(notes), store.PeerMailLimit)
-	}
-	if limited := notesAbout(t, b, "peer_message_refused"); len(limited) != 1 || limited[0].Data["reason"] != store.RefusedRate {
-		t.Fatalf("b's log of the notes over the limit = %+v", limited)
+	for _, c := range []struct {
+		name string
+		set  int // what b's link takes from a an hour, 0 for the default
+		want int // the notes b takes
+	}{
+		{"the default", 0, store.PeerMailLimit},
+		{"set below the default", 5, 5},
+		{"set above the default", store.PeerMailLimit + 10, store.PeerMailLimit + 10},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			a, b := readYards(t, true)
+			ctx := context.Background()
+			if c.set > 0 {
+				_, err := b.api.AllowPeer(ctx, "a", store.PeerAllow{MailLimit: c.set}, "jo")
+				must(t, err)
+			}
+			mine := a.bead(t, "Add the export")
+			a.pass(t)
+			cross(t, a, b)
+			theirs := b.from(t, "a")
+			stay := a.get(t, mine.ID).Away().Message
+			take := func(i int) string {
+				t.Helper()
+				got, err := b.own.PeerReceive(ctx, "a", a.pub, []store.PeerMessage{noteMsg(fmt.Sprintf("n%d", i), stay, fmt.Sprintf("Note %d.", i))})
+				must(t, err)
+				return got[0].Refused
+			}
+			for i := 0; i < c.want; i++ {
+				if why := take(i); why != "" {
+					t.Fatalf("note %d of the hour was refused: %s", i+1, why)
+				}
+			}
+			for i := 0; i < 2; i++ {
+				if why := take(c.want + i); why != store.RefusedRate {
+					t.Fatalf("note %d of the hour = %q, want %s", c.want+i+1, why, store.RefusedRate)
+				}
+			}
+			if notes := b.notes(t, theirs.ID); len(notes) != c.want {
+				t.Fatalf("b wrote %d notes, want %d", len(notes), c.want)
+			}
+			limited := notesAbout(t, b, "peer_message_refused")
+			if len(limited) != 1 || limited[0].Data["reason"] != store.RefusedRate || limited[0].Data["limit"] != float64(c.want) {
+				t.Fatalf("b's log of the notes over the limit = %+v, want one at %d", limited, c.want)
+			}
+		})
 	}
 }
 
