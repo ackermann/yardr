@@ -189,7 +189,7 @@ func TestDepotPushCardAndApprovalDefersToCarrier(t *testing.T) {
 	if err != nil || rec == nil || rec.State != CarryApproved || len(rec.Argv) != 2 || rec.Argv[0] != "depot-push" || rec.Argv[1] != "web" {
 		t.Fatalf("the carrying record = %+v, %v", rec, err)
 	}
-	if pending, _ := y.PendingCarry(y.ctx); !pending {
+	if pending, _ := y.PendingCarry(y.ctx, y.now); !pending {
 		t.Fatal("the approved card does not pend carrying out")
 	}
 	// A cmd may already carry a sensitive value. The card says what changes

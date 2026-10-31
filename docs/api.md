@@ -280,7 +280,7 @@ Mail was queued for one of a linked yard: the conversation with `<data.to>@<data
 
 ```json
 {
-  "seq": 182,
+  "seq": 184,
   "kind": "mail",
   "actor": "jo",
   "data": {
@@ -308,7 +308,7 @@ A user or a crew member acknowledged its mail. Every letter to `data.reader` wit
 
 ```json
 {
-  "seq": 184,
+  "seq": 186,
   "kind": "mail_read",
   "data": {
     "reader": "jo",
@@ -452,7 +452,7 @@ A user acknowledged their notifications, in this client or another.
 
 ```json
 {
-  "seq": 185,
+  "seq": 187,
   "kind": "notifications_read",
   "data": {
     "reader": "jo",
@@ -854,7 +854,8 @@ nothing else. What is not the same:
   has no `summary` and no `files`.
 - **`Bead` and `UserAsks` tell a run ask as its asker typed it, to a device
   that is no operator's.** The `run` card has `argv`, `command` and
-  `description`, and an approved ask's `ran` has `argv` and `failed`. The
+  `description`, and an approved ask's `ran` has `argv` and `failed`; a
+  pending member report's `pending_reason` is told to the operator alone. The
   yard's own words are held. `run.does` says what the command changes and
   what is there now (a setting's stored value, the file of a user's address,
   a hook's secret file), and is `[]`. `run.back` is the command that takes it
@@ -1139,7 +1140,7 @@ POST /call/Head
 {}
 
 {
-  "result": 179
+  "result": 181
 }
 ```
 
@@ -1648,7 +1649,7 @@ POST /call/Conversation
       "as": "jo"
     },
     {
-      "seq": 180,
+      "seq": 182,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1656,7 +1657,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 181,
+      "seq": 183,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1682,7 +1683,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 180,
+      "seq": 182,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1690,7 +1691,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 181,
+      "seq": 183,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1717,7 +1718,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 182,
+      "seq": 184,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "clerk@north",
@@ -2436,6 +2437,34 @@ POST /call/UserAsks
     ],
     "decided": [
       {
+        "bead": "yd-crm",
+        "bead_title": "Read the CRM",
+        "topic": "",
+        "ask": 65,
+        "question": "Invite Rhea to the yard?",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "state": "answered",
+        "run": {
+          "argv": ["user", "invite", "rhea", "--email", "rhea@example.net"],
+          "command": "yardr user invite rhea --email rhea@example.net",
+          "does": ["adds the user rhea with the role member, and maps rhea@example.net to rhea in web_jwt_users: signed in at the edge as rhea@example.net, they act as rhea.", "reports the invite to the edge for the yard jo/edgeyard (member add): until the report lands the card reads as not yet at the edge, and nobody is admitted meanwhile.", "they set a password from the mail the edge sends to this email, then sign in; nothing the operator holds admits them."],
+          "back": "yardr user uninvite rhea",
+          "back_by": "only the operator"
+        },
+        "ran": {
+          "argv": ["user", "invite", "rhea", "--email", "rhea@example.net"],
+          "result": "approved, to be carried out",
+          "pending_reason": "the edge refused this yard: mail limit reached (429)"
+        },
+        "weight": [
+          {
+            "class": "trust",
+            "line": "widens who the yard listens to: a new user, rhea, whose answers and approvals the yard takes"
+          }
+        ]
+      },
+      {
         "bead": "yd-links",
         "bead_title": "Move the links",
         "topic": "topic:linear-out",
@@ -3069,6 +3098,7 @@ POST /call/UserAsks
 | `decided[].ran` | object, may be absent | the command the yard ran when a run ask was approved, which reads "approved, ran: `<command>`"; the setup a setup ask approved, which reads "approved, being carried out", "approved, ran" or "approved, failed" with the preset and the names given; or the carrying out of a depot-push card, which reads "approved, to be carried out", "approved, ran" or "approved, failed". Absent on any other ask and on an ask that was declined or put aside. A depot-push card and its `ran` are told only to a device of the current operator; other devices are told neither |
 | `decided[].ran.argv` | array of string | the command that ran, in words: the one the ask proposed; on a setup ask, `setup` with the pack's name. On a run ask that set a setting or added a source, a device of the current operator is told them, whoever the ask was put to. Any other device is told `[]`, even the device of a user the ask was put to while they were the operator, and so is every device of a yard with no operator. A depot-push card and its `ran` are absent for devices of nonoperators. The socket tells the whole result |
 | `decided[].ran.result` | string | what the command printed; on a setup ask not yet carried out or a depot-push ask, `approved, to be carried out`, and afterwards what the carrying out printed. Its line `the account <names> is set in <file>` names the file the account is set in, which is the candidate's when the approval took one, and the words of a carrying out that failed can name it too, and the candidate's source: both are told to a device of the current operator alone, whoever the ask was put to ([over the network](#over-the-network)). A depot-push result is told to a device of the current operator alone too. Any other device is told `the account <names> is set` for that line and, for a failure, that it failed and no more; so is every device of a yard with no operator. The socket tells the whole result |
+| `decided[].ran.pending_reason` | string, may be absent | while an approved member invite or removal is still owed after a signed 429 or 503, why the edge refused its report, in the edge's words. It is cleared when the report lands or the carrying out fails, and is told to a device of the current operator alone; other devices are told none |
 | `decided[].state` | string | `answered`, `put aside`, `declined` or `taken back`. A later build may add a state: one a client does not know is still not open, and is shown by its word |
 | `decided[].option` | number, may be absent | the picked option's number; absent on a words answer, an aside ask, a declined one and one taken back |
 | `decided[].option_label` | string, may be absent | the picked option's label; absent with `option` |
@@ -4483,6 +4513,34 @@ POST /call/Bead
             "line": "widens who the yard listens to: POST /hooks/bot takes deliveries from outside the yard for the source bot"
           }
         ]
+      },
+      {
+        "ask": 65,
+        "to": "jo",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "question": "Invite Rhea to the yard?",
+        "context": ["Rhea works with the builders."],
+        "options": [],
+        "state": "answered",
+        "run": {
+          "argv": ["user", "invite", "rhea", "--email", "rhea@example.net"],
+          "command": "yardr user invite rhea --email rhea@example.net",
+          "does": ["adds the user rhea with the role member, and maps rhea@example.net to rhea in web_jwt_users: signed in at the edge as rhea@example.net, they act as rhea.", "reports the invite to the edge for the yard jo/edgeyard (member add): until the report lands the card reads as not yet at the edge, and nobody is admitted meanwhile.", "they set a password from the mail the edge sends to this email, then sign in; nothing the operator holds admits them."],
+          "back": "yardr user uninvite rhea",
+          "back_by": "only the operator"
+        },
+        "ran": {
+          "argv": ["user", "invite", "rhea", "--email", "rhea@example.net"],
+          "result": "approved, to be carried out",
+          "pending_reason": "the edge refused this yard: mail limit reached (429)"
+        },
+        "weight": [
+          {
+            "class": "trust",
+            "line": "widens who the yard listens to: a new user, rhea, whose answers and approvals the yard takes"
+          }
+        ]
       }
     ],
     "rounds": {
@@ -4587,6 +4645,7 @@ POST /call/Bead
 | `asks[].ran` | object, may be absent | the command the yard ran when a run ask was approved, which reads "approved, ran: `<command>`" with `result` under it; the setup a setup ask approved, which reads "approved, being carried out", "approved, ran" or "approved, failed" with the preset and the names given; or the carrying out of a depot-push card, which reads "approved, to be carried out", "approved, ran" or "approved, failed". Absent on any other ask and until it is approved. A depot-push card and its `ran` are absent for devices of nonoperators; the socket tells the whole card |
 | `asks[].ran.argv` | array of string | the command that ran, in words: the one the ask proposed; on a setup ask, `setup` with the pack's name. On a run ask that set a setting or added a source, told to a device of the operator alone ([over the network](#over-the-network)): `[]` on any other device's card, and on every device's of a yard with no operator. A depot-push card and its `ran` are absent for devices of nonoperators. The socket tells the whole card |
 | `asks[].ran.result` | string | what the command printed, made by the yard: a line for each thing it changed, with a line break between them; on a setup ask or depot-push ask not yet carried out, `approved, to be carried out`, and afterwards what the carrying out printed. Its line `the account <names> is set in <file>` names the file the account is set in, which is the candidate's when the approval took one, and the words of a carrying out that failed can name it too, and the candidate's source: both are told to a device of the operator alone ([over the network](#over-the-network)). A depot-push result is told to a device of the operator alone too; any other device is told `the account <names> is set` for that line and, for a failure, that it failed and no more; so is every device of a yard with no operator. The socket tells the whole result |
+| `asks[].ran.pending_reason` | string, may be absent | while an approved member invite or removal is still owed after a signed 429 or 503, why the edge refused its report, in the edge's words. It is cleared when the report lands or the carrying out fails, and is told to a device of the current operator alone; other devices are told none |
 | `asks[].setup` | object, may be absent | the setup a setup ask proposes: the pack with the yard's sentences for what approving it does, the account to type beside the preset pick or the candidates to take instead (on an update, the account that already stands), and the presets the ask's options count. Absent on any other ask. `AnswerAsk` refuses a pick and words on it, `DeferAsk` and `DeclineAsk` take it as any ask, and it is approved with [`ApproveSetup`](#for-the-operator-alone), by the operator: at the yard (`yardr bead answer <bead> <ask> <n> --secret`, `--account <source>` where the card lists a candidate, or a bare `<n>` where the card is `given`), or from a device of the operator. A strong card ([weighty cards](#weighty-cards)) is approved from a device as any weighty card is; the bead page approves it only on a hosted yard, under a fresh sign-in. All of `setup` is the yard's, made when the ask was written, and none of it the asker's: show it apart from `question` and `context`, which are the asker's words, and draw those as plain text |
 | `asks[].setup.pack` | string | the embedded pack to set up, of kind source, whose `yardr pack show <pack>` prints the presets numbered |
 | `asks[].setup.base` | string, may be absent | the selected region base name; absent when calls go to the declarations' own bases |
@@ -4852,6 +4911,14 @@ POST /call/Flows
     ],
     "unassigned": [
       {
+        "bead": "yd-crm",
+        "title": "Read the CRM",
+        "expected": "—",
+        "remark": "",
+        "tone": "none",
+        "working": false
+      },
+      {
         "bead": "yd-links",
         "title": "Move the links",
         "expected": "—",
@@ -4863,14 +4930,6 @@ POST /call/Flows
         "kind": "claude",
         "model": "opus",
         "entered_stage_at": "2026-10-08T09:30:00Z"
-      },
-      {
-        "bead": "yd-crm",
-        "title": "Read the CRM",
-        "expected": "—",
-        "remark": "",
-        "tone": "none",
-        "working": false
       },
       {
         "bead": "yd-siding",
@@ -5010,6 +5069,14 @@ POST /call/Flows
     ],
     "unassigned": [
       {
+        "bead": "yd-crm",
+        "title": "Read the CRM",
+        "expected": "—",
+        "remark": "",
+        "tone": "none",
+        "working": false
+      },
+      {
         "bead": "yd-links",
         "title": "Move the links",
         "expected": "—",
@@ -5021,14 +5088,6 @@ POST /call/Flows
         "kind": "claude",
         "model": "opus",
         "entered_stage_at": "2026-10-08T09:30:00Z"
-      },
-      {
-        "bead": "yd-crm",
-        "title": "Read the CRM",
-        "expected": "—",
-        "remark": "",
-        "tone": "none",
-        "working": false
       },
       {
         "bead": "yd-siding",
@@ -5897,7 +5956,7 @@ POST /call/UninviteTeammate
 {
   "result": {
     "bead": "yd-uninvite",
-    "ask": 83
+    "ask": 85
   }
 }
 ```

@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
@@ -316,7 +317,7 @@ func TestCarrySetupTakenUpAtNextStart(t *testing.T) {
 	to := store.Grantee{Crew: "yardmaster"}
 	seq := askSetupApprove(t, st, bead, "google-mail", 1, setupMailValues(), to)
 	// The first server claims and stops before its first write.
-	if _, err := st.ClaimCarry(ctx, "boot-one"); err != nil {
+	if _, err := st.ClaimCarry(ctx, "boot-one", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	// A second boot does not take a running boot's claim.
@@ -437,7 +438,7 @@ func TestCarrySetupResumedAfterAccountWrite(t *testing.T) {
 	}
 	to := store.Grantee{Crew: "yardmaster"}
 	seq := askSetupApprove(t, st, bead, "google-mail", 1, setupMailValues(), to)
-	claimed, err := st.ClaimCarry(ctx, "boot-one")
+	claimed, err := st.ClaimCarry(ctx, "boot-one", time.Now())
 	if err != nil || claimed == nil || claimed.Ask != seq {
 		t.Fatalf("the claim = %+v, %v", claimed, err)
 	}

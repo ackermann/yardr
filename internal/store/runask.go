@@ -203,20 +203,6 @@ func (r AskRun) Command() string { return runCommandLine(r.Argv) }
 // completes it.
 const CarryPending = "approved, to be carried out"
 
-// AskRan is what an approved run ask ran: the command, which is the one the
-// ask stored, and what it prints at a terminal, made by the server.
-type AskRan struct {
-	Argv   []string `json:"argv"`
-	Result string   `json:"result"`
-	// Failed says the carrying out of an approved apply failed: Result
-	// then holds the failure in words, and the card reads as failed, not
-	// as ran. Absent on every approval that ran in its own write.
-	Failed bool `json:"failed,omitempty"`
-}
-
-// Command is the command that ran, whole.
-func (r AskRan) Command() string { return runCommandLine(r.Argv) }
-
 func runCommandLine(argv []string) string { return "yardr " + strings.Join(argv, " ") }
 
 // RunAsked is the command a run ask proposes, as a client shows it: the

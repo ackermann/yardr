@@ -141,7 +141,7 @@ func withoutRunWords(run *store.RunAsked, ran *store.AskRan) (*store.RunAsked, *
 	}
 	if ran != nil {
 		told := *ran
-		told.Result = ""
+		told.Result, told.PendingReason = "", ""
 		if held {
 			told.Argv = []string{}
 		}

@@ -1589,12 +1589,7 @@ func (r ResolvedAsk) lines(mark func(string) string) []string {
 			default:
 				out = append(out, fmt.Sprintf("  %s approved, ran: %s", by, strings.ReplaceAll(NoteLetters(c.Answer.Ran.Command()), "\n", "\n  ")))
 			}
-			if c.Answer.Ran.Result != CarryPending {
-				// A command that changed several things printed a line for each.
-				for _, line := range strings.Split(c.Answer.Ran.Result, "\n") {
-					out = append(out, "      "+NoteLetters(line))
-				}
-			}
+			out = append(out, c.Answer.Ran.resultLines()...)
 			out = append(out, "  "+strings.ReplaceAll(NoteLetters(r.Ask.Run.TakenBack()), "\n", "\n  "))
 		case r.Ask.Setup != nil && c.Answer.Ran != nil:
 			// An approved setup the server has not carried out yet reads
@@ -1621,11 +1616,7 @@ func (r ResolvedAsk) lines(mark func(string) string) []string {
 			default:
 				out = append(out, fmt.Sprintf("  %s approved, ran: %s", by, what))
 			}
-			if c.Answer.Ran.Result != CarryPending {
-				for _, line := range strings.Split(c.Answer.Ran.Result, "\n") {
-					out = append(out, "      "+NoteLetters(line))
-				}
-			}
+			out = append(out, c.Answer.Ran.resultLines()...)
 			out = append(out, "  "+strings.ReplaceAll(NoteLetters(r.Ask.Setup.TakenBack()), "\n", "\n  "))
 		case r.Ask.DepotPush != nil && c.Answer.Ran != nil:
 			what := "depot-push " + OneLine(r.Ask.DepotPush.Depot)
@@ -1640,11 +1631,7 @@ func (r ResolvedAsk) lines(mark func(string) string) []string {
 			default:
 				out = append(out, fmt.Sprintf("  %s approved, ran: %s", by, what))
 			}
-			if c.Answer.Ran.Result != CarryPending {
-				for _, line := range strings.Split(c.Answer.Ran.Result, "\n") {
-					out = append(out, "      "+NoteLetters(line))
-				}
-			}
+			out = append(out, c.Answer.Ran.resultLines()...)
 			out = append(out, "  "+strings.ReplaceAll(NoteLetters(r.Ask.DepotPush.TakenBack()), "\n", "\n  "))
 		case r.Ask.Secret != nil:
 			out = append(out, fmt.Sprintf("  %s gave %s", by, OneLine(strings.Join(c.Answer.Given, " and "))))

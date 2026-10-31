@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/edgelink"
@@ -263,7 +264,9 @@ func TestCarryUninviteEdgeDownStillRemovesAndRetries(t *testing.T) {
 
 // A signed refusal waiting cannot cure fails the carry with the
 // edge's words, for either report, and is distinguished from a signed
-// 503 that leaves the report owed.
+// 429 or 503 that leaves the report owed past its pause: the record
+// keeps the edge's words with the next time it may be tried, nothing is
+// signed again until then, and the report lands after.
 func TestCarryMemberRefusalFailsWithEdgeWords(t *testing.T) {
 	ctx := context.Background()
 	st, _, bead, edge, _, c, _ := teammateCarrierYard(t)
@@ -290,10 +293,24 @@ func TestCarryMemberRefusalFailsWithEdgeWords(t *testing.T) {
 	if did, err := c2.carryNext(ctx); !did || err == nil {
 		t.Fatalf("carryNext with a signed 503 = %v, %v, want it taken and still owed", did, err)
 	}
-	if rec := carryState(t, st2, bead2, seq2); rec.State == store.CarryFailed {
-		t.Fatalf("a signed 503 failed the carry: %+v", rec)
+	rec2 := carryState(t, st2, bead2, seq2)
+	if rec2.State == store.CarryFailed {
+		t.Fatalf("a signed 503 failed the carry: %+v", rec2)
+	}
+	if !strings.Contains(rec2.Result, "the membership did not land") {
+		t.Fatalf("while the report is owed the record holds %q, want the edge's words", rec2.Result)
+	}
+	if d := time.Until(rec2.RetryAfter); d < 50*time.Second || d > 70*time.Second {
+		t.Fatalf("the pause after a signed 503 = %v, want about a minute", d)
 	}
 	edge2.Behave(func(b *standin.EdgeBehaviour) { b.MemberRefuse, b.MemberReason = 0, "" })
+	if did, err := c2.carryNext(ctx); err != nil || did {
+		t.Fatalf("carryNext before the pause ends = %v, %v, want nothing taken", did, err)
+	}
+	if n := len(edge2.State().MemberAdds); n != 1 {
+		t.Fatalf("the edge took %d adds before the pause ended, want the refused one alone", n)
+	}
+	c2.clock = func() time.Time { return rec2.RetryAfter.Add(time.Second) }
 	if did, err := c2.carryNext(ctx); err != nil || !did {
 		t.Fatalf("carryNext after the 503 clears = %v, %v", did, err)
 	}
@@ -309,8 +326,72 @@ func TestCarryMemberRefusalFailsWithEdgeWords(t *testing.T) {
 	if did, err := c3.carryNext(ctx); !did || err == nil {
 		t.Fatalf("carryNext with a signed 429 = %v, %v, want the report left owed", did, err)
 	}
-	if rec := carryState(t, st3, bead3, seq3); rec.State != store.CarryClaimed {
-		t.Fatalf("a signed 429 failed the carry: %+v", rec)
+	rec3 := carryState(t, st3, bead3, seq3)
+	if rec3.State != store.CarryClaimed {
+		t.Fatalf("a signed 429 failed the carry: %+v", rec3)
+	}
+	if !strings.Contains(rec3.Result, "the edge is busy") {
+		t.Fatalf("while the report is owed the record holds %q, want the edge's words", rec3.Result)
+	}
+	if lines := resolvedLines(t, st3, bead3, seq3); !strings.Contains(lines, "being carried out") ||
+		!strings.Contains(lines, "the edge is busy") {
+		t.Fatalf("while the report is owed the card reads:\n%s, want the edge's words and a pending status", lines)
+	}
+	if d := time.Until(rec3.RetryAfter); d < 50*time.Second || d > 70*time.Second {
+		t.Fatalf("the pause after a signed 429 = %v, want about a minute", d)
+	}
+	edge3.Behave(func(b *standin.EdgeBehaviour) { b.MemberRefuse, b.MemberReason = 0, "" })
+	if did, err := c3.carryNext(ctx); err != nil || did {
+		t.Fatalf("carryNext before the pause ends = %v, %v, want nothing taken", did, err)
+	}
+	if n := len(edge3.State().MemberAdds); n != 1 {
+		t.Fatalf("the edge took %d adds before the pause ended, want the refused one alone", n)
+	}
+	c3.clock = func() time.Time { return rec3.RetryAfter.Add(time.Second) }
+	if did, err := c3.carryNext(ctx); err != nil || !did {
+		t.Fatalf("carryNext past the pause = %v, %v, want the report landed", did, err)
+	}
+	if rec := carryState(t, st3, bead3, seq3); rec.State != store.CarryDone || !rec.RetryAfter.IsZero() || rec.Defers != 0 {
+		t.Fatalf("the landed record = %+v, want the wait cleared", rec)
+	}
+	if lines := resolvedLines(t, st3, bead3, seq3); strings.Contains(lines, "the edge is busy") {
+		t.Fatalf("after the report lands the card still reads its pending reason:\n%s", lines)
+	}
+	if n := len(edge3.State().MemberAdds); n != 2 {
+		t.Fatalf("the edge took %d adds, want the refused one and the landing", n)
+	}
+
+	st4, _, bead4, edge4, _, c4, _ := teammateCarrierYard(t)
+	if err := st4.InviteTeammate(ctx, "eve", "eve@example.net", store.RoleMember, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	edge4.Behave(func(b *standin.EdgeBehaviour) {
+		b.MemberRefuse, b.MemberReason = http.StatusTooManyRequests, "the edge is busy"
+	})
+	seq4 := askApprove(t, st4, bead4, inviteAsk("user uninvite eve"))
+	if did, err := c4.carryNext(ctx); !did || err == nil {
+		t.Fatalf("carryNext with a signed 429 = %v, %v, want the removal report left owed", did, err)
+	}
+	rec4 := carryState(t, st4, bead4, seq4)
+	if rec4.State != store.CarryClaimed || !strings.Contains(rec4.Result, "the edge is busy") {
+		t.Fatalf("the owed removal's record = %+v, want the claim standing with the edge's words", rec4)
+	}
+	edge4.Behave(func(b *standin.EdgeBehaviour) { b.MemberRefuse, b.MemberReason = 0, "" })
+	if did, err := c4.carryNext(ctx); err != nil || did {
+		t.Fatalf("carryNext before the pause ends = %v, %v, want nothing taken", did, err)
+	}
+	if n := len(edge4.State().MemberRemoves); n != 1 {
+		t.Fatalf("the edge took %d removes before the pause ended, want the refused one alone", n)
+	}
+	c4.clock = func() time.Time { return rec4.RetryAfter.Add(time.Second) }
+	if did, err := c4.carryNext(ctx); err != nil || !did {
+		t.Fatalf("carryNext past the pause = %v, %v, want the removal landed", did, err)
+	}
+	if rec := carryState(t, st4, bead4, seq4); rec.State != store.CarryDone {
+		t.Fatalf("the record = %+v", rec)
+	}
+	if n := len(edge4.State().MemberRemoves); n != 2 {
+		t.Fatalf("the edge took %d removes, want the refused one and the landing", n)
 	}
 }
 

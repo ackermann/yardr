@@ -28,11 +28,11 @@ func TestCarryRecordClaimAndComplete(t *testing.T) {
 	if !strings.Contains(strings.Join(y.asked(t, seq).Lines(), "\n"), "approved, being carried out: yardr pack apply wired") {
 		t.Fatalf("the card does not read as being carried out:\n%s", strings.Join(y.asked(t, seq).Lines(), "\n"))
 	}
-	claimed, err := y.ClaimCarry(y.ctx, "boot-one")
+	claimed, err := y.ClaimCarry(y.ctx, "boot-one", y.now)
 	if err != nil || claimed == nil || claimed.Bead != y.bead || claimed.Ask != seq || claimed.Boot != "boot-one" {
 		t.Fatalf("the claim = %+v, %v", claimed, err)
 	}
-	if again, err := y.ClaimCarry(y.ctx, "boot-two"); err != nil || again != nil {
+	if again, err := y.ClaimCarry(y.ctx, "boot-two", y.now); err != nil || again != nil {
 		t.Fatalf("a second boot's claim = %+v, %v: one claiming write wins", again, err)
 	}
 	if err := y.CompleteCarry(y.ctx, y.bead, seq, "boot-two", "applied"); err == nil ||
@@ -54,7 +54,7 @@ func TestCarryRecordClaimAndComplete(t *testing.T) {
 		q.Decided[0].Ran.Result != "applied pack wired to the yard: 1 created" {
 		t.Fatalf("the asker's decided row = %+v, %v", q, err)
 	}
-	if again, err := y.ClaimCarry(y.ctx, "boot-three"); err != nil || again != nil {
+	if again, err := y.ClaimCarry(y.ctx, "boot-three", y.now); err != nil || again != nil {
 		t.Fatalf("a done apply claimed again = %+v, %v", again, err)
 	}
 }
@@ -69,13 +69,13 @@ func TestCarryResumeAndFail(t *testing.T) {
 	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true, nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.ClaimCarry(y.ctx, "boot-one"); err != nil {
+	if _, err := y.ClaimCarry(y.ctx, "boot-one", y.now); err != nil {
 		t.Fatal(err)
 	}
 	if n, err := y.ResumeCarry(y.ctx, "boot-two"); err != nil || n != 1 {
 		t.Fatalf("the taking up = %d, %v", n, err)
 	}
-	claimed, err := y.ClaimCarry(y.ctx, "boot-two")
+	claimed, err := y.ClaimCarry(y.ctx, "boot-two", y.now)
 	if err != nil || claimed == nil || claimed.Ask != seq {
 		t.Fatalf("the resumed claim = %+v, %v", claimed, err)
 	}
@@ -89,7 +89,7 @@ func TestCarryResumeAndFail(t *testing.T) {
 	if n, err := y.ResumeCarry(y.ctx, "boot-three"); err != nil || n != 0 {
 		t.Fatalf("a failed apply taken up = %d, %v", n, err)
 	}
-	if again, err := y.ClaimCarry(y.ctx, "boot-three"); err != nil || again != nil {
+	if again, err := y.ClaimCarry(y.ctx, "boot-three", y.now); err != nil || again != nil {
 		t.Fatalf("a failed apply claimed again = %+v, %v", again, err)
 	}
 }
@@ -109,14 +109,14 @@ func TestCarrySetupRecordClaimAndSecretOnce(t *testing.T) {
 	if err != nil || rec == nil || rec.State != CarryApproved || rec.Actor != "mckean" {
 		t.Fatalf("the approved setup's record = %+v, %v", rec, err)
 	}
-	if pending, err := y.PendingCarry(y.ctx); err != nil || !pending {
+	if pending, err := y.PendingCarry(y.ctx, y.now); err != nil || !pending {
 		t.Fatalf("a waiting setup pends = %v, %v", pending, err)
 	}
-	claimed, err := y.ClaimCarry(y.ctx, "boot-one")
+	claimed, err := y.ClaimCarry(y.ctx, "boot-one", y.now)
 	if err != nil || claimed == nil || claimed.Ask != seq || claimed.Boot != "boot-one" {
 		t.Fatalf("the claim = %+v, %v", claimed, err)
 	}
-	if again, err := y.ClaimCarry(y.ctx, "boot-two"); err != nil || again != nil {
+	if again, err := y.ClaimCarry(y.ctx, "boot-two", y.now); err != nil || again != nil {
 		t.Fatalf("a second boot's claim = %+v, %v: one claiming write wins", again, err)
 	}
 	values, ok := y.TakeSetupSecret(y.bead, seq)

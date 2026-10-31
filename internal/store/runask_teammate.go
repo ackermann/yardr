@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	bolt "go.etcd.io/bbolt"
 )
@@ -466,6 +467,46 @@ func (s *Store) CarryUninvite(ctx context.Context, bead string, ask uint64, boot
 			return err
 		}
 		rec.TeammateWritten = true
+		return put(w.Tx, bCarry, carryKey(bead, ask), rec)
+	})
+}
+
+// teammateRetryFirst and teammateRetryCap bound the pause of an owed
+// teammate report the edge refused with ask again later: a minute after
+// the first such refusal, doubling each time the edge says it again, at
+// most 15 minutes. The edge's answer carries no retry time of its own,
+// so the yard waits its own out.
+const (
+	teammateRetryFirst = time.Minute
+	teammateRetryCap   = 15 * time.Minute
+)
+
+// DeferTeammateCarry records that the claimed teammate report bead/ask
+// was refused with ask again later, in the edge's words: the report stays
+// owed, and the record keeps the words with the next time it may be
+// tried. ClaimCarry hands the record out again once that time passes;
+// landing clears the wait with the words.
+func (s *Store) DeferTeammateCarry(ctx context.Context, bead string, ask uint64, boot, words string) error {
+	return s.write(func(w *wtx) error {
+		rec, err := w.claimedTeammateCarry(bead, ask, boot)
+		if err != nil {
+			return err
+		}
+		rec.Defers++
+		pause := teammateRetryFirst
+		for n := rec.Defers; n > 1 && pause < teammateRetryCap; n-- {
+			pause *= 2
+		}
+		if pause > teammateRetryCap {
+			pause = teammateRetryCap
+		}
+		rec.RetryAfter = now().Add(pause)
+		rec.Result = words
+		if err := w.updateCarryAnswer(bead, ask, func(ran *AskRan) {
+			ran.PendingReason = words
+		}); err != nil {
+			return err
+		}
 		return put(w.Tx, bCarry, carryKey(bead, ask), rec)
 	})
 }

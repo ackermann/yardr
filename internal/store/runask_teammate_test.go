@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	bolt "go.etcd.io/bbolt"
 )
@@ -80,7 +81,7 @@ func TestInviteCardAndApprovalDefersToCarrier(t *testing.T) {
 	if err != nil || rec == nil || rec.State != CarryApproved || rec.Actor != "mckean" || !slices.Equal(rec.TeammateEmails, []string{"eve@example.net"}) {
 		t.Fatalf("the carrying record = %+v, %v", rec, err)
 	}
-	if pending, _ := y.PendingCarry(y.ctx); !pending {
+	if pending, _ := y.PendingCarry(y.ctx, y.now); !pending {
 		t.Fatal("the approved invite does not pend carrying out")
 	}
 	// A member invite carries no operator sentence, and an address
@@ -296,20 +297,93 @@ func TestOwedTeammateCarryLetsOthersPass(t *testing.T) {
 	if _, err := y.ApproveAsk(y.ctx, y.bead, invite, "mckean", true, nil); err != nil {
 		t.Fatal(err)
 	}
-	if claimed, err := y.ClaimCarry(y.ctx, "boot-one"); err != nil || claimed == nil || claimed.Ask != invite {
+	if claimed, err := y.ClaimCarry(y.ctx, "boot-one", y.now); err != nil || claimed == nil || claimed.Ask != invite {
 		t.Fatalf("the invite's claim = %+v, %v", claimed, err)
 	}
 	apply := y.ask(t, packAsk(), "yardmaster")
 	if _, err := y.ApproveAsk(y.ctx, y.bead, apply, "mckean", true, nil); err != nil {
 		t.Fatal(err)
 	}
-	if claimed, err := y.ClaimCarry(y.ctx, "boot-one"); err != nil || claimed == nil || claimed.Ask != apply {
+	if claimed, err := y.ClaimCarry(y.ctx, "boot-one", y.now); err != nil || claimed == nil || claimed.Ask != apply {
 		t.Fatalf("with the invite's report owed the next claim = %+v, %v, want the apply approved after it", claimed, err)
 	}
 	if err := y.CompleteCarry(y.ctx, y.bead, apply, "boot-one", "applied"); err != nil {
 		t.Fatal(err)
 	}
-	if claimed, err := y.ClaimCarry(y.ctx, "boot-one"); err != nil || claimed == nil || claimed.Ask != invite {
+	if claimed, err := y.ClaimCarry(y.ctx, "boot-one", y.now); err != nil || claimed == nil || claimed.Ask != invite {
 		t.Fatalf("once nothing else waits the claim = %+v, %v, want the owed invite", claimed, err)
+	}
+}
+
+// A teammate report the edge refuses with ask again later is not taken
+// up again until its pause ends: a minute after the first refusal,
+// doubling each time the edge says it again, at most 15 minutes. The
+// record keeps the edge's words while the report is owed, a waiting
+// apply still passes it by, and landing clears the wait with the words.
+func TestDeferredTeammateCarryWaitsOutItsPause(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y := teammateYard(t)
+	y.setPack(&fakePack{label: "embedded in yardr test1"})
+	invite := y.ask(t, teammateAsk("user invite eve --email eve@example.net"), "yardmaster")
+	if _, err := y.ApproveAsk(y.ctx, y.bead, invite, "mckean", true, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.ClaimCarry(y.ctx, "boot-one", y.now); err != nil {
+		t.Fatal(err)
+	}
+	pauses := []time.Duration{time.Minute, 2 * time.Minute, 4 * time.Minute, 8 * time.Minute, 15 * time.Minute, 15 * time.Minute}
+	for i, pause := range pauses {
+		if err := y.DeferTeammateCarry(y.ctx, y.bead, invite, "boot-one", "the edge refused this yard: past the hour's mail (429)"); err != nil {
+			t.Fatal(err)
+		}
+		rec, err := y.CarryOf(y.ctx, y.bead, invite)
+		if err != nil || rec == nil {
+			t.Fatalf("the deferred record = %+v, %v", rec, err)
+		}
+		if want := y.now.Add(pause); !rec.RetryAfter.Equal(want) {
+			t.Fatalf("after refusal %d the retry time = %v, want %v", i+1, rec.RetryAfter, want)
+		}
+		if !strings.Contains(rec.Result, "past the hour's mail") {
+			t.Fatalf("while the report is owed the record holds %q, want the edge's words", rec.Result)
+		}
+		before := y.now.Add(pause - time.Second)
+		if pending, err := y.PendingCarry(y.ctx, before); err != nil || pending {
+			t.Fatalf("before its pause ends the carry pends = %v, %v", pending, err)
+		}
+		if again, err := y.ClaimCarry(y.ctx, "boot-one", before); err != nil || again != nil {
+			t.Fatalf("before its pause ends the claim = %+v, %v", again, err)
+		}
+		y.now = y.now.Add(pause + time.Second)
+		if pending, err := y.PendingCarry(y.ctx, y.now); err != nil || !pending {
+			t.Fatalf("past its pause the carry pends = %v, %v", pending, err)
+		}
+		claimed, err := y.ClaimCarry(y.ctx, "boot-one", y.now)
+		if err != nil || claimed == nil || claimed.Ask != invite {
+			t.Fatalf("past its pause the claim = %+v, %v, want the owed invite", claimed, err)
+		}
+	}
+	if err := y.DeferTeammateCarry(y.ctx, y.bead, invite, "boot-one", "the edge refused this yard: past the hour's mail (429)"); err != nil {
+		t.Fatal(err)
+	}
+	apply := y.ask(t, packAsk(), "yardmaster")
+	if _, err := y.ApproveAsk(y.ctx, y.bead, apply, "mckean", true, nil); err != nil {
+		t.Fatal(err)
+	}
+	if claimed, err := y.ClaimCarry(y.ctx, "boot-one", y.now); err != nil || claimed == nil || claimed.Ask != apply {
+		t.Fatalf("with the invite's report waiting out its pause the claim = %+v, %v, want the apply", claimed, err)
+	}
+	if err := y.CompleteCarry(y.ctx, y.bead, apply, "boot-one", "applied"); err != nil {
+		t.Fatal(err)
+	}
+	y.now = y.now.Add(16 * time.Minute)
+	if claimed, err := y.ClaimCarry(y.ctx, "boot-one", y.now); err != nil || claimed == nil || claimed.Ask != invite {
+		t.Fatalf("past its pause the claim = %+v, %v, want the owed invite", claimed, err)
+	}
+	if err := y.CompleteCarry(y.ctx, y.bead, invite, "boot-one", "the edge took the member add"); err != nil {
+		t.Fatal(err)
+	}
+	rec, err := y.CarryOf(y.ctx, y.bead, invite)
+	if err != nil || rec.State != CarryDone || rec.Result != "the edge took the member add" || !rec.RetryAfter.IsZero() || rec.Defers != 0 {
+		t.Fatalf("the landed record = %+v, %v, want the wait cleared with the words", rec, err)
 	}
 }

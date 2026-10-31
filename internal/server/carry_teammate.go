@@ -19,13 +19,15 @@ import (
 // the yard user and the web_jwt_users mapping first and reports member
 // add after them; a removal reports member remove first and removes
 // the user and the mapping only once it lands. Where a report cannot
-// land (no answer, or a signed 503) the yard writes still stand or
+// land (no answer, or a signed 429 or 503) the yard writes still stand or
 // still go as the design orders, and the claim is left standing, never
-// failed: the watcher drains on every event and a 2s tick, and the next
-// start takes it up (ResumeCarry), so the report lands when the edge
-// answers again. Only a signed refusal waiting cannot cure (403 the
-// report names another yard, 409 a standing membership, 422 an
-// unverified address) fails the carry, with the edge's words.
+// failed: a report the edge refused with ask again later waits out its
+// pause on the record before it is tried again, the watcher drains on
+// every event and a 2s tick, and the next start takes it up
+// (ResumeCarry), so the report lands when the edge answers again. Only a
+// signed refusal waiting cannot cure (403 the report names another yard,
+// 409 a standing membership, 422 an unverified address) fails the carry,
+// with the edge's words.
 
 func isTeammateCarry(argv []string) bool {
 	return len(argv) >= 3 && argv[0] == "user" && (argv[1] == "invite" || argv[1] == "uninvite")
@@ -93,10 +95,15 @@ func (c *carrier) carryInvite(ctx context.Context, rec *store.Carry, run *store.
 		return "", fmt.Sprintf("the invite of %s did not land at the yard: %v", name, err), nil
 	}
 	if err := c.reportMemberAdd(ctx, email, name, rec.Actor); err != nil {
-		if failure, owed := memberFailure(err); owed {
+		if words, owed, later := memberFailure(err); owed {
+			if later {
+				if derr := c.st.DeferTeammateCarry(ctx, rec.Bead, rec.Ask, c.boot, words); derr != nil {
+					return "", "", derr
+				}
+			}
 			return "", "", fmt.Errorf("carrying out ask %d on %s: the member add for %s is still owed: %w", rec.Ask, rec.Bead, email, err)
 		} else {
-			return "", fmt.Sprintf("the invite of %s stands at the yard, and the edge refused its report: %s", name, failure), nil
+			return "", fmt.Sprintf("the invite of %s stands at the yard, and the edge refused its report: %s", name, words), nil
 		}
 	}
 	return fmt.Sprintf("user %s added as a %s, %s is mapped to them, and the edge took the member add", name, role, email), "", nil
@@ -117,11 +124,16 @@ func (c *carrier) carryUninvite(ctx context.Context, rec *store.Carry, run *stor
 	owed := false
 	for _, email := range emails {
 		if err := c.reportMemberRemove(ctx, email); err != nil {
-			if failure, isOwed := memberFailure(err); isOwed {
+			if words, isOwed, later := memberFailure(err); isOwed {
+				if later {
+					if derr := c.st.DeferTeammateCarry(ctx, rec.Bead, rec.Ask, c.boot, words); derr != nil {
+						return "", "", derr
+					}
+				}
 				owed = true
 				continue
 			} else {
-				return "", fmt.Sprintf("the edge refused the removal report for %s, so the user %s stands: %s", email, name, failure), nil
+				return "", fmt.Sprintf("the edge refused the removal report for %s, so the user %s stands: %s", email, name, words), nil
 			}
 		}
 	}
@@ -135,22 +147,23 @@ func (c *carrier) carryUninvite(ctx context.Context, rec *store.Carry, run *stor
 }
 
 // memberFailure reads a member report's error: a signed refusal waiting
-// cannot cure answers its words as a failure for good; no answer, a
-// signed 503 and an answer signed by no pinned key each leave the
-// report owed.
-func memberFailure(err error) (failure string, owed bool) {
+// cannot cure answers its words as a failure for good; a signed 429 or
+// 503 leaves the report owed past its pause (later), with the edge's
+// words for the record; no answer, any other signed status and an answer
+// signed by no pinned key each leave the report owed outright.
+func memberFailure(err error) (words string, owed, later bool) {
 	var refused *edgelink.Refused
 	if errors.As(err, &refused) {
 		switch {
-		case refused.Status == 503:
-			return "", true
+		case refused.Status == http.StatusTooManyRequests || refused.Status == http.StatusServiceUnavailable:
+			return refused.Error(), true, true
 		case refused.Status == http.StatusForbidden || refused.Status == http.StatusConflict || refused.Status == http.StatusUnprocessableEntity:
-			return refused.Error(), false
+			return refused.Error(), false, false
 		default:
-			return "", true
+			return "", true, false
 		}
 	}
-	return "", true
+	return "", true, false
 }
 
 // memberDoor is the carrier's way to the edge: the client at the edge

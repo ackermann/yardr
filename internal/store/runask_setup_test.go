@@ -626,10 +626,10 @@ func TestSetupApprovalRecordsCarryPending(t *testing.T) {
 	if !strings.Contains(lines, "mckean approved, to be carried out: setup of pack setupmail, preset drafts to crew yardmaster; gave SETUP_ACCOUNT") {
 		t.Errorf("the approved card reads:\n%s", lines)
 	}
-	if pending, err := y.PendingCarry(y.ctx); err != nil || !pending {
+	if pending, err := y.PendingCarry(y.ctx, y.now); err != nil || !pending {
 		t.Errorf("the supported setup is not pending in the watcher: %v, %v", pending, err)
 	}
-	claimed, err := y.ClaimCarry(y.ctx, "boot-one")
+	claimed, err := y.ClaimCarry(y.ctx, "boot-one", y.now)
 	if err != nil || claimed == nil || claimed.Ask != seq {
 		t.Errorf("the watcher did not claim the setup: %+v, %v", claimed, err)
 	}

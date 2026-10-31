@@ -70,6 +70,17 @@ type carrier struct {
 	// with the system's roots, and a test gives the one that trusts its
 	// stand-in edge.
 	edgeHTTP *http.Client
+	// clock is the time a claim is read by; nil is the wall clock. A
+	// test sets it to take up an owed report past its pause.
+	clock func() time.Time
+}
+
+// now is the carrier's clock: the wall clock, or the test's.
+func (c *carrier) now() time.Time {
+	if c.clock != nil {
+		return c.clock()
+	}
+	return time.Now()
 }
 
 // runCarryWatcher is the server's one carrying-out goroutine: it takes
@@ -97,7 +108,7 @@ func runCarryWatcher(ctx context.Context, st *store.Store, home, boot string, lo
 	}
 	drain := func() {
 		for {
-			pending, err := st.PendingCarry(ctx)
+			pending, err := st.PendingCarry(ctx, c.now())
 			if err != nil || !pending {
 				if err != nil && ctx.Err() == nil {
 					log.Warn("carrying out: what waits is not read", "err", err)
@@ -142,7 +153,7 @@ func runCarryWatcher(ctx context.Context, st *store.Store, home, boot string, lo
 // the machinery's (the lock, the claim, the completion), which leaves
 // the claim standing for the next drain or the next start.
 func (c *carrier) carryNext(ctx context.Context) (bool, error) {
-	rec, err := c.st.ClaimCarry(ctx, c.boot)
+	rec, err := c.st.ClaimCarry(ctx, c.boot, c.now())
 	if err != nil || rec == nil {
 		return false, err
 	}

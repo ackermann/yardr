@@ -599,7 +599,7 @@ func TestCarryTakenUpAtNextStart(t *testing.T) {
 	st, home, bead := carryYard(t)
 	seq := askApprove(t, st, bead, packAskOf("telegram"))
 	// The first server claims and stops before its first write.
-	if _, err := st.ClaimCarry(ctx, "boot-one"); err != nil {
+	if _, err := st.ClaimCarry(ctx, "boot-one", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	// A second boot does not take a running boot's claim...
@@ -639,7 +639,7 @@ func TestCarryLooseTakenUp(t *testing.T) {
 	ctx := context.Background()
 	st, home, bead := carryYard(t)
 	seq := askApprove(t, st, bead, looseAsk())
-	if _, err := st.ClaimCarry(ctx, "boot-one"); err != nil {
+	if _, err := st.ClaimCarry(ctx, "boot-one", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	drain(t, st, home, "boot-two")

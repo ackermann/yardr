@@ -290,7 +290,7 @@ func (y *secretYard) carriedOut(t *testing.T, user string, seq uint64, account, 
 	if _, err := y.st.ApproveSetup(ctx, "yd-crm", seq, 1, typed, account, user, true); err != nil {
 		t.Fatal(err)
 	}
-	rec, err := y.st.ClaimCarry(ctx, "boot")
+	rec, err := y.st.ClaimCarry(ctx, "boot", time.Now())
 	if err != nil || rec == nil || rec.Bead != "yd-crm" || rec.Ask != seq {
 		t.Fatalf("the approval left the carrying out %+v, %v", rec, err)
 	}
@@ -601,6 +601,15 @@ func TestWithoutRunWordsHoldsAPackCardsMappings(t *testing.T) {
 	run.Command = "yardr pack apply starter --depot web --members decisions=sam"
 	if bare, _ = withoutRunWords(run, nil); len(bare.Argv) != 0 || bare.Command != "" {
 		t.Errorf("the device is told the mappings in argv: %q, %q", bare.Argv, bare.Command)
+	}
+
+	waiting := &store.AskRan{
+		Argv: []string{"user", "invite", "eve"}, Result: store.CarryPending,
+		PendingReason: "the edge refused this yard: the edge is busy (429)",
+	}
+	_, held := withoutRunWords(&store.RunAsked{Argv: waiting.Argv}, waiting)
+	if held.PendingReason != "" || waiting.PendingReason == "" {
+		t.Errorf("the nonoperator's cut has pending reason %q, and changed the original %q", held.PendingReason, waiting.PendingReason)
 	}
 }
 
@@ -2031,7 +2040,7 @@ func TestUserApprovesASetupAskOverTheLink(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil || got.Result == nil {
 		t.Fatalf("answered %d %s (%v)", w.Code, w.Body, err)
 	}
-	if rec, err := y.st.ClaimCarry(ctx, "boot"); err != nil || rec == nil || rec.Bead != "yd-crm" || rec.Ask != seq {
+	if rec, err := y.st.ClaimCarry(ctx, "boot", time.Now()); err != nil || rec == nil || rec.Bead != "yd-crm" || rec.Ask != seq {
 		t.Fatalf("the approval left the carrying out %+v, %v", rec, err)
 	}
 	noted := eventsOfKind(t, y.st, "noted")

@@ -65,8 +65,21 @@ type Carry struct {
 	// Actor is the operator who approved: the carrying out runs as them.
 	Actor string `json:"actor"`
 	// Result is what the import printed (done) or the failure in words
-	// (failed), as the completed answer holds it.
+	// (failed), as the completed answer holds it. While a teammate
+	// report the edge refused with ask again later is owed, it holds
+	// the edge's words instead, so the record says why the report has
+	// not landed; landing clears it with the wait.
 	Result string `json:"result,omitempty"`
+	// RetryAfter is the next time an owed teammate report may be tried:
+	// one the edge refused with ask again later (429 or 503) waits out
+	// its pause, a minute after the first such refusal and doubling to
+	// at most 15 minutes. The zero time waits outright, as every other
+	// record does.
+	RetryAfter time.Time `json:"retry_after,omitempty"`
+	// Defers counts the consecutive ask-again-later refusals the owed
+	// teammate report has drawn, which sets its next pause. Landing
+	// clears it.
+	Defers int `json:"defers,omitempty"`
 	// Sources are what each source the command names stood with when
 	// the approval was held to it: where its credential comes from,
 	// which a half-applied source must still stand with (3.4).
@@ -163,16 +176,19 @@ func (s *Store) CarryOf(ctx context.Context, bead string, ask uint64) (*Carry, e
 	return out, err
 }
 
-// PendingCarry reports whether a carrying kind this build handles waits:
-// approved and not yet taken, or claimed and not finished, which a
-// starting server takes up. Later kinds stay approved for the build that
-// knows them. The watcher reads it on every wake so an idle yard costs no
-// write.
-func (s *Store) PendingCarry(ctx context.Context) (bool, error) {
+// PendingCarry reports whether a carrying kind this build handles waits to
+// be taken at the given time: approved and not yet taken, or claimed and not
+// finished,
+// which a starting server takes up. Later kinds stay approved for the build
+// that knows them, and an owed teammate report waits out its pause: one the
+// edge refused with ask again later pends only once its retry time passes,
+// so a yard with nothing takable still costs no write. The watcher reads it
+// on every wake.
+func (s *Store) PendingCarry(ctx context.Context, at time.Time) (bool, error) {
 	pending := false
 	err := s.read(func(tx *bolt.Tx) error {
 		return each(tx, bCarry, "", func(_ []byte, rec *Carry) error {
-			if carryHandledHere(rec) && (rec.State == CarryApproved || rec.State == CarryClaimed) {
+			if carryHandledHere(rec) && (rec.State == CarryApproved || rec.State == CarryClaimed) && !rec.RetryAfter.After(at) {
 				pending = true
 			}
 			return nil
@@ -265,17 +281,19 @@ func (w *wtx) claimedSetupCarry(bead string, ask uint64, boot string) (*Carry, e
 	return &rec, nil
 }
 
-// ClaimCarry claims the oldest supported carrying record that waits, or
-// one this boot claimed and did not finish (its carrying out stopped on an
-// error, and the one watcher of this boot takes it up again), in one
+// ClaimCarry claims the oldest supported carrying record that waits at at,
+// or one this boot claimed and did not finish (its carrying out stopped on
+// an error, and the one watcher of this boot takes it up again), in one
 // write: two claims cannot both win. It answers nil where nothing waits. A
 // later carrying kind stays approved for the build that knows it. A record
 // claimed under another boot is never claimed here: that boot is the yard's
 // server, running, until ResumeCarry at a start says it is dead. A teammate
 // record this boot claimed is one whose edge report is owed, which may stay
 // owed for as long as the edge is down: it is taken up only when nothing
-// else waits, so an unreachable edge holds up no other approval.
-func (s *Store) ClaimCarry(ctx context.Context, boot string) (*Carry, error) {
+// else waits, so an unreachable edge holds up no other approval, and one
+// the edge refused with ask again later not before its retry time, so a
+// refused report is not signed again until its pause ends.
+func (s *Store) ClaimCarry(ctx context.Context, boot string, at time.Time) (*Carry, error) {
 	var out, owed *Carry
 	err := s.write(func(w *wtx) error {
 		if err := each(w.Tx, bCarry, "", func(_ []byte, rec *Carry) error {
@@ -284,7 +302,7 @@ func (s *Store) ClaimCarry(ctx context.Context, boot string) (*Carry, error) {
 			}
 			switch {
 			case rec.State == CarryClaimed && rec.Boot == boot && isTeammateArgv(rec.Argv):
-				if owed == nil {
+				if owed == nil && !rec.RetryAfter.After(at) {
 					owed = rec
 				}
 			case rec.State == CarryApproved || rec.State == CarryClaimed && rec.Boot == boot:
@@ -369,6 +387,10 @@ func (s *Store) finishCarry(bead string, ask uint64, boot, result string, failed
 			return fmt.Errorf("ask %d on %s is claimed by another server boot: this one does not finish it", ask, bead)
 		}
 		rec.Result = result
+		// An end clears any wait an owed teammate report was standing
+		// out: landing takes the report with it, and a failure ends the
+		// record, so neither keeps a pause or a count.
+		rec.RetryAfter, rec.Defers = time.Time{}, 0
 		if failed {
 			rec.State = CarryFailed
 		} else {
@@ -386,6 +408,14 @@ func (s *Store) finishCarry(bead string, ask uint64, boot, result string, failed
 // or the failure with Failed set, so every view reads the carrying out
 // from the answer alone (ResolveAsks).
 func (w *wtx) completeAnswer(bead string, seq uint64, result string, failed bool) error {
+	return w.updateCarryAnswer(bead, seq, func(ran *AskRan) {
+		ran.Result, ran.Failed, ran.PendingReason = result, failed, ""
+	})
+}
+
+// updateCarryAnswer changes the approved answer that every card reads for a
+// carrying out, in the same write as its record.
+func (w *wtx) updateCarryAnswer(bead string, seq uint64, update func(*AskRan)) error {
 	row, err := w.loadBead(bead)
 	if err != nil {
 		return err
@@ -402,7 +432,7 @@ func (w *wtx) completeAnswer(bead string, seq uint64, result string, failed bool
 		if err != nil || ans.Ask != seq || ans.Ran == nil {
 			continue
 		}
-		ans.Ran.Result, ans.Ran.Failed = result, failed
+		update(ans.Ran)
 		raw, err := json.Marshal(ans)
 		if err != nil {
 			return err
