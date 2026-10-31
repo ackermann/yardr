@@ -47,15 +47,12 @@ var upgradeStartDaemon = func(environ []string, cfg *config.Config) (int, error)
 // upgradeExecutable is this process's binary; tests replace it.
 var upgradeExecutable = os.Executable
 
-// upgradeGoEnv runs go env for the names; tests replace it.
-var upgradeGoEnv = func(names ...string) (string, error) {
-	out, err := exec.Command("go", append([]string{"env"}, names...)...).CombinedOutput()
-	return strings.TrimSpace(string(out)), err
-}
-
-// upgradeGoInstall runs go install . in dir; tests replace it.
-var upgradeGoInstall = func(ctx context.Context, dir string) (string, error) {
-	cmd := exec.CommandContext(ctx, "go", "install", ".")
+// upgradeGoBuild runs go build -buildmode=exe -o file . in dir; tests replace
+// it. The build mode is named because a checkout whose root package is no
+// program would otherwise build to its package archive, written to file with
+// exit status 0, and the install would put that over the binary.
+var upgradeGoBuild = func(ctx context.Context, dir, file string) (string, error) {
+	cmd := exec.CommandContext(ctx, "go", "build", "-buildmode=exe", "-o", file, ".")
 	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
 	return string(out), err
@@ -86,56 +83,47 @@ var upgradeRunInstalled = func(ctx context.Context, bin, home string, args ...st
 // upgradeNotifySend tells a user through their source; tests replace it.
 var upgradeNotifySend = notify.Send
 
-// upgradeInstallTarget is where go install . writes the yardr binary: GOBIN,
-// else the first GOPATH's bin, joined with this binary's name. It refuses
-// when that is not the binary this yard runs from: installing bytes the
-// server does not watch would verify nothing.
+// upgradeInstallTarget is where the upgrade writes the build: the binary this
+// yard runs from, symlinks resolved. The server and the daemon watch that path
+// for a newer build, so bytes written anywhere else would verify nothing, and
+// where go install would write is no part of it: a yardr kept outside go's bin
+// directory upgrades where it is. A link to the binary stays a link; the file
+// it names is replaced.
 func upgradeInstallTarget() (string, error) {
 	self, err := upgradeExecutable()
 	if err != nil {
 		return "", err
 	}
-	self, _ = filepath.Abs(self)
-	if r, err := filepath.EvalSymlinks(self); err == nil {
-		self = r
-	}
-	name := filepath.Base(self)
-	gobin, err := upgradeGoEnv("GOBIN")
+	return resolveProgram(self), nil
+}
+
+// upgradeInstall builds the checkout in dir to a temp file beside target and
+// renames it over target, so the server's and the daemon's watch of the path
+// sees one complete new file and never a build still being linked. The temp is
+// removed on every path out: a failed build leaves target as it was and
+// nothing beside it. The build's output comes back for the failure to quote.
+func upgradeInstall(ctx context.Context, dir, target string) (string, error) {
+	fi, err := os.Stat(target)
 	if err != nil {
-		return "", fmt.Errorf("go env GOBIN: %w", err)
+		return "", err
 	}
-	gobin = strings.TrimSpace(strings.Split(gobin, "\n")[0])
-	dir := gobin
-	if dir == "" {
-		gopath, err := upgradeGoEnv("GOPATH")
-		if err != nil {
-			return "", fmt.Errorf("go env GOPATH: %w", err)
-		}
-		first := strings.TrimSpace(strings.Split(gopath, "\n")[0])
-		if first == "" {
-			return "", fmt.Errorf("go env GOPATH is empty, and GOBIN is unset: go install has nowhere to write")
-		}
-		// GOPATH is a list; go install uses the first.
-		sep := string(os.PathListSeparator)
-		if i := strings.Index(first, sep); i >= 0 {
-			first = first[:i]
-		}
-		dir = filepath.Join(first, "bin")
+	tmp, err := os.CreateTemp(filepath.Dir(target), "."+filepath.Base(target)+".build-*")
+	if err != nil {
+		return "", fmt.Errorf("the new build cannot be written beside %s: %w", target, err)
 	}
-	target := filepath.Join(dir, name)
-	abs, _ := filepath.Abs(target)
-	if r, err := filepath.EvalSymlinks(abs); err == nil {
-		abs = r
-	} else {
-		abs = target
-		if a, err := filepath.Abs(target); err == nil {
-			abs = a
-		}
+	defer os.Remove(tmp.Name())
+	if err := tmp.Close(); err != nil {
+		return "", err
 	}
-	if abs != self {
-		return "", fmt.Errorf("go install would write %s, not the binary this yard runs from (%s): install it by hand there first", target, self)
+	if out, err := upgradeGoBuild(ctx, dir, tmp.Name()); err != nil {
+		return out, fmt.Errorf("go build . in %s failed: %w", dir, err)
 	}
-	return target, nil
+	// However go put its output there, the new file takes the mode of the one
+	// it replaces, as a copy of it would (copyFile).
+	if err := os.Chmod(tmp.Name(), fi.Mode()); err != nil {
+		return "", err
+	}
+	return "", os.Rename(tmp.Name(), target)
 }
 
 // upgradeCoveredYards are the yards the install covers: its own home,

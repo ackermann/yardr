@@ -448,17 +448,23 @@ func TestUpgradeScriptSourcesAreInTheTree(t *testing.T) {
 // upgradeScene is a yard that can be upgraded with nothing started or built:
 // a depot checkout holding the new scripts, a yard script directory holding
 // the old, and every outward step of the run stood in for. The "binary" it
-// installs is a copy of the test's own, the one file the run reads the build
-// of; the gate's answer is the test's.
+// runs from and the one a build writes are copies of the test's own, the one
+// file the run reads the build of; the gate's answer is the test's.
 type upgradeScene struct {
 	a        *app
 	home     string
 	st       store.API
-	target   string // where go install would write the binary
+	self     string // the test binary, which a build writes
+	target   string // the binary the yard runs from, which the install replaces
 	scripts  string // the yard's merge-local
 	previous string // its copy
 	// gate answers the installed binary's --check: nil passes.
 	gate func() error
+}
+
+// build stands in for go build: it writes the test binary where it is asked.
+func (sc *upgradeScene) build(_ context.Context, _, file string) (string, error) {
+	return "", copyFile(sc.self, file)
 }
 
 func newUpgradeScene(t *testing.T) *upgradeScene {
@@ -480,10 +486,8 @@ func newUpgradeScene(t *testing.T) *upgradeScene {
 	if err := st.PutDepot(ctx, store.Depot{Name: "yardr", Path: checkout}, "jo"); err != nil {
 		t.Fatal(err)
 	}
-	// The yard is told to be the install target's: the test binary, copied
-	// to where go install would write it.
-	bin := t.TempDir()
-	target := filepath.Join(bin, "yardr")
+	// The yard runs from a copy of the test binary, by its resolved path.
+	target := filepath.Join(realTempDir(t), "yardr")
 	self, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
@@ -492,9 +496,7 @@ func newUpgradeScene(t *testing.T) *upgradeScene {
 		t.Fatal(err)
 	}
 	stub(t, &upgradeExecutable, func() (string, error) { return target, nil })
-	stub(t, &upgradeGoEnv, func(...string) (string, error) { return bin, nil })
 	stub(t, &lookPath, func(string) (string, error) { return "/bin/go", nil })
-	stub(t, &upgradeGoInstall, func(context.Context, string) (string, error) { return "", nil })
 	// Nothing is signed unless a test says so: the scene sets no identity
 	// and is not darwin.
 	stub(t, &upgradeCodesign, func(context.Context, string, string) (string, error) {
@@ -510,8 +512,9 @@ func newUpgradeScene(t *testing.T) *upgradeScene {
 	stub(t, &upgradeServerStop, func(*config.Config) error { return nil })
 	stub(t, &upgradeStopDaemon, func(*config.Config, time.Duration) (int, error) { return 0, nil })
 
-	sc := &upgradeScene{a: mk(), home: home, st: st, target: target, scripts: filepath.Join(home, "scripts", "merge-local")}
+	sc := &upgradeScene{a: mk(), home: home, st: st, self: self, target: target, scripts: filepath.Join(home, "scripts", "merge-local")}
 	sc.previous = sc.scripts + ".previous"
+	stub(t, &upgradeGoBuild, sc.build)
 	if err := os.MkdirAll(filepath.Dir(sc.scripts), 0o755); err != nil {
 		t.Fatal(err)
 	}

@@ -110,6 +110,10 @@ This writes `yardr` to `$(go env GOPATH)/bin`, which has to be on PATH.
 `yardr --version`, or `yardr version`, prints its revision (`abcdef123456`,
 with `-modified` for a build from a tree with uncommitted changes).
 
+Where the binary sits is no condition of upgrading it from source later:
+[`yardr upgrade`](#upgrading) writes to the binary it runs from, `~/.local/bin`
+as well as Go's bin directory.
+
 ## What yardr doctor still asks for
 
 Neither way installs anything but yardr. Run `yardr doctor`
@@ -455,12 +459,14 @@ hook_addr 127.0.0.1:8791`
 
 ## Upgrading
 
-Install the newer build over the old one, by either way: unpack the newer
-archive and move `yardr` to where the old one is, or `go install` again. The
-server and daemon notice the new file and replace themselves
-([configuration.md](configuration.md#upgrading)). The two ways mix: a release
-archive replaces a `go install`ed build of an earlier commit, and the other
-way round.
+Install the newer build over the old one, by any of three ways: unpack the
+newer archive and move `yardr` to where the old one is, `go install` again, or
+run `yardr upgrade` on a depot's checkout, which builds it and writes the build
+over the binary it runs from, wherever that is
+([upgrade.md](upgrade.md#where-it-writes)). The server and daemon notice the
+new file and replace themselves ([configuration.md](configuration.md#upgrading)).
+The ways mix: a release archive replaces a `go install`ed build of an earlier
+commit, and the other way round.
 
 ## Removing yardr
 

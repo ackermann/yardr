@@ -28,9 +28,9 @@ func testUpgradeRunSignsInstalledBinaryOnDarwin(t *testing.T) {
 	}
 	stub(t, &goos, "darwin")
 	var calls []string
-	stub(t, &upgradeGoInstall, func(context.Context, string) (string, error) {
+	stub(t, &upgradeGoBuild, func(ctx context.Context, dir, file string) (string, error) {
 		calls = append(calls, "install")
-		return "", nil
+		return sc.build(ctx, dir, file)
 	})
 	var gotIdentity, gotTarget string
 	stub(t, &upgradeCodesign, func(_ context.Context, identity, target string) (string, error) {

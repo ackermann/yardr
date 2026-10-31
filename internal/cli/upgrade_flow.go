@@ -192,9 +192,9 @@ func (a *app) upgradeRun(w, warn io.Writer, ctx context.Context, cfg *config.Con
 	// into the time the new build has to prove itself.
 	installStarted := time.Now()
 	gateDeadline := installStarted.Add(timeout)
-	if out, err := upgradeGoInstall(ctx, depot.Path); err != nil {
+	if out, err := upgradeInstall(ctx, depot.Path, target); err != nil {
 		removeGates()
-		reason := fmt.Sprintf("go install . in %s failed: %v", depot.Path, err)
+		reason := err.Error()
 		if trimmed := strings.TrimSpace(out); trimmed != "" {
 			if len(trimmed) > 2000 {
 				trimmed = trimmed[:2000]
@@ -212,9 +212,9 @@ func (a *app) upgradeRun(w, warn io.Writer, ctx context.Context, cfg *config.Con
 	// reinstalls instead of pinning a stale ad-hoc cdhash.
 	if identity := settings[store.CodesignIdentitySetting]; goos == "darwin" && identity != "" {
 		if out, err := upgradeCodesign(ctx, identity, target); err != nil {
-			// Unlike a failed go install the unsigned new bytes already
-			// stand at the target, so they go back first: the yard keeps
-			// the binary it had.
+			// Unlike a failed build the unsigned new bytes already stand at
+			// the target, so they go back first: the yard keeps the binary
+			// it had.
 			restored := ""
 			if rerr := copyFile(prev, target); rerr != nil {
 				restored = fmt.Sprintf("; the previous binary could not be restored: %v", rerr)
@@ -245,7 +245,7 @@ func (a *app) upgradeRun(w, warn io.Writer, ctx context.Context, cfg *config.Con
 		return errors.New(reason)
 	}
 	newRev := version.Show(newBuild.Revision)
-	fmt.Fprintf(w, "%-9s  go install . at %s\n", "install", newRev)
+	fmt.Fprintf(w, "%-9s  %s at %s\n", "install", target, newRev)
 
 	// The scripts a yard runs from its home are the depot's too, and a fix
 	// landed in one is live only when this carries it, as it does the

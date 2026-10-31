@@ -1717,9 +1717,12 @@ dropped on open.
 
 ### Upgrading
 
-`go install` is enough. The server and the daemon each remember the binary
-they were started from and replace themselves (`exec`, same pid) once a
-newer build is installed over it. A build is newer when:
+Installing a newer build over the binary is enough: `go install`, a release
+archive moved over it, or `yardr upgrade`, which writes the depot's build to
+the binary it runs from ([upgrade.md](upgrade.md#where-it-writes)). The
+server and the daemon each remember the binary they were started from and
+replace themselves (`exec`, same pid) once a newer build is installed over
+it. A build is newer when:
 
 - its revision differs from the running one, ignoring `-modified` (a dirty
   build of the running commit, say from a bead worktree, never counts), and
@@ -1738,8 +1741,8 @@ A binary from a [release archive](install.md) upgrades the same way: unpack
 the newer archive and move `yardr` over the old one (`tar` itself also
 replaces the file rather than writing into it). A release build carries the
 same revision and commit time as a `go install` of its commit, and those,
-not the tag `yardr version` prints, decide whether it is newer; so archives
-and `go install`s replace each other by commit time.
+not the tag `yardr version` prints, decide whether it is newer; so archives,
+`go install`s and `yardr upgrade`s replace each other by commit time.
 
 A new build changes nothing in a yard that is set up: no prompt, group,
 route or flow moves until the operator runs `yardr depot init` or `yardr
@@ -1860,8 +1863,8 @@ the logs call `unknown`) is replaced like any other, by its file's time.
 A daemon that runs as a [login service](#login-services) upgrades the same
 way, and the service manager has no part in it: an `exec` keeps the pid, so
 launchd and systemd see one process that never ended, and start nothing. The
-service's file names the binary by its path, which `go install` writes the
-new build to, so the next login starts the new build too. When the `exec`
+service's file names the binary by its path, and the new build is installed
+over that path, so the next login starts the new build too. When the `exec`
 fails, the daemon logs it and runs on as the old build, as it does without
 a service. The web view does not replace itself: it is a client of the
 server and keeps running the build it was started from until it is

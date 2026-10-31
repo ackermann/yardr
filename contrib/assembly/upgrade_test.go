@@ -83,18 +83,20 @@ func yardrCopy(t *testing.T, dir string) string {
 	return dst
 }
 
-// fakeGo is a go that answers GOBIN with dir and installs these same bytes
-// over dir's yardr by rename, as go install does, so the gate verifies the
-// real upgrade's shape with nothing compiled.
-func fakeGo(t *testing.T, dir string) string {
+// fakeGo is a go that answers go build ... -o file by writing these same bytes
+// to file, so the gate verifies the real upgrade's shape with nothing
+// compiled. The file is executable, as a build's is: without the bit the
+// gate's samples cannot run the new binary at all.
+func fakeGo(t *testing.T) string {
 	t.Helper()
 	fake := t.TempDir()
-	// The install writes through a temporary file renamed into place, as go
-	// install does, with the executable bit set: without it the gate's
-	// samples cannot run the new binary at all.
 	script := `#!/bin/sh
-if [ "$1" = "env" ] && [ "$2" = "GOBIN" ]; then echo ` + shellQuote(dir) + `; exit 0; fi
-if [ "$1" = "install" ]; then new=` + shellQuote(filepath.Join(dir, "yardr.new")) + `; dst=` + shellQuote(filepath.Join(dir, "yardr")) + `; cat ` + shellQuote(yardrBin) + ` > "$new" && chmod 755 "$new" && mv "$new" "$dst"; exit $?; fi
+[ "$1" = "build" ] || exit 1
+shift
+while [ $# -gt 0 ]; do
+  if [ "$1" = "-o" ]; then cat ` + shellQuote(yardrBin) + ` > "$2" && chmod 755 "$2"; exit $?; fi
+  shift
+done
 exit 1
 `
 	return writeScript(t, fake, "go", script)
@@ -166,7 +168,7 @@ func TestMergeLocalInstallsOnTheNamedDepot(t *testing.T) {
 	y.upgradeFrom("r")
 	bin := t.TempDir()
 	y.bin = yardrCopy(t, bin)
-	y.opts = "PATH=" + shellQuote(filepath.Dir(fakeGo(t, bin))) + ":$PATH"
+	y.opts = "PATH=" + shellQuote(filepath.Dir(fakeGo(t))) + ":$PATH"
 
 	y.assembly()
 
@@ -179,7 +181,13 @@ func TestMergeLocalInstallsOnTheNamedDepot(t *testing.T) {
 	if !regexp.MustCompile(`(?m)^== r-1 took: the tests \d+ s, upgrade \d+ s$`).MatchString(y.log) {
 		t.Fatalf("the log line has no upgrade seconds:\n%s", y.log)
 	}
-	for _, want := range []string{"backup", "keep", "install    go install . at ", "scripts    merge-local refreshed", "health     ok in "} {
+	// The install line names the binary the upgrade ran from, by the path
+	// the OS resolves the temp dir to.
+	installed, err := filepath.EvalSymlinks(filepath.Join(bin, "yardr"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"backup", "keep", "install    " + installed + " at ", "scripts    merge-local refreshed", "health     ok in "} {
 		if !strings.Contains(y.log, want) {
 			t.Fatalf("the log lacks the install's %q line:\n%s", want, y.log)
 		}
@@ -243,7 +251,7 @@ if [ "$1" = "upgrade" ] && [ "$2" = "--help" ]; then
   exit 0
 fi
 if [ "$1" = "upgrade" ]; then
-  printf '%s\n' 'install    go install . at deadbeefcd12' 'scripts    kept as they were, see the warnings above' 'health     ok in 1 s'
+  printf '%s\n' 'install    /usr/local/bin/yardr at deadbeefcd12' 'scripts    kept as they were, see the warnings above' 'health     ok in 1 s'
   exit 0
 fi
 exec `+shellQuote(yardrBin)+` "$@"
@@ -301,7 +309,7 @@ func TestMergeLocalUpgradeLockRefusedStillMerges(t *testing.T) {
 	y.upgradeFrom("r")
 	bin := t.TempDir()
 	y.bin = yardrCopy(t, bin)
-	y.opts = "PATH=" + shellQuote(filepath.Dir(fakeGo(t, bin))) + ":$PATH"
+	y.opts = "PATH=" + shellQuote(filepath.Dir(fakeGo(t))) + ":$PATH"
 	lock, err := os.OpenFile(filepath.Join(bin, "yardr.upgrade.lock"), os.O_RDWR|os.O_CREATE, 0o600)
 	if err != nil {
 		t.Fatal(err)
@@ -348,7 +356,7 @@ if [ "$1" = "upgrade" ] && [ "$2" != "--help" ]; then
   : > "$FLAG"
   printf '%s\n' "backup    `+y.home+`/backups/yard.db.before-install"
   printf '%s\n' "keep      `+dir+`/yardr.prev (1904410)"
-  printf '%s\n' "install   go install . at deadbeefcd12"
+  printf '%s\n' "install   `+dir+`/yardr at deadbeefcd12"
   echo "yardr: yardr upgrade to deadbeefcd12 failed and the yard is down: simulated for the assembly test" >&2
   exit 1
 fi
@@ -372,7 +380,7 @@ exec "$REAL" "$@"
 	if strings.Contains(y.notes(), "install") {
 		t.Fatalf("a landing note was written over a dead yard:\n%s", y.notes())
 	}
-	for _, want := range []string{"install   go install . at deadbeefcd12", "the server cannot be reached: simulated dead yard"} {
+	for _, want := range []string{"install   " + dir + "/yardr at deadbeefcd12", "the server cannot be reached: simulated dead yard"} {
 		if !strings.Contains(y.log, want) {
 			t.Fatalf("the log lacks %q:\n%s", want, y.log)
 		}

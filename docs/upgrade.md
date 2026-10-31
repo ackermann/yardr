@@ -2,26 +2,44 @@
 
 `yardr upgrade` installs the depot's build, verified, or rolls back. It
 does the hand step whole: from the checkout of the depot the
-`upgrade_from` setting names it runs `go install .`, refreshes the
-scripts the yard already runs from its home from the same checkout,
-checks every covered yard runs the new build, and otherwise puts the
-previous build back, the scripts with it. The assembly calls it after
-the merge when the setting names the depot; by hand it is run after
-pulling instead of `go install .`. A yard without the setting is
-untouched.
+`upgrade_from` setting names it builds yardr and writes the build over
+the binary it runs from, refreshes the scripts the yard already runs
+from its home from the same checkout, checks every covered yard runs
+the new build, and otherwise puts the previous build back, the scripts
+with it. The assembly calls it after the merge when the setting names
+the depot; by hand it is run after pulling instead of `go install .`. A
+yard without the setting is untouched.
 
 ```sh
 $ yardr upgrade
 backup    ~/.yardr/backups/yard.db.before-install
-keep      ~/go/bin/yardr.prev (1904410)
-install   go install . at 1904417
+keep      ~/.local/bin/yardr.prev (1904410)
+install   ~/.local/bin/yardr at 1904417
 scripts   merge-local, integrate-train refreshed
 health    ok in 24 s
 ```
 
 One line per step, exit 1 when the install fails, 0 when every covered
-yard runs the new build. The `scripts` line is [its own
-section](#the-scripts).
+yard runs the new build. The `install` line names the binary the build
+went to ([where it writes](#where-it-writes)). The `scripts` line is
+[its own section](#the-scripts).
+
+## Where it writes
+
+The build goes to the binary the upgrade itself runs from, symlinks
+resolved, wherever that is: Go's bin directory or `~/.local/bin`, say.
+`GOBIN` and `GOPATH` play no part, so a yardr that `go install` never
+wrote, one unpacked from a release archive, upgrades from source all the
+same. The server and the daemon each watch the path they run from for a
+newer build, which is why the target is that path and no other.
+
+`go build` writes the new build to a temporary file in the same
+directory, and the upgrade renames it over the binary, so the watch sees
+one complete new file and never one still being written. A build that
+fails removes the temporary file and leaves the old binary as it was. A
+link to the binary stays a link: the file it names is replaced, and
+`yardr.prev` and the lock ([below](#what-it-covers)) sit beside that
+file. The directory has to be one the person upgrading can write to.
 
 ## The assembly step
 
@@ -112,7 +130,7 @@ the assembly, `integrate-train`, `pr-train` and `pr-merge` for trains,
 operator installs each once by hand (`install contrib/assembly/merge-local
 ~/.yardr/scripts/`, [line.md](line.md#setup)), and a copy is only as new
 as that step. A fix that lands in a script then reaches no landing until
-someone installs it again. So after `go install .` the upgrade refreshes
+someone installs it again. So after the install the upgrade refreshes
 the copies from the same checkout, and a fix to a script is live for the
 next landing, as a fix to the binary is. It reads the nine scripts from
 where the docs have the operator install them from, `contrib/assembly/`
@@ -191,13 +209,10 @@ agent, so no pass on the new build ever starts a session; the file is
 removed once the gate passes or the rollback completes. The backup is
 unconditional: `upgrade_restore` governs restoring, never copying.
 
-It refuses when `go` is not on its PATH, when the depot has no checkout
-on this machine, and when `go install` would not write the binary this
-yard runs from: the install's output path is computed as `go install`
-does (GOBIN, else the first GOPATH's `bin`) and compared with the
-running binary's path, refusing when they differ. Where a depot sits in
-a folder macOS protects, it warns that the new build may need its
-access granted again, without failing.
+It refuses when `go` is not on its PATH and when the depot has no
+checkout on this machine. Where a depot sits in a folder macOS
+protects, it warns that the new build may need its access granted
+again, without failing.
 
 ## The gate
 
