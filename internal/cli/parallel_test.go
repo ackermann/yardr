@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -812,15 +813,36 @@ func parCheck(own map[string]parFacts, allow map[string]string) []string {
 // parLoad parses sources (file name to contents) and reads every test
 // function's facts: package vars from every file first, facts second, so
 // no file is read before its vars are known, however the files sort.
+// Parsing and collecting both run file by file beside one another: the
+// package holds hundreds of files, and reading them one after another
+// costs this test over a second. Every merge is a union under one lock,
+// so the facts are the same however the files finish.
 func parLoad(sources map[string][]byte) (map[string]parFacts, error) {
 	fset := token.NewFileSet()
 	parsed := map[string]*ast.File{}
+	var mu sync.Mutex
+	var firstErr error
+	var firstFile string
+	var wg sync.WaitGroup
 	for name, src := range sources {
-		f, err := parser.ParseFile(fset, name, src, parser.SkipObjectResolution)
-		if err != nil {
-			return nil, err
-		}
-		parsed[name] = f
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			f, err := parser.ParseFile(fset, name, src, parser.SkipObjectResolution)
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				if firstErr == nil || name < firstFile {
+					firstErr, firstFile = err, name
+				}
+				return
+			}
+			parsed[name] = f
+		}()
+	}
+	wg.Wait()
+	if firstErr != nil {
+		return nil, firstErr
 	}
 	// Package vars live in test files too (strayKill, yardEnvs), and
 	// assigning one pins the test just the same.
@@ -850,14 +872,21 @@ func parLoad(sources map[string][]byte) (map[string]parFacts, error) {
 			if !ok || fd.Body == nil {
 				continue
 			}
-			got := parCollect(fd, pkgVars)
-			if old, ok := own[fd.Name.Name]; ok {
-				old.union(got)
-				got = old
-			}
-			own[fd.Name.Name] = got
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				got := parCollect(fd, pkgVars)
+				mu.Lock()
+				defer mu.Unlock()
+				if old, ok := own[fd.Name.Name]; ok {
+					old.union(got)
+					got = old
+				}
+				own[fd.Name.Name] = got
+			}()
 		}
 	}
+	wg.Wait()
 	return own, nil
 }
 

@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -101,6 +102,51 @@ func releaseArchiveBytes(t *testing.T, yardr []byte) []byte {
 		t.Fatal(err)
 	}
 	return buf.Bytes()
+}
+
+// releaseBuilt is one tiny Go binary's bytes, built once for the
+// install and rollback tests. The tests used to read os.Executable, the
+// race test binary itself at tens of megabytes, and compressing,
+// serving, fetching and hashing it cost them some thirty seconds of the
+// package's race budget. Any bytes would prove the install and the
+// rollback, but the flow reads Go build info from what it installed, so
+// the bytes are a real binary: a program of its own, built the way
+// TestUpgradeInstall builds one. It is built before the scene stands the
+// release road's stubs up, so the "no go" the road needs does not hide
+// the go this needs.
+var releaseBuilt = sync.OnceValues(func() ([]byte, error) {
+	dir, err := os.MkdirTemp("", "yardr-release")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(dir)
+	for name, body := range map[string]string{
+		"go.mod":  "module example.com/releaseyardr\n\ngo 1.21\n",
+		"main.go": "package main\n\nfunc main() {}\n",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			return nil, err
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	bin := filepath.Join(dir, "yardr")
+	build := exec.CommandContext(ctx, "go", "build", "-o", bin, ".")
+	build.Dir = dir
+	if out, err := build.CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("go build: %v\n%s", err, out)
+	}
+	return os.ReadFile(bin)
+})
+
+// releaseBuiltBin is the yardr a fixture release carries.
+func releaseBuiltBin(t *testing.T) []byte {
+	t.Helper()
+	b, err := releaseBuilt()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
 }
 
 // releaseSite is a yardr.dev of the test's own: it serves one release,
@@ -296,14 +342,7 @@ func (sc *releaseScene) whole(t *testing.T, before os.FileInfo) {
 // fixture binary's, the previous binary is kept, and no temp stands
 // beside the binary.
 func TestUpgradeReleaseInstalls(t *testing.T) {
-	self, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	binary, err := os.ReadFile(self)
-	if err != nil {
-		t.Fatal(err)
-	}
+	binary := releaseBuiltBin(t)
 	key := newReleaseTestKey(t)
 	site := newReleaseSite(t, &releaseSite{key: key, archive: releaseArchiveBytes(t, binary)})
 	sc := newReleaseScene(t, site)
@@ -499,14 +538,7 @@ func TestUpgradeReleaseNoNetwork(t *testing.T) {
 // back. The release it came from makes no difference here, which is
 // the gate's one shape for both roads.
 func TestUpgradeReleaseGateFailureRollsBack(t *testing.T) {
-	self, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	binary, err := os.ReadFile(self)
-	if err != nil {
-		t.Fatal(err)
-	}
+	binary := releaseBuiltBin(t)
 	key := newReleaseTestKey(t)
 	site := newReleaseSite(t, &releaseSite{key: key, archive: releaseArchiveBytes(t, binary)})
 	sc := newReleaseScene(t, site)
