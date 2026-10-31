@@ -180,11 +180,11 @@ func setupYard(t *testing.T, f *former) (home string, st store.API, repo string)
 	home = newHomeDir(t)
 	st = storetest.New(t)
 	// Commands run through the root resolve no struct actor: they act as
-	// the login. The setup's import subscribes the yard it makes, so it
-	// acts as the crew member the pack seats, as the yardmaster's own
-	// setup does; a user or the operator would be offered their own
-	// pages instead. Naming it here keeps the setup hermetic.
-	testYard(t, st, home, "YARDR_ACTOR=yardmaster")
+	// the login. The setup runs as the operator Jo, as a setup in the
+	// operator's terminal does: its import writes the pack's groups,
+	// which are the operator's to write. Naming it here keeps the setup
+	// hermetic.
+	testYard(t, st, home, "YARDR_ACTOR=Jo")
 	a := appOn(st)
 	a.actor = "me"
 	if _, err := run(t, a.rootCmd(), "init", "--harness", "claude", "--operator", "Jo"); err != nil {
@@ -367,9 +367,10 @@ func TestSetupForms(t *testing.T) {
 		t.Errorf("asked how to go on %d times, want 3: %v", n, f.asked)
 	}
 
-	// Run again, there is no page left: it says where the bead is.
+	// Run again, there is no form page left: it says where the bead is,
+	// and offers the operator its pages (to be told, and the link).
 	f.asked = nil
-	if out := setup(t, st); len(f.asked) != 0 || !strings.Contains(out, "The forms end here") || !strings.Contains(out, "  done   a first bead: ") {
+	if out := setup(t, st); !slices.Equal(f.asked, []string{"landed", "link"}) || !strings.Contains(out, "The forms end here") || !strings.Contains(out, "  done   a first bead: ") {
 		t.Errorf("asked %v on a yard with every page done:\n%s", f.asked, out)
 	}
 }
@@ -386,7 +387,7 @@ func TestSetupGoesOnWhereTheYardStands(t *testing.T) {
 	}{
 		{stepDepot, []string{"path", "name", "base", "go"}, stepDepotFiles},
 		{stepDepotFiles, []string{"go"}, stepFirstBead},
-		{stepFirstBead, []string{"title", "goal", "go"}, stepMerged},
+		{stepFirstBead, []string{"title", "goal", "go", "landed", "link"}, stepMerged},
 	} {
 		if got := todo(t, st); got != tc.step {
 			t.Fatalf("next step = %q, want %q", got, tc.step)

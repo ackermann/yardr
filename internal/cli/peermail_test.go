@@ -20,9 +20,10 @@ func TestOnlyTheOperatorAllowsMailingAPeer(t *testing.T) {
 	invite := strings.TrimSpace(south.must(t, "invite", "--url", south.srv.URL))
 	north.must(t, "add", "south", invite)
 	a, st, ctx := north.a, north.st, context.Background()
+	crewDir := t.TempDir()
 	add := func(name string, sets ...string) error {
 		t.Helper()
-		args := []string{"add", name, "--replace", "--dir", t.TempDir()}
+		args := []string{"add", name, "--replace", "--dir", crewDir}
 		for _, s := range sets {
 			args = append(args, "--set", s)
 		}

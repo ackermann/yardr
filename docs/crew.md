@@ -28,6 +28,13 @@ yardr crew set yardmaster set_state=linear
 yardr crew set yardmaster --unset set_state
 ```
 
+The `env_file` and `env_command` settings, and the `--dir` of a crew
+member the yard has, are the operator's
+alone besides: the store refuses each from anyone else, a crew member's
+pane included, and a run ask never proposes one. A crew member that needs
+one asks the operator for it, with the command whole in the ask; every
+other setting is changed as above.
+
 The value of a key named like a secret (`token`, `secret`, `password`,
 `…_key`) is not printed. A running crew member keeps its session: what it may
 do (`open_threads`, `set_state`, `peers`), `--on`, `--max-age` and

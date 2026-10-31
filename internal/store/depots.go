@@ -1,7 +1,8 @@
 // Depots are the projects the yard works: their directories, their kinds,
 // the base their beads start from, and the command that tests them. Adding
-// one is anyone's; changing what one holds is the operator's, and a run
-// ask may propose its test command or its base (runask_depot.go).
+// one without a test command is anyone's; naming a test command on a new
+// depot, and changing what one holds, is the operator's, and a run
+// ask may propose a held depot's test command or its base (runask_depot.go).
 package store
 
 import (
@@ -49,8 +50,9 @@ func (r *Depot) IsDir() bool { return r.Kind == DepotDir }
 // holds: what tests a depot must not change unseen. A depot given no kind is
 // a git depot. Changing an existing depot's path or kind is the operator's
 // alone; its test command or base is the operator's, and a run ask may
-// propose it. Adding a depot, and re-adding one with all four unchanged,
-// are anyone's. From a session's or a crew member's pane the write is
+// propose it. Naming a test command on a depot the yard has not is the
+// operator's alone; adding one without a test command, and re-adding one
+// with all four unchanged, are anyone's. From a session's or a crew member's pane the write is
 // recorded as that session's actor or that crew member, whatever actor says;
 // from anywhere else, as given (paneAuthor).
 func (s *Store) PutDepot(ctx context.Context, r Depot, actor string) error {
@@ -90,7 +92,8 @@ func (s *Store) PutDepot(ctx context.Context, r Depot, actor string) error {
 // approval: by is then the ask it was approved on, which the event
 // carries. Changing the test command or the base is the operator's, and
 // a run ask may propose it; the path and the kind are the operator's
-// alone.
+// alone, as is a test command named on a depot the yard has not: no card
+// names a depot that is not there, so that test command is typed.
 func (w *wtx) putDepot(ctx context.Context, r Depot, actor string, by *approvedOn) error {
 	var was Depot
 	had, err := get(w.Tx, bDepots, r.Name, &was)
@@ -117,6 +120,11 @@ func (w *wtx) putDepot(ctx context.Context, r Depot, actor string, by *approvedO
 			if err := w.may(ctx, actor, ActChangeDepotKind, Object{Kind: KindDepot, Name: r.Name}); err != nil {
 				return err
 			}
+		}
+	}
+	if !had && r.Test != "" {
+		if err := w.may(ctx, actor, ActChangeDepotTest, Object{Kind: KindDepot, Name: r.Name, Ask: Alone}); err != nil {
+			return err
 		}
 	}
 	if err := put(w.Tx, bDepots, r.Name, r); err != nil {

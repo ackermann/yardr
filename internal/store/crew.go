@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -411,7 +410,8 @@ var grants = []struct {
 // not before (grants) is the operator's to save (operatorOnly): a crew
 // member's session granting it to itself, or to another, would make the
 // setting mean nothing. One that keeps or narrows what was allowed is
-// anyone's, as the rest of it is.
+// anyone's, as the rest of it is; env_file, env_command and the directory
+// are the operator's alone besides (checkCrewDefine).
 // crewGrantsAdded answers what want lets its crew member do outside the
 // yard that have does not, a phrase for each grant that grew, in the
 // order PutCrew refuses them: "let <name> open threads in ...".
@@ -503,6 +503,9 @@ func (w *wtx) putCrew(ctx context.Context, def CrewMember, actor string, by *app
 	if err := w.checkCrewSessionSettings(ctx, def.Name, r.Config, def.Config, actor); err != nil {
 		return nil, err
 	}
+	if err := w.checkCrewDefine(ctx, r, def, ok, actor); err != nil {
+		return nil, err
+	}
 	if err := checkCrewUsers(w.Tx, &def); err != nil {
 		return nil, err
 	}
@@ -536,39 +539,6 @@ func (w *wtx) putCrew(ctx context.Context, def CrewMember, actor string, by *app
 		return nil, err
 	}
 	return &r, nil
-}
-
-// checkCrewSessionSettings keeps the conversation logins and the serving
-// list in the operator's hands: they decide which user's login the daemon
-// starts. Other crew settings keep PutCrew's existing actor rules.
-func (w *wtx) checkCrewSessionSettings(ctx context.Context, name string, before, after map[string]any, actor string) error {
-	keys := map[string]bool{}
-	for key := range before {
-		if key == CrewForKey || IsEnvForKey(key) {
-			keys[key] = true
-		}
-	}
-	for key := range after {
-		if key == CrewForKey || IsEnvForKey(key) {
-			keys[key] = true
-		}
-	}
-	ordered := make([]string, 0, len(keys))
-	for key := range keys {
-		ordered = append(ordered, key)
-	}
-	slices.Sort(ordered)
-	for _, key := range ordered {
-		was, had := before[key]
-		is, set := after[key]
-		if had == set && reflect.DeepEqual(was, is) {
-			continue
-		}
-		if err := w.may(ctx, actor, ActChangeCrew, Object{Kind: KindCrew, Name: name, Does: fmt.Sprintf("change %s on crew member %s", key, name)}); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // checkCrewUsers refuses a crew member whose for= or env_for_<user> names

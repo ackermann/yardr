@@ -23,7 +23,7 @@ func startingYard(t *testing.T) (store.API, *store.Bead) {
 		t.Fatal(err)
 	}
 	putFlow(t, api, "yard", "", outcomeFlow)
-	if err := api.PutGroup(ctx, store.Group{Name: "builders", Runner: "exec", Config: map[string]any{"cmd": "true"}}, "me"); err != nil {
+	if err := api.PutGroup(ctx, store.Group{Name: "builders", Runner: "exec", Config: map[string]any{"cmd": "true"}}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	b, err := api.CreateBead(ctx, store.NewBead{Title: "a", Depot: "yard", Stage: "new"}, "jo")

@@ -83,7 +83,7 @@ func newSidingYard(t *testing.T, fold int, after string) *sidingYard {
 	must(s.SetFlowPointer(ctx, "odd", "", "sidingnone.f", "me"))
 	must(s.PutGroup(ctx, Group{Name: "siding", Runner: "manual", Members: []string{"mckean"},
 		Config: map[string]any{"fold": fold, "fold_after": after}}, "me"))
-	must(s.PutGroup(ctx, Group{Name: "script", Runner: "exec", Limit: 9, Config: map[string]any{"cmd": "true"}}, "me"))
+	must(s.PutGroup(ctx, Group{Name: "script", Runner: "exec", Limit: 9, Config: map[string]any{"cmd": "true"}}, "mckean"))
 	_, err = s.AddRoute(ctx, Route{Stage: "siding", Group: "siding"}, "me")
 	must(err)
 	return y

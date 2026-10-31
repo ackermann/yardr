@@ -934,8 +934,8 @@ func declareSlackSource(ctx context.Context, api store.API) error {
 
 // Changing an existing depot's path is the operator's alone; its test
 // command or base is the operator's, and a run ask may propose it.
-// Adding a depot, and re-adding one with all three unchanged, are
-// anyone's, recorded as the pane's actor from a pane.
+// Adding a depot without a test command, and re-adding one with its
+// values unchanged, are anyone's, recorded as the pane's actor from a pane.
 func TestPutDepotPathTestBaseChangesAreTheOperators(t *testing.T) {
 	t.Parallel()
 	depotYard := func(t *testing.T) (store.API, *store.Store, context.Context) {
@@ -994,6 +994,26 @@ func TestPutDepotPathTestBaseChangesAreTheOperators(t *testing.T) {
 	}
 	if err := api.PutDepot(ctx, store.Depot{Name: "yard", Path: "/srv/yard", Base: "origin/main"}, "yardmaster"); err != nil {
 		t.Fatalf("re-adding a depot unchanged as yardmaster: %v", err)
+	}
+	// Naming a test command on a depot the yard has not is the
+	// operator's alone: no card names a depot that is not there. The
+	// operator names one, and a depot without one stays anyone's to add.
+	api, own, ctx = depotYard(t)
+	withTest := store.Depot{Name: "fresh", Path: "/srv/fresh", Base: "origin/main", Test: "make test"}
+	if err := api.PutDepot(ctx, withTest, "yardmaster"); err == nil ||
+		err.Error() != "only the operator (jo) may change a depot's test command; this is yardmaster" {
+		t.Fatalf("adding a depot with a test command as yardmaster = %v", err)
+	}
+	if err := own.PutDepot(ctx, withTest, "yardmaster"); err == nil {
+		t.Fatalf("adding a depot with a test command as yardmaster through own = nil")
+	} else if ask, ok := store.IsOperatorOnly(err); !ok || ask != store.Alone {
+		t.Fatalf("adding a depot with a test command as yardmaster = %v (mark %v, %v), want an operator-only refusal marked alone", err, ask, ok)
+	}
+	if _, err := api.GetDepot(ctx, "fresh"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("a refused depot was stored: %v", err)
+	}
+	if err := api.PutDepot(ctx, withTest, "jo"); err != nil {
+		t.Fatalf("adding a depot with a test command as the operator: %v", err)
 	}
 	// The operator's own changes pass.
 	for does, r := range changes {
@@ -1174,6 +1194,202 @@ func TestPutDepotKindChangeIsTheOperators(t *testing.T) {
 	if err := s.PutDepot(store.WithCaller(ctx, os.Getpid()), flip, "jo"); err == nil ||
 		err.Error() != "only the operator (jo) may "+does+"; this is "+actor {
 		t.Fatalf("%s to %s from a bead session pane as the operator = %v", "notes", flip.Kind, err)
+	}
+}
+
+// The settings of a group that name what sessions run, and where, are
+// the operator's alone, as a crew member's env_file and env_command are:
+// a crew member is refused each by name and from its pane, the operator
+// is allowed each, and everything else of a group or a crew member stays
+// the crew's to change, an unchanged re-put included.
+func TestGroupAndCrewDefineAreTheOperators(t *testing.T) {
+	t.Parallel()
+	api, own := operatorYard(t)
+	ctx := context.Background()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(api.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Config: map[string]any{"kind": "claude", "model": "opus"}}, "jo"))
+	must(api.PutGroup(ctx, store.Group{Name: "tick", Runner: "exec", Config: map[string]any{"cmd": "true"}}, "jo"))
+	must(api.PutGroup(ctx, store.Group{Name: "gate", Runner: "manual"}, "jo"))
+
+	refused := func(name string, write func(store.API, string) error, does string) {
+		t.Helper()
+		if err := write(api, "clerk"); err == nil ||
+			err.Error() != "only the operator (jo) may "+does+"; this is clerk" {
+			t.Errorf("%s as clerk = %v, want the operator refusal", name, err)
+		}
+		if err := write(own, "clerk"); err == nil {
+			t.Errorf("%s as clerk through own = nil", name)
+		} else if ask, ok := store.IsOperatorOnly(err); !ok || ask != store.Alone {
+			t.Errorf("%s as clerk = %v (mark %v, %v), want an operator-only refusal marked alone", name, err, ask, ok)
+		}
+	}
+	setGroup := func(name string, e store.GroupEdit) func(store.API, string) error {
+		return func(st store.API, actor string) error {
+			_, err := st.SetGroup(ctx, name, e, actor)
+			return err
+		}
+	}
+	crewWith := func(mutate func(*store.CrewMember)) func(store.API, string) error {
+		return func(st store.API, actor string) error {
+			r, err := st.GetCrew(ctx, "clerk")
+			if err != nil {
+				return err
+			}
+			mutate(r)
+			_, err = st.PutCrew(ctx, *r, actor)
+			return err
+		}
+	}
+
+	// A group's cmd, dir and env_file, each changed on its own.
+	refused("change cmd on group tick", setGroup("tick", store.GroupEdit{Set: map[string]any{"cmd": "false"}}), "change cmd on group tick")
+	if g, _ := api.GetGroup(ctx, "tick"); g.Config["cmd"] != "true" {
+		t.Fatalf("a refused cmd change changed: %+v", g)
+	}
+	must(func() error {
+		_, err := api.SetGroup(ctx, "tick", store.GroupEdit{Set: map[string]any{"cmd": "false"}}, "jo")
+		return err
+	}())
+	refused("change dir on group tick", setGroup("tick", store.GroupEdit{Set: map[string]any{"dir": "/srv"}}), "change dir on group tick")
+	must(func() error {
+		_, err := api.SetGroup(ctx, "tick", store.GroupEdit{Set: map[string]any{"dir": "/srv"}}, "jo")
+		return err
+	}())
+	refused("change env_file on group builders", setGroup("builders", store.GroupEdit{Set: map[string]any{"env_file": "/tmp/builders.env"}}), "change env_file on group builders")
+	must(func() error {
+		_, err := api.SetGroup(ctx, "builders", store.GroupEdit{Set: map[string]any{"env_file": "/tmp/builders.env"}}, "jo")
+		return err
+	}())
+	// A new exec group, and a runner change to exec, name what runs too.
+	refused("add an exec group", func(st store.API, actor string) error {
+		return st.PutGroup(ctx, store.Group{Name: "script", Runner: "exec", Config: map[string]any{"cmd": "true"}}, actor)
+	}, "change cmd on group script")
+	must(api.PutGroup(ctx, store.Group{Name: "script", Runner: "exec", Config: map[string]any{"cmd": "true"}}, "jo"))
+	refused("change runner on group gate", func(st store.API, actor string) error {
+		return st.PutGroup(ctx, store.Group{Name: "gate", Runner: "exec"}, actor)
+	}, "change runner on group gate")
+	must(api.PutGroup(ctx, store.Group{Name: "gate", Runner: "exec", Config: map[string]any{"cmd": "true"}}, "jo"))
+	// A crew member's env_file and env_command, each on its own.
+	refused("change env_file on crew member clerk", crewWith(func(r *store.CrewMember) {
+		r.Config = map[string]any{"env_file": "/tmp/clerk.env"}
+	}), "change env_file on crew member clerk")
+	must(func() error {
+		err := crewWith(func(r *store.CrewMember) { r.Config = map[string]any{"env_file": "/tmp/clerk.env"} })(api, "jo")
+		return err
+	}())
+	refused("change env_command on crew member clerk", crewWith(func(r *store.CrewMember) {
+		r.Config["env_command"] = "vault read clerk"
+	}), "change env_command on crew member clerk")
+	must(func() error {
+		err := crewWith(func(r *store.CrewMember) { r.Config["env_command"] = "vault read clerk" })(api, "jo")
+		return err
+	}())
+	// A crew member's directory, once the yard has the member.
+	refused("change dir on crew member clerk", crewWith(func(r *store.CrewMember) {
+		r.Dir = "/tmp/clerk"
+	}), "change dir on crew member clerk")
+	must(crewWith(func(r *store.CrewMember) { r.Dir = "/tmp/clerk" })(api, "jo"))
+	// Everything else stays the crew's: another setting of a group, a crew
+	// member's model, and a re-put that changes nothing.
+	if _, err := api.SetGroup(ctx, "builders", store.GroupEdit{Set: map[string]any{"model": "sonnet"}}, "clerk"); err != nil {
+		t.Fatalf("change model on group builders as clerk: %v", err)
+	}
+	must(func() error {
+		err := crewWith(func(r *store.CrewMember) { r.Config["model"] = "sonnet" })(api, "clerk")
+		return err
+	}())
+	if g, _ := api.GetGroup(ctx, "tick"); g != nil {
+		if err := api.PutGroup(ctx, *g, "clerk"); err != nil {
+			t.Fatalf("re-put group tick unchanged as clerk: %v", err)
+		}
+	}
+	if r, _ := api.GetCrew(ctx, "clerk"); r != nil {
+		if _, err := api.PutCrew(ctx, *r, "clerk"); err != nil {
+			t.Fatalf("re-put crew member clerk unchanged as clerk: %v", err)
+		}
+	}
+	// From the crew member's pane the same settings are refused even as
+	// the operator, and another setting is the pane's member's.
+	me := os.Getpid()
+	handle := map[string]any{"shell_pid": me}
+	if ps, err := peer.Describe(me); err == nil {
+		handle["shell_start"] = ps.Start
+	}
+	must(api.CrewStarted(ctx, "clerk", handle))
+	pane := store.WithCaller(ctx, me)
+	paneRefused := func(name, does string, write func() error) {
+		t.Helper()
+		if err := write(); err == nil || err.Error() != "only the operator (jo) may "+does+"; this is clerk" {
+			t.Errorf("%s from clerk's pane as the operator = %v", name, err)
+		}
+	}
+	paneRefused("change cmd on group tick", "change cmd on group tick", func() error {
+		_, err := api.SetGroup(pane, "tick", store.GroupEdit{Set: map[string]any{"cmd": "true"}}, "jo")
+		return err
+	})
+	paneRefused("change dir on group tick", "change dir on group tick", func() error {
+		_, err := api.SetGroup(pane, "tick", store.GroupEdit{Set: map[string]any{"dir": "/tmp"}}, "jo")
+		return err
+	})
+	paneRefused("change env_file on group builders", "change env_file on group builders", func() error {
+		_, err := api.SetGroup(pane, "builders", store.GroupEdit{Set: map[string]any{"env_file": "/tmp/pane-builders.env"}}, "jo")
+		return err
+	})
+	paneRefused("change runner to exec", "change runner on group approvals", func() error {
+		return api.PutGroup(pane, store.Group{Name: "approvals", Runner: "exec"}, "jo")
+	})
+	// Keeping the exec group's config unchanged isolates the runner check.
+	paneRefused("change runner from exec", "change runner on group script", func() error {
+		return api.PutGroup(pane, store.Group{Name: "script", Runner: "herdr", Config: map[string]any{"cmd": "true"}}, "jo")
+	})
+	if err := own.PutGroup(ctx, store.Group{Name: "script", Runner: "herdr", Config: map[string]any{"cmd": "true"}}, "jo"); err == nil {
+		t.Fatal("changing runner from exec as the operator passed config validation")
+	} else if _, ok := store.IsOperatorOnly(err); ok {
+		t.Fatalf("changing runner from exec as the operator was refused: %v", err)
+	}
+	newDepot := store.Depot{Name: "fresh", Path: "/srv/fresh", Base: "origin/main", Test: "make test"}
+	paneRefused("add a depot with a test command", "change a depot's test command", func() error {
+		return api.PutDepot(pane, newDepot, "jo")
+	})
+	// The operator's own add goes through own: over the socket every
+	// call from this process is clerk's pane, now that it is on record.
+	if err := own.PutDepot(ctx, newDepot, "jo"); err != nil {
+		t.Fatalf("adding a depot with a test command as the operator: %v", err)
+	}
+	crewPaneSet := func(key, value string) error {
+		r, err := api.GetCrew(ctx, "clerk")
+		if err != nil {
+			return err
+		}
+		r.Config[key] = value
+		_, err = api.PutCrew(pane, *r, "jo")
+		return err
+	}
+	paneRefused("change env_file on crew member clerk", "change env_file on crew member clerk", func() error {
+		return crewPaneSet("env_file", "/tmp/pane-clerk.env")
+	})
+	paneRefused("change env_command on crew member clerk", "change env_command on crew member clerk", func() error {
+		return crewPaneSet("env_command", "vault read changed")
+	})
+	paneRefused("change dir on crew member clerk", "change dir on crew member clerk", func() error {
+		r, err := api.GetCrew(ctx, "clerk")
+		if err != nil {
+			return err
+		}
+		r.Dir = "/tmp/pane-clerk"
+		_, err = api.PutCrew(pane, *r, "jo")
+		return err
+	})
+	if _, err := api.SetGroup(pane, "builders", store.GroupEdit{Set: map[string]any{"model": "opus"}}, "jo"); err != nil {
+		t.Fatalf("change model on group builders from clerk's pane as the operator: %v", err)
+	}
+	if g, _ := api.GetGroup(ctx, "builders"); g.Config["model"] != "opus" {
+		t.Fatalf("model from the pane = %+v", g)
 	}
 }
 

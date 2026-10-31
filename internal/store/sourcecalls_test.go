@@ -104,7 +104,7 @@ func crmYard(t *testing.T, s store.API) context.Context {
 	}
 	putFlow(t, s, "yard", "", outcomeFlow)
 	for _, g := range []string{"builders", "reviewers"} {
-		if err := s.PutGroup(ctx, store.Group{Name: g, Runner: "exec", Config: map[string]any{"cmd": "true"}, Limit: 5}, "me"); err != nil {
+		if err := s.PutGroup(ctx, store.Group{Name: g, Runner: "exec", Config: map[string]any{"cmd": "true"}, Limit: 5}, "jo"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -745,7 +745,7 @@ func TestSourceCallFromPeerRefused(t *testing.T) {
 	if _, err := y.api.PutSource(y.ctx, "crm.yaml", strings.Replace(crmCalls, "BASE", crm(t).URL, 1), "jo"); err != nil {
 		t.Fatal(err)
 	}
-	if err := y.api.PutGroup(y.ctx, store.Group{Name: "builders", Runner: "exec", Config: map[string]any{"cmd": "true"}}, "me"); err != nil {
+	if err := y.api.PutGroup(y.ctx, store.Group{Name: "builders", Runner: "exec", Config: map[string]any{"cmd": "true"}}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := y.api.GrantSource(y.ctx, "crm", store.GrantRead, store.Grantee{Group: "builders"}, "", "jo"); err != nil {
@@ -819,7 +819,7 @@ func updateYard(t *testing.T, s store.API) (context.Context, *standin.Server) {
 	if _, err := s.SetSource(ctx, "crm", store.SourceEnvFile, env, "jo"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.PutGroup(ctx, store.Group{Name: "support", Runner: "exec", Config: map[string]any{"cmd": "true"}, Limit: 5}, "me"); err != nil {
+	if err := s.PutGroup(ctx, store.Group{Name: "support", Runner: "exec", Config: map[string]any{"cmd": "true"}, Limit: 5}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	return ctx, crm

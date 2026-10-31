@@ -444,7 +444,10 @@ Anything else that is the operator's is still typed by you: a hook's
 replacement and its `--map` and `--as`, a source's `env_file`,
 `mint_command` and `base`, taking a
 peer's identity back (`peer identity --rm`), a user's `notify` and `env_file`,
-`group add` with `--runner exec` or `cmd=`, `group set` with `cmd=`, the
+`group add` that changes a runner to or from `exec`, or sets `cmd=`, `dir=` or
+`env_file=`, `group set` with `cmd=`, `dir=` or `env_file=` (or `--unset` of
+one), a crew member's `env_file` and `env_command`, a test command on a depot
+the yard has not, the
 `operator` setting and the settings of where the yard reads and serves from,
 and every other command. A crew member's own `source add` for a name the
 yard has is refused: a replacement is proposed as a card, or typed by you.
@@ -515,7 +518,12 @@ change's own event names the device. It is refused from an agent's pane
 whatever name the call gives, so a crew member cannot approve what it
 asked, and it does not
 cross a link: a run ask is for the operator of the yard that asks, and no
-copy of it goes to a linked yard. A command runs once for one ask. The
+copy of it goes to a linked yard. The pane refusal, like the socket's
+classes, is a line against mistakes, not a wall: every agent runs as the
+one OS user the yard runs as, the pane is told by the process tree, and a
+process an agent starts outside its pane's tree is taken for a person at
+a terminal. It stops an agent that calls the yard as it was given to, not
+one that sets out to escape. A command runs once for one ask. The
 answer on the bead holds the command as it ran and what it printed, the
 change's own event (`yardr events`) names the ask it was approved on, and
 the asker's inbox line reads `mckean approved ask 2710 on yardr-k3vd, and
@@ -626,7 +634,8 @@ gave GOOGLE_ACCOUNT`.
 
 Approving is the operator's as a run approval is: in a terminal on the
 yard's machine, or from a device of yours, never from an agent's pane
-and never over a link. A setup runs once for one ask. When the pack's
+(the pane check there is a line against mistakes, not a wall, as with a
+run approval) and never over a link. A setup runs once for one ask. When the pack's
 bytes or presets, a source, the account's owed-ness, a candidate or a
 grantee changed between the asking and the approval, nothing runs and
 the yard says what changed; the ask is declined and asked again. A new

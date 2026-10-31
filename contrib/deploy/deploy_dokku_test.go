@@ -401,7 +401,7 @@ func (y *yard) deploy(id string) {
 	}
 	// The bead is the group's, as the dispatcher would have claimed it: a
 	// move from a session that does not own it is refused as stale.
-	if err := st.PutGroup(ctx, store.Group{Name: "deploy", Runner: "exec", Config: cfg}, "me"); err != nil {
+	if err := st.PutGroup(ctx, store.Group{Name: "deploy", Runner: "exec", Config: cfg}, "test"); err != nil {
 		y.t.Fatal(err)
 	}
 	// The claim is the dispatcher's to make, so the test holds the

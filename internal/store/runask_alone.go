@@ -51,7 +51,8 @@ type aloneCommand struct {
 // the rows of the list. Each check is the store function's own, so the
 // refusal is the yard's and cannot drift from it; the two that consult
 // none (pack apply, group set with a command) say what the command does
-// instead, and name where their check will be.
+// instead. Group set's words name the same settings the store holds to
+// the operator in checkGroupDefine.
 var aloneList = []aloneCommand{{
 	words: []string{"source", "add"},
 	parse: aloneArgs("yardr source add <file>", 1, 1),
@@ -158,12 +159,12 @@ var aloneList = []aloneCommand{{
 				return fmt.Errorf("group add with runner exec defines what the yard runs: it is the operator's alone, typed in a terminal and never proposed as a run ask")
 			case word == "--set" && i+1 < len(argv):
 				i++
-				if key, _, ok := strings.Cut(argv[i], "="); ok && key == "cmd" {
-					return fmt.Errorf("group add with cmd defines what the yard runs: it is the operator's alone, typed in a terminal and never proposed as a run ask")
+				if key, _, ok := strings.Cut(argv[i], "="); ok && (key == "cmd" || key == "dir" || key == "env_file") {
+					return fmt.Errorf("group add with %s defines what the yard runs: it is the operator's alone, typed in a terminal and never proposed as a run ask", key)
 				}
 			case strings.HasPrefix(word, "--set="):
-				if key, _, ok := strings.Cut(strings.TrimPrefix(word, "--set="), "="); ok && key == "cmd" {
-					return fmt.Errorf("group add with cmd defines what the yard runs: it is the operator's alone, typed in a terminal and never proposed as a run ask")
+				if key, _, ok := strings.Cut(strings.TrimPrefix(word, "--set="), "="); ok && (key == "cmd" || key == "dir" || key == "env_file") {
+					return fmt.Errorf("group add with %s defines what the yard runs: it is the operator's alone, typed in a terminal and never proposed as a run ask", key)
 				}
 			}
 		}
@@ -173,19 +174,18 @@ var aloneList = []aloneCommand{{
 	words: []string{"group", "set"},
 	parse: aloneArgs("yardr group set <name> [key=value ...]", 0, -1),
 	check: func(ctx context.Context, w *wtx, argv []string, actor string) error {
-		// No check of the store's yet: group set is the asker's to run
-		// whole, and the gates on it are left out (yardr-bbb3, B).
-		// What defines what the yard runs is refused as alone
-		// meanwhile, in these words and no check's.
+		// The store holds the same settings to the operator in
+		// checkGroupDefine; a proposal names them in words, before any
+		// stored group is read, and is refused in these words.
 		for i, word := range argv[2:] {
-			if word == "cmd" && i > 0 && argv[1+i] == "--unset" {
-				return fmt.Errorf("group set with --unset cmd defines what the yard runs: it is the operator's alone, typed in a terminal and never proposed as a run ask")
+			if (word == "cmd" || word == "dir" || word == "env_file") && i > 0 && argv[1+i] == "--unset" {
+				return fmt.Errorf("group set with --unset %s defines what the yard runs: it is the operator's alone, typed in a terminal and never proposed as a run ask", word)
 			}
 			key, value, ok := strings.Cut(word, "=")
 			if !ok {
 				continue
 			}
-			if key == "cmd" || key == "--unset" && value == "cmd" || key == "runner" && value == "exec" {
+			if key == "cmd" || key == "dir" || key == "env_file" || key == "--unset" && (value == "cmd" || value == "dir" || value == "env_file") || key == "runner" && value == "exec" {
 				return fmt.Errorf("group set with %s defines what the yard runs: it is the operator's alone, typed in a terminal and never proposed as a run ask", word)
 			}
 		}

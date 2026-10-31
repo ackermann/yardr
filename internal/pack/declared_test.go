@@ -541,6 +541,7 @@ func TestDeclaredSourceRefusedLeavesTheRestOfTheImport(t *testing.T) {
 	p := load(t, writePack(t, declaredFiles(smallDeclared, pushover)))
 
 	plan := build(t, st, p, o)
+	seedGroups(t, st, plan)
 	a := pack.Answers{}
 	for _, q := range plan.Questions {
 		a[q.ID] = map[string]string{"kind": "claude", "dir": t.TempDir()}[q.Field]

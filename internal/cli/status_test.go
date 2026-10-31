@@ -329,6 +329,9 @@ func TestStatusRunningYard(t *testing.T) {
 	}
 
 	depot := dirDepot(t, st)
+	if err := st.PutGroup(ctx, store.Group{Name: "web/assembly", Runner: "exec", Config: map[string]any{"cmd": "true"}, Limit: 1}, "Jo"); err != nil {
+		t.Fatal(err)
+	}
 	// Two beads an agent works, one a script works, three that two manual
 	// groups hold for a person, and one held.
 	claimed := workYard(t, st, depot.Name, []store.Group{

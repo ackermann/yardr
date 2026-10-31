@@ -434,9 +434,10 @@ func TestOpenThreadsIsTheOperatorsToSet(t *testing.T) {
 	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "scout", Runner: "herdr"}, "jo"); err != nil {
 		t.Fatal(err)
 	}
+	crewDir := t.TempDir()
 	add := func(name string, sets ...string) error {
 		t.Helper()
-		args := []string{"add", name, "--replace", "--dir", t.TempDir()}
+		args := []string{"add", name, "--replace", "--dir", crewDir}
 		for _, s := range sets {
 			args = append(args, "--set", s)
 		}

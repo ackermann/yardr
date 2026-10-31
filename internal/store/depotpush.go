@@ -861,7 +861,7 @@ func (s *Store) SetAssemblyCmd(ctx context.Context, depot string, off bool, acto
 		}
 		g.Config["cmd"] = next
 		changed = true
-		return putGroup(w, &g, actor, false)
+		return putGroup(ctx, w, &g, actor, false)
 	})
 	return changed, err
 }

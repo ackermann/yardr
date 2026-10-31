@@ -138,6 +138,21 @@ func apply(t *testing.T, st store.API, p *pack.Plan, answers map[string]string) 
 	return applyAs(t, st, p, answers, "me")
 }
 
+// seedGroups writes a plan's groups as the operator me, so an import run
+// as a crew member below leaves what names what runs as it is and reaches
+// the behaviour under test: a group's cmd is the operator's to change, an
+// import by a crew member is not.
+func seedGroups(t *testing.T, st store.API, p *pack.Plan) {
+	t.Helper()
+	for _, o := range p.Objects {
+		if o.Kind == "group" && o.Group != nil {
+			if err := st.PutGroup(ctx, *o.Group, "me"); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+}
+
 // applyAs is apply as actor.
 func applyAs(t *testing.T, st store.API, p *pack.Plan, answers map[string]string, actor string) *pack.Result {
 	t.Helper()

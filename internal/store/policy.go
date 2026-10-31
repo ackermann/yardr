@@ -36,6 +36,7 @@ const (
 	ActChangeOriginator   Action = "change a bead's originator"
 	ActGrantCrew          Action = "grant a crew member a call" // Object.Does names the grant
 	ActChangeCrew         Action = "change a crew member"       // Object.Does names the key
+	ActChangeGroup        Action = "change a group"             // Object.Does names the key
 	ActAddDevice          Action = "add a device"
 	ActEndDevicePairing   Action = "end a device's pairing"
 	ActChangeDepotPath    Action = "change a depot's path"
@@ -95,8 +96,7 @@ const (
 	ActRemoveGroup Action = "remove a group"
 	ActRemoveRoute Action = "remove a route"
 
-	// The operator's, and never an agent's pane (maySource): what decides
-	// where a credential of the yard is sent.
+	// The operator's, and never an agent's pane (maySource): where a credential goes.
 	ActAddSource         Action = "adding a source"
 	ActSetSourceKey      Action = "setting a source's credential"
 	ActRemoveSource      Action = "removing a source"
@@ -271,7 +271,7 @@ var coreRules = map[Action]rule{}
 
 func init() {
 	for _, act := range []Action{
-		ActChangeOriginator, ActGrantCrew, ActChangeCrew, ActEndDevicePairing,
+		ActChangeOriginator, ActGrantCrew, ActChangeCrew, ActChangeGroup, ActEndDevicePairing,
 		ActChangeDepotPath, ActChangeDepotTest, ActChangeDepotBase, ActChangeDepotKind, ActRemoveDepot,
 		ActMoveLinks, ActAddHook, ActReplaceHook, ActChangeHookSource, ActChangeHookUnknown, ActRemoveHook,
 		ActPair, ActMapPeerIdentity, ActUnmapPeerIdentity, ActAddPeer, ActRemovePeer, ActExposeToPeer,

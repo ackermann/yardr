@@ -871,7 +871,7 @@ func TestFlowsWorkerAndStageEntry(t *testing.T) {
 	if _, err := y.SetGroup(ctx, "builders", store.GroupEdit{Set: map[string]any{"kind": "claude", "model": "opus"}}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if err := y.PutGroup(ctx, store.Group{Name: "scripts", Runner: "exec", Config: map[string]any{"cmd": "true"}, Limit: 10}, "me"); err != nil {
+	if err := y.PutGroup(ctx, store.Group{Name: "scripts", Runner: "exec", Config: map[string]any{"cmd": "true"}, Limit: 10}, "op"); err != nil {
 		t.Fatal(err)
 	}
 	y.flowDepot(t, "shop", "code", "new", "review")

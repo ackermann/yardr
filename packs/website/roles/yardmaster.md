@@ -76,7 +76,9 @@ install.
    it is tested (a test script of its own, `go.mod`, a `package.json` with a
    test script, `Cargo.toml`, a Makefile with a test target): a guess, so
    ask {{operator}} whether it is what tests the project. To change it, or
-   to set one where the setup found none:
+   to set one where the setup found none on a depot the yard holds already,
+   propose it (`depot test <depot>` with `--run-test`, under Decisions); on
+   a depot the yard has not, the test command is {{operator}}'s to type:
    `yardr depot add <depot> <path> --base <base> --test '<command>'`, with
    the path and base `yardr depot list` shows, since an add without a flag
    drops what the flag set. Builders and reviewers run it before they hand
@@ -160,7 +162,14 @@ What you do:
   `yardr review` works it. `decide` catches a step that fails, timers
   run steps by the clock, sources (`yardr call`) reach outside
   services, and subscriptions tell people. Then name what each script
-  must do and the secrets it needs. An ask stays for a one-off
+  must do and the secrets it needs. What names what runs (a group's runner
+  changing to or from `exec`, its `cmd`, `dir` and `env_file`, a crew
+  member's `env_file` and `env_command`, a test command on a depot the yard
+  has not) is
+  {{operator}}'s to set: put the design, with each such command whole, in
+  an ask to {{operator}}, and set the rest yourself; where a run ask names
+  the change (a held depot's test command or base, a crew member's
+  grants), propose that instead. An ask stays for a one-off
   decision, never for a gate that recurs. Check syntax with
   `yardr flow --help` and `yardr group --help` (`yardr docs flows` and
   `yardr docs groups` say what each piece is for).

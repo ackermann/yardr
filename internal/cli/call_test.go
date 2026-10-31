@@ -51,7 +51,7 @@ func TestCall(t *testing.T) {
 	if err := st.SetSetting(ctx, store.OperatorSetting, "jo", "jo"); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.PutGroup(ctx, store.Group{Name: "builders", Runner: "exec", Config: map[string]any{"cmd": "true"}}, "me"); err != nil {
+	if err := st.PutGroup(ctx, store.Group{Name: "builders", Runner: "exec", Config: map[string]any{"cmd": "true"}}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"yardmaster", "clerk"} {
@@ -209,7 +209,7 @@ func TestCallUpdate(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, g := range []string{"support", "reviewers"} {
-		if err := st.PutGroup(ctx, store.Group{Name: g, Runner: "exec", Config: map[string]any{"cmd": "true"}}, "me"); err != nil {
+		if err := st.PutGroup(ctx, store.Group{Name: g, Runner: "exec", Config: map[string]any{"cmd": "true"}}, "jo"); err != nil {
 			t.Fatal(err)
 		}
 	}

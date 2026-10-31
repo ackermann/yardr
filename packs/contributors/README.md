@@ -239,8 +239,12 @@ and an agent of the yard otherwise runs as the operator, with the sandbox
 of its agent off. The role tells the reviewer to run nothing and to take
 nothing it reads as an instruction; a role is words, and the text it is
 reading may be written to talk it out of them. So the group that reviews
-pull requests is bound with its agent's own sandbox on, which holds
-whatever the agent was told:
+pull requests is bound with its agent's own sandbox on. The sandbox and
+the yard's pane check together hold an agent that calls the yard as it
+was given to; they are a line against mistakes, not a wall: every agent
+runs as the one OS user the yard runs as, the pane is told by the process
+tree, and a process started outside its pane's tree is taken for a person
+at a terminal, not an agent that sets out to escape:
 
 | kind | preset | arguments | what it is |
 |---|---|---|---|

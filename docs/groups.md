@@ -63,6 +63,13 @@ key: it runs as it did, a write that leaves the key as it is goes through,
 and [`yardr doctor`](doctor.md#the-yard) notes it with how it is removed
 (`--unset <key>`).
 
+The `cmd`, `dir` and `env_file` settings, and a change of runner to or
+from `exec` by `group add` whole, are the operator's alone: the store
+refuses each from anyone else, a crew member's pane included, and a run
+ask never proposes one. A crew member that needs one asks the operator
+for it, with the command whole in the ask; every other setting is
+changed as above.
+
 The runner is not changed this way, since another runner reads another
 config: that is `group add`. `yardr group show <name>` prints one group: its
 runner and limit, a setting to a line as `group set` takes it back, the

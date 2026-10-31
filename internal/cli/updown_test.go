@@ -321,7 +321,7 @@ func downLeavesACountDueForTheSessionsItStops(t *testing.T) {
 		return b.ID
 	}
 	kept := running("kept", "keepers", map[string]any{"agent": "kept", "tab": "kept:t1", "worktree": "/w/kept"})
-	if err := st.PutGroup(ctx, store.Group{Name: "sh", Runner: "exec", Limit: 9, Config: map[string]any{"cmd": "true"}}, "me"); err != nil {
+	if err := st.PutGroup(ctx, store.Group{Name: "sh", Runner: "exec", Limit: 9, Config: map[string]any{"cmd": "true"}}, "Jo"); err != nil {
 		t.Fatal(err)
 	}
 	execBead := running("exec", "sh", map[string]any{"pid": 4242})

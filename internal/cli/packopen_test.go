@@ -71,6 +71,40 @@ func openApp(t *testing.T, sources ...string) *app {
 	return a
 }
 
+// seedPackGroups writes the pack's groups that name what runs (its exec
+// groups) as the operator me, so an import run as a crew member below
+// leaves those as they are and reaches the behaviour under test: a
+// group's cmd is the operator's to change, an import by a crew member
+// is not.
+func seedPackGroups(t *testing.T, a *app, dir string) {
+	t.Helper()
+	ctx := context.Background()
+	p, err := pack.LoadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := pack.Build(ctx, a.st, p, pack.Options{Depot: "web", Home: a.cfg.Home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, o := range plan.Objects {
+		if o.Kind != "group" || o.Group == nil {
+			continue
+		}
+		seeded := o.Group.Runner == "exec"
+		for _, key := range []string{"cmd", "dir", "env_file"} {
+			if _, ok := o.Group.Config[key]; ok {
+				seeded = true
+			}
+		}
+		if seeded {
+			if err := a.st.PutGroup(ctx, *o.Group, "me"); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+}
+
 // linearPackDecl is the linear source as packs/linear declares it: a
 // yard with a linear hook has applied the pack.
 const linearPackDecl = `name: linear
@@ -450,6 +484,7 @@ func TestPackApplyOnlyTheOperatorGrants(t *testing.T) {
 	a := openApp(t, "linear")
 	ctx := context.Background()
 	dir := openPack(t, "linear")
+	seedPackGroups(t, a, dir)
 	a.actor = "boss"
 	args := append([]string{"apply", dir, "--depot", "web", "--yes"}, starterFlags...)
 	const says = "crew member boss was not let open threads in linear: only the operator (me) may grant that, and this is boss."

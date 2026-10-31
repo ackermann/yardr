@@ -60,7 +60,7 @@ func TestSidingBeads(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	must(s.PutGroup(ctx, store.Group{Name: "script", Runner: "exec", Limit: 9, Config: map[string]any{"cmd": "true"}}, "me"))
+	must(s.PutGroup(ctx, store.Group{Name: "script", Runner: "exec", Limit: 9, Config: map[string]any{"cmd": "true"}}, "mckean"))
 	must(s.PutGroup(ctx, store.Group{Name: "siding", Runner: "manual", Limit: 9, Config: map[string]any{"fold": 4}}, "me"))
 	made := 0
 	newBead := func(labels ...string) *store.Bead {

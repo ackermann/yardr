@@ -217,7 +217,7 @@ func (y *yard) returns(opts string, job func(*dispatch.Job)) {
 	logPath := filepath.Join(y.home, "return.log")
 	ctx := context.Background()
 	st := rpc.NewClient((&config.Config{Home: y.home}).Socket())
-	if err := st.PutGroup(ctx, store.Group{Name: "return", Runner: "exec", Config: map[string]any{"cmd": "true"}}, "me"); err != nil {
+	if err := st.PutGroup(ctx, store.Group{Name: "return", Runner: "exec", Config: map[string]any{"cmd": "true"}}, "mckean"); err != nil {
 		y.t.Fatal(err)
 	}
 	b := y.bead()
