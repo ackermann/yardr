@@ -290,7 +290,7 @@ names its person and its slice.
   where: a rule for later sessions is a memory, what happened is the journal,
   what is next is the handoff.
 - **Memories:** `yardr remember "title" -b … [--expires 7d] [--scope all]` and
-  `yardr recall [query]`: lasting knowledge as beads. The title says the rule,
+  `yardr recall [words]`: lasting knowledge as beads. The title says the rule,
   since it is what a later session sees; memories retire automatically when
   they expire. The yard's memory is the home for anything about the yard:
   another harness, another crew member and the yard's views read only that,
@@ -302,8 +302,13 @@ names its person and its slice.
   `--enable memories` to its `args` (codex). For a group, use the same
   `env_file` or `args` settings on the group. `yardr doctor` reports a
   member whose harness memory still holds files, which stay where they are.
-  With a query, `yardr recall` searches journal entries too (one's own
-  journal, every crew member's with `--scope all`).
+  With words, `yardr recall` searches journal entries too (one's own
+  journal, every crew member's with `--scope all`). It finds an entry that
+  holds any one of the words, in any case and inside a longer word, and puts
+  first the entries that hold more of them, and of two that hold the same
+  ones the one that holds them side by side as typed. A word under 3
+  characters is left out unless no word is longer. At most 20 journal entries
+  are printed, then a line counting the rest: narrow the query to see them.
 
 Agents are told to run yardr by absolute path: a shell may find an older yardr
 first on its PATH, and the prime warns about it.

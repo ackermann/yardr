@@ -1570,63 +1570,6 @@ func (a *app) rememberCmd() *cobra.Command {
 	return cmd
 }
 
-func (a *app) recallCmd() *cobra.Command {
-	var scope string
-	cmd := &cobra.Command{
-		Use:   "recall [query]",
-		Short: "List live memories (titles); a query also searches journal entries",
-		Long: `Lists live memories by title; yardr bead show <id> reads one. With a
-query, the matching entries of crew journals follow the table, newest
-first and in full: the journal read back.`,
-		Args: cobra.MaximumNArgs(1),
-		RunE: func(c *cobra.Command, args []string) error {
-			st, err := a.store(c.Context())
-			if err != nil {
-				return err
-			}
-			if scope == "" {
-				if r := a.yardrenv("CREW"); r != "" {
-					scope = "crew:" + r
-				}
-			}
-			q := ""
-			if len(args) == 1 {
-				q = args[0]
-			}
-			ms, err := st.Recall(c.Context(), scope, q)
-			if err != nil {
-				return err
-			}
-			hits := []store.JournalHit{}
-			if q != "" {
-				if hits, err = st.RecallJournal(c.Context(), scope, q); err != nil {
-					return err
-				}
-			}
-			return a.out(c.OutOrStdout(), map[string]any{"memories": ms, "journal": hits}, func(w io.Writer) {
-				rows := [][]string{}
-				for _, m := range ms {
-					exp := "-"
-					if m.Expires != nil {
-						exp = m.Expires.Local().Format("2006-01-02 15:04")
-					}
-					rows = append(rows, []string{m.ID, m.Scope, exp, m.Title})
-				}
-				table(w, "ID\tSCOPE\tEXPIRES\tTITLE", rows)
-				if len(hits) > 0 {
-					fmt.Fprintf(w, "\nJournal entries matching %q:\n", q)
-					for _, h := range hits {
-						fmt.Fprintf(w, "- [%s %s %s %s] %s\n", h.Crew, h.Note.At.Local().Format("01-02 15:04"),
-							or(h.Note.Kind, "note"), h.Note.Author, strings.TrimSpace(h.Note.Text))
-					}
-				}
-			})
-		},
-	}
-	cmd.Flags().StringVar(&scope, "scope", "", "this scope's memories, and with a query its journal (crew:<name> for one, all for every; default: your crew member, else all)")
-	return cmd
-}
-
 // parseDays is time.ParseDuration plus a "d" (day) unit.
 func parseDays(s string) (time.Duration, error) {
 	if n, ok := strings.CutSuffix(s, "d"); ok {

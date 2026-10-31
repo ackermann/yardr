@@ -1744,7 +1744,7 @@ filesizes='
 internal/chat/chat.go 1196 the chat TUI model, state and rendering
 internal/cli/bead_ask.go 1418 the ask and answer commands with secret-giving and setup approval
 internal/cli/beads.go 1099 the bead show, list and history commands and their printing
-internal/cli/crew.go 2304 the crew, inbox, mail and memory commands
+internal/cli/crew.go 2247 the crew, inbox, mail and memory commands
 internal/cli/doctor.go 1274 the doctor examinations and its report
 internal/cli/init.go 1625 yard init, onboarding and settings
 internal/cli/ops.go 1829 the server, daemon, depot, group, route and session commands
@@ -1766,7 +1766,7 @@ internal/source/declaration.go 1736 source declarations, credentials and calls
 internal/standin/standin.go 1540 the fake Linear, GitHub and edge APIs
 internal/store/asks.go 1790 ask and answer parsing and storage
 internal/store/beads.go 2563 bead CRUD, queries and dispatch reads
-internal/store/crew.go 1585 crew records and their events
+internal/store/crew.go 1519 crew records and their events
 internal/store/flows.go 1454 flow parsing and storage
 internal/store/graph.go 1316 the dependency graph and its queries
 internal/store/hooks.go 1118 webhook parsing and the say shapes

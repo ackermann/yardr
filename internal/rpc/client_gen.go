@@ -595,8 +595,8 @@ func (c *Client) Remember(ctx context.Context, m store.NewMemory, actor string) 
 func (c *Client) Recall(ctx context.Context, scope, query string) ([]store.MemoryInfo, error) {
 	return callV[[]store.MemoryInfo](c, ctx, "Recall", scope, query)
 }
-func (c *Client) RecallJournal(ctx context.Context, scope, query string) ([]store.JournalHit, error) {
-	return callV[[]store.JournalHit](c, ctx, "RecallJournal", scope, query)
+func (c *Client) RecallJournal(ctx context.Context, scope, query string) (*store.JournalRecall, error) {
+	return callV[*store.JournalRecall](c, ctx, "RecallJournal", scope, query)
 }
 func (c *Client) ExpireMemories(ctx context.Context) (int, error) {
 	return callV[int](c, ctx, "ExpireMemories")

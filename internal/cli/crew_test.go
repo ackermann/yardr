@@ -128,8 +128,8 @@ func TestCrewJournalStdin(t *testing.T) {
 		t.Fatalf("journal -: %v\n%q, want no answer", err, out)
 	}
 	hits, err := st.RecallJournal(ctx, "", "frozen")
-	if err != nil || len(hits) != 1 || hits[0].Note.Kind != store.NoteJournal ||
-		hits[0].Note.Text != "deploys are frozen until Friday" {
+	if err != nil || len(hits.Hits) != 1 || hits.Hits[0].Note.Kind != store.NoteJournal ||
+		hits.Hits[0].Note.Text != "deploys are frozen until Friday" {
 		t.Fatalf("journal = %+v, %v", hits, err)
 	}
 	// Under --json the entry's answer has no repeat in it: only a handoff has one.
@@ -141,7 +141,7 @@ func TestCrewJournalStdin(t *testing.T) {
 		json.Unmarshal([]byte(out), &got) != nil || !reflect.DeepEqual(got, want) {
 		t.Fatalf("journal --json = %q, %v; want %v", out, err, want)
 	}
-	if hits, err := st.RecallJournal(ctx, "", "frozen"); err != nil || len(hits) != 2 {
+	if hits, err := st.RecallJournal(ctx, "", "frozen"); err != nil || len(hits.Hits) != 2 {
 		t.Fatalf("the same entry twice = %+v, %v; want two entries", hits, err)
 	}
 }
@@ -171,14 +171,14 @@ func TestCrewHandoffStdin(t *testing.T) {
 		t.Errorf("first answer = %q, want %q", out, want)
 	}
 	hits, err := st.RecallJournal(ctx, "", "deploys")
-	if err != nil || len(hits) != 1 || hits[0].Note.Kind != store.NoteHandoff ||
-		hits[0].Note.Text != "the next session deploys at noon" {
+	if err != nil || len(hits.Hits) != 1 || hits.Hits[0].Note.Kind != store.NoteHandoff ||
+		hits.Hits[0].Note.Text != "the next session deploys at noon" {
 		t.Fatalf("handoff = %+v, %v", hits, err)
 	}
 	if out, want := handoff(), "handoff already written; end your turn now\n"; out != want {
 		t.Errorf("repeat answer = %q, want %q", out, want)
 	}
-	if hits, err := st.RecallJournal(ctx, "", "deploys"); err != nil || len(hits) != 1 {
+	if hits, err := st.RecallJournal(ctx, "", "deploys"); err != nil || len(hits.Hits) != 1 {
 		t.Fatalf("after the repeat: %+v, %v; want the one handoff", hits, err)
 	}
 

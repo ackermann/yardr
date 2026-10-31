@@ -106,13 +106,54 @@ func TestRecallFindsJournalEntries(t *testing.T) {
 	var got struct {
 		Memories []store.MemoryInfo `json:"memories"`
 		Journal  []store.JournalHit `json:"journal"`
+		Omitted  int                `json:"journal_omitted"`
 	}
 	if err := json.Unmarshal([]byte(mustAs(t, st, "yardmaster", "recall", "frozen", "--json")), &got); err != nil {
 		t.Fatal(err)
 	}
 	if len(got.Memories) != 1 || len(got.Journal) != 1 || got.Journal[0].Crew != "yardmaster" ||
-		got.Journal[0].Note.Text != "deploys are frozen until Friday" {
+		got.Journal[0].Note.Text != "deploys are frozen until Friday" || got.Omitted != 0 {
 		t.Fatalf("recall --json = %+v", got)
+	}
+
+	// The words need no quotes: each argument is a word of one query, and
+	// an entry that holds any of them is found.
+	if _, err := st.Remember(ctx, store.NewMemory{Title: "Worktree cleanup kept a half-removed tree", Scope: "crew:yardmaster"}, "yardmaster"); err != nil {
+		t.Fatal(err)
+	}
+	out = mustAs(t, st, "yardmaster", "recall", "worktree", "cleanup")
+	if !strings.Contains(out, "Worktree cleanup kept a half-removed tree") || strings.Contains(out, "Deploy freeze") {
+		t.Fatalf("recall worktree cleanup:\n%s", out)
+	}
+	out = mustAs(t, st, "yardmaster", "recall", "frozen", "friday")
+	if !strings.Contains(out, "Deploy freeze") || !strings.Contains(out, `Journal entries matching "frozen friday":`) ||
+		!strings.Contains(out, "deploys are frozen until Friday") {
+		t.Fatalf("recall frozen friday:\n%s", out)
+	}
+
+	// More entries answer than a recall prints: the best are printed, and a
+	// line counts the rest.
+	for i := 0; i <= store.RecallHits; i++ {
+		if _, err := st.Journal(ctx, "yardmaster", store.NoteJournal, fmt.Sprintf("deploy window %02d", i), "yardmaster"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out = mustAs(t, st, "yardmaster", "recall", "deploy", "window")
+	if n := strings.Count(out, "- [yardmaster "); n != store.RecallHits {
+		t.Fatalf("recall deploy window prints %d journal entries, want %d:\n%s", n, store.RecallHits, out)
+	}
+	if !strings.Contains(out, "deploy window 20") || strings.Contains(out, "deploy window 00") || strings.Contains(out, "deploys are frozen") {
+		t.Fatalf("recall deploy window does not keep the best, newest first:\n%s", out)
+	}
+	if !strings.HasSuffix(out, "... and 2 more: narrow the query\n") {
+		t.Fatalf("recall deploy window counts no rest:\n%s", out)
+	}
+	got.Journal, got.Omitted = nil, 0
+	if err := json.Unmarshal([]byte(mustAs(t, st, "yardmaster", "recall", "deploy", "window", "--json")), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Journal) != store.RecallHits || got.Omitted != 2 {
+		t.Fatalf("recall --json = %d entries, %d omitted; want %d, 2", len(got.Journal), got.Omitted, store.RecallHits)
 	}
 }
 

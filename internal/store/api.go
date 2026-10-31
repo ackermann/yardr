@@ -216,7 +216,7 @@ type API interface {
 	CrewPrimeFor(ctx context.Context, name, user string) (*Prime, error)
 	Remember(ctx context.Context, m NewMemory, actor string) (*Bead, error)
 	Recall(ctx context.Context, scope, query string) ([]MemoryInfo, error)
-	RecallJournal(ctx context.Context, scope, query string) ([]JournalHit, error)
+	RecallJournal(ctx context.Context, scope, query string) (*JournalRecall, error)
 	ExpireMemories(ctx context.Context) (int, error)
 	SetIdentity(ctx context.Context, name, source string, id Identity, actor string) error
 	AddSubscription(ctx context.Context, name string, sub Subscription, actor string) error

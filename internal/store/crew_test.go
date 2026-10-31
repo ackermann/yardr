@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -399,7 +400,7 @@ func TestPrimeIsBounded(t *testing.T) {
 	}
 }
 
-func TestMemoriesScopeSearchAndExpiry(t *testing.T) {
+func TestRecallMemoriesScopeSearchAndExpiry(t *testing.T) {
 	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
@@ -409,6 +410,42 @@ func TestMemoriesScopeSearchAndExpiry(t *testing.T) {
 	_, _ = s.Remember(ctx, store.NewMemory{Title: "Screenshots on UI beads", Scope: "all"}, "me")
 	_, _ = s.Remember(ctx, store.NewMemory{Title: "Builder-only tip", Scope: "group:builders"}, "me")
 	_, _ = s.Remember(ctx, store.NewMemory{Title: "Old news", Scope: "all", Expires: &past}, "me")
+	const hook, notes, cleanup = "Hook timeout is 30 seconds", "Cleanup and worktree notes",
+		"Worktree cleanup kept a half-removed tree"
+	for _, m := range []store.NewMemory{
+		{Title: hook, Scope: "crew:recall-test"},
+		{Title: notes, Scope: "crew:recall-test"},
+		{Title: cleanup, Scope: "crew:recall-test"},
+	} {
+		if _, err := s.Remember(ctx, m, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	titles := func(query string) []string {
+		t.Helper()
+		ms, err := s.Recall(ctx, "crew:recall-test", query)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got []string
+		for _, m := range ms {
+			got = append(got, m.Title)
+		}
+		return got
+	}
+	for _, tc := range []struct {
+		query string
+		want  []string
+	}{
+		{"worktree remove cleanup timeout", []string{cleanup, notes, hook}},
+		{"Worktree CLEANUP", []string{cleanup, notes}},
+		{"timeout", []string{hook}},
+		{"cleanup 30", []string{notes, cleanup}},
+	} {
+		if got := titles(tc.query); !slices.Equal(got, tc.want) {
+			t.Errorf("recall %q = %q, want %q", tc.query, got, tc.want)
+		}
+	}
 
 	m, _ := s.Recall(ctx, "crew:yardmaster", "")
 	if len(m) != 3 { // own + two "all", not the builders' one
@@ -424,7 +461,7 @@ func TestMemoriesScopeSearchAndExpiry(t *testing.T) {
 	if n, err := s.ExpireMemories(ctx); err != nil || n != 1 {
 		t.Fatalf("expired %d (%v)", n, err)
 	}
-	if m, _ = s.Recall(ctx, "", ""); len(m) != 3 {
+	if m, _ = s.Recall(ctx, "", ""); len(m) != 6 {
 		t.Fatalf("after expiry %d live memories", len(m))
 	}
 }
@@ -442,9 +479,12 @@ func TestPrimeMemoriesAreCapped(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	oldest, err := s.Recall(ctx, "crew:yardmaster", "memory 00")
-	if err != nil || len(oldest) != 1 {
-		t.Fatalf("recall memory 00 = %+v, %v", oldest, err)
+	// "00" alone: with "memory" beside it the query would be the word
+	// "memory", which every title holds (a word under three characters is
+	// left out of a query that has a longer one).
+	oldest, err := s.Recall(ctx, "crew:yardmaster", "00")
+	if err != nil || len(oldest) != 1 || oldest[0].Title != "memory 00" {
+		t.Fatalf("recall 00 = %+v, %v", oldest, err)
 	}
 	time.Sleep(2 * time.Millisecond) // a strictly later write
 	body := "rewritten"
@@ -496,10 +536,15 @@ func TestRecallFindsJournalEntries(t *testing.T) {
 	_, err = s.Journal(ctx, "clerk", store.NoteJournal, "Filed the deploy paperwork", "clerk")
 	must(err)
 
-	hits, err := s.RecallJournal(ctx, "crew:yardmaster", "DEPLOY")
-	if err != nil {
-		t.Fatal(err)
+	recall := func(scope, query string) *store.JournalRecall {
+		t.Helper()
+		r, err := s.RecallJournal(ctx, scope, query)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r
 	}
+	hits := recall("crew:yardmaster", "DEPLOY").Hits
 	if len(hits) != 2 || hits[0].Crew != "yardmaster" || hits[1].Crew != "yardmaster" {
 		t.Fatalf("yardmaster's hits = %+v", hits)
 	}
@@ -509,23 +554,65 @@ func TestRecallFindsJournalEntries(t *testing.T) {
 	if hits[1].Note.Text != "Deploys are frozen until Friday" {
 		t.Fatalf("oldest = %+v", hits[1])
 	}
-	if hits, _ := s.RecallJournal(ctx, "", "deploy"); len(hits) != 3 {
+	if hits := recall("", "deploy").Hits; len(hits) != 3 {
 		t.Fatalf("every journal = %d hits", len(hits))
 	}
-	if hits, _ := s.RecallJournal(ctx, "all", "deploy"); len(hits) != 3 {
+	if hits := recall("all", "deploy").Hits; len(hits) != 3 {
 		t.Fatalf("scope all = %d hits", len(hits))
 	}
-	if hits, _ := s.RecallJournal(ctx, "crew:clerk", "deploy"); len(hits) != 1 || hits[0].Crew != "clerk" {
+	if hits := recall("crew:clerk", "deploy").Hits; len(hits) != 1 || hits[0].Crew != "clerk" {
 		t.Fatalf("clerk's = %+v", hits)
 	}
 	for _, tc := range []struct{ scope, query string }{
 		{"crew:yardmaster", "nothing like this"},
 		{"crew:yardmaster", ""},
+		{"crew:yardmaster", " \t "},
 		{"crew:nobody", "deploy"},
 	} {
-		if hits, err := s.RecallJournal(ctx, tc.scope, tc.query); err != nil || len(hits) != 0 {
-			t.Fatalf("recall %q %q = %+v, %v", tc.scope, tc.query, hits, err)
+		if r := recall(tc.scope, tc.query); len(r.Hits) != 0 || r.Omitted != 0 {
+			t.Fatalf("recall %q %q = %+v", tc.scope, tc.query, r)
 		}
+	}
+
+	// Several words find an entry that holds any of them, the one holding
+	// more first (the freeze entry has both, and the words side by side),
+	// and of equals the newest first: the clerk's before the older entry
+	// of the yardmaster's, each holding "deploy" alone.
+	hits = recall("", "deploy freeze").Hits
+	if len(hits) != 3 || hits[0].Note.Kind != store.NoteHandoff || hits[1].Crew != "clerk" ||
+		hits[2].Note.Text != "Deploys are frozen until Friday" {
+		t.Fatalf("deploy freeze = %+v", hits)
+	}
+	write := func(format string, i int) {
+		t.Helper()
+		if _, err := s.Journal(ctx, "yardmaster", store.NoteJournal, fmt.Sprintf(format, i), "yardmaster"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The three oldest hold both words, side by side; the rest, newer,
+	// hold one. The query does not match the journal entries above.
+	for i := 0; i < 3; i++ {
+		write("recallcap sentinel %d", i)
+	}
+	for i := 0; i < store.RecallHits+2; i++ {
+		write("recallcap %d", i)
+	}
+	r, err := s.RecallJournal(ctx, "", "recallcap sentinel")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, h := range r.Hits {
+		got = append(got, h.Note.Text)
+	}
+	if len(got) != store.RecallHits || r.Omitted != 5 {
+		t.Fatalf("recall = %d hits, %d omitted; want %d hits, 5 omitted: %q", len(got), r.Omitted, store.RecallHits, got)
+	}
+	if want := []string{"recallcap sentinel 2", "recallcap sentinel 1", "recallcap sentinel 0", "recallcap 21"}; !slices.Equal(got[:4], want) {
+		t.Fatalf("recall starts %q, want %q", got[:4], want)
+	}
+	if last := got[len(got)-1]; last != "recallcap 5" {
+		t.Fatalf("recall ends %q, want the newest of the one-word entries that fit: recallcap 5", last)
 	}
 }
 
