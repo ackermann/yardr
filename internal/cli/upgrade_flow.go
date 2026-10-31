@@ -100,11 +100,22 @@ func (a *app) upgradeRun(w, warn io.Writer, ctx context.Context, cfg *config.Con
 	lockPath := filepath.Join(filepath.Dir(target), "yardr.upgrade.lock")
 	unlock, err := lockDaemon(lockPath, 0)
 	if err != nil {
+		// A held lock is another upgrade's, and gone by the next landing. Any
+		// other failure is a lock file that cannot be made: the person
+		// upgrading cannot write beside the binary, and no landing changes
+		// that, so it must not read as a hold that will pass.
+		var failure error
 		reason := err.Error()
+		if errors.Is(err, errDaemonRunning) {
+			failure = fmt.Errorf("another yardr upgrade holds %s: %s; the next landing tries again", lockPath, reason)
+		} else {
+			failure = fmt.Errorf("the directory beside the binary, %s, is not writable: %w", filepath.Dir(lockPath), err)
+			reason = failure.Error()
+		}
 		data := map[string]any{"revision": version.Show(version.Current()), "stage": "lock", "reason": reason}
 		upgradeTellLive(warn, ctx, st, settings, actor, store.InstallFailed, data,
 			fmt.Sprintf("yardr upgrade refused: %s", reason))
-		return fmt.Errorf("another yardr upgrade holds %s: %s; the next landing tries again", lockPath, reason)
+		return failure
 	}
 	defer unlock()
 

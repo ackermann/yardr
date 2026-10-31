@@ -197,7 +197,13 @@ Concurrent upgrades serialize beside the binary: `yardr upgrade` holds
 an exclusive lock on `yardr.upgrade.lock`, next to the installed binary
 and `yardr.prev`, for the whole run, and a second upgrade refuses at
 once with a line naming the holder's pid. A run refused on the lock
-reports it as an install failure; the next landing tries again.
+reports it as an install failure; the next landing tries again. A lock
+that cannot be made at all, because the person upgrading cannot write to
+the directory beside the binary, fails the run the same way, and first,
+before anything is backed up or written. The line says the directory is
+not writable, not that a lock is held, and the next landing finds it no
+different: it stays so until the directory is writable by whoever runs
+the upgrade.
 
 Before the install it takes a consistent pre-install copy of every
 covered yard's store, each to its own

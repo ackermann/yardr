@@ -281,6 +281,9 @@ func TestUpgradeInstall(t *testing.T) {
 // GOBIN and GOPATH, and the install line names it; a link to it stays and the
 // file it names is replaced. A build that fails fails the run at the build,
 // with the old binary whole, nothing hidden beside it and no gate file left.
+// The lock beside the binary comes first: a run that cannot take it writes
+// nothing, and says whether another upgrade holds it or the directory is not
+// writable, the one a landing finds gone and the other it does not.
 func TestUpgradeRunInstall(t *testing.T) {
 	// noTemp fails when a hidden file stands beside the binary: the temp
 	// file of an install.
@@ -383,6 +386,121 @@ func TestUpgradeRunInstall(t *testing.T) {
 			t.Fatalf("no install_failed at stage build in %+v", evs)
 		}
 	})
+
+	// A directory the person upgrading cannot write holds no lock for anyone:
+	// the lock file cannot be made, so the run says the directory is not
+	// writable, in the terminal, the event and the mail alike, and promises no
+	// landing that will find it free.
+	t.Run("a directory it cannot write", func(t *testing.T) {
+		if os.Geteuid() == 0 {
+			t.Skip("root writes into a directory made read-only")
+		}
+		sc := newUpgradeScene(t)
+		dir := filepath.Dir(sc.target)
+		if err := os.Chmod(dir, 0o555); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+		before := mustStat(t, sc.target)
+
+		reason, mail, err := refusedAtLock(t, sc)
+
+		want := "the directory beside the binary, " + dir + ", is not writable: open " + filepath.Join(dir, "yardr.upgrade.lock") + ": permission denied"
+		if err == nil || err.Error() != want {
+			t.Fatalf("upgrade = %v, want %q", err, want)
+		}
+		if reason != want || mail != "yardr upgrade refused: "+want {
+			t.Fatalf("the yard was told %q and %q, want %q in both", reason, mail, want)
+		}
+		for _, text := range []string{err.Error(), reason, mail} {
+			if strings.Contains(text, "holds") || strings.Contains(text, "next landing") {
+				t.Fatalf("%q tells a lock someone holds, or one the next landing finds free", text)
+			}
+		}
+		// The lock is taken before the backups, the kept copy and the build,
+		// so no probe of the directory is needed to fail first.
+		if !os.SameFile(before, mustStat(t, sc.target)) {
+			t.Fatalf("the binary was replaced")
+		}
+		if got := dirNames(dir); !slices.Equal(got, []string{"yardr"}) {
+			t.Fatalf("beside the binary: %v, want it alone", got)
+		}
+		if _, err := os.Stat(config.At(sc.home).BeforeInstallBackup()); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("a pre-install backup was taken: %v", err)
+		}
+	})
+
+	// A lock another upgrade holds is told as ever: whose it is, and that the
+	// next landing tries again.
+	t.Run("a lock another upgrade holds", func(t *testing.T) {
+		sc := newUpgradeScene(t)
+		lock := filepath.Join(filepath.Dir(sc.target), "yardr.upgrade.lock")
+		unlock, err := lockDaemon(lock, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer unlock()
+
+		reason, mail, err := refusedAtLock(t, sc)
+
+		held := fmt.Sprintf("yardr daemon already running (pid %d holds %s)", os.Getpid(), lock)
+		want := "another yardr upgrade holds " + lock + ": " + held + "; the next landing tries again"
+		if err == nil || err.Error() != want {
+			t.Fatalf("upgrade = %v, want %q", err, want)
+		}
+		if reason != held || mail != "yardr upgrade refused: "+held {
+			t.Fatalf("the yard was told %q and %q, want %q in both", reason, mail, held)
+		}
+		for _, text := range []string{err.Error(), reason, mail} {
+			if strings.Contains(text, "not writable") {
+				t.Fatalf("%q tells a held lock as a directory that cannot be written", text)
+			}
+		}
+	})
+}
+
+// refusedAtLock runs the scene's upgrade, which must end at the lock, and
+// returns what it told the yard besides the error it ends with: the reason
+// of the one install_failed event, at stage lock, and the text of the one
+// mail to the yardmaster.
+func refusedAtLock(t *testing.T, sc *upgradeScene) (reason, mail string, err error) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := sc.st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = sc.upgrade(t)
+
+	evs, eerr := sc.st.EventsSince(ctx, 0, 0)
+	if eerr != nil {
+		t.Fatal(eerr)
+	}
+	var told []store.Event
+	for _, e := range evs {
+		if e.Kind == store.InstallFailed {
+			told = append(told, e)
+		}
+	}
+	if len(told) != 1 || told[0].Data["stage"] != "lock" {
+		t.Fatalf("install_failed events are %+v, want one at stage lock", told)
+	}
+	reason, _ = told[0].Data["reason"].(string)
+	page, ierr := sc.st.Inbox(ctx, "yardmaster", 10)
+	if ierr != nil {
+		t.Fatal(ierr)
+	}
+	var mails []store.Event
+	for _, e := range page.Events {
+		if e.Kind == "mail" {
+			mails = append(mails, e)
+		}
+	}
+	if len(mails) != 1 {
+		t.Fatalf("the yardmaster's inbox holds %+v, want the one mail", page.Events)
+	}
+	mail, _ = mails[0].Data["text"].(string)
+	return reason, mail, err
 }
 
 // Covered yards are the upgrading yard plus the login services whose
