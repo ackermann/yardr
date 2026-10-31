@@ -285,7 +285,6 @@ func TestSessionIndexesMatchAWalkAfterEveryWrite(t *testing.T) {
 	}
 	same("setup")
 	ok := map[string]int{}
-	writes := 0
 	var seen struct{ pane, shared, unstopped, workspace, uncounted, pruned int }
 	for step := 0; step < 600; step++ {
 		if step == 200 || step == 400 {
@@ -299,36 +298,37 @@ func TestSessionIndexesMatchAWalkAfterEveryWrite(t *testing.T) {
 		op := ops[rng.Intn(len(ops))]
 		if op.do() == nil {
 			ok[op.name]++
-			writes++
-			// Every tenth write, and the first of each kind: the
-			// comparison still pins every kind at a tenth of the walks.
-			if writes%10 == 0 || ok[op.name] == 1 {
-				same(fmt.Sprintf("step %d, %s", step, op.name))
-			}
+			// The point of this test is to catch an index mismatch on any
+			// successful write, including one a later write would repair.
+			same(fmt.Sprintf("step %d, %s", step, op.name))
 		}
 
 		// What the comparisons above were made on: the test wants each kind.
-		for _, pid := range pids[:2] {
-			if sess, _ := s.PaneSession(pid); sess != nil {
-				seen.pane++
+		// Every tenth step is enough to say each was met along the way;
+		// reading the coverage on all six hundred only repeats the walks.
+		if step%10 == 0 {
+			for _, pid := range pids[:2] {
+				if sess, _ := s.PaneSession(pid); sess != nil {
+					seen.pane++
+				}
 			}
-		}
-		named := map[int]int{}
-		for _, k := range s.PaneIndex() {
-			var pid int
-			fmt.Sscanf(k, "%d", &pid)
-			if named[pid]++; named[pid] == 2 {
-				seen.shared++
+			named := map[int]int{}
+			for _, k := range s.PaneIndex() {
+				var pid int
+				fmt.Sscanf(k, "%d", &pid)
+				if named[pid]++; named[pid] == 2 {
+					seen.shared++
+				}
 			}
-		}
-		if un, _ := s.Unstopped(ctx); len(un) > 0 {
-			seen.unstopped++
-		}
-		if ws, _ := s.ClosedWithWorkspace(ctx); len(ws) > 0 {
-			seen.workspace++
-		}
-		if due, _ := s.Uncounted(ctx); len(due) > 0 {
-			seen.uncounted++
+			if un, _ := s.Unstopped(ctx); len(un) > 0 {
+				seen.unstopped++
+			}
+			if ws, _ := s.ClosedWithWorkspace(ctx); len(ws) > 0 {
+				seen.workspace++
+			}
+			if due, _ := s.Uncounted(ctx); len(due) > 0 {
+				seen.uncounted++
+			}
 		}
 	}
 	same("the last write")

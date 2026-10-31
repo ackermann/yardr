@@ -39,19 +39,22 @@ merged terminal
 // sidingYard is a store with depots web and api on sidingFlow, web's bugs
 // on sidingBug, depot odd on sidingNone, a manual siding group of mckean's
 // folding at fold or after, an exec group, and a yard default route sending
-// the siding stage to the siding group. The clock is the test's, so its
-// callers stay sequential.
+// the siding stage to the siding group. A test that moves time pins the
+// package clock to the yard's at (pinClock) and stays sequential; the
+// rest run parallel.
 type sidingYard struct {
 	*Store
 	t  *testing.T
 	at time.Time
 }
 
+// sidingAt is the at a new siding yard starts from; a test that moves
+// time pre-pins the package clock to it before it builds its yard.
+var sidingAt = time.Date(2026, 10, 23, 9, 0, 0, 0, time.UTC)
+
 func newSidingYard(t *testing.T, fold int, after string) *sidingYard {
 	t.Helper()
-	y := &sidingYard{t: t, at: time.Date(2026, 10, 23, 9, 0, 0, 0, time.UTC)}
-	clock = func() time.Time { return y.at }
-	t.Cleanup(func() { clock = time.Now })
+	y := &sidingYard{t: t, at: sidingAt}
 	s, err := Open(filepath.Join(t.TempDir(), "y.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -154,6 +157,7 @@ func eventsOf(t *testing.T, s *Store, bead, kind string) []Event {
 // the siding's own manual group holds folds with the rest: its claim is a
 // person's turn, not a session at work.
 func TestSidingFoldsWhenFull(t *testing.T) {
+	t.Parallel()
 	y := newSidingYard(t, 2, "8h")
 	ctx := context.Background()
 	a, b := y.bead("first", "web", "siding"), y.bead("second", "web", "siding")
@@ -205,6 +209,7 @@ func TestSidingFoldsWhenFull(t *testing.T) {
 // held one fill a siding of three, and the fold names the held one in
 // left.
 func TestSidingCountsIneligibleBeads(t *testing.T) {
+	t.Parallel()
 	y := newSidingYard(t, 3, "8h")
 	ctx := context.Background()
 	a, b := y.bead("first", "web", "siding"), y.bead("second", "web", "siding")
@@ -233,7 +238,10 @@ func TestSidingCountsIneligibleBeads(t *testing.T) {
 // eligible ones fold. The pass says when the earliest siding that can fold
 // is due, and a new arrival moves that.
 func TestSidingFoldsWhenDue(t *testing.T) {
+	// Sequential: the package's fake clock.
+	pinClockFixed(t, sidingAt)
 	y := newSidingYard(t, 4, "8h")
+	pinClock(t, &y.at)
 	a, b := y.bead("first", "web", "siding"), y.bead("second", "web", "siding")
 	if pass := y.pass(); len(pass.Folded) != 0 {
 		t.Fatalf("folded before anything was due: %+v", pass.Folded)
@@ -300,6 +308,7 @@ func TestSidingFoldsWhenDue(t *testing.T) {
 // one-part carrier. The move is the yard's own, past a group the yard is
 // no member of, and its event says by siding.
 func TestSidingAdvancesOneEligibleBead(t *testing.T) {
+	t.Parallel()
 	y := newSidingYard(t, 2, "8h")
 	ctx := context.Background()
 	a := y.bead("only", "web", "siding")
@@ -349,6 +358,7 @@ func TestSidingAdvancesOneEligibleBead(t *testing.T) {
 // in folded's left, oldest first: a hold at another stage binds the fold
 // as one here does, and so does a train's hold and another yard's.
 func TestSidingLeavesIneligibleBeads(t *testing.T) {
+	t.Parallel()
 	y := newSidingYard(t, 2, "8h")
 	ctx := context.Background()
 	a, b := y.bead("first", "web", "siding"), y.bead("second", "web", "siding")
@@ -417,6 +427,7 @@ func TestSidingLeavesIneligibleBeads(t *testing.T) {
 // Two depots on one yard default route fold apart: each siding folds its
 // own beads into its own depot's carrier.
 func TestSidingsFoldApartByDepot(t *testing.T) {
+	t.Parallel()
 	y := newSidingYard(t, 2, "8h")
 	ctx := context.Background()
 	a, b := y.bead("web one", "web", "siding"), y.bead("web two", "web", "siding")
@@ -447,6 +458,7 @@ func TestSidingsFoldApartByDepot(t *testing.T) {
 // Two flows of one depot that both name the siding stage fold apart, each
 // into its own flow's next stage.
 func TestSidingsFoldApartByFlow(t *testing.T) {
+	t.Parallel()
 	y := newSidingYard(t, 2, "8h")
 	ctx := context.Background()
 	a, b := y.bead("task one", "web", "siding"), y.bead("task two", "web", "siding")
@@ -484,6 +496,7 @@ func TestSidingsFoldApartByFlow(t *testing.T) {
 // The write folds what is there when it runs, not what the lists held: a
 // member that arrived after them is folded too, and one that left is not.
 func TestSidingFoldsWhatIsThere(t *testing.T) {
+	t.Parallel()
 	y := newSidingYard(t, 2, "8h")
 	ctx := context.Background()
 	a, b := y.bead("first", "web", "siding"), y.bead("second", "web", "siding")
@@ -511,6 +524,7 @@ func TestSidingFoldsWhatIsThere(t *testing.T) {
 // A bead whose depot's repository cannot be read is left out of the pass,
 // and folded on a later one, once it reads again.
 func TestSidingSkipsAnUnreadableRepository(t *testing.T) {
+	t.Parallel()
 	y := newSidingYard(t, 2, "8h")
 	ctx := context.Background()
 	good := t.TempDir()
@@ -570,7 +584,10 @@ func TestSidingSkipsAnUnreadableRepository(t *testing.T) {
 // with the siding, the sorted members, their points and fold_max. The next
 // pass over the same set logs none; a new arrival logs one again.
 func TestSidingRefusesWithoutNext(t *testing.T) {
+	// Sequential: the package's fake clock.
+	pinClockFixed(t, sidingAt)
 	y := newSidingYard(t, 2, "8h")
+	pinClock(t, &y.at)
 	ctx := context.Background()
 	a := y.bead("first", "odd", "siding")
 	y.at = y.at.Add(time.Minute)
@@ -635,7 +652,9 @@ func TestSidingRefusesWithoutNext(t *testing.T) {
 
 	// A siding with no next stage still wakes at fold_after, when it becomes
 	// ready and can tell the yardmaster that the flow has nowhere to go.
+	pinClockFixed(t, sidingAt)
 	timed := newSidingYard(t, 4, "8h")
+	pinClock(t, &timed.at)
 	only := timed.bead("only", "odd", "siding")
 	due := timed.at.Add(8 * time.Hour)
 	if pass := timed.pass(); len(pass.Refused) != 0 || pass.Next == nil || !pass.Next.Equal(due) {
@@ -659,7 +678,10 @@ func TestSidingRefusesWithoutNext(t *testing.T) {
 // bead with more than one size label counts the largest, one with an
 // unknown label or none counts 2, and each is named as unreadable.
 func TestSidingRefusesOverCeiling(t *testing.T) {
+	// Sequential: the package's fake clock.
+	pinClockFixed(t, sidingAt)
 	y := newSidingYard(t, 2, "8h")
+	pinClock(t, &y.at)
 	ctx := context.Background()
 	mk := func(title string, labels ...string) *Bead {
 		t.Helper()
@@ -807,6 +829,7 @@ func TestSidingRefusesOverCeiling(t *testing.T) {
 // A ready siding with no eligible bead does nothing and logs nothing: no
 // fold, no refusal, no due. Its beads wait until one becomes eligible.
 func TestSidingSkipsWithoutEligible(t *testing.T) {
+	t.Parallel()
 	y := newSidingYard(t, 2, "8h")
 	ctx := context.Background()
 	c, d := y.bead("third", "web", "siding"), y.bead("fourth", "web", "siding")
@@ -827,6 +850,7 @@ func TestSidingSkipsWithoutEligible(t *testing.T) {
 
 // A yard with no siding has no pass: nothing folded, nothing due.
 func TestFoldSidingsNeedsNoSiding(t *testing.T) {
+	t.Parallel()
 	y := newSidingYard(t, 2, "8h")
 	ctx := context.Background()
 	if _, err := y.DeleteGroup(ctx, "siding", "mckean"); err != nil {

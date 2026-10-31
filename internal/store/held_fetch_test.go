@@ -13,6 +13,7 @@ import (
 // -race the first half is the regression test for the race the
 // assembly's gate found between SetHeldFilesFetch and Store.write.
 func TestHeldFilesFetchRegisteredDuringWrites(t *testing.T) {
+	t.Parallel()
 	y := mappingYard(t)
 	type call struct {
 		hook  string

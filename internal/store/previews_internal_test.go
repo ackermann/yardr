@@ -25,6 +25,7 @@ func previewYard(t *testing.T) *Store {
 }
 
 func TestPreviewProposeApproveForget(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := previewYard(t)
 	p, err := s.ProposePreview(ctx, NewPreview{App: "demo", Command: "serve .", Dir: "/tmp/app", Port: 8080}, "builder")
@@ -99,6 +100,7 @@ func TestPreviewProposeApproveForget(t *testing.T) {
 }
 
 func TestPreviewLimitAndIdle(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := previewYard(t)
 	for _, app := range []string{"one", "two", "three"} {
@@ -136,6 +138,7 @@ func TestPreviewLimitAndIdle(t *testing.T) {
 // pending proposal is refused. Forgetting the refused row frees the name
 // for a later identical proposal, which is a new card.
 func TestPreviewRefuse(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := previewYard(t)
 	if _, err := s.ProposePreview(ctx, NewPreview{App: "demo", Command: "serve .", Dir: "/tmp/app", Port: 8080}, "builder"); err != nil {
@@ -200,6 +203,7 @@ func previewRepo(t *testing.T) (string, func(args ...string) string) {
 // and the card, pending again at the new commit, waits for a new one.
 // PreviewHead reads that HEAD without touching the row.
 func TestPreviewRestartOnTheApprovedTree(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := previewYard(t)
 	dir, git := previewRepo(t)
@@ -273,6 +277,7 @@ func TestPreviewRestartOnTheApprovedTree(t *testing.T) {
 // pending again with no approval, shows the tree as it now stands and
 // says why, until a person approves it anew.
 func TestPreviewApprovalStandsOnItsTree(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := previewYard(t)
 	dir, git := previewRepo(t)
@@ -418,6 +423,7 @@ func mustPreviews(t *testing.T, s *Store) []Preview {
 // directory, so a proposer on the socket cannot name a commit for the
 // person to approve that is not the one in the tree.
 func TestPreviewProposalReadsItsOwnCommit(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := previewYard(t)
 	dir := t.TempDir()

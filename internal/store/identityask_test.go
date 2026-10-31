@@ -50,7 +50,7 @@ func ignoreTalk(t *testing.T, y *askYard, sender string) {
 // and its approval writes the identity, approved by the user or the
 // operator. --rm is refused, as on the crew row.
 func TestRunAskUserIdentity(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := identityYard(t)
 	seq := y.ask(t, listAsk("mckean", `user identity ada --source talk --id U999`), "yardmaster")
 	run := *y.asked(t, seq).Ask.Run
@@ -126,7 +126,7 @@ func TestRunAskUserIdentity(t *testing.T) {
 // runs nothing; an id another user holds meanwhile is refused in the
 // write that would set it.
 func TestRunAskUserIdentityStaleAndClash(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := identityYard(t)
 	seq := y.ask(t, listAsk("mckean", "user identity ada --source talk --id U999"), "yardmaster")
 	if err := y.SetIdentity(y.ctx, "ada", "talk", Identity{ID: "U111"}, "mckean"); err != nil {
@@ -155,7 +155,7 @@ func TestRunAskUserIdentityStaleAndClash(t *testing.T) {
 // Mapping an ignored sender on a user identity card clears their entry
 // in the same write, and the card says so.
 func TestRunAskUserIdentityClearsIgnored(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := identityYard(t)
 	ignoreTalk(t, y, "U999")
 	seq := y.ask(t, listAsk("mckean", "user identity ada --source talk --id U999"), "yardmaster")
@@ -185,7 +185,7 @@ func TestRunAskUserIdentityClearsIgnored(t *testing.T) {
 // next message follows the hook's word again. Listing names nothing to
 // remove, and a source with no identity hearing ignores nothing.
 func TestRunAskSourceIgnore(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := identityYard(t)
 	ignoreTalk(t, y, "U999")
 	ignoreTalk(t, y, "U888")
@@ -245,7 +245,7 @@ func TestRunAskSourceIgnore(t *testing.T) {
 // A source ignore card whose entry is gone meanwhile approves nothing;
 // one whose list otherwise changed is stale by its sentences.
 func TestRunAskSourceIgnoreStale(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := identityYard(t)
 	ignoreTalk(t, y, "U999")
 	ignoreTalk(t, y, "U888")
@@ -270,7 +270,7 @@ func TestRunAskSourceIgnoreStale(t *testing.T) {
 // function refuses with: the operator's alone, and a run ask may
 // propose it.
 func TestRunAskSourceIgnoreUsesItsStoreCheck(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := identityYard(t)
 	ignoreTalk(t, y, "U999")
 	c, argv, err := parseRow([]string{"source ignore talk --rm U999"})

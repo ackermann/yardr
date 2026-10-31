@@ -226,7 +226,7 @@ hook:
 // that file alone: in no note, event or answer, and nowhere in the
 // store file.
 func TestHookAskSetup(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := hookYard(t)
 	secretSeq := y.ask(t, hookSecretAsk("linear", "linear"), "yardmaster")
 	runSeq := y.ask(t, hookRunAsk("hook add linear --source linear"), "yardmaster")
@@ -337,6 +337,7 @@ func TestHookAskSetup(t *testing.T) {
 // secret ask on this bead, and a secret asked for another source cannot
 // authorize this hook.
 func TestHookAskNeedsItsAnsweredSecretCard(t *testing.T) {
+	t.Parallel()
 	t.Run("preexisting file", func(t *testing.T) {
 		y := hookYard(t)
 		file := HookSecretFile(y.home, "linear")
@@ -394,6 +395,7 @@ func TestHookAskNeedsItsAnsweredSecretCard(t *testing.T) {
 // Hook names may begin with a digit. Its input name still has to be a
 // valid KEY for the non-terminal NAME=value path.
 func TestHookAskDigitLeadingName(t *testing.T) {
+	t.Parallel()
 	y := hookYard(t)
 	secretSeq := y.ask(t, hookSecretAsk("linear", "3jira"), "yardmaster")
 	if got := strings.Join(y.asked(t, secretSeq).Ask.Secret.Env, ","); got != "_3JIRA_SIGNING_SECRET" {
@@ -469,6 +471,7 @@ func TestWriteHookSecretRefusesUnsafeFiles(t *testing.T) {
 // If recording fails after the private file is renamed, the ask stays open
 // and the refusal identifies the file and name without repeating the value.
 func TestGiveHookSecretNotRecorded(t *testing.T) {
+	// Sequential: overrides afterKeyRename.
 	y := hookYard(t)
 	seq := y.ask(t, hookSecretAsk("linear", "linear"), "yardmaster")
 	full := errors.New("no space left on device")
@@ -496,7 +499,7 @@ func TestGiveHookSecretNotRecorded(t *testing.T) {
 // source whose declaration has no hook key, a hook the yard has, and
 // the flags that stay in a terminal.
 func TestHookAskRefusals(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	for _, c := range []struct {
 		name string
 		ask  Ask
@@ -593,7 +596,7 @@ calls:
 // about the source come from its declaration (here the secret scheme
 // and its header), and the same two asks set the hook up.
 func TestHookAskGenericSource(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, _ := runYard(t)
 	if _, err := y.PutSource(y.ctx, "tracker.yaml", trackerDecl, "mckean"); err != nil {
 		t.Fatal(err)
@@ -622,7 +625,7 @@ func TestHookAskGenericSource(t *testing.T) {
 // whole destination inventory (path, sha256, mode), as a source set or
 // grant card's does.
 func TestHookAskStaleOnChmod(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, _ := runYard(t)
 	dir := plantWired(t, y)
 	seq := y.ask(t, hookRunAsk("hook add wired --source wired"), "yardmaster")
@@ -635,7 +638,7 @@ func TestHookAskStaleOnChmod(t *testing.T) {
 // A source the loose road added (a source add run ask) takes a hook
 // the same way once it stands declared.
 func TestHookAskAfterSourceAdd(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, _ := runYard(t)
 	add := sourceAddAsk(carriedOf(t, trackerDecl, map[string]string{"tracker/normalize": "#!/bin/sh\ncat >/dev/null\n"}))
 	add.Run.Argv = []string{"source add tracker.yaml"}
@@ -708,6 +711,7 @@ func giveChatxSecret(t *testing.T, y *askYard, hook string) {
 // are refused at asking, --map, --as and --secret-file stay refused,
 // and a card whose word was changed meanwhile is stale.
 func TestHookAskUnknown(t *testing.T) {
+	t.Parallel()
 	// Typed, stated, and stored, for the word given.
 	y := chatxYard(t)
 	giveChatxSecret(t, y, "chatx")
@@ -787,6 +791,7 @@ func TestHookAskUnknown(t *testing.T) {
 // it must still store the card's --unknown word when that path makes the
 // hook before calling the source.
 func TestHookAskUnknownRegisteredHook(t *testing.T) {
+	t.Parallel()
 	var hits []registerHit
 	status := http.StatusOK
 	y := registerYard(t, &hits, &status)

@@ -94,6 +94,7 @@ func packAsk() Ask {
 // A pack ask is stored with the server's own bytes, whatever the writer
 // sent for them, and its approval records it to be carried out.
 func TestPackApplyAskStoresServerBytes(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	y.setPack(&fakePack{label: "embedded in yardr test1"})
 	ask := packAsk()
@@ -150,6 +151,7 @@ func TestPackApplyAskStoresServerBytes(t *testing.T) {
 // A pack ask of a store with no reading registered is refused naming
 // the server, and flags and other names are refused to a terminal.
 func TestPackApplyRefusals(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	if _, err := y.AddAsk(y.ctx, y.bead, packAsk(), "yardmaster"); err == nil || !strings.Contains(err.Error(), "no server has registered") {
 		t.Fatalf("a pack ask with no reading = %v", err)
@@ -190,6 +192,7 @@ func TestPackApplyRefusals(t *testing.T) {
 // A pack of kind source is never installed through this row with a depot
 // or mappings: the setup card is its one route.
 func TestPackApplySourceKindPointsToSetup(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	y.setPack(&fakePack{label: "embedded in yardr test1"})
 	y.firstInstallDepot(t)
@@ -221,6 +224,7 @@ func firstInstallPlan() *AskPlan {
 // is built from them whatever the writer sent, shows them whole, weighs
 // strong, and is approved only weighed. Each thing it names stales it.
 func TestPackApplyFirstInstallCardAndStale(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	y.firstInstallDepot(t)
 	if err := y.PutGroup(y.ctx, Group{Name: "takers", Runner: "manual"}, "mckean"); err != nil {
@@ -321,6 +325,7 @@ func TestPackApplyFirstInstallCardAndStale(t *testing.T) {
 // A plan the mappings leave asking, or that refuses or would overwrite, is
 // refused at the ask naming what it asks, and an over-cap plan by its cap.
 func TestPackApplyFirstInstallRefusals(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	y.firstInstallDepot(t)
 	ask := packAsk()
@@ -353,6 +358,7 @@ func TestPackApplyFirstInstallRefusals(t *testing.T) {
 // Each mapping that gives access weighs in the class the grant and setup
 // cards give it, and a declaration with a credential alone adds no strength.
 func TestPackApplyMappingWeights(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	y.firstInstallDepot(t)
 	const decl = `name: crm
@@ -425,6 +431,7 @@ calls:
 // the build did (here, a reading with no label), and for a card written
 // before cards kept the build.
 func TestPackApplyStaleBuild(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	f := &fakePack{label: "embedded in yardr one", build: "one"}
 	y.setPack(f)
@@ -564,6 +571,7 @@ func plantWired(t *testing.T, y *askYard) string {
 // the file's own command line, with its hashes whole and its diff, and
 // names each entry neither declaration names as removed.
 func TestPackApplyReplacementCard(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	dir := plantWired(t, y)
 	// The standing copy of wired/thread differs from the pack's.
@@ -606,6 +614,7 @@ func TestPackApplyReplacementCard(t *testing.T) {
 // A file the pack's declaration drops has no command line to carry its
 // change, so it keeps a line of its own, with its old hash whole.
 func TestPackApplyDroppedFileKeepsItsLine(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	plantWired(t, y)
 	dropped := strings.Replace(wiredDecl, "thread:\n  reply: [wired/thread, reply]\n", "", 1)
@@ -638,6 +647,7 @@ func TestPackApplyDroppedFileKeepsItsLine(t *testing.T) {
 // A pack that adds that source must card and hold to the files it will
 // replace or remove even though no source record stands.
 func TestPackApplyCardsOrphanCopyDirectory(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	dir := filepath.Join(y.Store.home, "sources", "wired")
 	if err := os.MkdirAll(filepath.Join(dir, "wired"), 0o700); err != nil {
@@ -688,6 +698,7 @@ func TestPackApplyCardsOrphanCopyDirectory(t *testing.T) {
 }
 
 func TestPackApplyCarriesRemovedTextUpToThePackPayloadBound(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	dir := plantWired(t, y)
 	text := strings.Repeat("a removed line\n", 800) // larger than the loose-file limit
@@ -792,6 +803,7 @@ func TestPackReplacementDiffShowsWholeDeclarationKeys(t *testing.T) {
 // so does a changed copy and a changed entry neither declaration names:
 // the refusal names the file that moved.
 func TestPackApplyStaleCopy(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	dir := plantWired(t, y)
 	y.setPack(&fakePack{label: "embedded in yardr test1"})
@@ -831,6 +843,7 @@ func TestPackApplyStaleCopy(t *testing.T) {
 }
 
 func TestPackApplyReplacementCardsSymlinksWithoutFollowingThem(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	dir := plantWired(t, y)
 	target := filepath.Join(t.TempDir(), "private.txt")
@@ -873,6 +886,7 @@ func TestPackApplyReplacementCardsSymlinksWithoutFollowingThem(t *testing.T) {
 }
 
 func TestPackApplyRefusesChangedCommandSymlink(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	dir := plantWired(t, y)
 	target := filepath.Join(t.TempDir(), "replacement")
@@ -895,6 +909,7 @@ func TestPackApplyRefusesChangedCommandSymlink(t *testing.T) {
 // A pending source set and a pending source grant go stale when a
 // command copy of their source changes after the ask.
 func TestSourceRowsStaleWhenCopyChanges(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	dir := plantWired(t, y)
 	if err := y.PutGroup(y.ctx, Group{Name: "builders", Runner: "exec", Config: map[string]any{"cmd": "true"}}, "mckean"); err != nil {
@@ -921,6 +936,7 @@ func TestSourceRowsStaleWhenCopyChanges(t *testing.T) {
 // file's diff, throws a forged plan away, and its approval is held to
 // the plan rebuilt.
 func TestPackApplyDepotCardAndStale(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	diff := "--- was\n+++ is\n@@ -1,1 +1,1 @@\n-old role\n+new role\n"
 	plan := &AskPlan{
@@ -1006,6 +1022,7 @@ func TestPackApplyDepotCardAndStale(t *testing.T) {
 // A depot ask is refused where the plan asks, where there is no single
 // depot, and where its card or payload would run past the bound.
 func TestPackApplyDepotRefusals(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	ask := packAsk()
 	ask.Run.Argv = []string{"pack apply starter"}
@@ -1042,6 +1059,7 @@ func TestPackApplyDepotRefusals(t *testing.T) {
 // The store refuses a pack source whose parse names another source, a
 // card past forty lines, and a payload past the bound.
 func TestPackApplyStoreRefusals(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	y.Store.SetPackReader(func(ctx context.Context, name string, depot string, mappings Mappings, yard API) (*PackReading, error) {
 		return &PackReading{Name: name, Kind: "source", Label: "embedded in yardr test1",
@@ -1087,6 +1105,7 @@ func askFiles(files map[string]string) []AskFile {
 // An approval is refused when a source the pack would add was added
 // since the ask.
 func TestPackApplyStaleSourceAdded(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	y.setPack(&fakePack{label: "embedded in yardr test1"})
 	seq := y.ask(t, packAsk(), "yardmaster")
@@ -1137,6 +1156,7 @@ func summaryAsk() Ask {
 // hash, a client reaches each file's text from its line, the texts stay
 // carried, and the approval is gated and held as a whole card's is.
 func TestPackApplySummaryCard(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	y.firstInstallDepot(t)
 	f := &fakePack{label: "embedded in yardr test1", kind: "git", depot: "web", digest: summaryDigest,
@@ -1247,6 +1267,7 @@ func TestPackApplySummaryCard(t *testing.T) {
 
 // An ask stored before cards held a digest is not stale for lacking one.
 func TestPackApplyStaleKeepsADigestlessAsk(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	y.firstInstallDepot(t)
 	f := &fakePack{label: "embedded in yardr test1", kind: "git", depot: "web", plan: firstInstallPlan()}
@@ -1263,6 +1284,7 @@ func TestPackApplyStaleKeepsADigestlessAsk(t *testing.T) {
 // folded, each folded file stays tied to its plan object, and a card whose
 // owed lines alone pass the bound is refused. A card that fits stays whole.
 func TestPackApplySummaryFold(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	y.firstInstallDepot(t)
 	f := &fakePack{label: "embedded in yardr test1", kind: "git", depot: "web", digest: summaryDigest, noSources: true}
@@ -1351,6 +1373,7 @@ func TestPackApplySummaryFold(t *testing.T) {
 // A summary is written for a named depot and an addition alone: what it
 // cannot bind still refuses to a terminal in the whole card's words.
 func TestPackApplySummaryRefusals(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	y.firstInstallDepot(t)
 	f := &fakePack{label: "embedded in yardr test1", kind: "git", depot: "web", digest: summaryDigest, plan: largePlan(20, 5000)}
@@ -1401,6 +1424,7 @@ func TestPackApplySummaryRefusals(t *testing.T) {
 // card would have: where that is neither trust nor code the unchanged gate
 // lets a device approve it, and a mapping's weight still stands on it.
 func TestPackApplySummaryReapply(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	y.firstInstallDepot(t)
 	if _, err := y.RecordPack(y.ctx, PackImport{Pack: "starter", Depot: "web", Source: "x"}, true, "mckean"); err != nil {

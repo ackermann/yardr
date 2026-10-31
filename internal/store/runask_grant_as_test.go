@@ -12,7 +12,7 @@ import (
 // gives the grant as them. It goes stale when the user or the source's
 // credential settings change.
 func TestRunAskGrantAs(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := listYard(t)
 	seq := y.ask(t, listAsk("ada", "source grant crm read --crew yardmaster --as ada"), "yardmaster")
 	run := *y.asked(t, seq).Ask.Run
@@ -74,7 +74,7 @@ func TestRunAskGrantAs(t *testing.T) {
 // source needs of the user was set since, and when the source's
 // credential settings were.
 func TestRunAskGrantAsStale(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := listYard(t)
 	seq := y.ask(t, listAsk("ada", "source grant crm note --group builders --as ada"), "yardmaster")
 	if _, err := y.SetUser(y.ctx, "ada", map[string]string{UserEnvFile: "/elsewhere/ada.env"}, "ada"); err != nil {

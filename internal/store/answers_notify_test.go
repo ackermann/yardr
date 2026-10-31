@@ -45,8 +45,10 @@ func lastAnswer(t *testing.T, y *askYard) Event {
 // answered with words, put aside, declined, left to it. The line says in
 // words what happened.
 func TestAnswerDeliversToAsker(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	// Sequential: the package's fake clock.
+	pinClockFixed(t, askNow)
 	y := answerYard(t)
+	pinClock(t, &y.now)
 
 	// First pick: the crew asker hears it, with who, which bead and ask,
 	// the question, and the pick with its label and words.
@@ -137,8 +139,10 @@ func TestAnswerDeliversToAsker(t *testing.T) {
 // answer still reaches only its asker, as answered, and a stage ask's
 // answer, which moves the bead itself, tells no stage subscriber.
 func TestAnswerOrphanAskerDeliversToStageSubscribers(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	// Sequential: the package's fake clock.
+	pinClockFixed(t, askNow)
 	y := answerYard(t)
+	pinClock(t, &y.now)
 	if err := y.Store.AddSubscription(y.ctx, "yardmaster",
 		Subscription{Source: SourceYardr, Scope: ScopeAll, Where: map[string]string{"stage": "decide"}},
 		"yardmaster"); err != nil {
@@ -220,7 +224,7 @@ func TestAnswerOrphanAskerDeliversToStageSubscribers(t *testing.T) {
 
 // An asker answering its own ask is told nothing: no delivery.
 func TestAnswerOwnAskDeliversNothing(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := answerYard(t)
 	own := linksAsk()
 	own.To = "yardmaster"
@@ -237,7 +241,7 @@ func TestAnswerOwnAskDeliversNothing(t *testing.T) {
 
 // A user who asked is told in its notifications, with the same line.
 func TestAnswerDeliversToUserAsker(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := answerYard(t)
 	seq := y.askOn(t, y.bead, linksAsk(), "ada")
 	y.answerOn(t, y.bead, Answer{Ask: seq, Option: 2, Words: "after friday"}, "mckean")
@@ -274,8 +278,10 @@ func TestAnswerDeliversToUserAsker(t *testing.T) {
 // Where a pick was replaced the ask reads its history: "picked 2 (was 1
 // until 11:07)".
 func TestAskLinesShowReplacedPick(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	// Sequential: the package's fake clock.
+	pinClockFixed(t, askNow)
 	y := newAskYard(t)
+	pinClock(t, &y.now)
 	seq := y.ask(t, linksAsk(), "yardmaster")
 	y.answer(t, Answer{Ask: seq, Option: 1}, "mckean")
 	y.now = y.now.Add(time.Hour)
@@ -289,7 +295,9 @@ func TestAskLinesShowReplacedPick(t *testing.T) {
 		t.Fatalf("the pick lost its label or words:\n%s", text)
 	}
 	// A first pick reads as it did, with no history.
+	pinClockFixed(t, askNow)
 	y2 := newAskYard(t)
+	pinClock(t, &y2.now)
 	only := y2.ask(t, linksAsk(), "yardmaster")
 	y2.answer(t, Answer{Ask: only, Option: 1}, "mckean")
 	if text := strings.Join(y2.resolved(t)[0].Lines(), "\n"); strings.Contains(text, "was 1 until") {
@@ -300,7 +308,7 @@ func TestAskLinesShowReplacedPick(t *testing.T) {
 // The bead call gives, for an ask, how many picks there were before the
 // current one, so a client can say "changed".
 func TestBeadPicksBefore(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := decisionYard(t)
 	picked := y.ask(t, linksAsk(), "yardmaster")
 	y.answer(t, Answer{Ask: picked, Option: 1}, "mckean")

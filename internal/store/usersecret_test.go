@@ -46,7 +46,7 @@ const userSecretLine = "a secret: GOG_ACCOUNT, ada's own credential for the sour
 // and its card says whose credential it is and that a call made as them
 // reads it. It is asked of that user or of the operator for them.
 func TestUserAskIsStoredWithTheMintOrStaticNames(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, _ := userSecretYard(t)
 	ask := userSecretAsk("ada", "ada")
 	ask.Secret.Host = "https://evil.example.com"
@@ -107,7 +107,7 @@ func TestUserAskIsStoredWithTheMintOrStaticNames(t *testing.T) {
 // a user, a crew member or a hook (a waiting login takes --as itself:
 // loginwait_test.go).
 func TestUserAskRefusals(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, _ := userSecretYard(t)
 	with := func(change func(*Ask)) Ask {
 		a := userSecretAsk("ada", "ada")
@@ -146,7 +146,7 @@ func TestUserAskRefusals(t *testing.T) {
 // that holds the names. The value is in the file and in nothing the store
 // has. The user gives their own, or the operator does it for them.
 func TestGiveSecretGivesAUsersOwnCredential(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, file := userSecretYard(t)
 	seq := y.ask(t, userSecretAsk("ada", "ada"), "yardmaster")
 	const value = "ada@gog.example.com"
@@ -229,7 +229,7 @@ func TestGiveSecretGivesAUsersOwnCredential(t *testing.T) {
 // is a name the ask did not ask for. No refusal says back what was sent,
 // and none writes the file, sets the env_file, or notes an answer.
 func TestGiveSecretRefusesAnotherUsersCredential(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, file := userSecretYard(t)
 	seq := y.ask(t, userSecretAsk("ada", "ada"), "yardmaster")
 	const value = "ada@gog.example.com"
@@ -278,7 +278,7 @@ func TestGiveSecretRefusesAnotherUsersCredential(t *testing.T) {
 // the value; an https address answers it. A refused value leaves no note
 // and no file.
 func TestGiveSecretRefusesAUsersCredentialThatIsNoAddress(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, file := userSecretYard(t)
 	if _, err := y.PutSource(y.ctx, "hook.yaml", urlKeyFile, "mckean"); err != nil {
 		t.Fatal(err)
@@ -320,7 +320,7 @@ func TestGiveSecretRefusesAUsersCredentialThatIsNoAddress(t *testing.T) {
 // other lines kept. An address given beside it stays, and the file keeps
 // its comments.
 func TestKeyUserCredential(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, file := userSecretYard(t)
 	const address, account = "u9f2k4xq71ab03cd55ef8gh2ij6kl9", "ada@gog.example.com"
 	if _, err := y.KeyUser(y.ctx, "ada", "pushover", map[string]string{"PUSHOVER_USER": address}, "ada"); err != nil {
@@ -375,7 +375,7 @@ func TestKeyUserCredential(t *testing.T) {
 // A user with an env_file already has the value written there, their
 // other lines and comments kept.
 func TestKeyUserCredentialKeepsAnEnvFile(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, _ := userSecretYard(t)
 	file := filepath.Join(t.TempDir(), "ada.env")
 	if err := os.WriteFile(file, []byte("# mine\nOTHER=1\n"), 0o600); err != nil {

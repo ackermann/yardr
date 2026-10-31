@@ -380,6 +380,7 @@ func hostedFetch(s store.API, home string) store.HostedMint {
 // a second call takes it from the mint cache, and an ungranted source
 // is refused at its mint with its token discarded.
 func TestSourceCallHostedGoogle(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	s, owned := storetest.NewOwnedIn(t, home)
 	ctx := crmYard(t, s)
@@ -476,6 +477,7 @@ func TestSourceCallHostedGoogle(t *testing.T) {
 // the in-process mint and runs no command: a fake yardr on PATH counts
 // the runs the mint command it names would have had.
 func TestSourceCallHostedGoogleWithoutAServer(t *testing.T) {
+	// Sequential: process environment.
 	s := storetest.New(t)
 	ctx := crmYard(t, s)
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

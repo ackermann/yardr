@@ -149,6 +149,7 @@ func (y *askYard) approveSetup(t *testing.T, seq uint64, option int, values map[
 // sent for them: the pack, the grantees in the yard's order, the account
 // names, the presets with YouDecide last, and the recommendation.
 func TestSetupAskStoresServerBytes(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	y.setSetupPack(setupMailPack())
 	if err := y.PutGroup(y.ctx, Group{Name: "builders", Runner: "exec", Config: map[string]any{"cmd": "true"}}, "mckean"); err != nil {
@@ -207,6 +208,7 @@ func TestSetupAskStoresServerBytes(t *testing.T) {
 // account line and each preset's yard-rendered calls with the grantee,
 // each read against the declarations that made it.
 func TestSetupCardShowsDeclarationMintAccountAndPresets(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	y.setSetupPack(setupMailPack())
 	seq := y.ask(t, setupAsk(), "yardmaster")
@@ -327,6 +329,7 @@ func setupAskSourceBase(t *testing.T) {
 // A pack past 40 lines stays on the existing per-step flow, with pack
 // check named.
 func TestSetupAskRefusesLongCard(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	var calls []string
 	for i := 0; i < 40; i++ {
@@ -353,6 +356,7 @@ func TestSetupAskRefusesLongCard(t *testing.T) {
 // A recommendation that names no preset is refused with the terminal
 // that prints the presets numbered.
 func TestSetupAskRefusesUnknownRecommend(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	y.setSetupPack(setupMailPack())
 	ask := setupAsk()
@@ -375,6 +379,7 @@ func TestSetupAskRefusesUnknownRecommend(t *testing.T) {
 // A pack carrying sources under different credentials is refused with
 // the per-step flow named: one card carries one account choice.
 func TestSetupAskRefusesDifferentCredentials(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	f := setupMailPack()
 	f.sources = append(f.sources, setupSource{name: "setupstatic", text: setupStaticDecl})
@@ -397,6 +402,7 @@ func TestSetupAskRefusesDifferentCredentials(t *testing.T) {
 // Matching static variable names do not make credentials for two services
 // the same account.
 func TestSetupAskRefusesSharedStaticCredentialName(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	f := setupMailPack()
 	second := strings.ReplaceAll(setupStaticDecl, "setupstatic", "setupstatic2")
@@ -417,6 +423,7 @@ func TestSetupAskRefusesSharedStaticCredentialName(t *testing.T) {
 // A source's configured mint_command wins over the pack's command and can
 // make two otherwise identical declarations different credentials.
 func TestSetupAskRefusesDifferentEffectiveMints(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	f := setupMailPack()
 	f.sources = append(f.sources, setupSource{name: "setupcal", text: setupCalDecl, files: map[string]string{"setup-mint": setupMint}})
@@ -439,6 +446,7 @@ func TestSetupAskRefusesDifferentEffectiveMints(t *testing.T) {
 // Sources naming the same credential and the same mint take one card,
 // and the account is the mint's inputs, never the minted token.
 func TestSetupAskSharesOneCredentialAcrossSources(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	f := setupMailPack()
 	f.sources = append(f.sources, setupSource{name: "setupcal", text: setupCalDecl, files: map[string]string{"setup-mint": setupMint}})
@@ -464,6 +472,7 @@ func TestSetupAskSharesOneCredentialAcrossSources(t *testing.T) {
 // The same mint names with different bytes are different credentials:
 // the program is compared by the sha256 of its file.
 func TestSetupAskRefusesSameMintNamesWithDifferentBytes(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	f := setupMailPack()
 	f.sources = append(f.sources, setupSource{name: "setupcal", text: setupCalDecl, files: map[string]string{"setup-mint": "#!/bin/sh\n# another mint\n"}})
@@ -481,6 +490,7 @@ func TestSetupAskRefusesSameMintNamesWithDifferentBytes(t *testing.T) {
 // Which user a notifying source tells is still owed after a setup card:
 // the card settles the account, not the telling.
 func TestSetupCardKeepsNotifyOwed(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	f := setupMailPack()
 	f.sources = []setupSource{{name: "setuppush", text: setupPushDecl}}
@@ -500,6 +510,7 @@ func TestSetupCardKeepsNotifyOwed(t *testing.T) {
 
 // A static source's account is every credential name.
 func TestSetupAskStaticAccountIsEveryName(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	f := setupMailPack()
 	f.sources = []setupSource{{name: "setupstatic", text: setupStaticDecl}}
@@ -521,6 +532,7 @@ func TestSetupAskStaticAccountIsEveryName(t *testing.T) {
 // presets, one naming no credential, one the binary does not embed, no
 // server reading, no grantee, and options from the writer.
 func TestSetupAskRefusesWhatCannotBeCarded(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	depot := setupMailPack()
 	depot.kind = "crew"
@@ -575,6 +587,7 @@ func TestSetupAskRefusesWhatCannotBeCarded(t *testing.T) {
 // record beside it, and hands the account values to the server's memory,
 // never stored: the ask reads as approved and waiting to be carried out.
 func TestSetupApprovalRecordsCarryPending(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	y.setSetupPack(setupMailPack())
 	seq := y.ask(t, setupAsk(), "yardmaster")
@@ -683,7 +696,8 @@ func TestSetupApprovalRecordsCarryPending(t *testing.T) {
 // approval carries the card out and witnesses the answer's event, and a
 // stale sign-in refuses with no carrying record and the ask open.
 func TestSetupApprovalUnderAFreshSignIn(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	// Sequential: the package's fake clock.
+	pinClockFixed(t, askNow)
 	y, _ := runYard(t)
 	y.setSetupPack(setupMailPack())
 	seq := y.ask(t, setupAsk(), "yardmaster")
@@ -721,6 +735,7 @@ func TestSetupApprovalUnderAFreshSignIn(t *testing.T) {
 // An approval refuses values that the account file writer cannot save,
 // before it records the approval or keeps the values in memory.
 func TestSetupApprovalRejectsInvalidAccountValues(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name, value, want string
 	}{
@@ -820,6 +835,7 @@ func setupCheckedStandin(t *testing.T, bearers *[]string, status *int) string {
 // with the check's words, stores nothing, and leaves the card open to be
 // answered again.
 func TestSetupCheckRefusesBeforeStoring(t *testing.T) {
+	t.Parallel()
 	var bearers []string
 	status := http.StatusForbidden
 	y, _ := runYard(t)
@@ -857,6 +873,7 @@ func TestSetupCheckRefusesBeforeStoring(t *testing.T) {
 // A check the service never answers refuses the same way: with the
 // check's words, nothing stored, the card open.
 func TestSetupCheckUnansweredRefuses(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	url := srv.URL
 	srv.Close() // nothing answers now: the closed port refuses the check
@@ -886,6 +903,7 @@ func TestSetupCheckUnansweredRefuses(t *testing.T) {
 // the preset is approved, the carry record stands, and the typed value
 // is handed to the server's memory for the account's write.
 func TestSetupCheckPassStoresAsToday(t *testing.T) {
+	t.Parallel()
 	var bearers []string
 	status := http.StatusOK
 	y, _ := runYard(t)
@@ -915,6 +933,7 @@ func TestSetupCheckPassStoresAsToday(t *testing.T) {
 // with no check call: the token is minted only once the pack is in the
 // yard. The stand-in refuses every check, so a call would refuse this.
 func TestSetupCheckMintedStoredAsToday(t *testing.T) {
+	t.Parallel()
 	var bearers []string
 	status := http.StatusForbidden
 	y, _ := runYard(t)
@@ -934,6 +953,7 @@ func TestSetupCheckMintedStoredAsToday(t *testing.T) {
 
 // A second approval is refused: a setup runs once for one ask.
 func TestSetupSecondApprovalRefused(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	y.setSetupPack(setupMailPack())
 	seq := y.ask(t, setupAsk(), "yardmaster")
@@ -947,6 +967,7 @@ func TestSetupSecondApprovalRefused(t *testing.T) {
 // Picking You decide grants the asker's recommended preset; with none
 // recommended there is nothing to grant.
 func TestSetupYouDecideGrantsRecommended(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	y.setSetupPack(setupMailPack())
 	ask := setupAsk()
@@ -969,6 +990,7 @@ func TestSetupYouDecideGrantsRecommended(t *testing.T) {
 // for file: the build is provenance, which the card keeps. It is refused
 // when the label without the build moved (here, a reading with no label).
 func TestSetupStaleBuild(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	f := setupMailPack()
 	y.setSetupPack(f)
@@ -994,6 +1016,7 @@ func TestSetupStaleBuild(t *testing.T) {
 
 // An approval is refused stale when the pack's bytes moved.
 func TestSetupStaleBytes(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	f := setupMailPack()
 	y.setSetupPack(f)
@@ -1007,6 +1030,7 @@ func TestSetupStaleBytes(t *testing.T) {
 
 // An approval is refused stale when the presets moved, the bytes standing.
 func TestSetupStalePresets(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	f := setupMailPack()
 	y.setSetupPack(f)
@@ -1020,6 +1044,7 @@ func TestSetupStalePresets(t *testing.T) {
 
 // An approval is refused stale when a source it would add was added since.
 func TestSetupStaleSourceAdded(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	f := setupMailPack()
 	f.sources = []setupSource{{name: "setupstatic", text: setupStaticDecl}}
@@ -1038,6 +1063,7 @@ func TestSetupStaleSourceAdded(t *testing.T) {
 // An approval is refused stale when a source's settings move under its
 // name while the card is open.
 func TestSetupStaleSourceChanged(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	y.setSetupPack(setupMailPack())
 	if _, err := y.PutSource(y.ctx, "setupmail.yaml", setupDecl, "mckean"); err != nil {
@@ -1055,6 +1081,7 @@ func TestSetupStaleSourceChanged(t *testing.T) {
 
 // An approval is refused stale when a command copy moved under it.
 func TestSetupStaleInventory(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	y.setSetupPack(setupMailPack())
 	seq := y.ask(t, setupAsk(), "yardmaster")
@@ -1074,6 +1101,7 @@ func TestSetupStaleInventory(t *testing.T) {
 // An approval is refused stale when the account was given meanwhile, or
 // ungiven: owed-ness moved.
 func TestSetupStaleOwed(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	y.setSetupPack(setupMailPack())
 	seq := y.ask(t, setupAsk(), "yardmaster")
@@ -1100,6 +1128,7 @@ func TestSetupStaleOwed(t *testing.T) {
 
 // An approval is refused stale when a grantee moved under its name.
 func TestSetupStaleGrantee(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	y.setSetupPack(setupMailPack())
 	seq := y.ask(t, setupAsk(), "yardmaster")
@@ -1115,6 +1144,7 @@ func TestSetupStaleGrantee(t *testing.T) {
 // Grants held since are run past, as the grant row runs them: only a
 // preset held already refuses the approval.
 func TestSetupRunsPastGrantsHeldSince(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	f := setupMailPack()
 	f.sources = []setupSource{{name: "setupstatic", text: setupStaticDecl}}
@@ -1134,6 +1164,7 @@ func TestSetupRunsPastGrantsHeldSince(t *testing.T) {
 }
 
 func TestSetupHeldAlreadyRefusesApproval(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	f := setupMailPack()
 	f.sources = []setupSource{{name: "setupstatic", text: setupStaticDecl}}
@@ -1159,6 +1190,7 @@ func TestSetupHeldAlreadyRefusesApproval(t *testing.T) {
 // Later and Decline go there, with words for a decline, and from its
 // addressee or an operator alone.
 func TestSetupPlainAnswerShapes(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	y.setSetupPack(setupMailPack())
 	seq := y.ask(t, setupAsk(), "yardmaster")
@@ -1187,6 +1219,7 @@ func TestSetupPlainAnswerShapes(t *testing.T) {
 // names no option, for values that are not the account asked for, and
 // over a link.
 func TestSetupApprovalRefusals(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	y.setSetupPack(setupMailPack())
 	seq := y.ask(t, setupAsk(), "yardmaster")

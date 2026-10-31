@@ -13,7 +13,7 @@ import (
 // as an answer of the person. The bead's notes say who and why, and an
 // answer that arrives afterwards is refused with those words.
 func TestTakeBackAsk(t *testing.T) {
-	// Sequential: the package's fake clock (via newHomeYard).
+	t.Parallel()
 	y := reachYard(t)
 	bead, seq := y.asked(t, linksAsk())
 	if q := y.queue(t); len(q.Open) != 1 {
@@ -83,7 +83,7 @@ func TestTakeBackAsk(t *testing.T) {
 // it is for, not another crew member, and nobody through AddAnswer, which
 // does not ask who writes. A refusal writes nothing.
 func TestTakeBackAskIsTheAskersAndTheOperators(t *testing.T) {
-	// Sequential: the package's fake clock (via newHomeYard).
+	t.Parallel()
 	y := reachYard(t)
 	bead, seq := y.asked(t, linksAsk())
 	for _, who := range []string{"mckean", "ada", "clerk", ""} {
@@ -122,7 +122,7 @@ func TestTakeBackAskIsTheAskersAndTheOperators(t *testing.T) {
 // word stands. One put aside is, as an open one. A question another yard
 // asked is that yard's.
 func TestTakeBackAskOnlyWhileUnanswered(t *testing.T) {
-	// Sequential: the package's fake clock (via newHomeYard).
+	t.Parallel()
 	y := reachYard(t)
 	bead, seq := y.asked(t, linksAsk())
 	if err := y.AnswerAsk(y.ctx, bead, seq, 1, "", "mckean", false); err != nil {
@@ -167,7 +167,7 @@ func TestTakeBackAskOnlyWhileUnanswered(t *testing.T) {
 
 // A secret ask that was taken back takes no value.
 func TestTakenBackSecretAskIsNotGivable(t *testing.T) {
-	// Sequential: the package's fake clock (via newHomeYard).
+	t.Parallel()
 	y := reachYard(t)
 	bead, seq := y.asked(t, linksAsk())
 	if err := y.TakeBackAsk(y.ctx, bead, seq, "the key is not needed", "yardmaster"); err != nil {

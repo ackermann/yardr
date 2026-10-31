@@ -16,6 +16,7 @@ func pairParty(t *testing.T, name, url string) Party {
 // read back however it was typed: lowercase, without the dash, with the
 // letters it never has for the digits they look like.
 func TestCode(t *testing.T) {
+	t.Parallel()
 	seen := map[string]bool{}
 	for range 200 {
 		c := NewCode()
@@ -51,6 +52,7 @@ func TestCode(t *testing.T) {
 // check and session; a yard with another code is told apart at each
 // message; and what is revealed must be what was committed to.
 func TestExchange(t *testing.T) {
+	// Sequential: Stretch, the pairing work factor it lowers.
 	defer func(n int) { Stretch = n }(Stretch)
 	Stretch = 10
 	joiner, host := pairParty(t, "laptop", ""), pairParty(t, "north", "http://10.0.0.5:8790")
@@ -138,6 +140,7 @@ func second(_ bool, err error) error { return err }
 // The stretch is what a guess at a code costs: at its real count a key
 // takes long enough that the 2^40 codes are not tried in ten minutes.
 func TestKeyIsStretched(t *testing.T) {
+	// Sequential: Stretch, the pairing work factor TestExchange lowers.
 	if Stretch < 600_000 {
 		t.Fatalf("Stretch = %d", Stretch)
 	}

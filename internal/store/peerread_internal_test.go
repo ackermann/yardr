@@ -36,8 +36,10 @@ func (y *homeYard) kept(t *testing.T) (n int) {
 // once, in the count its mail has, and answers again when the hour has
 // passed.
 func TestPeerReadLimit(t *testing.T) {
-	// Sequential: the package's fake clock (via newHomeYard).
+	// Sequential: the package's fake clock.
+	pinClockFixed(t, homeNow)
 	y := newHomeYard(t)
+	pinClock(t, &y.now)
 	y.threads(t)
 	b, err := y.CreateBead(y.ctx, NewBead{Title: "From north"}, "jo")
 	if err != nil {
@@ -89,7 +91,8 @@ func TestPeerReadLimit(t *testing.T) {
 // beside the record of the stay, and it is removed in the write that ends
 // the stay: the return, here.
 func TestPeerReadKeptUntilTheStayEnds(t *testing.T) {
-	// Sequential: the package's fake clock (via newHomeYard).
+	// Sequential: the package's fake clock.
+	pinClockFixed(t, homeNow)
 	y := newHomeYard(t)
 	y.threads(t, PeerBead)
 	b, err := y.CreateBead(y.ctx, NewBead{Title: "Add the export"}, "jo")
@@ -142,7 +145,7 @@ func TestPeerReadKeptUntilTheStayEnds(t *testing.T) {
 // this yard says so: the body has a line naming this yard's bead, and that
 // bead is the first of the ask's about-beads.
 func TestBeadForeignIsACounterpart(t *testing.T) {
-	// Sequential: the package's fake clock (via newHomeYard).
+	t.Parallel()
 	y := newHomeYard(t)
 	ask := northPeerAsk()
 	ask.Since = y.now.Add(-time.Hour)

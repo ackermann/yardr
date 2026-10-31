@@ -65,7 +65,7 @@ func userSetEvents(t *testing.T, y *askYard) int {
 // card says whose address it is and which command tells the user through
 // the source. It is asked of that user or of the operator for them.
 func TestAddressAskIsStoredWithTheNotifyKeysName(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, _ := addressYard(t)
 	ask := addressAsk("ada", "ada")
 	ask.Secret.Host = "https://evil.example.com"
@@ -107,7 +107,7 @@ func TestAddressAskIsStoredWithTheNotifyKeysName(t *testing.T) {
 // user the yard does not have, a name the notify key does not name, anyone
 // asked but that user and the operator, and another yard.
 func TestAddressAskRefusals(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, _ := addressYard(t)
 	with := func(change func(*Ask)) Ask {
 		a := addressAsk("ada", "ada")
@@ -144,7 +144,7 @@ func TestAddressAskRefusals(t *testing.T) {
 // answer names the command that does. The value is in the file and in
 // nothing the store has.
 func TestGiveSecretGivesAUsersOwnAddress(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, file := addressYard(t)
 	seq := y.ask(t, addressAsk("ada", "ada"), "yardmaster")
 	const value = "u-0f-ada-s3cret"
@@ -235,7 +235,7 @@ func TestGiveSecretGivesAUsersOwnAddress(t *testing.T) {
 // and declining it are the same two's: the user, who is no operator, keeps
 // both for their own card.
 func TestGiveSecretRefusesAnotherUsersAddress(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, file := addressYard(t)
 	seq := y.ask(t, addressAsk("ada", "ada"), "yardmaster")
 	const value = "u-0f-ada-s3cret"
@@ -307,7 +307,7 @@ func TestGiveSecretRefusesAnotherUsersAddress(t *testing.T) {
 // key names, and for a user whose name would be a path of the yard's
 // choosing.
 func TestKeyUser(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, _ := addressYard(t)
 	own := filepath.Join(t.TempDir(), "bob.env")
 	if err := os.WriteFile(own, []byte("# bob's\nOTHER=1\nPUSHOVER_USER=old\n"), 0o600); err != nil {
@@ -376,7 +376,7 @@ func TestKeyUser(t *testing.T) {
 // user's file and the store says nothing of it: no env_file, no event, the
 // ask open with no answer. Giving again ends as one giving that worked.
 func TestGiveAddressNotRecorded(t *testing.T) {
-	// Sequential: overrides afterKeyRename, and uses the fake clock (via newAskYard).
+	// Sequential: overrides afterKeyRename.
 	y, file := addressYard(t)
 	seq := y.ask(t, addressAsk("ada", "ada"), "yardmaster")
 	full := errors.New("no space left on device")
@@ -423,7 +423,7 @@ func TestGiveAddressNotRecorded(t *testing.T) {
 // same then as when it ran once: one answer note, the file with the line
 // once, one user_set event.
 func TestGiveAddressRunTwice(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, file := addressYard(t)
 	seq := y.ask(t, addressAsk("ada", "ada"), "yardmaster")
 	var k sourceKey

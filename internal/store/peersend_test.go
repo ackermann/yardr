@@ -476,6 +476,7 @@ func (y *peerYard) holdSettle(t *testing.T) (*store.Bead, *hangingGit) {
 // A peer return is settled outside its write, and a close cuts a settle in
 // its repository read while leaving the stay owed for the next open.
 func TestPeerBeadReturnSettlesOffTheWrite(t *testing.T) {
+	// Sequential: shims git on the process PATH (via hangGit), which parallel tests cannot share.
 	t.Run("settles after the repository read", func(t *testing.T) {
 		// Serial: it shims git on the process PATH, which parallel tests cannot share.
 		y := newPeerYard(t, "http://north.test")

@@ -177,7 +177,7 @@ func mapBehindTheCards(t *testing.T, y *askYard, user, source string, id Identit
 // closes the card's bead with what was written, and the sender offers
 // no second card, by then or once mapped.
 func TestClaimIdentityPickWritesIdentity(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := mappingYard(t)
 	long := strings.Repeat("word ", 30) + "TAIL-MARKER-must-not-be-kept"
 	created, err := y.ClaimIdentity(y.ctx, "talk", "U999", "C1", long)
@@ -243,7 +243,7 @@ func TestClaimIdentityPickWritesIdentity(t *testing.T) {
 // with no identity hearing, no sender and a sender with a control
 // character offer none, and no writer may forge a mapping ask.
 func TestClaimIdentityStaleDeclineAndRefusals(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := mappingYard(t)
 	if created, err := y.ClaimIdentity(y.ctx, "chime", "U999", "C1", "hi"); err != nil || created {
 		t.Fatalf("a card for a source with no identity hearing = %v, %v", created, err)
@@ -338,7 +338,7 @@ func TestClaimIdentityStaleDeclineAndRefusals(t *testing.T) {
 // the operator the card asks alone to give: another user's decline is
 // refused whole, and the card stands open for the operator.
 func TestMappingDeclineIsTheOperatorsAlone(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := mappingYard(t)
 	card := claimCard(t, y, "U555")
 	if err := y.DeclineAsk(y.ctx, card.Bead, card.Ask, "not now", "ada"); err == nil || !strings.Contains(err.Error(), "the operator") {
@@ -385,7 +385,7 @@ func mappedTo(y *askYard, source, sender string) (holders []string, err error) {
 // card's bead; empty, invalid and taken words refuse the answer and leave
 // the card open, no user added.
 func TestClaimIdentitySomeoneNew(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := mappingYard(t)
 	open := holdTalk(t, y, "U999", "someone new body")
 	someone := pickFor(t, y, open.Bead, MappingSomeoneNew)
@@ -448,7 +448,7 @@ func TestClaimIdentitySomeoneNew(t *testing.T) {
 // stands for them, and none is offered again until the entry is removed
 // or the sender is mapped directly, which clears it in the same write.
 func TestClaimIdentityNobodyIgnores(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := mappingYard(t)
 	open := holdTalk(t, y, "U999", "nobody body")
 	if got := hookSpeakers(t, y); len(got) != 0 {
@@ -531,7 +531,7 @@ func TestClaimIdentityNobodyIgnores(t *testing.T) {
 // bead: the sender stays unmapped, and their next message offers a
 // fresh card holding that message alone.
 func TestClaimIdentityLetInOnceClosesCard(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := mappingYard(t)
 	first := holdTalk(t, y, "U999", "let in first")
 	holdTalk(t, y, "U999", "let in second")
@@ -604,7 +604,7 @@ func TestClaimIdentityLetInOnceClosesCard(t *testing.T) {
 // open until the sender is settled or it is closed by hand, and it
 // still takes a newer pick, which ends it as that pick ends any card.
 func TestClaimIdentityLetInBeforeChangeStillAnswers(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := mappingYard(t)
 	card := holdTalk(t, y, "U777", "before the change")
 	letIn := pickFor(t, y, card.Bead, MappingLetIn)
@@ -662,7 +662,7 @@ func TestClaimIdentityLetInBeforeChangeStillAnswers(t *testing.T) {
 // cards) makes the someone-new, nobody and let-in picks stale too: no
 // user is added, nothing is ignored or delivered, and the card stays open.
 func TestClaimIdentityNewPicksAreStale(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := mappingYard(t)
 	open := holdTalk(t, y, "U777", "held before it went stale")
 	if _, err := y.AddUser(y.ctx, "bo", "mckean"); err != nil {
@@ -700,7 +700,7 @@ func TestClaimIdentityNewPicksAreStale(t *testing.T) {
 // someone-new name on each adds the user once, and the second answer
 // is refused with the card left open.
 func TestClaimIdentitySomeoneNewNameTakenBetweenCards(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := mappingYard(t)
 	for _, sender := range []string{"U111", "U222"} {
 		if created, err := y.ClaimIdentity(y.ctx, "talk", sender, "C1", "hi"); err != nil || !created {
@@ -745,7 +745,7 @@ func TestClaimIdentitySomeoneNewNameTakenBetweenCards(t *testing.T) {
 // id or the key names the sender, as hearing reads it, and another
 // sender's card stands.
 func TestMappingByHandEndsTheCard(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := mappingYard(t)
 	card := holdTalk(t, y, "U777", "terminal mapping body")
 	keyed := claimCard(t, y, "Dana")
@@ -825,7 +825,7 @@ func TestMappingByHandEndsTheCard(t *testing.T) {
 // A mapping an approved run ask makes ends the card as a terminal one
 // does. The bead the run ask stands on is no card and stays open.
 func TestMappingByRunAskEndsTheCard(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := mappingYard(t)
 	card := claimCard(t, y, "U999")
 	seq := y.ask(t, listAsk("mckean", `user identity ada --source talk --id U999`), "yardmaster")
@@ -843,7 +843,7 @@ func TestMappingByRunAskEndsTheCard(t *testing.T) {
 // the next delivery offer a second card, which the answer to it ends with
 // the first.
 func TestMappingCardLaterAndYouDecideStayOpen(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := mappingYard(t)
 	later := claimCard(t, y, "U111")
 	if err := y.DeferAsk(y.ctx, later.Bead, later.Ask, "mckean"); err != nil {
@@ -889,7 +889,7 @@ func TestMappingCardLaterAndYouDecideStayOpen(t *testing.T) {
 // are, taking its ask back; so does the entry of an id already on the
 // list, which a card from before entries ended cards can stand beside.
 func TestIgnoreEntryEndsTheCard(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := mappingYard(t)
 	card := holdTalk(t, y, "U123", "ignored body")
 	if got := hookSpeakers(t, y); len(got) != 0 {

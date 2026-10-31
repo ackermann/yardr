@@ -70,7 +70,7 @@ func answerNotes(t *testing.T, y *askYard) []Note {
 // the source, the names its declaration gives the credential, and where
 // its calls go. All of it is the yard's, whatever the asker sent.
 func TestSecretAskIsStoredWithTheDeclarationsNames(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, _ := secretYard(t)
 	ask := secretAsk("crm")
 	ask.Secret.Host = "https://evil.example.com"
@@ -143,7 +143,7 @@ func TestSecretAskIsStoredWithTheDeclarationsNames(t *testing.T) {
 // for the mint's inputs alone: the token is minted per call, never given.
 // The static names are alternatives the asker reaches with --env alone.
 func TestSecretAskMintedSourceAsksForTheMintsInputs(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, _ := secretYard(t)
 	if _, err := y.PutSource(y.ctx, "gog.yaml", mintKeyFile, "mckean"); err != nil {
 		t.Fatal(err)
@@ -166,7 +166,7 @@ func TestSecretAskMintedSourceAsksForTheMintsInputs(t *testing.T) {
 // the URL in its variable: the source has no host of its own to name, and
 // the ask is still given and answered against what it said.
 func TestSecretAskForACredentialThatIsTheAddress(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, _ := secretYard(t)
 	const hookFile = `name: hook
 credential: { env: HOOK_URL, url: true }
@@ -203,7 +203,7 @@ calls:
 // the value; an https address answers it. A refused value leaves no note
 // and no file.
 func TestGiveSecretRefusesASourceCredentialThatIsNoAddress(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, _ := secretYard(t)
 	if _, err := y.PutSource(y.ctx, "hook.yaml", urlKeyFile, "mckean"); err != nil {
 		t.Fatal(err)
@@ -247,7 +247,7 @@ func TestGiveSecretRefusesASourceCredentialThatIsNoAddress(t *testing.T) {
 // flag is kept on the ask, as the host is, and read with the bead and the
 // queue.
 func TestSecretAskConcealed(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, _ := secretYard(t)
 	const mixedFile = `name: gog
 base: https://gog.example.com
@@ -353,7 +353,7 @@ func itoa(n uint64) string { b, _ := json.Marshal(n); return string(b) }
 // its declaration does not have, anyone but the operator, another yard, and
 // with options, a recommendation or about-beads.
 func TestSecretAskRefusals(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, _ := secretYard(t)
 	other, err := y.CreateBead(y.ctx, NewBead{Title: "another"}, "yardmaster")
 	if err != nil {
@@ -404,7 +404,7 @@ func TestSecretAskRefusals(t *testing.T) {
 // A secret ask is not copied to a name a link gives reach for the operator,
 // where any other ask for them is.
 func TestSecretAskIsNotCopiedToALinkedYard(t *testing.T) {
-	// Sequential: the package's fake clock (via newHomeYard).
+	t.Parallel()
 	y := reachYard(t)
 	y.allow(t, PeerAllow{Reach: map[string]string{"mckean": "mckean"}})
 	if err := y.SetSetting(y.ctx, OperatorSetting, "mckean", "jo"); err != nil {
@@ -430,7 +430,7 @@ func TestSecretAskIsNotCopiedToALinkedYard(t *testing.T) {
 // "gave <names>" in every view, the asker's inbox says who gave what for
 // which source, and the value is in the file and in nothing the store has.
 func TestGiveSecret(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, file := secretYard(t)
 	seq := y.ask(t, secretAsk("crm"), "yardmaster")
 	const value = "s3cret-0f-the-yard"
@@ -540,7 +540,7 @@ func mustNotes(t *testing.T, y *askYard) []Note {
 
 // An ask with two names takes both together, and neither alone.
 func TestGiveSecretTakesExactlyTheNamesAsked(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, _ := secretYard(t)
 	seq := y.ask(t, secretAsk("pair"), "yardmaster")
 	one := y.ask(t, secretAsk("pair", "PAIR_TOKEN"), "yardmaster")
@@ -585,7 +585,7 @@ func TestGiveSecretTakesExactlyTheNamesAsked(t *testing.T) {
 // one that was declined, and whoever may not set the source's credential:
 // anyone but the operator, and a crew member whatever it calls itself.
 func TestGiveSecretRefusals(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, file := secretYard(t)
 	plain := y.ask(t, wordsAsk("mckean"), "yardmaster")
 	seq := y.ask(t, secretAsk("crm"), "yardmaster")
@@ -640,7 +640,7 @@ func TestGiveSecretRefusals(t *testing.T) {
 // and nothing is kept. Later is as on any ask. This is what holds a client
 // that does not know the field and shows the ask as "words wanted".
 func TestSecretAskTakesNoWords(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, _ := secretYard(t)
 	seq := y.ask(t, secretAsk("crm"), "yardmaster")
 	const typed = "s3cret-typed-as-words"
@@ -691,7 +691,7 @@ func TestSecretAskTakesNoWords(t *testing.T) {
 // note. The caller is told with the names and the file, never the value,
 // and giving again answers the ask with one note.
 func TestGiveSecretNotRecorded(t *testing.T) {
-	// Sequential: overrides afterKeyRename, and uses the fake clock (via newAskYard).
+	// Sequential: overrides afterKeyRename.
 	y, file := secretYard(t)
 	seq := y.ask(t, secretAsk("crm"), "yardmaster")
 	full := errors.New("no space left on device")
@@ -741,7 +741,7 @@ func TestGiveSecretNotRecorded(t *testing.T) {
 // written. A source replaced since by one whose calls go elsewhere is not
 // given the secret under the old card: the ask is to be asked again.
 func TestGiveSecretRefusesASourceThatMoved(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, file := secretYard(t)
 	seq := y.ask(t, secretAsk("crm"), "yardmaster")
 	moved := strings.Replace(keyedFile, "https://crm.example.com/api", "https://elsewhere.example.net/api", 1)
@@ -770,7 +770,7 @@ func TestGiveSecretRefusesASourceThatMoved(t *testing.T) {
 // The giving ends the same then as when it ran once: one answer note, the
 // file with the line once, one source_set event.
 func TestGiveSecretRunTwice(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, file := secretYard(t)
 	seq := y.ask(t, secretAsk("crm"), "yardmaster")
 	var k sourceKey

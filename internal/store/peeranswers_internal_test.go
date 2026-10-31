@@ -22,13 +22,16 @@ type homeYard struct {
 	n   int
 }
 
-// newHomeYard sets the package's fake clock to the yard's now, so its
-// callers stay sequential.
+// newHomeYard is a store with a peer link. A test that moves time pins
+// the package clock to the yard's now (pinClock) and stays sequential;
+// the rest run parallel.
+// homeNow is the now a new home yard starts from; a test that moves time
+// pre-pins the package clock to it before it builds its yard.
+var homeNow = time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)
+
 func newHomeYard(t *testing.T) *homeYard {
 	t.Helper()
-	y := &homeYard{ctx: context.Background(), now: time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)}
-	clock = func() time.Time { return y.now }
-	t.Cleanup(func() { clock = time.Now })
+	y := &homeYard{ctx: context.Background(), now: homeNow}
 	s, err := Open(filepath.Join(t.TempDir(), "y.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -141,8 +144,10 @@ func northAsk() Ask {
 // by: a newer pick stands and every pick stays, and the same id twice is
 // taken once.
 func TestPeerAnswerLands(t *testing.T) {
-	// Sequential: the package's fake clock (via newHomeYard).
+	// Sequential: the package's fake clock.
+	pinClockFixed(t, homeNow)
 	y := newHomeYard(t)
+	pinClock(t, &y.now)
 	// The pick by hand below is the operator's: the ask is another
 	// yard's person's to answer, and nobody else's here.
 	if err := y.SetSetting(y.ctx, OperatorSetting, "jo", "jo"); err != nil {
@@ -200,8 +205,10 @@ func TestPeerAnswerLands(t *testing.T) {
 // wants them. A declined ask and one answered with words are ended: a late
 // answer is refused, naming the state.
 func TestPeerAnswerLaterDeclineWords(t *testing.T) {
-	// Sequential: the package's fake clock (via newHomeYard).
+	// Sequential: the package's fake clock.
+	pinClockFixed(t, homeNow)
 	y := newHomeYard(t)
+	pinClock(t, &y.now)
 	// The pick by hand below is the operator's: the ask is another
 	// yard's person's to answer, and nobody else's here.
 	if err := y.SetSetting(y.ctx, OperatorSetting, "jo", "jo"); err != nil {
@@ -266,7 +273,7 @@ func TestPeerAnswerLaterDeclineWords(t *testing.T) {
 // trusted, and one by another name as the wrong person. Nothing of a
 // refused answer lands.
 func TestPeerAnswerUnsolicited(t *testing.T) {
-	// Sequential: the package's fake clock (via newHomeYard).
+	t.Parallel()
 	y := newHomeYard(t)
 	bead, seq := y.asked(t, northAsk())
 	local := linksAsk()
@@ -354,7 +361,7 @@ func TestPeerAnswerUnsolicited(t *testing.T) {
 // link was renamed, and the answer is written by the name the yard has
 // today. Once another yard has the old name, it is not.
 func TestPeerAnswerAfterRename(t *testing.T) {
-	// Sequential: the package's fake clock (via newHomeYard).
+	t.Parallel()
 	y := newHomeYard(t)
 	bead, seq := y.asked(t, northAsk())
 	if _, err := y.RenamePeer(y.ctx, "north", "up", "jo"); err != nil {
@@ -451,8 +458,10 @@ func (y *homeYard) outbox(t *testing.T) ([]PeerOut, []peerAnswer) {
 // share. The question is among the decided from then on, a newer pick
 // stands, and Later is 24 hours by this yard's clock and nothing else.
 func TestForeignAskAnswered(t *testing.T) {
-	// Sequential: the package's fake clock (via newHomeYard).
+	// Sequential: the package's fake clock.
+	pinClockFixed(t, homeNow)
 	y := newHomeYard(t)
+	pinClock(t, &y.now)
 	y.foreign(t, "a1", linksAsk())
 	if q := y.queue(t); len(q.Open) != 1 || q.Open[0].Bead != "yd-links@north" || len(q.Decided) != 0 {
 		t.Fatalf("the queue = %+v", q)
@@ -554,7 +563,9 @@ func TestForeignAskAnswered(t *testing.T) {
 		t.Fatalf("noted events by the person = %d, want 3", noted)
 	}
 
+	pinClockFixed(t, homeNow)
 	policyYard := newHomeYard(t)
+	pinClock(t, &policyYard.now)
 	policyYard.foreign(t, "policy-ask", linksAsk())
 	var got Object
 	policyYard.SetPolicy(storePolicyFunc(func(ctx context.Context, tx *bolt.Tx, actor string, act Action, obj Object) error {
@@ -575,7 +586,7 @@ func TestForeignAskAnswered(t *testing.T) {
 // Decline ends a foreign ask here as it will there: a late pick is refused
 // before anything is queued.
 func TestForeignAskDeclined(t *testing.T) {
-	// Sequential: the package's fake clock (via newHomeYard).
+	t.Parallel()
 	y := newHomeYard(t)
 	y.foreign(t, "a1", linksAsk())
 	if err := y.DeclineAsk(y.ctx, "yd-links@north", 3, "not mine", "mckean"); err != nil {
@@ -597,7 +608,7 @@ func TestForeignAskDeclined(t *testing.T) {
 
 // A foreign ask that wants words is answered with words, once.
 func TestForeignAskWords(t *testing.T) {
-	// Sequential: the package's fake clock (via newHomeYard).
+	t.Parallel()
 	y := newHomeYard(t)
 	y.foreign(t, "a1", Ask{Question: "What tone?", Context: []string{"the greeting."}})
 	if err := y.AnswerAsk(y.ctx, "yd-links@north", 3, 1, "", "mckean", false); err == nil || !strings.Contains(err.Error(), "wants words") {
@@ -627,8 +638,10 @@ func TestForeignAskWords(t *testing.T) {
 // further answer. Either way the person gets mail from the yard, and the
 // queue says noted.
 func TestForeignAnswerGivenUp(t *testing.T) {
-	// Sequential: the package's fake clock (via newHomeYard).
+	// Sequential: the package's fake clock.
+	pinClockFixed(t, homeNow)
 	y := newHomeYard(t)
+	pinClock(t, &y.now)
 	y.foreign(t, "a1", linksAsk())
 	pick := func(n int) PeerOut {
 		t.Helper()
@@ -712,7 +725,7 @@ func TestForeignAnswerGivenUp(t *testing.T) {
 // messages: answered there marks the question answered, and an ask that
 // yard no longer has as declined, with the words that say which.
 func TestForeignAnswerRefusedByPull(t *testing.T) {
-	// Sequential: the package's fake clock (via newHomeYard).
+	t.Parallel()
 	for reason, want := range map[string][2]string{
 		RefusedAskAnswered: {"answered", "it was answered in north's yard"},
 		RefusedNoSuchAsk:   {"declined", "it is no longer asked in north's yard"},
@@ -750,7 +763,7 @@ func TestForeignAnswerRefusedByPull(t *testing.T) {
 // A question given up is told to whoever asked it, as mail from the yard,
 // and stays open on its bead, answerable there by hand.
 func TestPeerAskUndelivered(t *testing.T) {
-	// Sequential: the package's fake clock (via newHomeYard).
+	t.Parallel()
 	y := newHomeYard(t)
 	// The answer by hand below is the operator's: the ask is another
 	// yard's person's to answer, and nobody else's here.

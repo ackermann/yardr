@@ -31,7 +31,7 @@ func harnessKeyYard(t *testing.T) (y *askYard, keyFile, crewFile string) {
 // operator's login reads it. It is asked of the operator, and no source
 // declares it.
 func TestHarnessKeyAskIsStoredWithTheFilesNames(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, _ := crewSecretYard(t)
 	ask := harnessKeyAsk("claude", "yardmaster", "mckean")
 	seq := y.ask(t, ask, "yardmaster")
@@ -78,7 +78,7 @@ func TestHarnessKeyAskIsStoredWithTheFilesNames(t *testing.T) {
 // member, one the yard does not have, anyone asked but the operator,
 // another yard, and beside a source, a user, a hook or a waiting login.
 func TestHarnessKeyAskRefusals(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, _ := crewSecretYard(t)
 	with := func(change func(*Ask)) Ask {
 		a := harnessKeyAsk("claude", "yardmaster", "mckean")
@@ -122,7 +122,7 @@ func TestHarnessKeyAskRefusals(t *testing.T) {
 // The value is in the file and in nothing the store has, and no words
 // said back hold it.
 func TestGiveSecretGivesAHarnessKey(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, file, crewFile := harnessKeyYard(t)
 	seq := y.ask(t, harnessKeyAsk("claude", "yardmaster", "mckean"), "yardmaster")
 	const value = "sk-ant-s3cret"
@@ -223,7 +223,7 @@ func TestHarnessKeyFile(t *testing.T) {
 // for. No refusal says back what was sent, and none writes the file or
 // notes an answer.
 func TestGiveSecretRefusesAHarnessKey(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, file, _ := harnessKeyYard(t)
 	seq := y.ask(t, harnessKeyAsk("claude", "yardmaster", "mckean"), "yardmaster")
 	const value = "sk-ant-s3cret"

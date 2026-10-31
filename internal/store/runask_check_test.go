@@ -75,6 +75,7 @@ func checkAsk(to, command string) Ask {
 // variable it goes to without the address, and that nobody takes a
 // sent message back.
 func TestSourceCheckCard(t *testing.T) {
+	t.Parallel()
 	var hits []checkHit
 	status := http.StatusOK
 	y := checkYard(t, &hits, &status)
@@ -112,6 +113,7 @@ func TestSourceCheckCard(t *testing.T) {
 // or an address that is not set up, a check without --user, and one
 // the asker may run themselves.
 func TestSourceCheckAskRefusals(t *testing.T) {
+	t.Parallel()
 	var hits []checkHit
 	status := http.StatusOK
 	y := checkYard(t, &hits, &status)
@@ -178,6 +180,7 @@ func TestSourceCheckAskRefusals(t *testing.T) {
 // command prints. The address and the credential stand in no note,
 // event, answer or store file.
 func TestSourceCheckApprovalSendsOnce(t *testing.T) {
+	t.Parallel()
 	var hits []checkHit
 	status := http.StatusOK
 	y := checkYard(t, &hits, &status)
@@ -242,6 +245,7 @@ func TestSourceCheckApprovalSendsOnce(t *testing.T) {
 // A send the service answers with no success leaves the ask open,
 // saying the answer, and approving again retries it.
 func TestSourceCheckFailureLeavesAskOpenAndRetries(t *testing.T) {
+	t.Parallel()
 	var hits []checkHit
 	status := http.StatusInternalServerError
 	y := checkYard(t, &hits, &status)
@@ -273,6 +277,7 @@ func TestSourceCheckFailureLeavesAskOpenAndRetries(t *testing.T) {
 // A send that reaches no service fails the approval the same way: the
 // ask stays open, and the failure is said with the retry.
 func TestSourceCheckUnreachedServiceSaysSo(t *testing.T) {
+	t.Parallel()
 	var hits []checkHit
 	status := http.StatusOK
 	y := checkYard(t, &hits, &status)
@@ -305,6 +310,7 @@ func TestSourceCheckUnreachedServiceSaysSo(t *testing.T) {
 // An approval is held to the card: a replaced source, a re-set user,
 // and an address given, removed or changed since refuse it as stale.
 func TestSourceCheckStale(t *testing.T) {
+	t.Parallel()
 	var hits []checkHit
 	status := http.StatusOK
 	y := checkYard(t, &hits, &status)
@@ -354,6 +360,7 @@ func TestSourceCheckStale(t *testing.T) {
 // The test message is the user's own to approve, or the operator's for
 // them: the one asked approves, and nobody else.
 func TestSourceCheckApprovalPermission(t *testing.T) {
+	t.Parallel()
 	var hits []checkHit
 	status := http.StatusOK
 	y := checkYard(t, &hits, &status)

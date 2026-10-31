@@ -84,6 +84,7 @@ func registerYardText(t *testing.T, hits *[]registerHit, status *int, name, text
 }
 
 func TestHookRegisterMakesSecretAndCalls(t *testing.T) {
+	t.Parallel()
 	var hits []registerHit
 	status := http.StatusOK
 	y := registerYard(t, &hits, &status)
@@ -330,6 +331,7 @@ hook:
 // secret in the header and the asked project; without the project the
 // approval is refused and stores nothing.
 func TestHookRegisterPostHogDestination(t *testing.T) {
+	t.Parallel()
 	raw, err := packs.FS.ReadFile("posthog/posthog.yaml")
 	if err != nil {
 		t.Fatal(err)
@@ -607,6 +609,7 @@ func posthogCheckYard(t *testing.T, fake *fakePostHog) *askYard {
 // them, so the adoption proves the match is on the URL. A check that
 // fails registers nothing blind.
 func TestHookRegisterPostHogRetryChecksFirst(t *testing.T) {
+	t.Parallel()
 	const publicURL = "https://yard.example/hooks/posthog"
 	t.Run("adopts the standing destination", func(t *testing.T) {
 		fake := newFakePostHog(t)
@@ -718,6 +721,7 @@ func mustBase(t *testing.T, src *Source) string {
 }
 
 func TestHookRegisterFailureLeavesHookAndRetries(t *testing.T) {
+	t.Parallel()
 	var hits []registerHit
 	status := http.StatusBadRequest
 	y := registerYard(t, &hits, &status)
@@ -756,6 +760,7 @@ func TestHookRegisterFailureLeavesHookAndRetries(t *testing.T) {
 }
 
 func TestHookRegisterMakesFreshSecretForReaddedHook(t *testing.T) {
+	t.Parallel()
 	var hits []registerHit
 	status := http.StatusOK
 	y := registerYard(t, &hits, &status)
@@ -787,6 +792,7 @@ func TestHookRegisterMakesFreshSecretForReaddedHook(t *testing.T) {
 }
 
 func TestHookRegisterRefusesBadParametersBeforeSavingHook(t *testing.T) {
+	t.Parallel()
 	var hits []registerHit
 	status := http.StatusOK
 	y := registerYard(t, &hits, &status)
@@ -817,6 +823,7 @@ func TestHookRegisterRefusesBadParametersBeforeSavingHook(t *testing.T) {
 }
 
 func TestHookRegisterNeedsPublicURL(t *testing.T) {
+	t.Parallel()
 	y := hookYard(t)
 	text := `
 name: bot

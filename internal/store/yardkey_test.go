@@ -41,6 +41,7 @@ func newKeyFile(t *testing.T, path string) ed25519.PrivateKey {
 // An invite is one line without spaces that reads back as it was written,
 // with a URL or without.
 func TestInvite(t *testing.T) {
+	t.Parallel()
 	key := Public(newKey(t))
 	for _, inv := range []Invite{
 		{Name: "north", Key: key, URL: "http://10.0.0.5:8790"},
@@ -76,6 +77,7 @@ func TestInvite(t *testing.T) {
 // An answer verifies for the key that signed it and the one request it
 // answers.
 func TestResponseSignature(t *testing.T) {
+	t.Parallel()
 	a, b := newKey(t), newKey(t)
 	body := []byte(`{"taken":true}`)
 	sig := SignResponse(b, 200, "request-sig", body)

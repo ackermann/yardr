@@ -38,7 +38,7 @@ func teammateAsk(command string) Ask {
 // record and writes no user or mapping itself: the server carries it
 // out after the approval.
 func TestInviteCardAndApprovalDefersToCarrier(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := teammateYard(t)
 	seq := y.ask(t, teammateAsk("user invite eve --email Eve@Example.net --role operator"), "yardmaster")
 	got := y.asked(t, seq).Ask.Run
@@ -125,7 +125,7 @@ func TestInviteCardAndApprovalDefersToCarrier(t *testing.T) {
 // The invite card refuses, before any write, a taken user or crew name,
 // an address already mapped to anyone, and a yard with no edge.
 func TestInviteCardRefusals(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := teammateYard(t)
 	if err := y.SetSetting(y.ctx, WebJWTUsersSetting, "ada@example.net=ada", "mckean"); err != nil {
 		t.Fatal(err)
@@ -154,7 +154,7 @@ func TestInviteCardRefusals(t *testing.T) {
 // The carrier's invite write makes the user with its role and the
 // mapping in one go, and taken up again it writes neither twice.
 func TestInviteTeammateWriteIsIdempotent(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := teammateYard(t)
 	if err := y.InviteTeammate(y.ctx, "eve", "eve@example.net", RoleOperator, "mckean"); err != nil {
 		t.Fatal(err)
@@ -212,7 +212,7 @@ func TestInviteTeammateWriteIsIdempotent(t *testing.T) {
 // entry in Seen, and its carrier write removes user, devices and mapping
 // together and is safe taken up again.
 func TestUninviteCardAndRemovalWrite(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := teammateYard(t)
 	if err := y.InviteTeammate(y.ctx, "eve", "eve@example.net", RoleMember, "mckean"); err != nil {
 		t.Fatal(err)
@@ -290,7 +290,7 @@ func TestUninviteCardAndRemovalWrite(t *testing.T) {
 // up what was approved after it: the next claim takes the waiting apply,
 // and the owed report again once nothing else waits.
 func TestOwedTeammateCarryLetsOthersPass(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := teammateYard(t)
 	y.setPack(&fakePack{label: "embedded in yardr test1"})
 	invite := y.ask(t, teammateAsk("user invite eve --email eve@example.net"), "yardmaster")
@@ -321,8 +321,10 @@ func TestOwedTeammateCarryLetsOthersPass(t *testing.T) {
 // record keeps the edge's words while the report is owed, a waiting
 // apply still passes it by, and landing clears the wait with the words.
 func TestDeferredTeammateCarryWaitsOutItsPause(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	// Sequential: the package's fake clock.
+	pinClockFixed(t, askNow)
 	y := teammateYard(t)
+	pinClock(t, &y.now)
 	y.setPack(&fakePack{label: "embedded in yardr test1"})
 	invite := y.ask(t, teammateAsk("user invite eve --email eve@example.net"), "yardmaster")
 	if _, err := y.ApproveAsk(y.ctx, y.bead, invite, "mckean", true, nil); err != nil {

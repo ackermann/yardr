@@ -57,8 +57,10 @@ func wordsAsk(to string) Ask {
 // bead's id and title, and the bead's topic; beside it what they dealt
 // with, newest decision first.
 func TestUserAsksQueue(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	// Sequential: the package's fake clock.
+	pinClockFixed(t, askNow)
 	y := decisionYard(t)
+	pinClock(t, &y.now)
 	links := y.makeBead(t, NewBead{Title: "Move the links", Labels: []string{"topic:linear-out"}})
 	closed := y.makeBead(t, NewBead{Title: "Closed bead"})
 	closedAsk := y.askOn(t, closed, wordsAsk("mckean"), "yardmaster")
@@ -256,7 +258,7 @@ func TestUserAsksQueue(t *testing.T) {
 // and records nothing. A card put before the yard dropped You decide still
 // answers it: the pick records, and the bead stays where it is.
 func TestStageCardInTheQueue(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := decisionYard(t)
 	tmpl := &AskTemplate{
 		Kind: AskChoice, Question: "Should this bead land?",
@@ -360,8 +362,10 @@ func TestStageCardInTheQueue(t *testing.T) {
 // id, title and stage. Answers fold into their asks; nobody reads the raw
 // form.
 func TestBeadWhole(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	// Sequential: the package's fake clock.
+	pinClockFixed(t, askNow)
 	y := decisionYard(t)
+	pinClock(t, &y.now)
 	train := y.makeBead(t, NewBead{Title: "Release train"})
 	links := y.makeBead(t, NewBead{Title: "Move the links", Body: "The links file declares the new source.",
 		Labels: []string{"topic:linear-out"}})
@@ -499,7 +503,7 @@ func mustJSON(t *testing.T, v any) []byte {
 // words, words on an ask with none, Later, Decline. Every refusal below
 // is AddAnswer's, word for word.
 func TestDecisionsWrites(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := decisionYard(t)
 	opt := y.ask(t, linksAsk(), "yardmaster")
 	w := linksAsk()
@@ -583,7 +587,7 @@ func TestDecisionsWrites(t *testing.T) {
 // putting it aside leaves it to the sweep, and a card no login waits on
 // answers whatever the screens read.
 func TestJournalAnswerRefusedAfterItsSeatLeft(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := decisionYard(t)
 	if err := y.Store.SetSetting(y.ctx, OperatorSetting, "mckean", "mckean"); err != nil {
 		t.Fatal(err)

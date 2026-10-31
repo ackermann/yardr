@@ -137,10 +137,11 @@ them, and the note, not the gate, carries what is still owed.
 
 R3. A package over the R1 budget with over 100 tests runs its tests
 parallel: `t.Parallel` on every test that owns its state, allow-list for
-the rest. That binds the volume debts -- internal/dispatch and internal/store,
-whose fix beads parallelize them following the assembly train-yard shape
-(temp homes, no shared state); internal/cli was the third until yardr-ab6t
-threaded its output and environment through its commands. Packages under
+the rest. That binds the volume debt -- internal/dispatch, whose fix bead
+parallelizes it following the assembly train-yard shape (temp homes, no
+shared state); internal/cli was bound until yardr-ab6t threaded its output
+and environment through its commands, and internal/store until yardr-2e9b
+pinned the package clock to the tests that move time. Packages under
 budget comply until they breach it, and the budget is their backstop then.
 
 R4. The depot test gate runs `go test -race` in its landing run

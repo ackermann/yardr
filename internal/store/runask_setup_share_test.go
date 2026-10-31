@@ -61,6 +61,7 @@ func mustDeclName(t *testing.T, text string) string {
 // A second source's card lists the first by name with its account address,
 // to take it or type another.
 func TestSetupCardListsCandidateWithAddress(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	file := yardSourceWithAccount(t, y, setupCalDecl, "setup-mint", setupMint,
 		map[string]string{"SETUP_ACCOUNT": "ops@example.com"})
@@ -302,6 +303,7 @@ func TestSetupRanWithoutAccountFile(t *testing.T) {
 // With a single match the card still lists it and still needs the pick:
 // neither a silent reuse nor an empty approval settles the account.
 func TestSetupCardSingleMatchStillNeedsPick(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	yardSourceWithAccount(t, y, setupCalDecl, "setup-mint", setupMint,
 		map[string]string{"SETUP_ACCOUNT": "ops@example.com"})
@@ -341,6 +343,7 @@ func TestSetupCardSingleMatchStillNeedsPick(t *testing.T) {
 // A credential a user gave for themselves is never listed: it lives in the
 // user's file, never a source's.
 func TestSetupCandidateExcludesUserCredential(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	// The yard holds the source with its mint, but no yard-level account.
 	if _, err := y.PutSource(y.ctx, "setupcal.yaml", setupCalDecl, "mckean"); err != nil {
@@ -367,6 +370,7 @@ func TestSetupCandidateExcludesUserCredential(t *testing.T) {
 // A source whose hand-set env_file resolves to a user's file is never
 // listed either, even on a custom shared path.
 func TestSetupCandidateExcludesSharedUserFile(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	shared := filepath.Join(t.TempDir(), "shared.env")
 	if err := os.WriteFile(shared, []byte("SETUP_ACCOUNT=ops@example.com\n"), 0o600); err != nil {
@@ -398,6 +402,7 @@ func TestSetupCandidateExcludesSharedUserFile(t *testing.T) {
 // Changing a candidate env file in place refuses the approval stale: the
 // path and the source settings are the same, and only the values moved.
 func TestSetupStaleCandidateChanged(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	file := yardSourceWithAccount(t, y, setupCalDecl, "setup-mint", setupMint,
 		map[string]string{"SETUP_ACCOUNT": "ops@example.com"})
@@ -414,6 +419,7 @@ func TestSetupStaleCandidateChanged(t *testing.T) {
 
 // A static source never shares, even where the variable name matches.
 func TestSetupCandidateStaticNeverShares(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	if _, err := y.PutSource(y.ctx, "setupstatic.yaml", setupStaticDecl, "mckean"); err != nil {
 		t.Fatal(err)
@@ -442,6 +448,7 @@ func TestSetupCandidateStaticNeverShares(t *testing.T) {
 
 // A hand-set mint shares only where the full effective argv matches.
 func TestSetupCandidateHandSetMintShares(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	if _, err := y.PutSource(y.ctx, "setupmail.yaml", setupDecl, "mckean"); err != nil {
 		t.Fatal(err)
@@ -475,6 +482,7 @@ func TestSetupCandidateHandSetMintShares(t *testing.T) {
 
 // Differing hand-set arguments break sharing.
 func TestSetupCandidateHandSetArgsBreak(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	if _, err := y.PutSource(y.ctx, "setupmail.yaml", setupDecl, "mckean"); err != nil {
 		t.Fatal(err)
@@ -507,6 +515,7 @@ func TestSetupCandidateHandSetArgsBreak(t *testing.T) {
 
 // A picked approval records the candidate taken, and the card reads took.
 func TestSetupApprovalTakesCandidate(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	yardSourceWithAccount(t, y, setupCalDecl, "setup-mint", setupMint,
 		map[string]string{"SETUP_ACCOUNT": "ops@example.com"})
@@ -534,6 +543,7 @@ func TestSetupApprovalTakesCandidate(t *testing.T) {
 
 // Taking a source the card lists none of is refused with what it lists.
 func TestSetupApprovalUnknownCandidateRefused(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	yardSourceWithAccount(t, y, setupCalDecl, "setup-mint", setupMint,
 		map[string]string{"SETUP_ACCOUNT": "ops@example.com"})

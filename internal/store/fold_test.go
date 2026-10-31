@@ -3,10 +3,12 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -399,9 +401,17 @@ type foldRow struct {
 	opts    FoldOptions
 	actor   string // mckean unless set
 	pane    bool   // the fold is asked from the pane prepare made of this process
-	prepare func(t *testing.T, s *Store, made []Bead)
+	prepare func(t *testing.T, s *Store, made []Bead, st *foldState)
 	wantErr string // the fold is refused, and changes nothing
-	check   func(t *testing.T, s *Store, got *Bead, made []Bead)
+	check   func(t *testing.T, s *Store, got *Bead, made []Bead, st *foldState)
+}
+
+// foldState is the one row's own: the y its edges aim at, and the sessions
+// a manual group holds its members by for its check to read. Each row makes
+// one, so rows run in any part without sharing.
+type foldState struct {
+	Y    Bead
+	Held []*Session
 }
 
 // sizes makes a bead for each list of labels.
@@ -418,12 +428,9 @@ func sizes(labels ...string) []NewBead {
 func TestFoldBeads(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s := foldYard(t)
-
 	bead := func(title string) NewBead { return NewBead{Title: title} }
 	// outside makes a bead the fold does not take, which its members' edges
-	// aim at; y is the one a row's edges aim at, made by the row that has
-	// one (the rows run in turn).
+	// aim at.
 	outside := func(t *testing.T, s *Store, nb NewBead) Bead {
 		t.Helper()
 		b, err := s.CreateBead(ctx, nb, "mckean")
@@ -432,7 +439,6 @@ func TestFoldBeads(t *testing.T) {
 		}
 		return *b
 	}
-	var y Bead
 	// underTrain makes the train id and gives it each of children, as dep add
 	// -k parent does: a parent edge, and the child's blocks edge to the train.
 	underTrain := func(t *testing.T, s *Store, id string, children ...Bead) Bead {
@@ -445,9 +451,6 @@ func TestFoldBeads(t *testing.T) {
 		}
 		return train
 	}
-	// held are the sessions a manual group holds a row's members by, for that
-	// row's check to read (the rows run in turn).
-	var held []*Session
 	pinned := func(title, flow string) NewBead {
 		return NewBead{Title: title, Metadata: map[string]any{"flow": flow}}
 	}
@@ -455,7 +458,7 @@ func TestFoldBeads(t *testing.T) {
 	carrierSize := func(want string, members ...string) foldRow {
 		return foldRow{
 			name: "size " + want + " from " + strings.Join(members, " + "), depot: "plain", members: sizes(members...), opts: FoldOptions{To: "ready"},
-			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead, st *foldState) {
 				var size []string
 				for _, l := range got.Labels {
 					if strings.HasPrefix(l, "size:") {
@@ -472,7 +475,7 @@ func TestFoldBeads(t *testing.T) {
 	rows := []foldRow{
 		{
 			name: "its depot is the members'", depot: "plain", members: []NewBead{bead("a"), bead("b")}, opts: FoldOptions{To: "ready"},
-			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead, st *foldState) {
 				if got.Depot == nil || *got.Depot != "plain" || !strings.HasPrefix(got.ID, "plain-") {
 					t.Errorf("depot = %v, id %s; want plain", got.Depot, got.ID)
 				}
@@ -480,7 +483,7 @@ func TestFoldBeads(t *testing.T) {
 		},
 		{
 			name: "members of no depot make a carrier of none", members: []NewBead{bead("a"), bead("b")}, opts: FoldOptions{To: "ready"},
-			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead, st *foldState) {
 				if got.Depot != nil {
 					t.Errorf("depot = %v, want none", *got.Depot)
 				}
@@ -490,7 +493,7 @@ func TestFoldBeads(t *testing.T) {
 		{
 			name: "its type is the members' common type", depot: "plain", opts: FoldOptions{To: "ready"},
 			members: []NewBead{{Title: "a", Type: "bug"}, {Title: "b", Type: "bug"}},
-			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead, st *foldState) {
 				foldWant(t, "type", got.Type, "bug")
 			},
 		},
@@ -498,14 +501,14 @@ func TestFoldBeads(t *testing.T) {
 			name: "its type is the oldest member's when they differ, however they are named", depot: "plain", opts: FoldOptions{To: "ready"},
 			members: []NewBead{{Title: "a", Type: "task"}, {Title: "b", Type: "bug"}, {Title: "c", Type: "bug"}},
 			fold:    []int{2, 1, 0},
-			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead, st *foldState) {
 				foldWant(t, "type", got.Type, "task")
 			},
 		},
 		{
 			name: "it pins the flow its members are pinned to, though their type resolves to another", depot: "web", opts: FoldOptions{To: "ready"},
 			members: []NewBead{pinned("a", "fold.f"), pinned("b", "fold.f")},
-			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead, st *foldState) {
 				foldWant(t, "pin", PinnedFlow(got), "fold.f")
 				// fold.g has no ready: the carrier is in it because it is in fold.f.
 				next, err := s.NextStages(ctx, got.ID)
@@ -521,13 +524,13 @@ func TestFoldBeads(t *testing.T) {
 		},
 		{
 			name: "it pins the flow its members' type resolves to", depot: "web", members: []NewBead{bead("a"), bead("b")}, opts: FoldOptions{To: "new"},
-			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead, st *foldState) {
 				foldWant(t, "pin", PinnedFlow(got), "fold.g")
 			},
 		},
 		{
 			name: "it follows its repository default by depot and type", depot: "repo", members: []NewBead{bead("a"), bead("b")}, opts: FoldOptions{To: "ready"},
-			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead, st *foldState) {
 				foldWant(t, "pin", PinnedFlow(got), "")
 				next, err := s.NextStages(ctx, got.ID)
 				if err != nil || next.Flow == nil {
@@ -540,7 +543,7 @@ func TestFoldBeads(t *testing.T) {
 		{
 			name: "same-named store and repository flows are distinct", depot: "repo", opts: FoldOptions{To: "ready"},
 			members: []NewBead{{ID: "repo-f10", Title: "store", Type: "task"}, {ID: "repo-f11", Title: "repository", Type: "bug"}},
-			prepare: func(t *testing.T, s *Store, made []Bead) {
+			prepare: func(t *testing.T, s *Store, made []Bead, st *foldState) {
 				f, err := ParseFlow("backlog -> siding | new | decide\nsiding -> ready | backlog\nready -> merged\nnew -> merged\ndecide -> backlog\nmerged terminal\n")
 				if err != nil {
 					t.Fatal(err)
@@ -563,7 +566,7 @@ func TestFoldBeads(t *testing.T) {
 		{
 			name: "a repository default stays the carrier flow beside a same-named store flow", depot: "repo", opts: FoldOptions{To: "ready"},
 			members: []NewBead{{Title: "a", Type: "task"}, {Title: "b", Type: "task"}},
-			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead, st *foldState) {
 				foldWant(t, "pin", PinnedFlow(got), "")
 				next, err := s.NextStages(ctx, got.ID)
 				if err != nil || next.Flow == nil {
@@ -578,7 +581,7 @@ func TestFoldBeads(t *testing.T) {
 		{
 			name: "it leaves a type's repository flow to its type, which has no name to pin", depot: "repo", opts: FoldOptions{To: "ship"},
 			members: []NewBead{{Title: "a", Type: "release"}, {Title: "b", Type: "release"}},
-			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead, st *foldState) {
 				foldWant(t, "pin", PinnedFlow(got), "")
 				next, err := s.NextStages(ctx, got.ID)
 				if err != nil || next.Flow == nil {
@@ -589,42 +592,42 @@ func TestFoldBeads(t *testing.T) {
 		},
 		{
 			name: "its stage is To", depot: "plain", members: []NewBead{bead("a"), bead("b")}, opts: FoldOptions{To: "ready"},
-			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead, st *foldState) {
 				foldWant(t, "stage", got.Stage, "ready")
 				foldWant(t, "status", got.Status, "open")
 			},
 		},
 		{
 			name: "its title is the members' titles", depot: "plain", members: []NewBead{bead("Fix the link"), bead("Add the flag")}, opts: FoldOptions{To: "ready"},
-			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead, st *foldState) {
 				foldWant(t, "title", got.Title, "plain bundle: Fix the link; Add the flag")
 			},
 		},
 		{
 			name: "its title is cut at the titles that fit, counting the rest", depot: "plain", opts: FoldOptions{To: "ready"},
 			members: []NewBead{bead(strings.Repeat("a", 30)), bead(strings.Repeat("b", 30)), bead(strings.Repeat("c", 30)), bead(strings.Repeat("d", 30))},
-			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead, st *foldState) {
 				foldWant(t, "title", got.Title, "plain bundle: "+strings.Repeat("a", 30)+"; "+strings.Repeat("b", 30)+" (+2 more)")
 			},
 		},
 		{
 			name: "Title replaces its title", depot: "plain", members: []NewBead{bead("a"), bead("b")},
 			opts: FoldOptions{To: "ready", Title: strings.Repeat("a long title of the person's own. ", 5)},
-			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead, st *foldState) {
 				foldWant(t, "title", got.Title, strings.Repeat("a long title of the person's own. ", 5))
 			},
 		},
 		{
 			name: "its priority is the highest member's", depot: "plain", opts: FoldOptions{To: "ready"},
 			members: []NewBead{{Title: "a", Priority: 3}, {Title: "b", Priority: 1}, {Title: "c", Priority: 2}},
-			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead, st *foldState) {
 				foldWant(t, "priority", got.Priority, 1)
 			},
 		},
 		{
 			name: "its priority is 0 when a member's is, the highest", depot: "plain", opts: FoldOptions{To: "ready"},
 			members: []NewBead{{Title: "a", Priority: 3}, {Title: "b", Priority: 0}, {Title: "c", Priority: 2}},
-			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead, st *foldState) {
 				foldWant(t, "priority", got.Priority, 0)
 			},
 		},
@@ -632,21 +635,21 @@ func TestFoldBeads(t *testing.T) {
 			name: "its originator is the oldest member's, not whoever folds", depot: "plain", opts: FoldOptions{To: "ready"},
 			members: []NewBead{{Title: "a", For: "sam"}, bead("b"), bead("c")},
 			fold:    []int{2, 0, 1},
-			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead, st *foldState) {
 				foldWant(t, "originator", got.Originator, "sam")
 			},
 		},
 		{
 			name: "its originator is the oldest member's when the folder is another's", depot: "plain", opts: FoldOptions{To: "ready"},
 			members: []NewBead{bead("a"), {Title: "b", For: "sam"}}, actor: "sam",
-			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead, st *foldState) {
 				foldWant(t, "originator", got.Originator, "mckean")
 			},
 		},
 		{
 			name: "its originator is empty when the oldest member's is", depot: "plain", opts: FoldOptions{To: "ready"},
 			members: []NewBead{bead("a"), bead("b")},
-			prepare: func(t *testing.T, s *Store, made []Bead) {
+			prepare: func(t *testing.T, s *Store, made []Bead, st *foldState) {
 				err := s.write(func(w *wtx) error {
 					row, err := w.loadBead(made[0].ID)
 					if err != nil {
@@ -659,7 +662,7 @@ func TestFoldBeads(t *testing.T) {
 					t.Fatal(err)
 				}
 			},
-			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead, st *foldState) {
 				foldWant(t, "originator", got.Originator, "")
 			},
 		},
@@ -670,7 +673,7 @@ func TestFoldBeads(t *testing.T) {
 				{Title: "b", Labels: []string{"size:small", "difficulty:2", "shaped"}},
 				{Title: "c", Labels: []string{"size:medium", "difficulty:1", "eyes", "topic:x"}},
 			},
-			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead, st *foldState) {
 				if want := []string{"difficulty:2", "eyes", "shaped", "size:medium", "topic:x"}; !slices.Equal(got.Labels, want) {
 					t.Errorf("labels = %v, want %v", got.Labels, want)
 				}
@@ -679,7 +682,7 @@ func TestFoldBeads(t *testing.T) {
 		{
 			name: "its labels hold no difficulty when no member has one", depot: "plain", opts: FoldOptions{To: "ready"},
 			members: []NewBead{{Title: "a", Labels: []string{"eyes"}}, bead("b")},
-			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead, st *foldState) {
 				if want := []string{"eyes", "size:medium"}; !slices.Equal(got.Labels, want) {
 					t.Errorf("labels = %v, want %v", got.Labels, want)
 				}
@@ -696,7 +699,7 @@ func TestFoldBeads(t *testing.T) {
 		{
 			name: "a fold by hand is not refused over fold_max", depot: "plain", opts: FoldOptions{To: "ready"},
 			members: sizes("size:large", "size:large", "size:large", "size:large"),
-			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead, st *foldState) {
 				if got.Status != "open" {
 					t.Errorf("carrier is %s, want open past the ceiling a siding would refuse", got.Status)
 				}
@@ -715,7 +718,7 @@ func TestFoldBeads(t *testing.T) {
 				{ID: "plain-p3", Title: "Rename it", Body: "Goal: rename."},
 			},
 			fold: []int{2, 0, 1},
-			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead, st *foldState) {
 				want := "Goal: the parts below ride one bead: one builder session and one review for all of them.\n\n" +
 					"## Part 1: Rename it (plain-p3)\n\nGoal: rename.\n\n" +
 					"## Part 2: Fix the link (plain-p1)\n\nGoal: fix it.\n\n## Done when\n\n    go test ./...\n\n\n" +
@@ -732,7 +735,7 @@ func TestFoldBeads(t *testing.T) {
 			name: "each member has a folded edge from the carrier, with the stage it stood in", depot: "plain", opts: FoldOptions{To: "ready"},
 			members: []NewBead{{Title: "a", Stage: "siding"}, {Title: "b", Stage: "backlog"}, {Title: "c", Stage: "siding"}},
 			fold:    []int{2, 0, 1},
-			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead, st *foldState) {
 				deps, err := s.Deps(ctx, got.ID)
 				if err != nil {
 					t.Fatal(err)
@@ -773,7 +776,7 @@ func TestFoldBeads(t *testing.T) {
 		{
 			name: "each member is closed as folded into the carrier", depot: "plain", opts: FoldOptions{To: "ready"},
 			members: []NewBead{bead("a"), bead("b"), bead("c")},
-			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead, st *foldState) {
 				for _, m := range made {
 					b, err := s.GetBead(ctx, m.ID)
 					if err != nil {
@@ -792,7 +795,7 @@ func TestFoldBeads(t *testing.T) {
 			name: "one folded event is logged on the carrier, with the members it took and its points", depot: "plain", opts: FoldOptions{To: "ready"},
 			members: []NewBead{{Title: "a", Labels: []string{"size:small"}}, {Title: "b", Labels: []string{"size:large"}}},
 			fold:    []int{1, 0},
-			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead, st *foldState) {
 				evs, err := s.Events(ctx, got.ID, 50)
 				if err != nil {
 					t.Fatal(err)
@@ -816,14 +819,14 @@ func TestFoldBeads(t *testing.T) {
 		{
 			name: "a pin to the flow the type resolves to is the same flow", depot: "web", opts: FoldOptions{To: "new"},
 			members: []NewBead{bead("a"), pinned("b", "fold.g")},
-			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead, st *foldState) {
 				foldWant(t, "pin", PinnedFlow(got), "fold.g")
 			},
 		},
 		{
 			name: "a bead that went back to the yard it came from is folded", depot: "plain", opts: FoldOptions{To: "ready"},
 			members: []NewBead{bead("a"), bead("b")},
-			prepare: func(t *testing.T, s *Store, made []Bead) {
+			prepare: func(t *testing.T, s *Store, made []Bead, st *foldState) {
 				at := time.Now()
 				err := s.write(func(w *wtx) error {
 					return put(w.Tx, bPeerBeads, made[1].UUID, &peerBead{Bead: made[1].UUID, Key: "north", Direction: "in", ReturnedAt: &at})
@@ -832,19 +835,19 @@ func TestFoldBeads(t *testing.T) {
 					t.Fatal(err)
 				}
 			},
-			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead, st *foldState) {
 				foldWant(t, "folded", got.Stage, "ready")
 			},
 		},
 		{
 			name: "a member's tracks link moves to the carrier and leaves a relates link on the member", depot: "plain", opts: FoldOptions{To: "ready"},
 			members: []NewBead{bead("a"), bead("b")},
-			prepare: func(t *testing.T, s *Store, made []Bead) {
+			prepare: func(t *testing.T, s *Store, made []Bead, st *foldState) {
 				foldLink(t, s, made[0].ID, LinkTracks, foldGitHub(1))
 				// A link that only relates stays on its bead.
 				foldLink(t, s, made[1].ID, LinkRelates, foldGitHub(2))
 			},
-			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead, st *foldState) {
 				foldWantLinks(t, s, got.ID, "tracks "+foldGitHub(1))
 				foldWantLinks(t, s, made[0].ID, "relates "+foldGitHub(1))
 				foldWantLinks(t, s, made[1].ID, "relates "+foldGitHub(2))
@@ -873,12 +876,12 @@ func TestFoldBeads(t *testing.T) {
 		{
 			name: "a second tracked issue of a source is a relates link on the carrier, and its note names it", depot: "plain", opts: FoldOptions{To: "ready"},
 			members: []NewBead{bead("a"), bead("b"), bead("c")},
-			prepare: func(t *testing.T, s *Store, made []Bead) {
+			prepare: func(t *testing.T, s *Store, made []Bead, st *foldState) {
 				foldLink(t, s, made[0].ID, LinkTracks, foldGitHub(3))
 				foldLink(t, s, made[1].ID, LinkTracks, foldGitHub(4))
 				foldLink(t, s, made[2].ID, LinkTracks, foldLinear(3))
 			},
-			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead, st *foldState) {
 				// The carrier tracks one issue per source, so the second of
 				// github only relates; the member relates it too, so that no
 				// bead that is closed tracks it.
@@ -910,95 +913,95 @@ func TestFoldBeads(t *testing.T) {
 		{
 			name: "a member's outgoing blocks edge, with the stages it names, is re-pointed to the carrier", depot: "web", opts: FoldOptions{To: "backlog"},
 			members: []NewBead{bead("a"), bead("b")},
-			prepare: func(t *testing.T, s *Store, made []Bead) {
-				y = outside(t, s, NewBead{Title: "y", Depot: "web", Stage: "new"})
-				if err := s.AddDep(ctx, made[0].ID, y.ID, DepBlocks, "new", "new", "mckean"); err != nil {
+			prepare: func(t *testing.T, s *Store, made []Bead, st *foldState) {
+				st.Y = outside(t, s, NewBead{Title: "y", Depot: "web", Stage: "new"})
+				if err := s.AddDep(ctx, made[0].ID, st.Y.ID, DepBlocks, "new", "new", "mckean"); err != nil {
 					t.Fatal(err)
 				}
 			},
-			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
-				edge := got.ID + " -> " + y.ID + " at new until new"
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead, st *foldState) {
+				edge := got.ID + " -> " + st.Y.ID + " at new until new"
 				foldWantEdges(t, s, got.ID, DepBlocks, edge)
 				foldWantEdges(t, s, made[0].ID, DepBlocks)
-				foldWantEdges(t, s, y.ID, DepBlocks, edge)
-				foldWantMoved(t, s, got.ID, made[0].ID, FoldMoved{Stage: "backlog", Blocks: []FoldBlock{{To: y.ID, At: "new", Until: "new"}}})
+				foldWantEdges(t, s, st.Y.ID, DepBlocks, edge)
+				foldWantMoved(t, s, got.ID, made[0].ID, FoldMoved{Stage: "backlog", Blocks: []FoldBlock{{To: st.Y.ID, At: "new", Until: "new"}}})
 				// The carrier has not reached the stage the edge releases at,
 				// so it holds the bead as its part did.
-				holders, err := s.OpenBlockers(ctx, y.ID)
+				holders, err := s.OpenBlockers(ctx, st.Y.ID)
 				if err != nil || !slices.Equal(holders, []string{got.ID}) {
-					t.Errorf("%s is held by %v, %v; want the carrier %s", y.ID, holders, err, got.ID)
+					t.Errorf("%s is held by %v, %v; want the carrier %s", st.Y.ID, holders, err, got.ID)
 				}
 			},
 		},
 		{
 			name: "two parts that block one bead the same way leave the carrier one edge, and both record it", depot: "plain", opts: FoldOptions{To: "ready"},
 			members: []NewBead{bead("a"), bead("b"), bead("c")},
-			prepare: func(t *testing.T, s *Store, made []Bead) {
-				y = outside(t, s, NewBead{Title: "y", Depot: "plain"})
+			prepare: func(t *testing.T, s *Store, made []Bead, st *foldState) {
+				st.Y = outside(t, s, NewBead{Title: "y", Depot: "plain"})
 				for _, m := range made[:2] {
-					if err := s.AddDep(ctx, m.ID, y.ID, DepBlocks, "", "", "mckean"); err != nil {
+					if err := s.AddDep(ctx, m.ID, st.Y.ID, DepBlocks, "", "", "mckean"); err != nil {
 						t.Fatal(err)
 					}
 				}
-				if err := s.AddDep(ctx, made[2].ID, y.ID, DepBlocks, "", "review", "mckean"); err != nil {
+				if err := s.AddDep(ctx, made[2].ID, st.Y.ID, DepBlocks, "", "review", "mckean"); err != nil {
 					t.Fatal(err)
 				}
 			},
-			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
-				foldWantEdges(t, s, y.ID, DepBlocks, got.ID+" -> "+y.ID, got.ID+" -> "+y.ID+" until review")
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead, st *foldState) {
+				foldWantEdges(t, s, st.Y.ID, DepBlocks, got.ID+" -> "+st.Y.ID, got.ID+" -> "+st.Y.ID+" until review")
 				for i, until := range []string{"", "", "review"} {
-					foldWantMoved(t, s, got.ID, made[i].ID, FoldMoved{Stage: "new", Blocks: []FoldBlock{{To: y.ID, Until: until}}})
+					foldWantMoved(t, s, got.ID, made[i].ID, FoldMoved{Stage: "new", Blocks: []FoldBlock{{To: st.Y.ID, Until: until}}})
 				}
 			},
 		},
 		{
 			name: "a stage the carrier starts in releases what its part held until it, and the gate says so", depot: "web", opts: FoldOptions{To: "new"},
 			members: []NewBead{bead("a"), bead("b")},
-			prepare: func(t *testing.T, s *Store, made []Bead) {
-				y = outside(t, s, NewBead{Title: "y", Depot: "web", Stage: "new"})
-				if err := s.AddDep(ctx, made[0].ID, y.ID, DepBlocks, "", "new", "mckean"); err != nil {
+			prepare: func(t *testing.T, s *Store, made []Bead, st *foldState) {
+				st.Y = outside(t, s, NewBead{Title: "y", Depot: "web", Stage: "new"})
+				if err := s.AddDep(ctx, made[0].ID, st.Y.ID, DepBlocks, "", "new", "mckean"); err != nil {
 					t.Fatal(err)
 				}
 				// The part is in backlog, short of new: it holds y.
-				if holders, err := s.OpenBlockers(ctx, y.ID); err != nil || !slices.Equal(holders, []string{made[0].ID}) {
-					t.Fatalf("%s is held by %v, %v before the fold; want %s", y.ID, holders, err, made[0].ID)
+				if holders, err := s.OpenBlockers(ctx, st.Y.ID); err != nil || !slices.Equal(holders, []string{made[0].ID}) {
+					t.Fatalf("%s is held by %v, %v before the fold; want %s", st.Y.ID, holders, err, made[0].ID)
 				}
 			},
-			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
-				foldWantEdges(t, s, y.ID, DepBlocks, got.ID+" -> "+y.ID+" until new")
-				if holders, err := s.OpenBlockers(ctx, y.ID); err != nil || len(holders) != 0 {
-					t.Errorf("%s is held by %v, %v; want none, the carrier standing in new", y.ID, holders, err)
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead, st *foldState) {
+				foldWantEdges(t, s, st.Y.ID, DepBlocks, got.ID+" -> "+st.Y.ID+" until new")
+				if holders, err := s.OpenBlockers(ctx, st.Y.ID); err != nil || len(holders) != 0 {
+					t.Errorf("%s is held by %v, %v; want none, the carrier standing in new", st.Y.ID, holders, err)
 				}
 				// The edge held y when it was made, and the fold let go of it.
-				if flips, want := foldGateFlips(t, s, y.ID), []string{"reblocked " + made[0].ID, "unblocked " + made[0].ID}; !slices.Equal(flips, want) {
-					t.Errorf("gate events of %s = %v, want %v", y.ID, flips, want)
+				if flips, want := foldGateFlips(t, s, st.Y.ID), []string{"reblocked " + made[0].ID, "unblocked " + made[0].ID}; !slices.Equal(flips, want) {
+					t.Errorf("gate events of %s = %v, want %v", st.Y.ID, flips, want)
 				}
 			},
 		},
 		{
 			name: "a repository flow reads the stage a re-pointed edge releases at, for the carrier", depot: "repo", opts: FoldOptions{To: "new"},
 			members: []NewBead{{Title: "a", Type: "chain"}, {Title: "b", Type: "chain"}},
-			prepare: func(t *testing.T, s *Store, made []Bead) {
-				y = outside(t, s, NewBead{Title: "y", Depot: "plain"})
-				if err := s.AddDep(ctx, made[0].ID, y.ID, DepBlocks, "", "ready", "mckean"); err != nil {
+			prepare: func(t *testing.T, s *Store, made []Bead, st *foldState) {
+				st.Y = outside(t, s, NewBead{Title: "y", Depot: "plain"})
+				if err := s.AddDep(ctx, made[0].ID, st.Y.ID, DepBlocks, "", "ready", "mckean"); err != nil {
 					t.Fatal(err)
 				}
 				// The part is in backlog, short of ready: it holds y.
-				if holders, err := s.OpenBlockers(ctx, y.ID); err != nil || !slices.Equal(holders, []string{made[0].ID}) {
-					t.Fatalf("%s is held by %v, %v before the fold; want %s", y.ID, holders, err, made[0].ID)
+				if holders, err := s.OpenBlockers(ctx, st.Y.ID); err != nil || !slices.Equal(holders, []string{made[0].ID}) {
+					t.Fatalf("%s is held by %v, %v before the fold; want %s", st.Y.ID, holders, err, made[0].ID)
 				}
 			},
-			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead, st *foldState) {
 				// The carrier stands in new, past ready along done, which only
 				// the flow in the repository says. A read of the gate finds
 				// the repository on its own; the fold's write has to be given
 				// it, or its log says y is held still.
-				foldWantEdges(t, s, y.ID, DepBlocks, got.ID+" -> "+y.ID+" until ready")
-				if holders, err := s.OpenBlockers(ctx, y.ID); err != nil || len(holders) != 0 {
-					t.Errorf("%s is held by %v, %v; want none, the carrier standing past ready", y.ID, holders, err)
+				foldWantEdges(t, s, st.Y.ID, DepBlocks, got.ID+" -> "+st.Y.ID+" until ready")
+				if holders, err := s.OpenBlockers(ctx, st.Y.ID); err != nil || len(holders) != 0 {
+					t.Errorf("%s is held by %v, %v; want none, the carrier standing past ready", st.Y.ID, holders, err)
 				}
-				if flips, want := foldGateFlips(t, s, y.ID), []string{"reblocked " + made[0].ID, "unblocked " + made[0].ID}; !slices.Equal(flips, want) {
-					t.Errorf("gate events of %s = %v, want %v", y.ID, flips, want)
+				if flips, want := foldGateFlips(t, s, st.Y.ID), []string{"reblocked " + made[0].ID, "unblocked " + made[0].ID}; !slices.Equal(flips, want) {
+					t.Errorf("gate events of %s = %v, want %v", st.Y.ID, flips, want)
 				}
 			},
 		},
@@ -1009,7 +1012,7 @@ func TestFoldBeads(t *testing.T) {
 			// on the first alone.
 			name: "a member that an open bead blocks is refused, naming the blocker", depot: "plain", opts: FoldOptions{To: "ready"},
 			members: []NewBead{{ID: "plain-h1", Title: "a"}, {ID: "plain-h2", Title: "b"}},
-			prepare: func(t *testing.T, s *Store, made []Bead) {
+			prepare: func(t *testing.T, s *Store, made []Bead, st *foldState) {
 				x := outside(t, s, NewBead{ID: "plain-hx", Title: "x", Depot: "plain"})
 				if err := s.AddDep(ctx, x.ID, made[1].ID, DepBlocks, "", "", "mckean"); err != nil {
 					t.Fatal(err)
@@ -1024,7 +1027,7 @@ func TestFoldBeads(t *testing.T) {
 			// Two edges from one blocker hold as one, as the gate counts them.
 			name: "each blocker is named once, however many edges it holds the member by", depot: "plain", opts: FoldOptions{To: "ready"},
 			members: []NewBead{{ID: "plain-h3", Title: "a"}, {ID: "plain-h4", Title: "b"}, {ID: "plain-h5", Title: "c"}},
-			prepare: func(t *testing.T, s *Store, made []Bead) {
+			prepare: func(t *testing.T, s *Store, made []Bead, st *foldState) {
 				for _, id := range []string{"plain-hy", "plain-hz"} {
 					outside(t, s, NewBead{ID: id, Title: id, Depot: "plain"})
 				}
@@ -1042,7 +1045,7 @@ func TestFoldBeads(t *testing.T) {
 			// and what blocks the member is looked at all the same.
 			name: "a member a manual group holds is refused when an open bead blocks it", depot: "plain", opts: FoldOptions{To: "ready"},
 			members: []NewBead{{ID: "plain-he", Title: "a"}, {ID: "plain-hf", Title: "b"}},
-			prepare: func(t *testing.T, s *Store, made []Bead) {
+			prepare: func(t *testing.T, s *Store, made []Bead, st *foldState) {
 				foldManualHold(t, s, made...)
 				x := outside(t, s, NewBead{ID: "plain-hg", Title: "x", Depot: "plain"})
 				if err := s.AddDep(ctx, x.ID, made[1].ID, DepBlocks, "", "", "mckean"); err != nil {
@@ -1054,7 +1057,7 @@ func TestFoldBeads(t *testing.T) {
 		{
 			name: "a member whose blocker has closed is folded, and the carrier is not blocked", depot: "plain", opts: FoldOptions{To: "ready"},
 			members: []NewBead{{ID: "plain-h6", Title: "a"}, {ID: "plain-h7", Title: "b"}},
-			prepare: func(t *testing.T, s *Store, made []Bead) {
+			prepare: func(t *testing.T, s *Store, made []Bead, st *foldState) {
 				x := outside(t, s, NewBead{ID: "plain-hw", Title: "x", Depot: "plain"})
 				if err := s.AddDep(ctx, x.ID, made[0].ID, DepBlocks, "", "", "mckean"); err != nil {
 					t.Fatal(err)
@@ -1063,7 +1066,7 @@ func TestFoldBeads(t *testing.T) {
 					t.Fatal(err)
 				}
 			},
-			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead, st *foldState) {
 				foldWant(t, "stage", got.Stage, "ready")
 				if holders, err := s.OpenBlockers(ctx, got.ID); err != nil || len(holders) != 0 {
 					t.Errorf("the carrier is held by %v, %v; want none", holders, err)
@@ -1075,12 +1078,12 @@ func TestFoldBeads(t *testing.T) {
 			// the order given, so what orders them is no reason to refuse.
 			name: "a member that another member blocks is folded with it", depot: "plain", opts: FoldOptions{To: "ready"},
 			members: []NewBead{{ID: "plain-h8", Title: "a"}, {ID: "plain-h9", Title: "b"}},
-			prepare: func(t *testing.T, s *Store, made []Bead) {
+			prepare: func(t *testing.T, s *Store, made []Bead, st *foldState) {
 				if err := s.AddDep(ctx, made[1].ID, made[0].ID, DepBlocks, "", "", "mckean"); err != nil {
 					t.Fatal(err)
 				}
 			},
-			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead, st *foldState) {
 				foldWant(t, "stage", got.Stage, "ready")
 				if holders, err := s.OpenBlockers(ctx, got.ID); err != nil || len(holders) != 0 {
 					t.Errorf("the carrier is held by %v, %v; want none", holders, err)
@@ -1093,12 +1096,12 @@ func TestFoldBeads(t *testing.T) {
 			// stage orders one bundle and refuses nothing.
 			name: "members joined by an edge at another stage are folded with it", depot: "plain", opts: FoldOptions{To: "ready"},
 			members: []NewBead{{ID: "plain-hj", Title: "a"}, {ID: "plain-hk", Title: "b"}},
-			prepare: func(t *testing.T, s *Store, made []Bead) {
+			prepare: func(t *testing.T, s *Store, made []Bead, st *foldState) {
 				if err := s.AddDep(ctx, made[1].ID, made[0].ID, DepBlocks, "approved", "", "mckean"); err != nil {
 					t.Fatal(err)
 				}
 			},
-			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead, st *foldState) {
 				foldWant(t, "stage", got.Stage, "ready")
 				if holders, err := s.OpenBlockers(ctx, got.ID); err != nil || len(holders) != 0 {
 					t.Errorf("the carrier is held by %v, %v; want none", holders, err)
@@ -1112,7 +1115,7 @@ func TestFoldBeads(t *testing.T) {
 			// stage, since the carrier would pass approved with x open.
 			name: "an edge that holds a member only at another stage refuses, naming the blocker and the stage", depot: "plain", opts: FoldOptions{To: "ready"},
 			members: []NewBead{{ID: "plain-ha", Title: "a"}, {ID: "plain-hb", Title: "b"}},
-			prepare: func(t *testing.T, s *Store, made []Bead) {
+			prepare: func(t *testing.T, s *Store, made []Bead, st *foldState) {
 				x := outside(t, s, NewBead{ID: "plain-hv", Title: "x", Depot: "plain"})
 				if err := s.AddDep(ctx, x.ID, made[0].ID, DepBlocks, "approved", "", "mckean"); err != nil {
 					t.Fatal(err)
@@ -1130,7 +1133,7 @@ func TestFoldBeads(t *testing.T) {
 			// bead show says nothing blocks.
 			name: "a blocker a repository flow has released through its until stage holds nothing, and does not refuse", depot: "plain", opts: FoldOptions{To: "ready"},
 			members: []NewBead{{ID: "plain-hc", Title: "a"}, {ID: "plain-hd", Title: "b"}},
-			prepare: func(t *testing.T, s *Store, made []Bead) {
+			prepare: func(t *testing.T, s *Store, made []Bead, st *foldState) {
 				x := outside(t, s, NewBead{ID: "repo-hu", Title: "x", Depot: "repo", Type: "chain", Stage: "new"})
 				if err := s.AddDep(ctx, x.ID, made[0].ID, DepBlocks, "", "ready", "mckean"); err != nil {
 					t.Fatal(err)
@@ -1139,7 +1142,7 @@ func TestFoldBeads(t *testing.T) {
 					t.Fatalf("%s is held by %v, %v before the fold; want none, its blocker past ready", made[0].ID, holders, err)
 				}
 			},
-			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead, st *foldState) {
 				foldWant(t, "stage", got.Stage, "ready")
 			},
 		},
@@ -1149,7 +1152,7 @@ func TestFoldBeads(t *testing.T) {
 			// depot's base while the train waits on it by a blocks edge alone.
 			name: "a member that is a child of a train is refused, naming the train", depot: "plain", opts: FoldOptions{To: "ready"},
 			members: []NewBead{{ID: "plain-t1", Title: "a"}, {ID: "plain-t2", Title: "b"}},
-			prepare: func(t *testing.T, s *Store, made []Bead) {
+			prepare: func(t *testing.T, s *Store, made []Bead, st *foldState) {
 				underTrain(t, s, "plain-tt1", made...)
 			},
 			wantErr: "bead plain-t1 is a child of train plain-tt1: a fold takes beads no train holds",
@@ -1161,31 +1164,31 @@ func TestFoldBeads(t *testing.T) {
 			// every member is looked at, not the first alone.
 			name: "a member taken off its train is folded, and the carrier put on the train is its child", depot: "plain", opts: FoldOptions{To: "ready"},
 			members: []NewBead{{ID: "plain-t3", Title: "a"}, {ID: "plain-t4", Title: "b"}},
-			prepare: func(t *testing.T, s *Store, made []Bead) {
-				y = underTrain(t, s, "plain-tt2", made...)
+			prepare: func(t *testing.T, s *Store, made []Bead, st *foldState) {
+				st.Y = underTrain(t, s, "plain-tt2", made...)
 				for _, m := range made {
 					_, err := s.FoldBeads(ctx, []string{made[0].ID, made[1].ID}, FoldOptions{To: "ready"}, "mckean")
-					if rm := "yardr dep rm " + y.ID + " " + m.ID + " -k parent"; err == nil || !strings.Contains(err.Error(), rm) {
+					if rm := "yardr dep rm " + st.Y.ID + " " + m.ID + " -k parent"; err == nil || !strings.Contains(err.Error(), rm) {
 						t.Fatalf("fold with %s still on its train: %v, want the way out %q", m.ID, err, rm)
 					}
-					if err := s.RemoveDep(ctx, y.ID, m.ID, DepParent, "", "", "mckean"); err != nil {
+					if err := s.RemoveDep(ctx, st.Y.ID, m.ID, DepParent, "", "", "mckean"); err != nil {
 						t.Fatal(err)
 					}
 				}
 			},
-			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
-				if err := s.AddDep(ctx, y.ID, got.ID, DepParent, "", "", "mckean"); err != nil {
-					t.Fatalf("dep add %s %s -k parent: %v", y.ID, got.ID, err)
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead, st *foldState) {
+				if err := s.AddDep(ctx, st.Y.ID, got.ID, DepParent, "", "", "mckean"); err != nil {
+					t.Fatalf("dep add %s %s -k parent: %v", st.Y.ID, got.ID, err)
 				}
 				f, err := s.Family(ctx, got.ID)
 				if err != nil {
 					t.Fatal(err)
 				}
-				foldWant(t, "train of the carrier", f.Train, y.ID)
-				foldWant(t, "base of the carrier", f.Base, Branch(y.ID))
-				foldWantEdges(t, s, y.ID, DepParent, y.ID+" -> "+got.ID)
-				foldWantEdges(t, s, y.ID, DepBlocks, got.ID+" -> "+y.ID)
-				if holders, err := s.OpenBlockers(ctx, y.ID); err != nil || !slices.Equal(holders, []string{got.ID}) {
+				foldWant(t, "train of the carrier", f.Train, st.Y.ID)
+				foldWant(t, "base of the carrier", f.Base, Branch(st.Y.ID))
+				foldWantEdges(t, s, st.Y.ID, DepParent, st.Y.ID+" -> "+got.ID)
+				foldWantEdges(t, s, st.Y.ID, DepBlocks, got.ID+" -> "+st.Y.ID)
+				if holders, err := s.OpenBlockers(ctx, st.Y.ID); err != nil || !slices.Equal(holders, []string{got.ID}) {
 					t.Errorf("the train is held by %v, %v; want the carrier %s", holders, err, got.ID)
 				}
 			},
@@ -1195,7 +1198,7 @@ func TestFoldBeads(t *testing.T) {
 			// its branch for a base still (Family), so the way out is the same.
 			name: "a child of a closed train is refused too", depot: "plain", opts: FoldOptions{To: "ready"},
 			members: []NewBead{{ID: "plain-t5", Title: "a"}, {ID: "plain-t6", Title: "b"}},
-			prepare: func(t *testing.T, s *Store, made []Bead) {
+			prepare: func(t *testing.T, s *Store, made []Bead, st *foldState) {
 				train := underTrain(t, s, "plain-tt3", made[1])
 				if _, err := s.CloseBead(ctx, train.ID, "dropped", Expect{}, "mckean"); err != nil {
 					t.Fatal(err)
@@ -1210,7 +1213,7 @@ func TestFoldBeads(t *testing.T) {
 			// leaves it nowhere it was not.
 			name: "a parent edge from a bead that is no train does not refuse", depot: "plain", opts: FoldOptions{To: "ready"},
 			members: []NewBead{{ID: "plain-t7", Title: "a"}, {ID: "plain-t8", Title: "b"}},
-			prepare: func(t *testing.T, s *Store, made []Bead) {
+			prepare: func(t *testing.T, s *Store, made []Bead, st *foldState) {
 				parent := underTrain(t, s, "plain-tt4", made...)
 				task := "task"
 				if _, err := s.UpdateBead(ctx, parent.ID, BeadPatch{Type: &task}, Expect{}, "mckean"); err != nil {
@@ -1222,7 +1225,7 @@ func TestFoldBeads(t *testing.T) {
 					}
 				}
 			},
-			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead, st *foldState) {
 				foldWant(t, "stage", got.Stage, "ready")
 			},
 		},
@@ -1232,7 +1235,7 @@ func TestFoldBeads(t *testing.T) {
 			// that name both trains.
 			name: "a child of two trains is refused, naming both", depot: "plain", opts: FoldOptions{To: "ready"},
 			members: []NewBead{{ID: "plain-t9", Title: "a"}, {ID: "plain-ta", Title: "b"}},
-			prepare: func(t *testing.T, s *Store, made []Bead) {
+			prepare: func(t *testing.T, s *Store, made []Bead, st *foldState) {
 				first := underTrain(t, s, "plain-tt5", made[1])
 				task, train := "task", TypeTrain
 				if _, err := s.UpdateBead(ctx, first.ID, BeadPatch{Type: &task}, Expect{}, "mckean"); err != nil {
@@ -1253,7 +1256,7 @@ func TestFoldBeads(t *testing.T) {
 			// closed T.
 			name: "a member that is a train is refused, naming it", depot: "plain", opts: FoldOptions{To: "ready"},
 			members: []NewBead{{ID: "plain-tm1", Title: "train", Type: TypeTrain}, {ID: "plain-tm2", Title: "x"}},
-			prepare: func(t *testing.T, s *Store, made []Bead) {
+			prepare: func(t *testing.T, s *Store, made []Bead, st *foldState) {
 				c := outside(t, s, NewBead{ID: "plain-tm3", Title: "child", Depot: "plain"})
 				if err := s.AddDep(ctx, made[0].ID, c.ID, DepParent, "", "", "mckean"); err != nil {
 					t.Fatal(err)
@@ -1272,14 +1275,14 @@ func TestFoldBeads(t *testing.T) {
 			// filing, holds no member: tasks fold as before.
 			name: "a task fold beside a train is unaffected", depot: "plain", opts: FoldOptions{To: "ready"},
 			members: []NewBead{{ID: "plain-tm4", Title: "a"}, {ID: "plain-tm5", Title: "b"}},
-			prepare: func(t *testing.T, s *Store, made []Bead) {
+			prepare: func(t *testing.T, s *Store, made []Bead, st *foldState) {
 				c := outside(t, s, NewBead{ID: "plain-tm6", Title: "child", Depot: "plain"})
 				underTrain(t, s, "plain-tt7", c)
 				if _, err := s.CloseBead(ctx, c.ID, "landed", Expect{}, "mckean"); err != nil {
 					t.Fatal(err)
 				}
 			},
-			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead, st *foldState) {
 				foldWant(t, "type", got.Type, "task")
 			},
 		},
@@ -1288,7 +1291,7 @@ func TestFoldBeads(t *testing.T) {
 			// the train as blocked, before it is refused as a train.
 			name: "a train with an open child is refused as blocked, not as a train", depot: "plain", opts: FoldOptions{To: "ready"},
 			members: []NewBead{{ID: "plain-tm7", Title: "train", Type: TypeTrain}, {ID: "plain-tm8", Title: "x"}},
-			prepare: func(t *testing.T, s *Store, made []Bead) {
+			prepare: func(t *testing.T, s *Store, made []Bead, st *foldState) {
 				c := outside(t, s, NewBead{ID: "plain-tm9", Title: "child", Depot: "plain"})
 				if err := s.AddDep(ctx, made[0].ID, c.ID, DepParent, "", "", "mckean"); err != nil {
 					t.Fatal(err)
@@ -1301,7 +1304,7 @@ func TestFoldBeads(t *testing.T) {
 			return foldRow{
 				name: "discovered-from and related edges stay on the member", depot: "plain", opts: FoldOptions{To: "ready"},
 				members: []NewBead{bead("a"), bead("b")},
-				prepare: func(t *testing.T, s *Store, made []Bead) {
+				prepare: func(t *testing.T, s *Store, made []Bead, st *foldState) {
 					origin = outside(t, s, NewBead{Title: "origin", Depot: "plain"})
 					found = outside(t, s, NewBead{Title: "found", Depot: "plain"})
 					other = outside(t, s, NewBead{Title: "other", Depot: "plain"})
@@ -1311,7 +1314,7 @@ func TestFoldBeads(t *testing.T) {
 						}
 					}
 				},
-				check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+				check: func(t *testing.T, s *Store, got *Bead, made []Bead, st *foldState) {
 					a := made[0].ID
 					foldWantEdges(t, s, a, DepDiscoveredFrom, origin.ID+" -> "+a, a+" -> "+found.ID)
 					foldWantEdges(t, s, a, "related", a+" -> "+other.ID)
@@ -1326,7 +1329,7 @@ func TestFoldBeads(t *testing.T) {
 			return foldRow{
 				name: "bead=<member> watches are copied to the carrier, whoever holds them", depot: "plain", opts: FoldOptions{To: "ready"},
 				members: []NewBead{bead("a"), bead("b"), bead("c")},
-				prepare: func(t *testing.T, s *Store, made []Bead) {
+				prepare: func(t *testing.T, s *Store, made []Bead, st *foldState) {
 					a, b := made[0].ID, made[1].ID
 					elsewhere = outside(t, s, NewBead{Title: "elsewhere", Depot: "plain"})
 					foldWatch(t, s, "crew", "ada", ScopeAll, a)
@@ -1337,7 +1340,7 @@ func TestFoldBeads(t *testing.T) {
 					foldWatch(t, s, "group", "desk", ScopeAll, b)
 					foldWatch(t, s, "user", "sam", ScopeAll, elsewhere.ID)
 				},
-				check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+				check: func(t *testing.T, s *Store, got *Bead, made []Bead, st *foldState) {
 					a, b, c := made[0].ID, made[1].ID, got.ID
 					parts := []string{a, b, made[2].ID}
 					for _, w := range []struct {
@@ -1396,7 +1399,7 @@ func TestFoldBeads(t *testing.T) {
 		{
 			name: "a member's stage asks are taken back", depot: "plain", opts: FoldOptions{To: "ready"},
 			members: []NewBead{bead("a"), bead("b")},
-			prepare: func(t *testing.T, s *Store, made []Bead) {
+			prepare: func(t *testing.T, s *Store, made []Bead, st *foldState) {
 				err := s.write(func(w *wtx) error {
 					row, err := w.loadBead(made[0].ID)
 					if err != nil {
@@ -1409,7 +1412,7 @@ func TestFoldBeads(t *testing.T) {
 					t.Fatal(err)
 				}
 			},
-			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead, st *foldState) {
 				notes, err := s.Notes(ctx, made[0].ID)
 				if err != nil {
 					t.Fatal(err)
@@ -1427,7 +1430,7 @@ func TestFoldBeads(t *testing.T) {
 			return foldRow{
 				name: "the carrier's note lists each member's note count and files", depot: "plain", opts: FoldOptions{To: "ready"},
 				members: []NewBead{bead("a"), bead("b"), bead("c")},
-				prepare: func(t *testing.T, s *Store, made []Bead) {
+				prepare: func(t *testing.T, s *Store, made []Bead, st *foldState) {
 					put := func(text string) BlobRef {
 						ref, err := s.PutBlob(ctx, []byte(text))
 						if err != nil {
@@ -1458,7 +1461,7 @@ func TestFoldBeads(t *testing.T) {
 						t.Fatal(err)
 					}
 				},
-				check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+				check: func(t *testing.T, s *Store, got *Bead, made []Bead, st *foldState) {
 					seq := func(id string, n int) string {
 						notes, err := s.Notes(ctx, id)
 						if err != nil || len(notes) <= n {
@@ -1487,37 +1490,36 @@ func TestFoldBeads(t *testing.T) {
 			}
 		}(),
 		func() foldRow {
-			var y Bead
 			return foldRow{
 				name: "the folded edge records what was taken from each member", depot: "plain", opts: FoldOptions{To: "ready"},
 				members: []NewBead{bead("a"), bead("b"), bead("c")},
-				prepare: func(t *testing.T, s *Store, made []Bead) {
-					y = outside(t, s, NewBead{Title: "y", Depot: "plain"})
+				prepare: func(t *testing.T, s *Store, made []Bead, st *foldState) {
+					st.Y = outside(t, s, NewBead{Title: "y", Depot: "plain"})
 					foldLink(t, s, made[0].ID, LinkTracks, foldGitHub(5))
 					foldLink(t, s, made[1].ID, LinkTracks, foldGitHub(6))
 					for _, m := range made[:2] {
-						if err := s.AddDep(ctx, m.ID, y.ID, DepBlocks, "", "review", "mckean"); err != nil {
+						if err := s.AddDep(ctx, m.ID, st.Y.ID, DepBlocks, "", "review", "mckean"); err != nil {
 							t.Fatal(err)
 						}
 					}
 					foldWatch(t, s, "crew", "ada", ScopeAll, made[0].ID)
 					foldWatch(t, s, "user", "sam", ScopeAll, made[1].ID)
 				},
-				check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+				check: func(t *testing.T, s *Store, got *Bead, made []Bead, st *foldState) {
 					watch := func(id string) Subscription {
 						return Subscription{Source: SourceYardr, Scope: ScopeAll, Where: map[string]string{"bead": id}}
 					}
 					foldWantMoved(t, s, got.ID, made[0].ID, FoldMoved{
 						Stage:    "new",
 						Links:    []FoldLink{{Source: "github", URL: foldGitHub(5), Kind: LinkTracks}},
-						Blocks:   []FoldBlock{{To: y.ID, Until: "review"}},
+						Blocks:   []FoldBlock{{To: st.Y.ID, Until: "review"}},
 						Watchers: []FoldWatcher{{Kind: "crew", Name: "ada", Watch: watch(made[0].ID)}},
 					})
 					// The second of a source, and a target the first shares.
 					foldWantMoved(t, s, got.ID, made[1].ID, FoldMoved{
 						Stage:    "new",
 						Links:    []FoldLink{{Source: "github", URL: foldGitHub(6), Kind: LinkRelates}},
-						Blocks:   []FoldBlock{{To: y.ID, Until: "review"}},
+						Blocks:   []FoldBlock{{To: st.Y.ID, Until: "review"}},
 						Watchers: []FoldWatcher{{Kind: "user", Name: "sam", Watch: watch(made[1].ID)}},
 					})
 					// A member nothing was taken from records only where it was.
@@ -1570,7 +1572,7 @@ func TestFoldBeads(t *testing.T) {
 		{
 			name: "a closed member is refused", depot: "plain", opts: FoldOptions{To: "ready"},
 			members: []NewBead{bead("a"), bead("b")},
-			prepare: func(t *testing.T, s *Store, made []Bead) {
+			prepare: func(t *testing.T, s *Store, made []Bead, st *foldState) {
 				if _, err := s.CloseBead(ctx, made[1].ID, "done", Expect{}, "mckean"); err != nil {
 					t.Fatal(err)
 				}
@@ -1580,7 +1582,7 @@ func TestFoldBeads(t *testing.T) {
 		{
 			name: "a claimed member is refused", depot: "plain", opts: FoldOptions{To: "ready"},
 			members: []NewBead{bead("a"), bead("b")},
-			prepare: func(t *testing.T, s *Store, made []Bead) { foldClaim(t, s, made[1]) },
+			prepare: func(t *testing.T, s *Store, made []Bead, st *foldState) { foldClaim(t, s, made[1]) },
 			wantErr: "is claimed",
 		},
 		{
@@ -1589,8 +1591,8 @@ func TestFoldBeads(t *testing.T) {
 			// with nothing running to end.
 			name: "members a manual group holds are folded, and the fold ends their claims", depot: "plain", opts: FoldOptions{To: "ready"},
 			members: []NewBead{bead("a"), bead("b")},
-			prepare: func(t *testing.T, s *Store, made []Bead) { held = foldManualHold(t, s, made...) },
-			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+			prepare: func(t *testing.T, s *Store, made []Bead, st *foldState) { st.Held = foldManualHold(t, s, made...) },
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead, st *foldState) {
 				foldWant(t, "carrier stage", got.Stage, "ready")
 				if got.Group != nil || got.Session != nil {
 					t.Errorf("the carrier is held by group %v, session %v; want it free to route", got.Group, got.Session)
@@ -1612,8 +1614,8 @@ func TestFoldBeads(t *testing.T) {
 					}
 				}
 				// The close ended the claims, so the group has its places back.
-				foldWant(t, "claims held", len(held), len(made))
-				for _, h := range held {
+				foldWant(t, "claims held", len(st.Held), len(made))
+				for _, h := range st.Held {
 					sess, err := s.GetSession(ctx, h.ID)
 					if err != nil {
 						t.Fatal(err)
@@ -1631,7 +1633,7 @@ func TestFoldBeads(t *testing.T) {
 			// is, the fold does not guess that nothing runs in the claim.
 			name: "a member claimed by a session the store lacks is refused", depot: "plain", opts: FoldOptions{To: "ready"},
 			members: []NewBead{bead("a"), bead("b")},
-			prepare: func(t *testing.T, s *Store, made []Bead) {
+			prepare: func(t *testing.T, s *Store, made []Bead, st *foldState) {
 				foldSpoilSession(t, s, foldManualHold(t, s, made[1])[0], nil)
 			},
 			wantErr: "is claimed",
@@ -1641,7 +1643,7 @@ func TestFoldBeads(t *testing.T) {
 			// fails. The fold goes by what reads whole.
 			name: "a member claimed by a session the store cannot read is refused", depot: "plain", opts: FoldOptions{To: "ready"},
 			members: []NewBead{bead("a"), bead("b")},
-			prepare: func(t *testing.T, s *Store, made []Bead) {
+			prepare: func(t *testing.T, s *Store, made []Bead, st *foldState) {
 				foldSpoilSession(t, s, foldManualHold(t, s, made[1])[0], []byte(`{"runner":"manual","state":1}`))
 			},
 			wantErr: "is claimed",
@@ -1649,7 +1651,7 @@ func TestFoldBeads(t *testing.T) {
 		{
 			name: "a bead from another yard is refused, for closing it would return it as refused", depot: "plain", opts: FoldOptions{To: "ready"},
 			members: []NewBead{bead("a"), bead("b")},
-			prepare: func(t *testing.T, s *Store, made []Bead) {
+			prepare: func(t *testing.T, s *Store, made []Bead, st *foldState) {
 				err := s.write(func(w *wtx) error {
 					return put(w.Tx, bPeerBeads, made[1].UUID, &peerBead{Bead: made[1].UUID, Key: "north", Direction: "in"})
 				})
@@ -1662,7 +1664,7 @@ func TestFoldBeads(t *testing.T) {
 		{
 			name: "a bead away at another yard is refused", depot: "plain", opts: FoldOptions{To: "ready"},
 			members: []NewBead{bead("a"), bead("b")},
-			prepare: func(t *testing.T, s *Store, made []Bead) {
+			prepare: func(t *testing.T, s *Store, made []Bead, st *foldState) {
 				err := s.write(func(w *wtx) error {
 					return put(w.Tx, bPeerSent, made[0].UUID, &peerSent{Bead: made[0].UUID, Key: "north", Stage: "new", Message: "m1", At: time.Now()})
 				})
@@ -1678,7 +1680,7 @@ func TestFoldBeads(t *testing.T) {
 			name: "an agent in another bead's pane is refused", depot: "plain", opts: FoldOptions{To: "ready"},
 			members: []NewBead{{ID: "plain-pane", Title: "mine"}, bead("b"), bead("c")},
 			fold:    []int{1, 2}, pane: true,
-			prepare: func(t *testing.T, s *Store, made []Bead) { foldPane(t, s, made[0]) },
+			prepare: func(t *testing.T, s *Store, made []Bead, st *foldState) { foldPane(t, s, made[0]) },
 			wantErr: "may close only its own bead plain-pane",
 		},
 		{name: "a fold with no stage is refused", depot: "plain", members: []NewBead{bead("a"), bead("b")}, wantErr: "the stage its carrier starts in"},
@@ -1697,84 +1699,97 @@ func TestFoldBeads(t *testing.T) {
 		{name: "no bead is refused", depot: "plain", opts: FoldOptions{To: "ready"}, wantErr: "needs beads"},
 	}
 
-	for _, row := range rows {
-		t.Run(row.name, func(t *testing.T) {
-			made := make([]Bead, len(row.members))
-			for i, nb := range row.members {
-				if nb.Depot == "" {
-					nb.Depot = row.depot
-				}
-				b, err := s.CreateBead(ctx, nb, "mckean")
-				if err != nil {
-					t.Fatal(err)
-				}
-				made[i] = *b
-			}
-			if row.prepare != nil {
-				row.prepare(t, s, made)
-			}
-			var ids []string
-			for _, i := range foldOrder(row.fold, len(made)) {
-				ids = append(ids, made[i].ID)
-			}
-			ids = append(ids, row.extra...)
-			count := func() int {
-				all, err := s.ListBeads(ctx, BeadFilter{All: true})
-				if err != nil {
-					t.Fatal(err)
-				}
-				return len(all)
-			}
-			// A member's revision changes with anything done to it: a close,
-			// an edge.
-			revisions := func() []string {
-				var out []string
-				for _, m := range made {
-					b, err := s.GetBead(ctx, m.ID)
+	// The rows run in as many parts as the machine runs parallel tests,
+	// each part over a yard of its own: a part's rows run in turn as they
+	// always did, and no row shares with another part.
+	n := min(runtime.GOMAXPROCS(0), len(rows))
+	size := (len(rows) + n - 1) / n
+	for c := range n {
+		part := rows[c*size : min((c+1)*size, len(rows))]
+		t.Run(fmt.Sprintf("part %d", c), func(t *testing.T) {
+			t.Parallel()
+			s := foldYard(t)
+			for _, row := range part {
+				t.Run(row.name, func(t *testing.T) {
+					st := &foldState{}
+					made := make([]Bead, len(row.members))
+					for i, nb := range row.members {
+						if nb.Depot == "" {
+							nb.Depot = row.depot
+						}
+						b, err := s.CreateBead(ctx, nb, "mckean")
+						if err != nil {
+							t.Fatal(err)
+						}
+						made[i] = *b
+					}
+					if row.prepare != nil {
+						row.prepare(t, s, made, st)
+					}
+					var ids []string
+					for _, i := range foldOrder(row.fold, len(made)) {
+						ids = append(ids, made[i].ID)
+					}
+					ids = append(ids, row.extra...)
+					count := func() int {
+						all, err := s.ListBeads(ctx, BeadFilter{All: true})
+						if err != nil {
+							t.Fatal(err)
+						}
+						return len(all)
+					}
+					// A member's revision changes with anything done to it: a close,
+					// an edge.
+					revisions := func() []string {
+						var out []string
+						for _, m := range made {
+							b, err := s.GetBead(ctx, m.ID)
+							if err != nil {
+								t.Fatal(err)
+							}
+							out = append(out, b.Revision)
+						}
+						return out
+					}
+					folded := func() int {
+						evs, err := s.EventsOfKind(ctx, "folded", 1000)
+						if err != nil {
+							t.Fatal(err)
+						}
+						return len(evs)
+					}
+					before, was, foldedBefore := count(), revisions(), folded()
+					askedAs := ctx
+					if row.pane {
+						askedAs = WithCaller(ctx, os.Getpid())
+					}
+					got, err := s.FoldBeads(askedAs, ids, row.opts, or(row.actor, "mckean"))
+					if row.wantErr != "" {
+						if err == nil || !strings.Contains(err.Error(), row.wantErr) {
+							t.Fatalf("folded %v: %+v, %v; want an error with %q", ids, got, err, row.wantErr)
+						}
+						// All or nothing: no carrier, no member closed or given an
+						// edge, no fold on record.
+						foldWant(t, "beads after a refused fold", count(), before)
+						if now := revisions(); !slices.Equal(now, was) {
+							t.Errorf("a refused fold changed its members: revisions %v, were %v", now, was)
+						}
+						foldWant(t, "folded events after a refused fold", folded(), foldedBefore)
+						return
+					}
 					if err != nil {
 						t.Fatal(err)
 					}
-					out = append(out, b.Revision)
-				}
-				return out
+					foldWant(t, "beads made", count()-before, 1)
+					foldWant(t, "folded events made", folded()-foldedBefore, 1)
+					// What the fold answers is what the store holds.
+					stored, err := s.GetBead(ctx, got.ID)
+					if err != nil || stored.Revision != got.Revision {
+						t.Fatalf("the carrier answered is at %v, the bead stored %+v, %v", got.Revision, stored, err)
+					}
+					row.check(t, s, stored, made, st)
+				})
 			}
-			folded := func() int {
-				evs, err := s.EventsOfKind(ctx, "folded", 1000)
-				if err != nil {
-					t.Fatal(err)
-				}
-				return len(evs)
-			}
-			before, was, foldedBefore := count(), revisions(), folded()
-			askedAs := ctx
-			if row.pane {
-				askedAs = WithCaller(ctx, os.Getpid())
-			}
-			got, err := s.FoldBeads(askedAs, ids, row.opts, or(row.actor, "mckean"))
-			if row.wantErr != "" {
-				if err == nil || !strings.Contains(err.Error(), row.wantErr) {
-					t.Fatalf("folded %v: %+v, %v; want an error with %q", ids, got, err, row.wantErr)
-				}
-				// All or nothing: no carrier, no member closed or given an
-				// edge, no fold on record.
-				foldWant(t, "beads after a refused fold", count(), before)
-				if now := revisions(); !slices.Equal(now, was) {
-					t.Errorf("a refused fold changed its members: revisions %v, were %v", now, was)
-				}
-				foldWant(t, "folded events after a refused fold", folded(), foldedBefore)
-				return
-			}
-			if err != nil {
-				t.Fatal(err)
-			}
-			foldWant(t, "beads made", count()-before, 1)
-			foldWant(t, "folded events made", folded()-foldedBefore, 1)
-			// What the fold answers is what the store holds.
-			stored, err := s.GetBead(ctx, got.ID)
-			if err != nil || stored.Revision != got.Revision {
-				t.Fatalf("the carrier answered is at %v, the bead stored %+v, %v", got.Revision, stored, err)
-			}
-			row.check(t, s, stored, made)
 		})
 	}
 }

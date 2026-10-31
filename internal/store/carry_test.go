@@ -12,6 +12,7 @@ import (
 // write; one boot claims it, another does not take it, and only the
 // claiming boot completes it, which completes the answer with it.
 func TestCarryRecordClaimAndComplete(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	y.setPack(&fakePack{label: "embedded in yardr test1"})
 	seq := y.ask(t, packAsk(), "yardmaster")
@@ -63,6 +64,7 @@ func TestCarryRecordClaimAndComplete(t *testing.T) {
 // takes it up, carries it, and fails it; a failed apply is no more
 // taken up than a done one.
 func TestCarryResumeAndFail(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	y.setPack(&fakePack{label: "embedded in yardr test1"})
 	seq := y.ask(t, packAsk(), "yardmaster")
@@ -98,6 +100,7 @@ func TestCarryResumeAndFail(t *testing.T) {
 // boot does not take it, and the handed account values are taken once,
 // for the account's write.
 func TestCarrySetupRecordClaimAndSecretOnce(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	y.setSetupPack(setupMailPack())
 	seq := y.ask(t, setupAsk(), "yardmaster")
@@ -132,6 +135,7 @@ func TestCarrySetupRecordClaimAndSecretOnce(t *testing.T) {
 // to it, finishes a half-written one forward, and refuses a third
 // hand, each by the file that moved.
 func TestCheckCarrySource(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	dir := plantWired(t, y)
 	// The standing copies differ from the pack's in one file, so the

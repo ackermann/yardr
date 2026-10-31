@@ -6,6 +6,7 @@ import (
 )
 
 func TestUnified(t *testing.T) {
+	t.Parallel()
 	if got := Unified("same\n", "same\n"); got != "" {
 		t.Fatalf("one text diffed = %q", got)
 	}

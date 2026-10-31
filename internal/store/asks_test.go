@@ -19,13 +19,17 @@ type askYard struct {
 	now  time.Time
 }
 
-// newAskYard sets the package's fake clock to the yard's now, so its
-// callers stay sequential.
+// askNow is the now a new ask yard starts from. A test that moves time
+// pre-pins the package clock to it (pinClockFixed) before it builds its
+// yard, so the yard's setup is stamped then too.
+var askNow = time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)
+
+// newAskYard is a store with one bead. A test that moves time pins the
+// package clock to the yard's now (pinClock) and stays sequential; the
+// rest run parallel.
 func newAskYard(t *testing.T) *askYard {
 	t.Helper()
-	y := &askYard{ctx: context.Background(), now: time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)}
-	clock = func() time.Time { return y.now }
-	t.Cleanup(func() { clock = time.Now })
+	y := &askYard{ctx: context.Background(), now: askNow}
 	s, err := Open(filepath.Join(t.TempDir(), "y.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -38,6 +42,23 @@ func newAskYard(t *testing.T) *askYard {
 	}
 	y.bead = b.ID
 	return y
+}
+
+// pinClock sets the package clock to *at for the test; its callers stay
+// sequential, since parallel tests cannot share the package clock.
+func pinClock(t *testing.T, at *time.Time) {
+	t.Helper()
+	clock = func() time.Time { return *at }
+	t.Cleanup(func() { clock = time.Now })
+}
+
+// pinClockFixed sets the package clock to at for the test, for a test
+// that never moves time but reads the yard's setup stamped then; its
+// callers stay sequential as pinClock's do.
+func pinClockFixed(t *testing.T, at time.Time) {
+	t.Helper()
+	clock = func() time.Time { return at }
+	t.Cleanup(func() { clock = time.Now })
 }
 
 func (y *askYard) ask(t *testing.T, ask Ask, actor string) uint64 {
@@ -85,7 +106,7 @@ func linksAsk() Ask {
 // An ask is stored with yardr's own option last, and refused without
 // context, without a consequence, or naming You decide itself.
 func TestAddAsk(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := newAskYard(t)
 	seq := y.ask(t, linksAsk(), "yardmaster")
 
@@ -153,7 +174,7 @@ func TestAddAsk(t *testing.T) {
 // About names other beads by handle, whatever form was typed; unknown and
 // twice-named ones refuse the ask and store nothing.
 func TestAddAskAbout(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := newAskYard(t)
 	other, err := y.CreateBead(y.ctx, NewBead{Title: "the other"}, "yardmaster")
 	if err != nil {
@@ -188,8 +209,10 @@ func TestAddAskAbout(t *testing.T) {
 // A pick records who picked which option with the words; a newer pick
 // supersedes for display and every pick stays as a note.
 func TestAnswerPick(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	// Sequential: the package's fake clock.
+	pinClockFixed(t, askNow)
 	y := newAskYard(t)
+	pinClock(t, &y.now)
 	seq := y.ask(t, linksAsk(), "yardmaster")
 	y.answer(t, Answer{Ask: seq, Option: 2, Words: "after the release"}, "mckean")
 
@@ -247,7 +270,7 @@ func TestAnswerPick(t *testing.T) {
 // An ask with no options wants words: --words closes it, a pick is
 // refused, and words alone on an ask with options go as a plain note.
 func TestAnswerWords(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := newAskYard(t)
 	words := linksAsk()
 	words.Options, words.Recommend, words.Why = nil, 0, ""
@@ -306,8 +329,10 @@ func mustNote(t *testing.T, y *askYard, seq uint64) Note {
 // Later puts the ask aside for 24 hours or until the asker's next note,
 // whichever is first; answering early is a pick like any other.
 func TestAnswerLater(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	// Sequential: the package's fake clock.
+	pinClockFixed(t, askNow)
 	y := newAskYard(t)
+	pinClock(t, &y.now)
 	seq := y.ask(t, linksAsk(), "yardmaster")
 	y.answer(t, Answer{Ask: seq, Later: true}, "mckean")
 
@@ -367,7 +392,7 @@ func TestAnswerLater(t *testing.T) {
 // Decline ends the ask with no option picked, in the person's own words,
 // and nothing answers it after.
 func TestAnswerDecline(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := newAskYard(t)
 	seq := y.ask(t, linksAsk(), "yardmaster")
 	if err := y.AddAnswer(y.ctx, y.bead, Answer{Ask: seq, Decline: true}, "mckean"); err == nil ||
@@ -396,7 +421,7 @@ func TestAnswerDecline(t *testing.T) {
 // refusal writes nothing. The operator's newer pick supersedes the
 // addressee's.
 func TestAnswerIsTheAddresseesAndTheOperators(t *testing.T) {
-	// Sequential: the package's fake clock (via newHomeYard).
+	t.Parallel()
 	y := reachYard(t)
 	bead, seq := y.asked(t, linksAsk())
 	for _, c := range []struct {
@@ -454,8 +479,10 @@ func (y *askYard) refusesStrangers(t *testing.T, seq uint64) {
 // The rendering is numbered text with the recommendation marked and the
 // state, never the raw JSON.
 func TestAskLines(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	// Sequential: the package's fake clock.
+	pinClockFixed(t, askNow)
 	y := newAskYard(t)
+	pinClock(t, &y.now)
 	seq := y.ask(t, linksAsk(), "yardmaster")
 	y.now = y.now.Add(2 * time.Hour)
 	y.answer(t, Answer{Ask: seq, Option: 1, Words: "go"}, "mckean")
@@ -486,7 +513,9 @@ func TestAskLines(t *testing.T) {
 	}
 
 	// Open, aside and declined read as such, with the return time.
+	pinClockFixed(t, askNow)
 	y2 := newAskYard(t)
+	pinClock(t, &y2.now)
 	o := y2.ask(t, linksAsk(), "yardmaster")
 	y2.now = y2.now.Add(time.Hour)
 	y2.answer(t, Answer{Ask: o, Later: true}, "mckean")
@@ -500,7 +529,9 @@ func TestAskLines(t *testing.T) {
 	}
 
 	// Words wanted, and a corrupt ask that says so without its text.
+	pinClockFixed(t, askNow)
 	y3 := newAskYard(t)
+	pinClock(t, &y3.now)
 	w := linksAsk()
 	w.Options, w.Recommend, w.Why = nil, 0, ""
 	wseq := y3.ask(t, w, "yardmaster")
@@ -636,7 +667,7 @@ func TestTopicLabelsRouteExactly(t *testing.T) {
 // one write, placed and filled as CreateBead does; whatever the ask or the
 // bead would be refused for makes neither.
 func TestAskNew(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := decisionYard(t)
 	before, err := y.ListBeads(y.ctx, BeadFilter{All: true})
 	if err != nil {

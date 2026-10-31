@@ -12,7 +12,8 @@ import (
 // the event. A second recording while the loss stands writes nothing, and a
 // start ends the state, so the next loss raises a second card.
 func TestNoteDaemonLost(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	// Sequential: the package's fake clock.
+	pinClockFixed(t, askNow)
 	y, _ := runYard(t)
 	stopped := y.now.Add(-time.Hour)
 	bead, wrote, err := y.NoteDaemonLost(y.ctx, stopped)
@@ -84,7 +85,7 @@ func TestNoteDaemonLost(t *testing.T) {
 // Where the yard has no operator the loss is still written, and no card
 // is raised: the event is what the crew displays read.
 func TestNoteDaemonLostWithoutOperator(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, _ := runYard(t)
 	y.noOperator(t, "mckean")
 	bead, wrote, err := y.NoteDaemonLost(y.ctx, y.now.Add(-time.Hour))
@@ -108,6 +109,7 @@ func TestNoteDaemonLostWithoutOperator(t *testing.T) {
 // the last known alive time the loss recorded, and the event's own time
 // where it records none.
 func TestEpisodeOpen(t *testing.T) {
+	t.Parallel()
 	at := time.Date(2026, 10, 25, 15, 0, 0, 0, time.UTC)
 	pass := at.Add(-time.Hour)
 	lost := func(seq uint64) *Event {
@@ -149,7 +151,7 @@ func TestEpisodeOpen(t *testing.T) {
 // last known alive time the loss recorded, and the event's own time where
 // it records none.
 func TestDaemonLostEpisode(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, _ := runYard(t)
 	if _, lost, err := DaemonLostEpisode(y.ctx, y.Store); err != nil || lost {
 		t.Fatalf("with no events lost = %v, %v", lost, err)

@@ -47,7 +47,7 @@ const crewSecretLine = "a secret: CRM_TOKEN, for crew member yardmaster in the s
 // the env_file line is the one written, and when it takes effect. It is
 // asked of the operator.
 func TestCrewAskIsStoredWithTheDeclarationsNames(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, _ := crewSecretYard(t)
 	ask := crewSecretAsk("yardmaster", "mckean")
 	ask.Secret.Host = "https://evil.example.com"
@@ -104,7 +104,7 @@ func TestCrewAskIsStoredWithTheDeclarationsNames(t *testing.T) {
 // is minted is stored asking for the mint's inputs alone, as the source's
 // own is: the token is minted per call, never given.
 func TestCrewAskMintedSourceAsksForTheMintsInputs(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, _ := crewSecretYard(t)
 	if _, err := y.PutSource(y.ctx, "gog.yaml", mintKeyFile, "mckean"); err != nil {
 		t.Fatal(err)
@@ -122,7 +122,7 @@ func TestCrewAskMintedSourceAsksForTheMintsInputs(t *testing.T) {
 // have, anyone asked but the operator, another yard, and beside a user,
 // a hook or a waiting login.
 func TestCrewAskRefusals(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, _ := crewSecretYard(t)
 	with := func(change func(*Ask)) Ask {
 		a := crewSecretAsk("yardmaster", "mckean")
@@ -162,7 +162,7 @@ func TestCrewAskRefusals(t *testing.T) {
 // the answer says when the value takes effect. The value is in the file
 // and in nothing the store has.
 func TestGiveSecretGivesACrewMembersOwnCredential(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, file := crewSecretYard(t)
 	seq := y.ask(t, crewSecretAsk("yardmaster", "mckean"), "yardmaster")
 	const value = "tok-0f-s3cret"
@@ -249,7 +249,7 @@ func TestGiveSecretGivesACrewMembersOwnCredential(t *testing.T) {
 // ask did not ask for. No refusal says back what was sent, and none
 // writes the file, sets the env_file, or notes an answer.
 func TestGiveSecretRefusesACrewMembersCredential(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, file := crewSecretYard(t)
 	seq := y.ask(t, crewSecretAsk("yardmaster", "mckean"), "yardmaster")
 	const value = "tok-0f-s3cret"
@@ -297,7 +297,7 @@ func TestGiveSecretRefusesACrewMembersCredential(t *testing.T) {
 // other lines kept and its definition untouched; one with an env_command
 // as well keeps both, the env_file line being the one written.
 func TestGiveCrewSecretKeepsAnEnvFileAndAnEnvCommand(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, _ := crewSecretYard(t)
 	file := filepath.Join(t.TempDir(), "crew.env")
 	if err := os.WriteFile(file, []byte("OTHER=1\n"), 0o600); err != nil {
@@ -333,7 +333,7 @@ func TestGiveCrewSecretKeepsAnEnvFileAndAnEnvCommand(t *testing.T) {
 // the value; an https address answers it. A refused value leaves no note
 // and no file.
 func TestGiveSecretRefusesACrewCredentialThatIsNoAddress(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, file := crewSecretYard(t)
 	if _, err := y.PutSource(y.ctx, "hook.yaml", urlKeyFile, "mckean"); err != nil {
 		t.Fatal(err)

@@ -81,6 +81,7 @@ func driftYard(t *testing.T) *askYard {
 // each diff as the replacement row does: the declaration keys old against
 // new, each file's old and new sha256 with its unified diff.
 func TestSetupDriftDiffsMatchReplacement(t *testing.T) {
+	t.Parallel()
 	y := driftYard(t)
 	seq := y.ask(t, setupAsk(), "yardmaster")
 	setup := y.asked(t, seq).Ask.Setup
@@ -145,6 +146,7 @@ func TestSetupDriftDiffsMatchReplacement(t *testing.T) {
 // read call under a standing read grant reads covered with no grant
 // needed, and a new update call reads waiting on its preset.
 func TestSetupDriftPresetHeldNewCoveredWaiting(t *testing.T) {
+	t.Parallel()
 	y := driftYard(t)
 	if _, err := y.GrantSource(y.ctx, "setupmail", "read", Grantee{Crew: "yardmaster"}, "", "mckean"); err != nil {
 		t.Fatal(err)
@@ -197,6 +199,7 @@ func TestSetupDriftPresetHeldNewCoveredWaiting(t *testing.T) {
 // kept with a bare preset pick, typed another to change it, or a
 // candidate's file to take.
 func TestSetupDriftAccountGivenKeep(t *testing.T) {
+	t.Parallel()
 	y := driftYard(t)
 	yardSourceWithAccount(t, y, setupCalDecl, "setup-mint", driftNewMint,
 		map[string]string{"SETUP_ACCOUNT": "cal@example.com"})
@@ -259,6 +262,7 @@ func TestSetupDriftAccountGivenKeep(t *testing.T) {
 // not set, the drift card names the missing names and the answer types
 // them.
 func TestSetupDriftAccountMissing(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	yardSourceWithAccount(t, y, driftOldDecl, "setup-mint", driftOldMint,
 		map[string]string{"SETUP_ACCOUNT": "ops@example.com"})

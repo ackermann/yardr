@@ -51,6 +51,7 @@ func githubRepo(t *testing.T, origin string) string {
 }
 
 func TestDepotPushGitConfigReadDistinguishesMissingKey(t *testing.T) {
+	t.Parallel()
 	repo := githubRepo(t, "https://github.com/ada/web.git")
 	if values, ok := gitConfigGetAll(repo, depotHelperKey, true); !ok || len(values) != 0 {
 		t.Fatalf("missing helper = %q, %v, want none and a readable config", values, ok)
@@ -68,9 +69,8 @@ func TestDepotPushGitConfigReadDistinguishesMissingKey(t *testing.T) {
 // the yard's own file for the source (home/sources/github.env).
 func depotPushYard(t *testing.T) *askYard {
 	t.Helper()
-	// No helper of the machine's own git config answers in the yard.
-	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(t.TempDir(), "none"))
-	t.Setenv("GIT_CONFIG_SYSTEM", filepath.Join(t.TempDir(), "none"))
+	// No helper of the machine's own git config answers in the yard;
+	// TestMain pins the global and system config for the whole package.
 	y := answerYard(t)
 	if err := y.SetSetting(y.ctx, OperatorSetting, "mckean", "mckean"); err != nil {
 		t.Fatal(err)
@@ -129,6 +129,7 @@ func (y *askYard) depotPath(t *testing.T, name string) string {
 // Approving a --depot-push card records CarryPending and writes
 // nothing itself: the server carries both halves out after it.
 func TestDepotPushCardAndApprovalDefersToCarrier(t *testing.T) {
+	t.Parallel()
 	y := depotPushYard(t)
 	seq := y.ask(t, depotPushAsk("web", false), "yardmaster")
 	got := y.asked(t, seq).Ask
@@ -211,6 +212,7 @@ func TestDepotPushCardAndApprovalDefersToCarrier(t *testing.T) {
 // A card written before its weight was weighed is approved no more:
 // approving it weighted, from a card that showed none, is stale.
 func TestDepotPushApprovalRefusesAStaleWeight(t *testing.T) {
+	t.Parallel()
 	y := depotPushYard(t)
 	seq := y.ask(t, depotPushAsk("web", false), "yardmaster")
 	// Take the weight off the stored card, as a card from before cards
@@ -250,6 +252,7 @@ func TestDepotPushApprovalRefusesAStaleWeight(t *testing.T) {
 }
 
 func TestDepotPushFilingRefusals(t *testing.T) {
+	t.Parallel()
 	file := func(y *askYard, depot string, off bool, actor string) error {
 		_, err := y.AddAsk(y.ctx, y.bead, depotPushAsk(depot, off), actor)
 		return err
@@ -365,6 +368,7 @@ func TestDepotPushFilingRefusals(t *testing.T) {
 // edge going, or the group's other words moving, each leaves the ask
 // open with nothing written.
 func TestDepotPushApprovalRefusesWhenTheYardChanged(t *testing.T) {
+	t.Parallel()
 	y := depotPushYard(t)
 	seq := y.ask(t, depotPushAsk("web", false), "yardmaster")
 	if _, err := y.SetGroup(y.ctx, "web-assembly", GroupEdit{Set: map[string]any{"log": "/tmp/other.log"}}, "mckean"); err != nil {
@@ -395,6 +399,7 @@ func TestDepotPushApprovalRefusesWhenTheYardChanged(t *testing.T) {
 // The cmd surgery itself: where the push half goes, what it never
 // touches, and its exact reverse.
 func TestDepotPushCmdSurgery(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct{ cmd, on, off string }{
 		{"/srv/land", "YARDR_PUSH=origin /srv/land", "/srv/land"},
 		{depotPushCmd, "YARDR_PUSH=origin " + depotPushCmd, depotPushCmd},
@@ -436,6 +441,7 @@ func TestDepotPushCmdSurgery(t *testing.T) {
 // shell helper ending in that path is refused, never verified, and the
 // refusal repeats nothing of its value, which may carry a token.
 func TestDepotPushRefusesALookalikeHelper(t *testing.T) {
+	// Sequential: process environment.
 	y := depotPushYard(t)
 	lookalike := "!sh -c 'echo password=stand-in-token-7f3a' " + filepath.Join(t.TempDir(), "sources", "github", "github", "git-credential")
 	githubGit(t, y.depotPath(t, "web"), "config", depotHelperKey, lookalike)
@@ -476,6 +482,7 @@ func TestDepotPushRefusesALookalikeHelper(t *testing.T) {
 // standing in the depot's shared config refuses the card, and the
 // refusal repeats nothing of its value.
 func TestDepotPushRefusesABareHelper(t *testing.T) {
+	t.Parallel()
 	y := depotPushYard(t)
 	repo := y.depotPath(t, "web")
 	githubGit(t, repo, "config", "credential.helper", "!sh -c 'cat >> /tmp/stolen'")
@@ -492,8 +499,8 @@ func TestDepotPushRefusesABareHelper(t *testing.T) {
 // that host's, in order, an empty value clearing those before it, and
 // never another host's.
 func TestPushHelpersAreThoseGitRuns(t *testing.T) {
-	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(t.TempDir(), "none"))
-	t.Setenv("GIT_CONFIG_SYSTEM", filepath.Join(t.TempDir(), "none"))
+	t.Parallel()
+	// TestMain pins the machine's git config aside for the whole package.
 	repo := githubRepo(t, "https://github.com/ada/web.git")
 	githubGit(t, repo, "config", "--add", "credential.helper", "cache")
 	githubGit(t, repo, "config", "--add", "credential.https://gitlab.com.helper", "other")

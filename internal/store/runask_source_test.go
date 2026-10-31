@@ -99,6 +99,7 @@ var wiredFiles = map[string]string{
 // yard's sentences for the whole declaration, whatever the asker sent
 // for them, and the texts stand whole in a terminal.
 func TestSourceAddAskCard(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	ask := sourceAddAsk(carriedOf(t, tgDecl, nil))
 	ask.Run.Argv = []string{"source add tg.yaml"}
@@ -145,6 +146,7 @@ func TestSourceAddAskCard(t *testing.T) {
 
 // Every command key's file stands on the card with its hash whole.
 func TestSourceAddCardNamesEveryCommand(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	decl := wiredDecl
 	for _, path := range []string{"wired/limits", "wired/thread", "wired/normalize", "wired/events"} {
@@ -188,6 +190,7 @@ func TestSourceAddCardNamesEveryCommand(t *testing.T) {
 // the credential at each call and free to make its own requests while it
 // builds, and the script's file stands with its hash whole.
 func TestSourceAddCardNamesABuiltCall(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	ask := sourceAddAsk(carriedOf(t, builtDecl, builtFiles))
 	ask.Run.Argv = []string{"source add docs.yaml"}
@@ -255,6 +258,7 @@ func TestSourceAddCardNamesCredentialForAbsoluteCommands(t *testing.T) {
 }
 
 func TestSourceAddCardShowsEveryCredentialPlacement(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	decl := strings.Replace(wiredDecl,
 		`credential: { env: WIRED_TOKEN, header: "Authorization: Bearer {credential}" }`,
@@ -284,6 +288,7 @@ func TestSourceAddCardShowsEveryCredentialPlacement(t *testing.T) {
 // variable's value, that whoever sets it chooses where, and that no header,
 // path or body holds it.
 func TestSourceAddCardSaysTheCredentialIsTheAddress(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	const hookDecl = `name: hook
 credential: { env: HOOK_URL, url: true }
@@ -311,6 +316,7 @@ calls:
 }
 
 func TestSourceAddCardLineBound(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	var decl strings.Builder
 	decl.WriteString("name: many\nbase: https://many.example.com\ncalls:\n")
@@ -330,6 +336,7 @@ func TestSourceAddCardLineBound(t *testing.T) {
 }
 
 func TestSourceAddTerminalCardTreatsTextAsData(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	text := strings.Replace(phoneDecl, `path: /me`, `path: /me, query: { format: "\u001b[2J" }`, 1)
 	text = strings.ReplaceAll(text, "\n", "\r\n")
@@ -379,6 +386,7 @@ func TestSourceAddTerminalCardTreatsTextAsData(t *testing.T) {
 
 // A source add ask is refused, storing nothing, for what the row refuses.
 func TestSourceAddRefusals(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	if _, err := y.PutSource(y.ctx, "crm.yaml", runCRM, "mckean"); err != nil {
 		t.Fatal(err)
@@ -445,6 +453,7 @@ func TestSourceAddRefusals(t *testing.T) {
 // A commands-free approval adds the source in its write; one that names
 // commands stores the declaration and is left to be carried out.
 func TestSourceAddApprove(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	seq := y.ask(t, sourceAddAsk(carriedOf(t, phoneDecl, nil)), "yardmaster")
 	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false, nil)
@@ -494,6 +503,7 @@ calls:
 
 // An approval is refused when the name was taken since the ask.
 func TestSourceAddApproveStale(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	seq := y.ask(t, sourceAddAsk(carriedOf(t, phoneDecl, nil)), "yardmaster")
 	if _, err := y.PutSource(y.ctx, "phone.yaml", phoneDecl, "mckean"); err != nil {
@@ -636,6 +646,7 @@ func TestSourceAddApproveStale(t *testing.T) {
 // leaves the add to the server's carrying out, and writing the carried
 // bytes removes the orphan and nothing the card did not name.
 func TestSourceAddCardsOrphanCopyDirectory(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	dir := filepath.Join(y.Store.home, "sources", "wired")
 	if err := os.MkdirAll(filepath.Join(dir, "wired"), 0o700); err != nil {
@@ -750,6 +761,7 @@ func nextWired() (string, map[string]string) {
 // the source keeps; it takes it back with the old declaration asked again.
 // The yard weighs it as code, with reads where a grant widens.
 func TestSourceAddReplacementCard(t *testing.T) {
+	t.Parallel()
 	y, _ := runYard(t)
 	dir := plantWired(t, y)
 	if _, err := y.GrantSource(y.ctx, "wired", GrantRead, Grantee{Crew: "yardmaster"}, "", "mckean"); err != nil {
@@ -983,6 +995,8 @@ func (y *askYard) lastSourceAdded(t *testing.T) (Event, map[string]any) {
 // strong as the card is. A replacement of nothing but where the credential
 // goes is strong too.
 func TestSourceAddReplacementApprove(t *testing.T) {
+	// Sequential: the package's fake clock.
+	pinClockFixed(t, askNow)
 	y := standingCRM(t)
 	before := y.source(t)
 	grants := y.grants(t)
@@ -1083,6 +1097,7 @@ func TestSourceAddReplacementApprove(t *testing.T) {
 // anew as source add does; one with nothing to copy and nothing to remove
 // runs in the approval's own write.
 func TestSourceAddReplacementIsCarriedOut(t *testing.T) {
+	t.Parallel()
 	next, files := nextWired()
 	// Brings files over the copies that stand.
 	y, _ := runYard(t)

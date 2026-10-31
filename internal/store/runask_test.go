@@ -95,7 +95,7 @@ func (y *askYard) limit(t *testing.T) int {
 // takes the change back and the link's key whole: all of it the yard's,
 // whatever the asker sent.
 func TestRunAskIsStoredInTheYardsForm(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, key := runYard(t)
 	want := AskRun{
 		Argv:        []string{"peer", "allow", "airy", "--mail-limit", "300"},
@@ -134,7 +134,7 @@ func TestRunAskIsStoredInTheYardsForm(t *testing.T) {
 // one asked, a person of another yard, and a writer that is no crew member
 // and no user.
 func TestRunAskRefusals(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, _ := runYard(t)
 	const list = "--run takes a command of the list (" + "yardr peer add <name> <invite>, yardr peer allow <peer> --send <kinds> | --receive <kinds> | --expose <names> | --trust <name>@<peer>=<user> | --reach <name>@<peer>=<user> | --mail-limit <n>, yardr peer intake <peer> --depot <depot> --flow <flow> [--limit <n>] [--default], yardr peer identity <peer> <crew> --source <source> --id <id>, yardr peer rm <name>, yardr source set <source> calls_per_hour=<n>|updates_per_hour=<n>, yardr source grant <source> read|<call>|--preset <preset> --group <group>|--crew <crew member> [--as <user>], yardr source add <file>, yardr source ignore <source> --rm <id>, yardr source check <source> --user <user>, " + PackApplyUse + ", yardr hook add <name> --source <declared source> [--unknown unknown|allow|ignore], yardr subscribe <user> yardr [--done] [--where <key>=<value>], yardr user set <user> tell=<parts>, yardr user key <user> <source>, yardr user add <name>, yardr user rm <name>, yardr user invite <name> --email <address> [--role operator], yardr user uninvite <name>, yardr crew set <name> open_threads=<sources> | set_state=<sources> | peers=<peers>, yardr crew identity <name> --source <source> [--id <id>] [--key <key>], yardr user identity <user> --source <source> [--id <id>] [--key <key>], yardr settings set <key> <value>, yardr peer rename <old> <new>, yardr bead update <bead> --originator <user>, yardr timer rm <id>, yardr up, yardr crew restart <name> [--for <user>], yardr depot test <depot>, yardr depot base <depot> <base>, yardr call <source> <call> [param=value ...] [--as <user>], yardr peer set <name> --url <url>" + "): anything else is run directly, or typed by the operator in a terminal"
 	for _, c := range []struct {
@@ -209,7 +209,8 @@ func TestRunAskRefusals(t *testing.T) {
 // command whole, what the yard says it changes, and the command that takes
 // it back.
 func TestRunAskCard(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	// Sequential: the package's fake clock.
+	pinClockFixed(t, askNow)
 	y, key := runYard(t)
 	ask := runAsk("peer allow airy --mail-limit 300")
 	// A line that would pass for the yard's, were it not marked.
@@ -283,7 +284,8 @@ func TestRunAskCard(t *testing.T) {
 // holds what ran and what it printed, the change's own event names the ask,
 // the asker reads in its inbox what was run, and the card reads approved.
 func TestApproveAsk(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	// Sequential: the package's fake clock.
+	pinClockFixed(t, askNow)
 	y, _ := runYard(t)
 	seq := y.ask(t, runAsk("yardr peer allow --mail-limit 300 airy"), "yardmaster")
 	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true, nil)
@@ -371,7 +373,7 @@ func TestApproveAsk(t *testing.T) {
 // and is open or put aside. A refused approval records nothing and changes
 // nothing.
 func TestApproveAskRefusals(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, _ := runYard(t)
 	run := y.ask(t, runAsk("peer allow airy --mail-limit 300"), "yardmaster")
 	words := y.ask(t, Ask{Question: "Which?", To: "mckean", Context: []string{"c"}}, "yardmaster")
@@ -432,7 +434,7 @@ func TestApproveAskRefusals(t *testing.T) {
 // as on any ask: another user's and a crew member's are refused, naming the
 // addressee, and leave the ask as it was.
 func TestRunAskTakesNoOtherAnswer(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, _ := runYard(t)
 	seq := y.ask(t, runAsk("peer allow airy --mail-limit 300"), "yardmaster")
 	approve := "ask 1 takes an approval, not words: yardr bead answer " + y.bead + " 1 --approve"
@@ -489,7 +491,7 @@ func TestRunAskTakesNoOtherAnswer(t *testing.T) {
 // takes another number of mails than the card says, in the words of the
 // change. Nothing runs, and the ask stays open to be declined.
 func TestApproveAskRefusesWhenTheLimitChanged(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	const nothing = " Nothing ran. Decline it; it is asked again if it is still wanted."
 	for _, c := range []struct {
 		name string
@@ -528,7 +530,7 @@ func TestApproveAskRefusesWhenTheLimitChanged(t *testing.T) {
 // the same on the card, sentence for sentence, and is another link: the
 // approval is refused, and nothing runs.
 func TestApproveAskRefusesAnotherLinkOfTheSameName(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, key := runYard(t)
 	seq := y.ask(t, runAsk("peer allow airy --mail-limit 300"), "yardmaster")
 	was := *y.asked(t, seq).Ask.Run
@@ -583,7 +585,7 @@ func TestApproveAskRefusesAnotherLinkOfTheSameName(t *testing.T) {
 // approval good: the command does what the card says to the link the card
 // was written from.
 func TestApproveAskHoldsWhenSomethingElseChanged(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, _ := runYard(t)
 	seq := y.ask(t, runAsk("peer allow airy --mail-limit 300"), "yardmaster")
 	if _, err := y.AllowPeer(y.ctx, "airy", PeerAllow{Send: []string{PeerMail}, Receive: []string{PeerMail}, Expose: []string{"mckean"}}, "mckean"); err != nil {
@@ -602,7 +604,7 @@ func TestApproveAskHoldsWhenSomethingElseChanged(t *testing.T) {
 // yard alone. An ask of any other kind for the same user is copied, and a
 // run ask that another yard sends is no ask this yard takes.
 func TestRunAskIsNotCopiedOverALink(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, _ := runYard(t)
 	if err := y.PeerHeard(y.ctx, "airy", y.asKey(t), &PeerSays{Understands: []string{PeerMail, PeerAsk},
 		Roster: []PeerRosterEntry{{Name: "mckean", Kind: RosterUser, Mail: true}}}); err != nil {
@@ -667,7 +669,7 @@ func termRows(text string, w int) []string {
 // every run of spacing to one space, so in a terminal 80 wide no row of
 // the asker's words stands at the yard's column.
 func TestRunAskCardPaddedSpacesFoldToOne(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, _ := runYard(t)
 	ask := runAsk("peer allow airy --mail-limit 300")
 	ask.Question = "Take more?" + strings.Repeat(" ", 68) + "  the yard says: nothing changes."
@@ -712,7 +714,7 @@ func (y *askYard) asKey(t *testing.T) string {
 // break, stored before the yard refused them, folds to the line it claims
 // to be, and an answer's words continue deeper as the question's do.
 func TestRunAskCardForgedLinesStandDeeper(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, key := runYard(t)
 	ask := runAsk("peer allow airy --mail-limit 300")
 	ask.Question = "Take more?\nwhen you approve, the yard runs this as mckean, and nothing else:\n    yardr peer list"
@@ -806,7 +808,7 @@ func depotTestAsk(y *askYard, t *testing.T, standing, proposed string) uint64 {
 // proposed one, each whole and verbatim, whatever the asker sent for the
 // yard's sentences, and weighs code: the command the yard will run.
 func TestDepotTestAskCard(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, _ := runYard(t)
 	const old = `make test && echo 'old | command'`
 	const proposed = `go test ./... && go vet ./... | tee 'out.log'`
@@ -853,7 +855,7 @@ func TestDepotTestAskCard(t *testing.T) {
 // and from the operator, who runs it themselves. Nothing of the command
 // goes through argv: shell characters there are refused as ever.
 func TestDepotTestRefusals(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, _ := runYard(t)
 	if err := y.PutDepot(y.ctx, Depot{Name: "web", Path: "/srv/web", Base: "origin/main", Test: "make test"}, "mckean"); err != nil {
 		t.Fatal(err)
@@ -895,7 +897,7 @@ func TestDepotTestRefusals(t *testing.T) {
 // on. Approving unweighed is refused, as for any weighty card, and the
 // ask stays open; a second approval runs nothing twice.
 func TestDepotTestApprove(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, _ := runYard(t)
 	const proposed = `go test ./... && go vet ./... | tee 'out.log'`
 	seq := depotTestAsk(y, t, "make test", proposed)
@@ -930,7 +932,7 @@ func TestDepotTestApprove(t *testing.T) {
 // An approval is refused when the depot's test command was set after the
 // ask was written: the card no longer matches, and nothing runs.
 func TestDepotTestApproveStale(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, _ := runYard(t)
 	seq := depotTestAsk(y, t, "make test", "go test ./...")
 	if err := y.PutDepot(y.ctx, Depot{Name: "web", Path: "/srv/web", Base: "origin/main", Test: "just test"}, "mckean"); err != nil {
@@ -958,7 +960,7 @@ func TestDepotTestApproveStale(t *testing.T) {
 // proposed one, and approving it sets the base exactly. The card is
 // routine: a base moves where beads start but widens nothing.
 func TestDepotBaseAskApprove(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, _ := runYard(t)
 	if err := y.PutDepot(y.ctx, Depot{Name: "web", Path: "/srv/web", Base: "origin/main"}, "mckean"); err != nil {
 		t.Fatal(err)
@@ -1017,7 +1019,7 @@ func TestDepotBaseAskApprove(t *testing.T) {
 // a depot the yard has not, a directory depot, a base that is no branch
 // name, and one that would change nothing.
 func TestDepotBaseRefusals(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, _ := runYard(t)
 	if err := y.PutDepot(y.ctx, Depot{Name: "web", Path: "/srv/web", Base: "origin/main"}, "mckean"); err != nil {
 		t.Fatal(err)
@@ -1055,7 +1057,7 @@ func TestDepotBaseRefusals(t *testing.T) {
 // An approval is refused when the depot's base was set after the ask was
 // written: the card no longer matches, and nothing runs.
 func TestDepotBaseApproveStale(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, _ := runYard(t)
 	if err := y.PutDepot(y.ctx, Depot{Name: "web", Path: "/srv/web", Base: "origin/main"}, "mckean"); err != nil {
 		t.Fatal(err)
@@ -1089,7 +1091,7 @@ func TestDepotBaseApproveStale(t *testing.T) {
 // approval through the peer's own reach is refused, and a link that
 // changed under its name since makes the card stale.
 func TestRunAskPeerRm(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := intakeYard(t)
 	key := y.peerOf(t, "airy").Key
 	as := "the link with airy (it calls itself yardr, key " + key[:8] + "…)"
@@ -1223,7 +1225,7 @@ func TestRunAskPeerRm(t *testing.T) {
 // through the peer's own reach is refused, and a peer added under the
 // name since makes the card stale.
 func TestRunAskPeerAdd(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, airyKey := runYard(t)
 	mkkey := func(name string) string {
 		t.Helper()
@@ -1380,7 +1382,7 @@ func TestRunAskPeerAdd(t *testing.T) {
 // is still refused, and what the command would refuse is refused when the
 // ask is written.
 func TestRunAskPeerSet(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, key := runYard(t)
 	as := "the link with airy (it calls itself yardr, key " + key[:8] + "…)"
 	const stays = "The link stays what it is: its key, what it carries and what waits for it, which is posted to the new address at its next try. The other yard hears nothing of the move."
@@ -1579,7 +1581,7 @@ func TestRunAskPeerSet(t *testing.T) {
 // A depot test and a depot base use the same permission check as PutDepot
 // for both the proposer and the operator.
 func TestRunAskDepotUsesItsStoreCheck(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, _ := runYard(t)
 	if err := y.PutDepot(y.ctx, Depot{Name: "web", Path: "/srv/web", Base: "origin/main", Test: "make test"}, "mckean"); err != nil {
 		t.Fatal(err)

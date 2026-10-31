@@ -13,18 +13,20 @@ import (
 
 // footYard is a store with the operator jo, the user ada with the devices
 // phone and tablet, the user bob with none, the crew member yardmaster,
-// and the clock in the test's hand. Its callers stay sequential.
+// and the clock in the test's hand (pinClock).
 type footYard struct {
 	*Store
 	ctx context.Context
 	now time.Time
 }
 
+// footNow is the now a new foot yard starts from; a test that moves time
+// pre-pins the package clock to it before it builds its yard.
+var footNow = time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)
+
 func newFootYard(t *testing.T) *footYard {
 	t.Helper()
-	y := &footYard{ctx: context.Background(), now: time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)}
-	clock = func() time.Time { return y.now }
-	t.Cleanup(func() { clock = time.Now })
+	y := &footYard{ctx: context.Background(), now: footNow}
 	s, err := Open(filepath.Join(t.TempDir(), "y.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -99,7 +101,10 @@ func (y *footYard) ask(t *testing.T, bead, to, question string) uint64 {
 // device, and never for a crew member. Each carries a random opaque id,
 // and no row holds a platform or a push token. Read, the rows drop.
 func TestFootQueuedWithMail(t *testing.T) {
+	// Sequential: the package's fake clock.
+	pinClockFixed(t, footNow)
 	y := newFootYard(t)
+	pinClock(t, &y.now)
 	if err := y.Mail(y.ctx, "ada", "the tests are green", "yardmaster"); err != nil {
 		t.Fatal(err)
 	}
@@ -176,6 +181,7 @@ func TestFootQueuedWithMail(t *testing.T) {
 // An intent is queued per device of the user an ask is for, for as long as
 // it is open. Answered or declined, the rows drop.
 func TestFootQueuedWithAsk(t *testing.T) {
+	t.Parallel()
 	y := newFootYard(t)
 	bead := y.bead(t, "Move the links")
 	first := y.ask(t, bead, "ada", "Move the links now?")
@@ -216,7 +222,10 @@ func TestFootQueuedWithAsk(t *testing.T) {
 // reopens nothing, and a second note tells nothing twice. An aside
 // before the aside is no decision: it came back too.
 func TestFootAsideReturn(t *testing.T) {
+	// Sequential: the package's fake clock.
+	pinClockFixed(t, footNow)
 	y := newFootYard(t)
+	pinClock(t, &y.now)
 
 	// By its 24 hours.
 	bead := y.bead(t, "Move the links")
@@ -329,6 +338,8 @@ func TestFootAsideReturn(t *testing.T) {
 // it. The store's own rules refuse such an aside, so the notes and the
 // row are written by hand.
 func TestFootReturnAfterDecided(t *testing.T) {
+	// Sequential: the package's fake clock.
+	pinClockFixed(t, footNow)
 	y := newFootYard(t)
 	write := func(fn func(w *wtx) error) {
 		t.Helper()
@@ -379,6 +390,8 @@ func TestFootReturnAfterDecided(t *testing.T) {
 // and an aside there at the return its settle carried. A decision before
 // the deferral, and a newer answer after it, leave the row to drop.
 func TestFootForeignQueue(t *testing.T) {
+	// Sequential: the package's fake clock.
+	pinClockFixed(t, footNow)
 	y := newFootYard(t)
 	write := func(fn func(w *wtx) error) {
 		t.Helper()
@@ -505,7 +518,10 @@ func TestFootForeignQueue(t *testing.T) {
 // waits for its ack before it goes again, unless the link returned, and
 // an answer for no row is nothing.
 func TestFootSweepAndRetry(t *testing.T) {
+	// Sequential: the package's fake clock.
+	pinClockFixed(t, footNow)
 	y := newFootYard(t)
+	pinClock(t, &y.now)
 	if err := y.Mail(y.ctx, "ada", "the tests are green", "yardmaster"); err != nil {
 		t.Fatal(err)
 	}

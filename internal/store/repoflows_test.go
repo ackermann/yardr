@@ -139,6 +139,7 @@ func TestResolveRefPackedTagShadowsLooseBranch(t *testing.T) {
 // checkout. ResolveRef must defer to git instead of reading this checkout's
 // loose ref file.
 func TestResolveRefHonorsGitDir(t *testing.T) {
+	// Sequential: process environment.
 	ctx := context.Background()
 	makeRepo := func(t *testing.T, branch, contents string) string {
 		t.Helper()

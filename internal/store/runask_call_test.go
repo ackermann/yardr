@@ -120,6 +120,7 @@ const callAccount = "0123456789abcdef0123456789abcdef"
 // claims no witness. The script text stands in no card, note, event or
 // store file.
 func TestSourceCallUploadCard(t *testing.T) {
+	t.Parallel()
 	var hits []callHit
 	dir := t.TempDir()
 	script := "export default { async fetch() { return new Response('mail-one') } }\n"
@@ -196,6 +197,7 @@ func TestSourceCallUploadCard(t *testing.T) {
 // approving it sends the value the file holds, and the value stands
 // in no card, note, event, approval or store file.
 func TestSourceCallSecretCard(t *testing.T) {
+	t.Parallel()
 	var hits []callHit
 	y := callYard(t, &hits)
 	const secretValue = "mail-secret-value-123"
@@ -270,6 +272,7 @@ func TestSourceCallSecretCard(t *testing.T) {
 // A changed script file refuses its upload card as stale, and a rule
 // card approving sends the address and the Worker.
 func TestSourceCallStaleAndRule(t *testing.T) {
+	t.Parallel()
 	var hits []callHit
 	y := callYard(t, &hits)
 	if _, err := y.SetSource(y.ctx, "cfmail", SourceBase, "alternate", "mckean"); err != nil {
@@ -328,6 +331,7 @@ func TestSourceCallStaleAndRule(t *testing.T) {
 // What a card keeps of a secret file gives a guess nothing to be tested
 // against: no digest of the value stands in it.
 func TestSourceCallCardKeepsNoDigestOfTheSecret(t *testing.T) {
+	t.Parallel()
 	var hits []callHit
 	y := callYard(t, &hits)
 	const secretValue = "short-pin"
@@ -347,6 +351,7 @@ func TestSourceCallCardKeepsNoDigestOfTheSecret(t *testing.T) {
 
 // A call made as a user is weighed as-user, a read as well as an update.
 func TestSourceCallAsUserWeighs(t *testing.T) {
+	t.Parallel()
 	var hits []callHit
 	y := callYard(t, &hits)
 	ask := y.ask(t, callAsk("call cfmail email_rule zone=z address=a@b.example worker=w --as mckean"), "yardmaster")
@@ -362,6 +367,7 @@ func TestSourceCallAsUserWeighs(t *testing.T) {
 // upload as it approves any weighty card, with the word that its person
 // saw the weight.
 func TestSourceGrantOfUploadIsStrong(t *testing.T) {
+	t.Parallel()
 	var hits []callHit
 	y := callYard(t, &hits)
 	phone := WithVia(y.ctx, "mckean", "phone")
@@ -387,6 +393,7 @@ func TestSourceGrantOfUploadIsStrong(t *testing.T) {
 // A setup whose preset grants the upload weighs code, whichever preset
 // the pick takes, as it weighs outside for an update.
 func TestSetupGrantingUploadWeighsCode(t *testing.T) {
+	t.Parallel()
 	var hits []callHit
 	y := callYard(t, &hits)
 	src, err := y.GetSource(y.ctx, "cfmail")

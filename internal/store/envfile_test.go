@@ -22,6 +22,7 @@ func writeEnv(t *testing.T, body string, mode os.FileMode) string {
 }
 
 func TestReadEnvFile(t *testing.T) {
+	t.Parallel()
 	p := writeEnv(t, "# Linear\n\nLINEAR_API_KEY=lin_api_s3cret\n  SPACED = a b=c  \nRAW=$HOME/x\nEMPTY=\n", 0o600)
 	f, err := ReadEnvFile(p)
 	if err != nil {
@@ -40,6 +41,7 @@ func TestReadEnvFile(t *testing.T) {
 }
 
 func TestReadEnvFileRefuses(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	for name, path := range map[string]string{
 		"missing":        filepath.Join(dir, "nope.env"),
@@ -62,6 +64,7 @@ func TestReadEnvFileRefuses(t *testing.T) {
 }
 
 func TestExpandPath(t *testing.T) {
+	t.Parallel()
 	home, _ := os.UserHomeDir()
 	if got, _ := ExpandPath("~/.yardr/crew/yardmaster.env"); got != filepath.Join(home, ".yardr/crew/yardmaster.env") {
 		t.Fatalf("~ not expanded: %s", got)
@@ -70,6 +73,7 @@ func TestExpandPath(t *testing.T) {
 
 // A hook's secret file is read under the env_file rule.
 func TestReadSecretFile(t *testing.T) {
+	t.Parallel()
 	b, p, err := ReadSecretFile(writeEnv(t, "  s3cret\n", 0o600))
 	if err != nil || string(b) != "s3cret" || !filepath.IsAbs(p) {
 		t.Fatalf("ReadSecretFile = %q %q %v", b, p, err)
@@ -97,6 +101,7 @@ func TestReadSecretFile(t *testing.T) {
 // and its later lines go, a new one is a line at the end, and the file is
 // replaced by a rename with mode 0600.
 func TestWriteEnvFile(t *testing.T) {
+	t.Parallel()
 	p := writeEnv(t, "# the CRM\n\nCRM_TOKEN=old\n  OTHER = kept as written  \nexport NOT=a line\nCRM_TOKEN=older\nLAST=no newline", 0o400)
 	before, err := os.Stat(p)
 	if err != nil {
@@ -171,6 +176,7 @@ func TestWriteEnvFile(t *testing.T) {
 // (OperationalError); a refusal of a name or a value is not, and reads
 // whole wherever it is told.
 func TestWriteEnvFileRefuses(t *testing.T) {
+	t.Parallel()
 	const body = "# kept\nTOKEN=old-s3cret\n"
 	elsewhere := writeEnv(t, body, 0o600)
 	link := filepath.Join(t.TempDir(), "link.env")
@@ -237,6 +243,7 @@ func TestWriteEnvFileRefuses(t *testing.T) {
 // caller that refuses before it looks at any file (a device's giving, which is
 // told no path of the yard's) says what the write would have.
 func TestEnvValueProblemIsTheWritesRefusalWithoutTheFile(t *testing.T) {
+	t.Parallel()
 	p := writeEnv(t, "TOKEN=old\n", 0o600)
 	for _, value := range []string{"", "a\nb", "a\rb", " a", "a "} {
 		why := EnvValueProblem("TOKEN", value)
@@ -255,6 +262,7 @@ func TestEnvValueProblemIsTheWritesRefusalWithoutTheFile(t *testing.T) {
 // A second file left by a write that died is removed by the next write,
 // whatever it is and whatever it holds: nothing of it reaches the env file.
 func TestWriteEnvFileRemovesALeftSecondFile(t *testing.T) {
+	t.Parallel()
 	p := writeEnv(t, "TOKEN=old\n", 0o600)
 	left := EnvFileNew(p)
 	if filepath.Base(left) != ".r.env.new" || filepath.Dir(left) != filepath.Dir(p) {

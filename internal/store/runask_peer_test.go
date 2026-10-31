@@ -81,7 +81,7 @@ func (y *askYard) refusedOpen(t *testing.T, ctx context.Context, seq uint64, wan
 // the command adds and stops, and the operator's approval makes the change
 // under the command's own check, marked with the ask it was approved on.
 func TestRunAskPeerAllowAnyKind(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := peerRuleYard(t)
 	p := y.peerOf(t, "airy")
 	key := p.Key
@@ -160,7 +160,7 @@ func TestRunAskPeerAllowAnyKind(t *testing.T) {
 // When a kind is both added and stopped, the write lets the stop win. The
 // card and its no-op check use that resulting state too.
 func TestRunAskPeerAllowCardsTheResultOfConflictingKinds(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := peerRuleYard(t)
 	if _, err := y.AddAsk(y.ctx, y.bead, runAsk("peer allow airy --send bead --no-send bead"), "yardmaster"); err == nil || !strings.Contains(err.Error(), "the link carries nothing to it and takes nothing from it already") {
 		t.Fatalf("adding and stopping an absent kind = %v", err)
@@ -193,7 +193,7 @@ func TestRunAskPeerAllowCardsTheResultOfConflictingKinds(t *testing.T) {
 // approval over the peer's own reach is refused. Widening directly stays
 // the operator's, and narrowing stays anyone's run directly.
 func TestRunAskPeerAllowTrust(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := peerRuleYard(t)
 	key := y.peerOf(t, "airy").Key
 	says := Says("v1")
@@ -383,7 +383,7 @@ func TestRunAskPeerAllowTrust(t *testing.T) {
 // or say who its own crew is on its own word. The same card approved from
 // this yard, in a terminal or from a device paired with it, runs.
 func TestRunAskPeerCardsRefuseAnApprovalThroughThePeersOwnReach(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := intakeYard(t)
 	own := WithReach(y.ctx, "airy")
 	const how = "Approve it from this yard, in a terminal here or in footplate paired with this yard directly. Nothing ran, and the ask stays open"
@@ -446,7 +446,7 @@ func TestRunAskPeerCardsRefuseAnApprovalThroughThePeersOwnReach(t *testing.T) {
 // yard run, as does a card about another link approved through this peer's
 // reach.
 func TestRunAskRenameAndCrewSetRefuseAnApprovalThroughThePeersOwnReach(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := intakeYard(t)
 	y.crew(t, map[string]any{"kind": "claude"})
 	own := WithReach(y.ctx, "airy")
@@ -499,7 +499,7 @@ func TestRunAskRenameAndCrewSetRefuseAnApprovalThroughThePeersOwnReach(t *testin
 // anyone's, and so no card; and what the command itself refuses is refused
 // to the asker.
 func TestRunAskPeerIntake(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := intakeYard(t)
 	key := y.peerOf(t, "airy").Key
 	as := "the link with airy (it calls itself yardr, key " + key[:8] + "…)"
@@ -614,7 +614,7 @@ func TestRunAskPeerIntake(t *testing.T) {
 // not run inside one: a directory depot's flows are read from its directory,
 // and the card says who works the first stage of what it found there.
 func TestRunAskPeerIntakeOfARepositoryFlow(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := intakeYard(t)
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, ".yardr", "flows"), 0o755); err != nil {
@@ -657,7 +657,7 @@ func TestRunAskPeerIntakeOfARepositoryFlow(t *testing.T) {
 // the link's intakes changed, the first stage's workers changed, or the
 // depot or the flow gone, and nothing runs.
 func TestRunAskPeerIntakeStale(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := intakeYard(t)
 	seq := y.ask(t, runAsk("peer intake airy --depot web --flow incoming"), "yardmaster")
 	if _, err := y.SetPeerIntake(y.ctx, "airy", &PeerIntake{Depot: "web", Flow: "incoming", Limit: 7}, "mckean"); err != nil {
@@ -697,7 +697,7 @@ func TestRunAskPeerIntakeStale(t *testing.T) {
 // order, and the intake's card, written while the link took none, still runs,
 // its answer carrying the card as it stands.
 func TestRunAskPeerIntakeHoldsWhenTheLinkTakesBeadsFirst(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := intakeYard(t)
 	intake := y.ask(t, runAsk("peer intake airy --depot web --flow incoming"), "yardmaster")
 	allow := y.ask(t, runAsk("peer allow airy --receive bead"), "yardmaster")
@@ -740,7 +740,7 @@ func TestRunAskPeerIntakeHoldsWhenTheLinkTakesBeadsFirst(t *testing.T) {
 // sender under the command's own check, and it clears an ignore entry in the
 // same write. Taking one back and listing are no card.
 func TestRunAskPeerIdentity(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := peerRuleYard(t)
 	key := y.peerOf(t, "north").Key
 	ignoreTalk(t, y, "U1")
@@ -820,7 +820,7 @@ func TestRunAskPeerIdentity(t *testing.T) {
 // Approving a peer identity run ask ends a mapping card for its sender in
 // the same write, as setting that identity from a terminal does.
 func TestRunAskPeerIdentityEndsMappingCard(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := peerRuleYard(t)
 	card := claimCard(t, y, "U1")
 	seq := y.ask(t, runAsk("peer identity north mayor --source talk --id U1"), "yardmaster")
@@ -837,7 +837,7 @@ func TestRunAskPeerIdentityEndsMappingCard(t *testing.T) {
 // An approval of an identity is held to the yard the card was written from:
 // the id the crew member has, the source and the link.
 func TestRunAskPeerIdentityStale(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := peerRuleYard(t)
 	seq := y.ask(t, runAsk("peer identity north mayor --source talk --id U1"), "yardmaster")
 	if _, err := y.SetPeerIdentity(y.ctx, "north", PeerIdentity{Source: "talk", ID: "U2", Crew: "mayor"}, "mckean"); err != nil {

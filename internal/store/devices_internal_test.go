@@ -70,6 +70,7 @@ func TestDeviceLastUse(t *testing.T) {
 // passes). No test drove a resolve against a held write before, so this
 // is its own test rather than a case of TestDeviceLastUse above.
 func TestDeviceResolveWhileWriteHeld(t *testing.T) {
+	t.Parallel()
 	s, err := Open(filepath.Join(t.TempDir(), "y.db"))
 	if err != nil {
 		t.Fatal(err)

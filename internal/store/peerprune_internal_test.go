@@ -19,13 +19,16 @@ type pruneYard struct {
 	key string
 }
 
-// newPruneYard sets the package's fake clock to the yard's now, so its
-// callers stay sequential.
+// newPruneYard is a store with a peer link. A test that moves time pins
+// the package clock to the yard's at (pinClock) and stays sequential;
+// the rest run parallel.
+// pruneAt is the at a new prune yard starts from; a test that moves time
+// pre-pins the package clock to it before it builds its yard.
+var pruneAt = time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
+
 func newPruneYard(t *testing.T) *pruneYard {
 	t.Helper()
-	y := &pruneYard{at: time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)}
-	clock = func() time.Time { return y.at }
-	t.Cleanup(func() { clock = time.Now })
+	y := &pruneYard{at: pruneAt}
 	s, err := Open(filepath.Join(t.TempDir(), "y.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -82,8 +85,10 @@ const day = 24 * time.Hour
 // taken again as new. A younger one stays, and is still dropped as the
 // duplicate it is.
 func TestPruneForgetsSeenPeerIDs(t *testing.T) {
-	// Sequential: the package's fake clock (via newPruneYard).
+	// Sequential: the package's fake clock.
+	pinClockFixed(t, pruneAt)
 	y := newPruneYard(t)
+	pinClock(t, &y.at)
 	if y.take(t, "old") {
 		t.Fatal("the first of an id was dropped as a duplicate")
 	}
@@ -141,8 +146,10 @@ func TestPruneForgetsSeenPeerIDs(t *testing.T) {
 // Only a prune that removes something of a link says so: one that removes
 // seen ids and nothing else still logs store_pruned.
 func TestPruneOfPeersAloneIsLogged(t *testing.T) {
-	// Sequential: the package's fake clock (via newPruneYard).
+	// Sequential: the package's fake clock.
+	pinClockFixed(t, pruneAt)
 	y := newPruneYard(t)
+	pinClock(t, &y.at)
 	y.take(t, "old")
 	y.at = y.at.Add(8 * day)
 	// A running crew member holds the whole log back, so no event goes.
@@ -169,8 +176,10 @@ func TestPruneOfPeersAloneIsLogged(t *testing.T) {
 // given up for longer than the bound. One that waits is never removed by
 // its age.
 func TestPruneRemovesPeerMessagesGivenUp(t *testing.T) {
-	// Sequential: the package's fake clock (via newPruneYard).
+	// Sequential: the package's fake clock.
+	pinClockFixed(t, pruneAt)
 	y := newPruneYard(t)
+	pinClock(t, &y.at)
 	ctx := context.Background()
 	send := func() *PeerOut {
 		t.Helper()
@@ -224,8 +233,10 @@ func TestPruneRemovesPeerMessagesGivenUp(t *testing.T) {
 
 // More than one batch of them goes in one prune, counted whole.
 func TestPruneForgetsSeenPeerIDsInBatches(t *testing.T) {
-	// Sequential: the package's fake clock (via newPruneYard).
+	// Sequential: the package's fake clock.
+	pinClockFixed(t, pruneAt)
 	y := newPruneYard(t)
+	pinClock(t, &y.at)
 	n := pruneBatch + 10
 	err := y.db.Update(func(tx *bolt.Tx) error {
 		for i := 0; i < n; i++ {
@@ -248,8 +259,10 @@ func TestPruneForgetsSeenPeerIDsInBatches(t *testing.T) {
 // mail is in the log, also once the prune took it out of the outbox: what
 // is not in the outbox is otherwise taken as sent.
 func TestMailGivenUpReadsFailedAfterThePrune(t *testing.T) {
-	// Sequential: the package's fake clock (via newPruneYard).
+	// Sequential: the package's fake clock.
+	pinClockFixed(t, pruneAt)
 	y := newPruneYard(t)
+	pinClock(t, &y.at)
 	ctx := context.Background()
 	if _, err := y.PutCrew(ctx, CrewMember{Name: "yardmaster", Runner: "herdr", Config: map[string]any{MailPeers: "north"}}, "jo"); err != nil {
 		t.Fatal(err)

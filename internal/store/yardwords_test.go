@@ -15,7 +15,7 @@ import (
 // as what happened with why an operator's to read, and reads whole anywhere
 // else. A person's words, and any other of the yard's, are held nothing.
 func TestHeldYardWordsOfAFailedFetchOrLogin(t *testing.T) {
-	// Sequential: the package's fake clock (via newHomeYard).
+	t.Parallel()
 	y := newHomeYard(t)
 	y.threads(t)
 

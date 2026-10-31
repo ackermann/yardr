@@ -53,6 +53,7 @@ type buildRequest struct {
 // prints to the declared path. A refusal or a broken build posts nothing,
 // records its own status, and keeps the update's key for the next attempt.
 func TestSourceCallBuildRoundTripAndRefusals(t *testing.T) {
+	// Sequential: process environment.
 	if _, err := exec.LookPath("curl"); err != nil {
 		t.Skip("curl is not installed, and the fixture build script calls the stand-in with it")
 	}

@@ -783,7 +783,9 @@ func TestCompact(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.BulkEvents(20000, "noise", map[string]any{"pad": strings.Repeat("x", 200)}); err != nil {
+	// Five thousand padded events are bulk enough to prove the shrink:
+	// twenty thousand only repeats the same batches being pruned.
+	if err := s.BulkEvents(5000, "noise", map[string]any{"pad": strings.Repeat("x", 200)}); err != nil {
 		t.Fatal(err)
 	}
 	h := head(t, s)

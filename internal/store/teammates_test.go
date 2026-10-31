@@ -13,7 +13,8 @@ import (
 // each device's name and last use. A mapped name with no user record is
 // omitted, not a row; an empty mapping lists none.
 func TestTeammates(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	// Sequential: the package's fake clock.
+	pinClockFixed(t, askNow)
 	y := teammateYard(t)
 	if err := y.InviteTeammate(y.ctx, "eve", "eve@example.net", RoleMember, "mckean"); err != nil {
 		t.Fatal(err)
@@ -66,7 +67,7 @@ func TestTeammates(t *testing.T) {
 // `yardr bead ask --run` makes. An unknown user, an unmapped one and the
 // caller's own are refused with their reasons, and file nothing.
 func TestUninviteTeammate(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := teammateYard(t)
 	if err := y.InviteTeammate(y.ctx, "eve", "eve@example.net", RoleMember, "mckean"); err != nil {
 		t.Fatal(err)

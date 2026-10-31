@@ -49,7 +49,7 @@ func presetStandard() *presetFake {
 // as changing something there. Its approval grants each call to each
 // grantee in one write, and is taken back with a revoke per call.
 func TestRunAskPresetGrant(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := presetYard(t, presetStandard())
 	seq := y.ask(t, listAsk("mckean", "source grant crm --preset standard --group builders --crew yardmaster"), "yardmaster")
 	run := *y.asked(t, seq).Ask.Run
@@ -120,7 +120,7 @@ func TestRunAskPresetGrant(t *testing.T) {
 // landed since is granted no second time, and the answer carries the
 // card as it stands.
 func TestRunAskPresetGrantAfterGrantsLand(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := presetYard(t, presetStandard())
 	seq := y.ask(t, listAsk("mckean", "source grant crm --preset standard --crew yardmaster"), "yardmaster")
 	if _, err := y.GrantSource(y.ctx, "crm", "read", Grantee{Crew: "yardmaster"}, "", "mckean"); err != nil {
@@ -184,7 +184,7 @@ func TestRunAskPresetGrantAfterGrantsLand(t *testing.T) {
 // and another build each refuse it, as a replaced declaration and a
 // reconfigured grantee do.
 func TestRunAskPresetGrantStale(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	f := presetStandard()
 	y := presetYard(t, f)
 	seq := y.ask(t, listAsk("mckean", "source grant crm --preset standard --crew yardmaster"), "yardmaster")
@@ -253,7 +253,7 @@ func TestRunAskPresetGrantStale(t *testing.T) {
 // no server reading, the reader's refusal, and a preset call the yard's
 // declaration has not.
 func TestRunAskPresetGrantRefusals(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := presetYard(t, presetStandard())
 	const use = "yardr source grant <source> read|<call>|--preset <preset> --group <group> or --crew <crew member> [--as <user>]"
 	for _, c := range []struct{ command, want string }{
@@ -300,7 +300,7 @@ func TestRunAskPresetGrantRefusals(t *testing.T) {
 // grant: asked of them alone, approved by them alone, and the card it
 // suggests names the preset.
 func TestRunAskPresetGrantAs(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := presetYard(t, presetStandard())
 	seq := y.ask(t, listAsk("ada", "source grant crm --preset standard --crew yardmaster --as ada"), "yardmaster")
 	run := *y.asked(t, seq).Ask.Run

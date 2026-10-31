@@ -101,8 +101,10 @@ func (y *homeYard) kinds(t *testing.T, kind string) []Event {
 // already, and only for one the roster says is a person. It goes with the
 // trust it stands on, with the user, and with the roster's person.
 func TestPeerAllowReach(t *testing.T) {
-	// Sequential: the package's fake clock (via newHomeYard).
+	// Sequential: the package's fake clock.
+	pinClockFixed(t, homeNow)
 	y := reachYard(t)
+	pinClock(t, &y.now)
 	y.allow(t, PeerAllow{Trust: map[string]string{"yardmaster": "ada"}})
 	for _, r := range []struct {
 		reach map[string]string
@@ -198,7 +200,7 @@ func TestPeerAllowReach(t *testing.T) {
 // that carries no ask out, or for an ask that was open when reach was
 // given.
 func TestAskCopiedByReach(t *testing.T) {
-	// Sequential: the package's fake clock (via newHomeYard).
+	t.Parallel()
 	y := reachYard(t)
 	y.allow(t, PeerAllow{Trust: map[string]string{"yardmaster": "mckean"}})
 	bead, before := y.asked(t, linksAsk())
@@ -295,7 +297,7 @@ func TestAskCopiedByReach(t *testing.T) {
 // open or ended), and once the grant is taken back, it is an answer to no
 // ask this yard asked that yard.
 func TestReachAnswerLands(t *testing.T) {
-	// Sequential: the package's fake clock (via newHomeYard).
+	t.Parallel()
 	y := reachYard(t)
 	// Asked before reach was given: the grant sends what is asked from
 	// now on, so no copy of this one waits anywhere.
@@ -377,7 +379,7 @@ func TestReachAnswerLands(t *testing.T) {
 // of people it leaves the bead there, and a name with reach is no member
 // of the stage's group.
 func TestReachAnswerMovesNothing(t *testing.T) {
-	// Sequential: the package's fake clock (via newHomeYard).
+	t.Parallel()
 	y := reachYard(t)
 	y.allow(t, PeerAllow{Reach: map[string]string{"mckean": "mckean"}})
 	if err := y.PutDepot(y.ctx, Depot{Name: "yard", Base: "origin/main"}, "jo"); err != nil {
@@ -424,7 +426,7 @@ func TestReachAnswerMovesNothing(t *testing.T) {
 // and not to the asker, who addressed nobody at the other yard. The ask is
 // untouched.
 func TestReachCopyGivenUp(t *testing.T) {
-	// Sequential: the package's fake clock (via newHomeYard).
+	t.Parallel()
 	y := reachYard(t)
 	y.allow(t, PeerAllow{Reach: map[string]string{"mckean": "mckean"}})
 	bead, seq := y.asked(t, linksAsk())

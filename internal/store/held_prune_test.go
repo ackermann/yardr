@@ -37,7 +37,10 @@ func holdFor(t *testing.T, y *askYard, sender, body, key string) {
 // counted, a younger delivery on the same terms stays, and a card that
 // never held anything survives however old it is.
 func TestPruneHeldDeliveries(t *testing.T) {
+	// Sequential: the package's fake clock.
+	pinClockFixed(t, askNow)
 	y := mappingYard(t)
+	pinClock(t, &y.now)
 	holdFor(t, y, "OLD1", "old body", "old-1")
 	holdFor(t, y, "PART", "part old", "part-1")
 	if _, err := y.ClaimIdentity(y.ctx, "talk", "NEVER", "C1", ""); err != nil {
@@ -106,7 +109,10 @@ func heldBytes(t *testing.T, y *askYard, source string) int64 {
 // a read of all that is held. The count follows holds, a nobody pick
 // and a prune, and stands where a card's notes are not read at all.
 func TestHeldBytesCountedPerWrite(t *testing.T) {
+	// Sequential: the package's fake clock.
+	pinClockFixed(t, askNow)
 	y := mappingYard(t)
+	pinClock(t, &y.now)
 	holdFor(t, y, "A1", "aaaa", "a-1")
 	holdFor(t, y, "B1", "bbbbbb", "b-1")
 	if got := heldBytes(t, y, "talk"); got != 10 {

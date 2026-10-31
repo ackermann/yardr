@@ -51,8 +51,10 @@ func northPeerAsk() peerAsk {
 // no notes, the asks whole with their state as this yard knows it, and
 // the about-beads as carried.
 func TestBeadForeign(t *testing.T) {
-	// Sequential: the package's fake clock (via newHomeYard).
+	// Sequential: the package's fake clock.
+	pinClockFixed(t, homeNow)
 	y := newHomeYard(t)
+	pinClock(t, &y.now)
 	ask := northPeerAsk()
 	ask.Since = y.now.Add(-time.Hour)
 	y.takeAsk(t, "f1", ask)
@@ -139,7 +141,7 @@ func TestBeadForeign(t *testing.T) {
 }
 
 func TestBeadForeignEmptyLabelsAreArray(t *testing.T) {
-	// Sequential: the package's fake clock (via newHomeYard).
+	t.Parallel()
 	y := newHomeYard(t)
 	ask := northPeerAsk()
 	ask.Since = y.now.Add(-time.Hour)
@@ -158,7 +160,8 @@ func TestBeadForeignEmptyLabelsAreArray(t *testing.T) {
 // A foreign ask put aside here reads with its return, and one the asking
 // yard ended reads as it ended there, as the queue does.
 func TestBeadForeignAsideAndOutcome(t *testing.T) {
-	// Sequential: the package's fake clock (via newHomeYard).
+	// Sequential: the package's fake clock.
+	pinClockFixed(t, homeNow)
 	y := newHomeYard(t)
 	ask := northPeerAsk()
 	ask.Seq, ask.Since = 5, y.now.Add(-time.Hour)
@@ -192,7 +195,7 @@ func TestBeadForeignAsideAndOutcome(t *testing.T) {
 // Words on a bead@peer ref are refused with the way to mail the asker:
 // notes stay local, mail stays the way to talk across.
 func TestAddNoteForeignRefused(t *testing.T) {
-	// Sequential: the package's fake clock (via newHomeYard).
+	t.Parallel()
 	y := newHomeYard(t)
 	ask := northPeerAsk()
 	ask.Since = y.now.Add(-time.Hour)
@@ -215,7 +218,7 @@ func TestAddNoteForeignRefused(t *testing.T) {
 // otherwise. The asker, the address and a name of this yard read as
 // before, and Lines reads unmarked, as the socket's shares do.
 func TestLinesMarked(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := decisionYard(t)
 	// The answers below are north's mckean's, on asks put to them: only
 	// the addressee answers.

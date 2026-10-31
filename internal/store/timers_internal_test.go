@@ -18,13 +18,16 @@ type timerYard struct {
 	at time.Time
 }
 
-// newTimerYard sets the package's fake clock to the yard's now, so its
-// callers stay sequential.
+// newTimerYard is a store with a crew. A test that moves time pins the
+// package clock to the yard's at (pinClock) and stays sequential; the
+// rest run parallel.
+// timerAt is the at a new timer yard starts from; a test that moves time
+// pre-pins the package clock to it before it builds its yard.
+var timerAt = time.Date(2026, 10, 5, 9, 0, 0, 0, time.UTC)
+
 func newTimerYard(t *testing.T) *timerYard {
 	t.Helper()
-	y := &timerYard{t: t, at: time.Date(2026, 10, 5, 9, 0, 0, 0, time.UTC)}
-	clock = func() time.Time { return y.at }
-	t.Cleanup(func() { clock = time.Now })
+	y := &timerYard{t: t, at: timerAt}
 	s, err := Open(filepath.Join(t.TempDir(), "y.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -121,8 +124,10 @@ func (y *timerYard) live(name string) []Timer {
 // its inbox when it is due, once, with the reason, who set it and when;
 // then the timer is gone.
 func TestTimerFiresOnceToACrew(t *testing.T) {
-	// Sequential: the package's fake clock (via newTimerYard).
+	// Sequential: the package's fake clock.
+	pinClockFixed(t, timerAt)
 	y := newTimerYard(t)
+	pinClock(t, &y.at)
 	tm := y.add("yardmaster", NewTimer{Reason: "look at the deploy", Due: y.in(40 * time.Minute)})
 	if tm.To != "yardmaster" || tm.ToUser || tm.ID == "" {
 		t.Fatalf("timer = %+v", tm)
@@ -162,8 +167,10 @@ func TestTimerFiresOnceToACrew(t *testing.T) {
 // and saying so in its text. It is in no crew member's inbox: the one who set
 // it is not woken.
 func TestTimerToAUserIsMail(t *testing.T) {
-	// Sequential: the package's fake clock (via newTimerYard).
+	// Sequential: the package's fake clock.
+	pinClockFixed(t, timerAt)
 	y := newTimerYard(t)
+	pinClock(t, &y.at)
 	ctx := context.Background()
 	tm := y.add("yardmaster", NewTimer{To: "jo", Reason: "the assembly is still red", Due: y.in(10 * time.Minute)})
 	if !tm.ToUser || tm.By != "yardmaster" {
@@ -199,8 +206,10 @@ func TestTimerToAUserIsMail(t *testing.T) {
 // Who may set a timer for whom: a crew member or a user for themselves, a
 // crew member for a user, and nobody for another crew member.
 func TestTimerWhoMaySet(t *testing.T) {
-	// Sequential: the package's fake clock (via newTimerYard).
+	// Sequential: the package's fake clock.
+	pinClockFixed(t, timerAt)
 	y := newTimerYard(t)
+	pinClock(t, &y.at)
 	due := y.in(time.Hour)
 	y.refused("yardmaster", NewTimer{To: "clerk", Reason: "x", Due: due}, "nobody sets a timer for another crew member: mail it (yardr mail clerk")
 	y.refused("jo", NewTimer{To: "yardmaster", Reason: "x", Due: due}, "nobody sets a timer for another crew member")
@@ -217,8 +226,10 @@ func TestTimerWhoMaySet(t *testing.T) {
 // The limits: timers per setter, the shortest period, how far ahead and
 // how long. The two settings move theirs.
 func TestTimerLimits(t *testing.T) {
-	// Sequential: the package's fake clock (via newTimerYard).
+	// Sequential: the package's fake clock.
+	pinClockFixed(t, timerAt)
 	y := newTimerYard(t)
+	pinClock(t, &y.at)
 	ctx := context.Background()
 	day := 24 * time.Hour
 	y.refused("yardmaster", NewTimer{Reason: "x", Due: y.in(-time.Minute)}, "is not in the future")
@@ -252,8 +263,10 @@ func TestTimerLimits(t *testing.T) {
 // A recurring timer fires each period and ends when its time is up, with
 // a last firing that says so.
 func TestTimerRecurs(t *testing.T) {
-	// Sequential: the package's fake clock (via newTimerYard).
+	// Sequential: the package's fake clock.
+	pinClockFixed(t, timerAt)
 	y := newTimerYard(t)
+	pinClock(t, &y.at)
 	tm := y.add("yardmaster", NewTimer{Reason: "sweep the backlog", Every: time.Hour, For: 3 * time.Hour})
 	if tm.Every != "1h" || tm.Ends == nil || !tm.Ends.Equal(tm.SetAt.Add(3*time.Hour)) || !tm.Due.Equal(tm.SetAt.Add(time.Hour)) {
 		t.Fatalf("timer = %+v", tm)
@@ -289,8 +302,10 @@ func TestTimerRecurs(t *testing.T) {
 // marked late with by how much; a recurring one fires once for all the
 // periods missed and then keeps its rhythm.
 func TestTimerLateAfterTheDaemonWasAway(t *testing.T) {
-	// Sequential: the package's fake clock (via newTimerYard).
+	// Sequential: the package's fake clock.
+	pinClockFixed(t, timerAt)
 	y := newTimerYard(t)
+	pinClock(t, &y.at)
 	y.add("yardmaster", NewTimer{Reason: "one-shot", Due: y.in(10 * time.Minute)})
 	every := y.add("clerk", NewTimer{Reason: "hourly", Every: time.Hour, For: 24 * time.Hour})
 	// Nothing calls FireTimers for five and a half hours.
@@ -387,8 +402,10 @@ func (y *timerYard) dropped() string {
 // --unless bead=<id>: the timer is dropped when the bead closes before it
 // is due, with a timer_dropped event and nothing for the receiver.
 func TestTimerUnlessDropsOnClose(t *testing.T) {
-	// Sequential: the package's fake clock (via newTimerYard).
+	// Sequential: the package's fake clock.
+	pinClockFixed(t, timerAt)
 	y := newTimerYard(t)
+	pinClock(t, &y.at)
 	ctx := context.Background()
 	y.flowBead("web-1")
 	tm := y.add("yardmaster", NewTimer{To: "jo", Reason: "web-1 is not done", Due: y.in(time.Hour), UnlessBead: "web-1"})
@@ -423,10 +440,12 @@ func TestTimerUnlessDropsOnClose(t *testing.T) {
 // closed. A bead still short of it lets the timer fire, and the firing
 // says what was awaited and where the bead stands.
 func TestTimerUnlessStage(t *testing.T) {
-	// Sequential: the package's fake clock (via newTimerYard).
+	// Sequential: the package's fake clock.
 	stuck := func(t *testing.T, move func(y *timerYard)) *timerYard {
 		t.Helper()
+		pinClockFixed(t, timerAt)
 		y := newTimerYard(t)
+		pinClock(t, &y.at)
 		y.flowBead("web-1")
 		y.add("yardmaster", NewTimer{To: "jo", Reason: "web-1 is stuck", Due: y.in(time.Hour), UnlessBead: "web-1", UnlessStage: "review"})
 		move(y)
@@ -467,7 +486,9 @@ func TestTimerUnlessStage(t *testing.T) {
 		}
 	})
 	t.Run("refused when set", func(t *testing.T) {
+		pinClockFixed(t, timerAt)
 		y := newTimerYard(t)
+		pinClock(t, &y.at)
 		y.flowBead("web-1")
 		y.refused("yardmaster", NewTimer{Reason: "x", Due: y.in(time.Hour), UnlessBead: "web-1", UnlessStage: "revue"},
 			`stage "revue" is not in web-1's flow web (backlog, new, review, approved, merged)`)
@@ -479,8 +500,10 @@ func TestTimerUnlessStage(t *testing.T) {
 // A recurring timer with --unless fires while the bead is short of what
 // it waits for and ends when that holds.
 func TestTimerRecurringUnlessEnds(t *testing.T) {
-	// Sequential: the package's fake clock (via newTimerYard).
+	// Sequential: the package's fake clock.
+	pinClockFixed(t, timerAt)
 	y := newTimerYard(t)
+	pinClock(t, &y.at)
 	y.flowBead("web-1")
 	y.add("yardmaster", NewTimer{Reason: "web-1 open", Every: time.Hour, UnlessBead: "web-1"})
 	y.tick(time.Hour)
@@ -500,8 +523,10 @@ func TestTimerRecurringUnlessEnds(t *testing.T) {
 // A timer whose receiver left the yard is dropped, not kept for whoever
 // takes the name next.
 func TestTimerReceiverGone(t *testing.T) {
-	// Sequential: the package's fake clock (via newTimerYard).
+	// Sequential: the package's fake clock.
+	pinClockFixed(t, timerAt)
 	y := newTimerYard(t)
+	pinClock(t, &y.at)
 	y.add("yardmaster", NewTimer{To: "ada", Reason: "x", Due: y.in(time.Hour)})
 	if err := y.DeleteUser(context.Background(), "ada", "jo"); err != nil {
 		t.Fatal(err)
@@ -517,8 +542,10 @@ func TestTimerReceiverGone(t *testing.T) {
 // Timers lists what a party set or is told by, soonest first; RemoveTimer
 // is theirs, and the operator removes any.
 func TestTimerListAndRemove(t *testing.T) {
-	// Sequential: the package's fake clock (via newTimerYard).
+	// Sequential: the package's fake clock.
+	pinClockFixed(t, timerAt)
 	y := newTimerYard(t)
+	pinClock(t, &y.at)
 	ctx := context.Background()
 	own := y.add("yardmaster", NewTimer{Reason: "later", Due: y.in(2 * time.Hour)})
 	forJo := y.add("yardmaster", NewTimer{To: "jo", Reason: "sooner", Due: y.in(time.Hour)})
@@ -569,8 +596,10 @@ func TestTimerListAndRemove(t *testing.T) {
 // A crew member's prime lists its live timers: its own and those it set for
 // a user.
 func TestTimersInPrime(t *testing.T) {
-	// Sequential: the package's fake clock (via newTimerYard).
+	// Sequential: the package's fake clock.
+	pinClockFixed(t, timerAt)
 	y := newTimerYard(t)
+	pinClock(t, &y.at)
 	y.add("yardmaster", NewTimer{Reason: "own", Due: y.in(time.Hour)})
 	y.add("yardmaster", NewTimer{To: "jo", Reason: "for jo", Due: y.in(2 * time.Hour)})
 	y.add("clerk", NewTimer{Reason: "clerk's", Due: y.in(time.Hour)})

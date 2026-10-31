@@ -62,7 +62,7 @@ func claimQueue(t *testing.T, y *askYard) *AskQueue {
 // once the address is set. The card keeps at most 80 characters of
 // the message.
 func TestClaimAddressApproveWritesEnvFile(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := claimYard(t)
 	long := strings.Repeat("word ", 30) + "TAIL-MARKER-must-not-be-kept"
 	created, err := y.ClaimAddress(y.ctx, "chime", "123456789", long)
@@ -128,7 +128,7 @@ func TestClaimAddressApproveWritesEnvFile(t *testing.T) {
 // Declining a claim writes nothing, and a later delivery may offer a
 // claim again. A source with no hear key offers none.
 func TestClaimAddressDeclineAndNoAskCases(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := claimYard(t)
 	if created, err := y.ClaimAddress(y.ctx, "crm", "111", "hi"); err != nil || created {
 		t.Fatalf("a claim for a source with no hear key = %v, %v", created, err)
@@ -167,7 +167,7 @@ func TestClaimAddressDeclineAndNoAskCases(t *testing.T) {
 // approval stale: it writes nothing, rather than overwriting the
 // newer address with the claimed one.
 func TestClaimApprovalStaleWhenAddressGivenSince(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := claimYard(t)
 	if created, err := y.ClaimAddress(y.ctx, "chime", "111", "hi"); err != nil || !created {
 		t.Fatalf("ClaimAddress = %v, %v", created, err)
@@ -191,6 +191,7 @@ func TestClaimApprovalStaleWhenAddressGivenSince(t *testing.T) {
 // A malformed env file cannot be read to tell whether the operator's
 // address is already set. Do not offer a claim that could overwrite it.
 func TestClaimAddressRefusedWhenEnvFileCannotBeRead(t *testing.T) {
+	t.Parallel()
 	y := claimYard(t)
 	file := filepath.Join(y.home, "users", "mckean.env")
 	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
@@ -216,7 +217,7 @@ func TestClaimAddressRefusedWhenEnvFileCannotBeRead(t *testing.T) {
 // character is offered not at all, and one whose message holds them
 // shows the message with them dropped.
 func TestClaimAddressDropsControlCharacters(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := claimYard(t)
 	if created, err := y.ClaimAddress(y.ctx, "chime", "123\x1b[31m", "hi"); err != nil || created {
 		t.Fatalf("a claim for an address with a control character = %v, %v", created, err)
@@ -243,7 +244,7 @@ func TestClaimAddressDropsControlCharacters(t *testing.T) {
 // value at a terminal is typed unseen, and a card carries only an
 // address a delivery brought.
 func TestUserKeyRunAskWithoutAddressRefused(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := claimYard(t)
 	ask := Ask{Question: "Give mckean their chime address?", To: "mckean",
 		Context: []string{"a delivery brought it"},
@@ -256,7 +257,7 @@ func TestUserKeyRunAskWithoutAddressRefused(t *testing.T) {
 // AddAsk is also a local API, so it must not let a caller invent the
 // address that only a dropped hook delivery may carry on the claim card.
 func TestUserKeyRunAskCannotSupplyAddress(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := claimYard(t)
 	ask := Ask{Question: "A message came from this address; is it yours?", To: "mckean",
 		Context: []string{"a delivery brought it"},
@@ -275,7 +276,7 @@ func TestUserKeyRunAskCannotSupplyAddress(t *testing.T) {
 // hear key names beside it. The card says by name who will hear the chat,
 // and the approval carries the subscription on its answer and its event.
 func TestClaimApprovalSubscribesHearer(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := claimYard(t)
 	y.crew(t, map[string]any{"kind": "claude"})
 	if err := y.SetSetting(y.ctx, HearerSetting, "yardmaster", "mckean"); err != nil {
@@ -319,7 +320,7 @@ func TestClaimApprovalSubscribesHearer(t *testing.T) {
 // With no hearer set, or one naming no crew member, an approved claim
 // writes the address alone, as before: the card offers no subscription.
 func TestClaimWithoutHearerWritesAddressAlone(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := claimYard(t)
 	if created, err := y.ClaimAddress(y.ctx, "chime", "111", "hi"); err != nil || !created {
 		t.Fatalf("ClaimAddress = %v, %v", created, err)
@@ -360,7 +361,7 @@ func TestClaimWithoutHearerWritesAddressAlone(t *testing.T) {
 // stale: another crew member would hear the operator's chat than the
 // one the card names. Nothing is written and the ask stays open.
 func TestClaimApprovalStaleWhenHearerSetSince(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := claimYard(t)
 	y.crew(t, map[string]any{"kind": "claude"})
 	if _, err := y.PutCrew(y.ctx, CrewMember{Name: "clerk", Runner: "herdr", Config: map[string]any{"kind": "claude"}}, "mckean"); err != nil {
@@ -404,7 +405,7 @@ func TestClaimApprovalStaleWhenHearerSetSince(t *testing.T) {
 // A hearer subscribed to the claimed chat already keeps the subscription
 // once: the approval still writes the address, and says so.
 func TestClaimApprovalKeepsHearerSubscriptionOnce(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := claimYard(t)
 	y.crew(t, map[string]any{"kind": "claude"})
 	if err := y.SetSetting(y.ctx, HearerSetting, "yardmaster", "mckean"); err != nil {
@@ -438,7 +439,7 @@ func TestClaimApprovalKeepsHearerSubscriptionOnce(t *testing.T) {
 // A source whose hear key names no filter subscribes the hearer to the
 // address alone: the subscription is scope all on the hear field.
 func TestClaimApprovalSubscribesHearerToAddressAlone(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, _ := secretYard(t)
 	plain := strings.Replace(claimFile, "  subscribe: { type: message }\n", "", 1)
 	if _, err := y.PutSource(y.ctx, "chime.yaml", plain, "mckean"); err != nil {
@@ -470,7 +471,7 @@ func TestClaimApprovalSubscribesHearerToAddressAlone(t *testing.T) {
 // is answered, not taken back, and the operator's queue holds no card for
 // an address that is given.
 func TestClaimApprovalClosesTheCardsBead(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := claimYard(t)
 	if created, err := y.ClaimAddress(y.ctx, "chime", "111", "hi"); err != nil || !created {
 		t.Fatalf("ClaimAddress = %v, %v", created, err)
@@ -498,7 +499,7 @@ func TestClaimApprovalClosesTheCardsBead(t *testing.T) {
 // Declining a claim closes its card's bead too: the address stays ungiven,
 // and the next delivery offers a new card, as one is offered after none.
 func TestClaimDeclineClosesTheCardsBead(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := claimYard(t)
 	if created, err := y.ClaimAddress(y.ctx, "chime", "111", "hi"); err != nil || !created {
 		t.Fatalf("ClaimAddress = %v, %v", created, err)
@@ -524,7 +525,7 @@ func TestClaimDeclineClosesTheCardsBead(t *testing.T) {
 // for an address that is given, and the approval then goes nowhere, as a
 // taken-back ask's does.
 func TestClaimGivenByHandClosesTheCardsBead(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := claimYard(t)
 	if created, err := y.ClaimAddress(y.ctx, "chime", "111", "hi"); err != nil || !created {
 		t.Fatalf("ClaimAddress = %v, %v", created, err)

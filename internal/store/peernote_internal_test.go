@@ -12,7 +12,7 @@ import (
 // of its own that says why. A second note finds it held and holds nothing
 // again.
 func TestPeerBeadNoteOfABeadWhoseFlowIsGone(t *testing.T) {
-	// Sequential: the package's fake clock (via newHomeYard).
+	t.Parallel()
 	y := newHomeYard(t)
 	y.threads(t)
 	if err := y.PutDepot(y.ctx, Depot{Name: "web", Base: "origin/main"}, "jo"); err != nil {

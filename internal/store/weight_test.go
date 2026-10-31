@@ -110,7 +110,7 @@ const crmWith = runCRM + `  list: { kind: read, request: { method: GET, path: /l
 // says, and a narrowing form of each is routine: the yard weighs the
 // command against its records, never the asker's words.
 func TestWeightOfEachCard(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := presetYard(t, presetStandard())
 	y.Store.SetPresetReader((&presetFake{pack: "crm-pack", label: "embedded in yardr test1",
 		calls: map[string][]string{"standard": {"read", "note"}, "reader": {"read", "get"}}}).read)
@@ -256,7 +256,7 @@ calls:
 // Raising calls_per_hour is weighty exactly when it raises the lower of
 // the two caps, since each update is one of the calls too.
 func TestWeightOfCallsPerHour(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := listYard(t)
 	for _, c := range []struct {
 		calls, updates string // as set before; "" leaves it unset
@@ -286,7 +286,7 @@ func TestWeightOfCallsPerHour(t *testing.T) {
 // The weight is the yard's: what a writer sends for it is thrown away, a
 // routine ask is stored with none, and a weighty one with the yard's.
 func TestWeightIsTheYards(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := listYard(t)
 	forged := []AskWeight{{Class: WeightCode, Line: "nothing to see"}}
 	plain := Ask{Question: "Which colour?", To: "mckean", Context: []string{"the door."}, Weight: forged}
@@ -322,7 +322,7 @@ func TestWeightIsTheYards(t *testing.T) {
 // stale, nothing runs and the ask stays open. A routine card written
 // without weight is approved as before.
 func TestWeightIsHeldAtApproval(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := listYard(t)
 
 	// Written without weight, weighty now.
@@ -400,7 +400,7 @@ func TestWeightIsHeldAtApproval(t *testing.T) {
 // each answer's event says how it was witnessed. Routine cards approve
 // through a device as before and claim no witness.
 func TestStrongCardApprovesThroughADevice(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := listYard(t)
 	phone := WithVia(y.ctx, "mckean", "phone")
 	wired := sourceAddAsk(carriedOf(t, wiredDecl, wiredFiles))
@@ -545,7 +545,8 @@ func TestStrongCardApprovesThroughADevice(t *testing.T) {
 // a routine card takes no witness either way. A device's approval claims
 // none, even one whose call carries a witness.
 func TestStrongCardApprovesUnderAFreshSignIn(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	// Sequential: the package's fake clock.
+	pinClockFixed(t, askNow)
 	y := listYard(t)
 	fresh := func(user string, at time.Time) context.Context {
 		return WithFreshWitness(y.ctx, user, at)
@@ -638,7 +639,7 @@ func TestStrongCardApprovesUnderAFreshSignIn(t *testing.T) {
 // A secret written without weight is given no more: every secret is
 // weighty.
 func TestWeightIsHeldAtGiving(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y, file := secretYard(t)
 	seq := y.askUnweighed(t, secretAsk("crm"), "yardmaster")
 	if _, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"CRM_TOKEN": "tok"}, "mckean", true); err == nil ||
@@ -683,7 +684,7 @@ func TestWeightIsHeldAtGiving(t *testing.T) {
 // A mapping card is written weighty, and one from before cards were
 // weighed writes no identity on a pick.
 func TestWeightIsHeldAtAMappingPick(t *testing.T) {
-	// Sequential: the package's fake clock (via newAskYard).
+	t.Parallel()
 	y := mappingYard(t)
 	card := claimCard(t, y, "U1")
 	if got := weightClasses(card.Weight); !slices.Equal(got, []string{WeightAsUser}) {

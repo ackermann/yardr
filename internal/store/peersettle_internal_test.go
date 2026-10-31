@@ -89,8 +89,10 @@ func twoReach(t *testing.T) *homeYard {
 // newer pick on an ask that was told already queues nothing more. The
 // settle names the bead and the seq, and answers the copy.
 func TestAskSettledWhereCopied(t *testing.T) {
-	// Sequential: the package's fake clock (via newHomeYard).
+	// Sequential: the package's fake clock.
+	pinClockFixed(t, homeNow)
 	y := twoReach(t)
+	pinClock(t, &y.now)
 	bead, seq := y.asked(t, linksAsk())
 	north, south := y.copyOf(t, "north", seq), y.copyOf(t, "south", seq)
 
@@ -154,7 +156,7 @@ func TestAskSettledWhereCopied(t *testing.T) {
 // copied to, and not to the yard it came from: the third yard's pick
 // settles the ask at the second.
 func TestAskSettledFromThirdYard(t *testing.T) {
-	// Sequential: the package's fake clock (via newHomeYard).
+	t.Parallel()
 	y := twoReach(t)
 	bead, seq := y.asked(t, linksAsk())
 	south := y.copyOf(t, "south", seq)
@@ -191,7 +193,7 @@ func TestAskSettledFromThirdYard(t *testing.T) {
 // one addressed across, for a copy that was given up, or to a name whose
 // reach was taken back since.
 func TestAskSettledOnlyWhereCopied(t *testing.T) {
-	// Sequential: the package's fake clock (via newHomeYard).
+	t.Parallel()
 	y := reachYard(t)
 	bead, before := y.asked(t, linksAsk())
 	y.allow(t, PeerAllow{Reach: map[string]string{"mckean": "mckean"}})
@@ -244,7 +246,7 @@ func TestAskSettledOnlyWhereCopied(t *testing.T) {
 // A settle given up tells nobody: an older build refuses it as no ask, and
 // nothing waits on it. The failure is in the events, as any is.
 func TestSettleGivenUpTellsNobody(t *testing.T) {
-	// Sequential: the package's fake clock (via newHomeYard).
+	t.Parallel()
 	y := reachYard(t)
 	y.allow(t, PeerAllow{Reach: map[string]string{"mckean": "mckean"}})
 	for i, give := range []func(seq uint64) error{
@@ -297,7 +299,7 @@ func (y *homeYard) settleAside(re, bead string, seq uint64, returnAt time.Time) 
 // taken back, with the words that say where, and refuses a later answer to it before
 // anything is queued. Nobody is mailed, and the queue says noted.
 func TestSettleTaken(t *testing.T) {
-	// Sequential: the package's fake clock (via newHomeYard).
+	t.Parallel()
 	for settled, want := range map[string][2]string{
 		SettledAnswered:  {"answered", "it was answered in north's yard"},
 		SettledDeclined:  {"declined", "it was declined in north's yard"},
@@ -356,8 +358,10 @@ func TestSettleTaken(t *testing.T) {
 // takes a pick afterwards, which stands here and is queued home. Nobody is
 // mailed.
 func TestSettleAsideTaken(t *testing.T) {
-	// Sequential: the package's fake clock (via newHomeYard).
+	// Sequential: the package's fake clock.
+	pinClockFixed(t, homeNow)
 	y := newHomeYard(t)
+	pinClock(t, &y.now)
 	y.foreign(t, "a1", linksAsk())
 	back := y.now.Add(LaterFor)
 	if got := y.take(t, y.settleAside("a1", "yd-links", 3, back)); got.Refused != "" || got.Duplicate {
@@ -418,7 +422,7 @@ func TestSettleAsideTaken(t *testing.T) {
 // none either, a word that is neither end nor aside is refused as no ask,
 // and so is an aside with no return.
 func TestSettleForNoAskDropped(t *testing.T) {
-	// Sequential: the package's fake clock (via newHomeYard).
+	t.Parallel()
 	y := newHomeYard(t)
 	y.foreign(t, "a1", linksAsk())
 	for _, m := range []PeerMessage{
@@ -471,7 +475,7 @@ func TestSettleForNoAskDropped(t *testing.T) {
 // it: the answer given up afterwards is told as it is, and the mail does
 // not say the question is open again.
 func TestSettleOverAnswerOnItsWay(t *testing.T) {
-	// Sequential: the package's fake clock (via newHomeYard).
+	t.Parallel()
 	y := newHomeYard(t)
 	y.foreign(t, "a1", linksAsk())
 	if err := y.AnswerAsk(y.ctx, "yd-links@north", 3, 2, "", "mckean", false); err != nil {
