@@ -536,6 +536,7 @@ Everything yardr keeps for itself lives in one directory, the yard's
 | `backups/` | the dated copies of the store the daemon keeps once `backup_every` is set, unless `backup_dir` names another directory |
 | `yard.sock` | the server's unix socket |
 | `server.pid`, `server.pid.start`, `server.log` | the running server |
+| `binary` | the yardr binary the yard runs: its absolute path on one line, which a program with no `PATH` to find yardr by reads ([Which yardr a yard runs](#which-yardr-a-yard-runs)); written by `yardr init` and at each start of the server and the daemon, and kept when they stop |
 | `hooks.state` | what the running server takes webhooks on, or why it does not, which `yardr doctor` and the pack plan read ([below](#settings)); gone when the server stops |
 | `edge.state` | how the running server's link to the edge is, written at each change: up and since when, or down and why, which `yardr status`, `yardr doctor` and `yardr edge status` read; gone when the server stops or the yard disconnects |
 | `peer.key` | the yard's private key, by which the yards it is linked with know it ([peers.md](peers.md#the-key)); made by the first `yardr peer key`, `peer invite` or `peer pair`, mode 0600, and refused when it is more open |
@@ -652,6 +653,47 @@ event. It is refused, naming them, while the depot has open beads or live
 sessions; closed beads keep the depot's name as history. Nothing on disk
 changes: the clone, its worktrees under `worktrees/<depot>/` and its `.yardr/`
 stay where they are for you to remove.
+
+### Which yardr a yard runs
+
+`<home>/binary` names the yardr binary the yard runs, for a program that has
+no `PATH` to find yardr by: an app started from the macOS Dock gets none of
+the shell's. The file is one line, an absolute path and a newline:
+
+```
+/usr/local/bin/yardr
+```
+
+The path is what the operating system reports for the running process, and
+yardr resolves no symlink in it. On macOS a yardr started through a symlink
+(Homebrew's, say) is recorded by that symlink, which names whatever build is
+installed there after an upgrade; on Linux the system reports the file itself.
+
+`yardr init` writes it for the yardr that runs it, and the server and the
+daemon write it as they start, the server before it answers its first call.
+The last to start decides, so a yard whose server and daemon run from
+different paths names the later one. Each write goes through a temporary file
+renamed into place, so a reader never finds half a line, and is made only when
+the file does not hold the path already: a start of the same binary changes
+nothing. The file stays when the server stops, since it is there to find yardr
+when nothing runs, and goes with the home. A write that fails (a full disk,
+say) is logged as `cannot record the yardr binary` and stops nothing: in
+`server.log` for the server, in `daemon.log` for a daemon started in the
+background, and as a warning on the terminal for `yardr init`.
+
+A program that wants this yard's yardr:
+
+1. reads the file and takes the line without its newline;
+2. checks that the path is an executable file, and runs it only then;
+3. takes anything else as no answer, and goes on as it would without the file:
+   a missing file, one it cannot read, one that holds anything but a single
+   absolute path, or a path that no longer runs (the binary was moved or
+   removed).
+
+A yard made by a yardr from before the file has none until `yardr init`, its
+server or its daemon has started once. The file says which yardr to run and
+nothing of whether the yard runs; `yardr status` shows the path as `binary`
+([doctor.md](doctor.md#yardr-status)).
 
 ### Creating a yard: the onboarding and `yardr init`
 

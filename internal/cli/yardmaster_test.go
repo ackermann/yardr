@@ -74,7 +74,8 @@ func TestInitKeepsAYardmasterOfAnotherName(t *testing.T) {
 	for p := range snapshot(t, home) {
 		files = append(files, strings.TrimPrefix(p, home+"/"))
 	}
-	if slices.Sort(files); !slices.Equal(files, []string{"roles/.shipped.json", "roles/chief.md"}) {
+	// The files the test planted, and the record of the yardr binary.
+	if slices.Sort(files); !slices.Equal(files, []string{"binary", "roles/.shipped.json", "roles/chief.md"}) {
 		t.Errorf("init again wrote into the home: %v", files)
 	}
 }

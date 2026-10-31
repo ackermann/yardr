@@ -183,7 +183,7 @@ func TestNewerClientReplacesTheServer(t *testing.T) {
 	c := home(t)
 	var ex execs
 	var next <-chan error
-	var path string
+	var path, newPath string
 	var bin *version.Binary
 	bin, path = binary(t, "old", func(env []string) error {
 		ex.mu.Lock()
@@ -200,10 +200,15 @@ func TestNewerClientReplacesTheServer(t *testing.T) {
 		// environment it was given.
 		t.Setenv("YARDR_REPLACED_FROM", envOf(env, "YARDR_REPLACED_FROM"))
 		nb, _ := binary(t, "new", func([]string) error { return errors.New("no exec") })
+		newPath = nb.Path
 		next = start(t, &runner{c: c, bin: nb, rev: "new"})
 		return nil
 	})
 	done := start(t, &runner{c: c, bin: bin, rev: "old"})
+	// The yard records the binary it runs before its server answers.
+	if got := c.RecordedBinary(); got != path {
+		t.Fatalf("recorded binary = %q, want the server's %q", got, path)
+	}
 	head, err := client(c, "old").Head(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -224,6 +229,10 @@ func TestNewerClientReplacesTheServer(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(c.PIDFile()); strings.TrimSpace(string(b)) != strconv.Itoa(os.Getpid()) {
 		t.Fatalf("pidfile = %q", b)
+	}
+	// A server started from another path takes over the record.
+	if got := c.RecordedBinary(); got != newPath || newPath == path {
+		t.Fatalf("recorded binary = %q, want the new build's %q (the old one's was %q)", got, newPath, path)
 	}
 	evs, err := client(c, "new").EventsSince(context.Background(), head, 0)
 	if err != nil {
@@ -608,6 +617,32 @@ func TestPIDFileIsNeverSeenHalfWritten(t *testing.T) {
 	close(stop)
 	if err := <-written; err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A server that cannot record its binary (a directory stands where the file
+// goes, which fails that write alone, as a read-only home would fail them
+// all) still serves, and says why in its log: the record is for programs
+// that cannot find yardr by PATH, and costs the yard nothing it needs.
+func TestServerServesWhenItsBinaryCannotBeRecorded(t *testing.T) {
+	c := home(t)
+	if err := os.Mkdir(c.BinaryFile(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	bin, path := binary(t, "r", func([]string) error { return errors.New("no exec") })
+	logged := &lockedBuffer{}
+	// start returns once the server answers.
+	start(t, &runner{c: c, bin: bin, rev: "r", log: slog.New(slog.NewTextHandler(logged, nil))})
+	if _, err := client(c, "r").Head(context.Background()); err != nil {
+		t.Fatalf("the server does not serve: %v", err)
+	}
+	for _, want := range []string{"cannot record the yardr binary", path, c.BinaryFile()} {
+		if !strings.Contains(logged.String(), want) {
+			t.Errorf("the log does not say %q:\n%s", want, logged.String())
+		}
+	}
+	if got := c.RecordedBinary(); got != "" {
+		t.Errorf("recorded binary = %q, want none", got)
 	}
 }
 

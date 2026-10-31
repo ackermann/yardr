@@ -24,7 +24,6 @@ import (
 	"yardr.dev/yardr/internal/pack"
 	"yardr.dev/yardr/internal/runner"
 	"yardr.dev/yardr/internal/store"
-	"yardr.dev/yardr/internal/telemetry"
 	"yardr.dev/yardr/packs"
 )
 
@@ -329,50 +328,6 @@ func (a *app) goOn(w, warn io.Writer, ctx context.Context, cfg *config.Config, r
 	return a.handOff(w, warn, ctx, cfg, res.Yardmaster, res.Start.Yardmaster)
 }
 
-// askTelemetry is the onboarding's one telemetry question, asked after the
-// yard exists and answered either way: Yes goes through the same consent
-// activation as yardr telemetry on, and No writes the off setting, so a
-// completed onboarding never asks again. A yard whose setting is already
-// set is not asked: a resumed onboarding skips the question, and so does
-// one the operator answered by hand. Non-interactive init never reaches
-// here, and leaves the switch off. An answer prints nothing, as the
-// form's other confirms do; the question carries what telemetry is, the
-// four questions, where batches go, the pseudonymous id and its id-only
-// profile, that show previews the exact next batch, and that off prevents
-// new requests from starting. A form left with ctrl+c records nothing:
-// an aborted consent is not consent, and the onboarding goes on.
-func (a *app) askTelemetry(ctx context.Context, cfg *config.Config) error {
-	st, err := a.store(ctx)
-	if err != nil {
-		return err
-	}
-	stored, err := st.Settings(ctx)
-	if err != nil {
-		return err
-	}
-	if _, set := stored[store.TelemetrySetting]; set {
-		return nil
-	}
-	on := false
-	err = ask(huh.NewConfirm().Key("telemetry").Title("Turn telemetry on?").
-		Description(telemetry.Questions + " " + telemetry.Profile + " " + telemetry.IDSentence +
-			" `yardr telemetry show` previews the exact allow-listed next batch from current state" +
-			" before anything is sent. The daemon sends the first batch the day you turn it on; counts from earlier days are never sent." +
-			" `yardr telemetry off` prevents new requests from starting.").
-		Value(&on))
-	if errors.Is(err, huh.ErrUserAborted) {
-		return nil
-	} else if err != nil {
-		return err
-	}
-	if on {
-		_, err = telemetry.On(ctx, st, store.TelemetryState(cfg.Home), a.who(), time.Now())
-		return err
-	}
-	_, err = telemetry.Off(ctx, st, store.TelemetryState(cfg.Home), a.who(), time.Now())
-	return err
-}
-
 // resume is bare yardr in a terminal on a yard whose onboarding did not reach
 // its end: it is set up (or counts as it: an init cut short after the
 // yardmaster was added), has no depot yet, and its default_kind is missing, its
@@ -461,6 +416,9 @@ func (a *app) resume(w, warn io.Writer, ctx context.Context, cfg *config.Config)
 // the summary first, so the wait for the yardmaster has something above it,
 // then how the start ended. As JSON it is one object, at the end.
 func (a *app) report(w, warn io.Writer, ctx context.Context, cfg *config.Config, res *initResult, o initOptions) error {
+	// The yard is made, and the yardr that made it recorded before anything
+	// starts: an init refused for its pack or arguments writes nothing.
+	recordBinary(warn, cfg)
 	if !a.json && !(o.resumed && res.YardmasterKept && len(res.Found) == 0) {
 		// An onboarding taken up on a yard that lacked nothing has said
 		// what is there (resume); the summary would say it again.
@@ -1308,6 +1266,11 @@ after saying what is there and asking, and then goes on as the onboarding
 does. docs/configuration.md has both, and how to remove a yard and start
 over.
 
+Init ends by recording the yardr it runs in <home>/binary, as the server and
+the daemon do when they start, for programs that have no PATH to find yardr by
+(docs/configuration.md, "Which yardr a yard runs"). A record it cannot write
+is a warning, not a failure.
+
 After init the yardmaster sets up the rest in conversation, or yardr setup does in
 a terminal, as forms. For scripts, the same by hand:
 
@@ -1375,29 +1338,6 @@ Unattended flags per harness:
 	cmd.Flags().StringVar(&o.Permissions, "permissions", "", "the harness permission preset new agents run with, as yardr harness show <kind> lists them (for claude: auto, accept edits, bypass, read only); stored as permissions_preset (default: the harness's unattended flags; a set-up yard keeps its permissions_preset setting)")
 	cmd.Flags().Var(&o.Pin, "sha256", "install the yardmaster's role only from the default pack whose digest this is, the last line of pack check's plan (digest sha256:<hex>); another pack, or the same one changed since it was read, is refused before anything is written. A yard that has its yardmaster reads no pack and checks nothing")
 	return cmd
-}
-
-// sayTelemetry names the telemetry switch after a non-interactive init,
-// which asks nothing and leaves it off: where a terminal is available,
-// the operator is told the command that turns it on. A yard that already
-// decided, and --json, stay quiet. A hint that cannot be read is skipped,
-// never an error: the yard is made.
-func (a *app) sayTelemetry(w io.Writer, ctx context.Context, cfg *config.Config) {
-	if a.json || !interactive() {
-		return
-	}
-	st, err := a.store(ctx)
-	if err != nil {
-		return
-	}
-	stored, err := st.Settings(ctx)
-	if err != nil {
-		return
-	}
-	if _, set := stored[store.TelemetrySetting]; set {
-		return
-	}
-	fmt.Fprintf(w, "Telemetry is off. `%s telemetry on` records consent for one daily batch of counts and fixed names (docs/telemetry.md).\n", yardrAt(cfg.Home))
 }
 
 // styleHelp lists the styles with their meanings, for help texts.

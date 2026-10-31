@@ -192,6 +192,10 @@ func (c *Config) PIDFile() string { return filepath.Join(c.Home, "server.pid") }
 func (c *Config) PIDStart() string { return c.PIDFile() + ".start" }
 func (c *Config) LogFile() string  { return filepath.Join(c.Home, "server.log") }
 
+// BinaryFile is the file holding the path of the yardr binary the yard runs
+// (see RecordBinary), which stays when the server stops.
+func (c *Config) BinaryFile() string { return filepath.Join(c.Home, "binary") }
+
 // HookState is where the server says what its webhook receiver listens on
 // (see server.HookListener).
 func (c *Config) HookState() string { return filepath.Join(c.Home, "hooks.state") }

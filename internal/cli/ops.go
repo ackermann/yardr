@@ -30,7 +30,6 @@ import (
 	"yardr.dev/yardr/internal/runner"
 	"yardr.dev/yardr/internal/server"
 	"yardr.dev/yardr/internal/store"
-	"yardr.dev/yardr/internal/version"
 )
 
 func (a *app) serverCmd() *cobra.Command {
@@ -145,10 +144,7 @@ func (a *app) daemonCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			bin, err := version.Self()
-			if err != nil {
-				log.Warn("cannot watch the yardr binary; the daemon will not replace itself", "err", err)
-			}
+			bin := daemonBinary(cfg, log)
 			runners := daemonRunners(a.cfg.Home, st, log, onError)
 			d := &dispatch.Dispatcher{
 				Store:       st,

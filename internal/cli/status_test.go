@@ -76,12 +76,17 @@ func announce(t *testing.T, home, addr string, unsafe bool, as string) {
 // for the faults doctor reports (no daemon, no yardmaster) without saying them.
 func TestStatusServerOnly(t *testing.T) {
 	home, _, a := statusYard(t, "abcdef123456")
+	// Init recorded the test binary; status says what the file holds.
+	if err := config.At(home).RecordBinary("/usr/local/bin/yardr"); err != nil {
+		t.Fatal(err)
+	}
 	out, err := run(t, a().rootCmd(), "status")
 	if err != nil {
 		t.Fatalf("err = %v\n%s", err, out)
 	}
 	wantText(t, out,
-		"yard       "+home+"  name y  operator Jo\n",
+		"yard       "+home+"  name y  operator Jo\n"+
+			"binary     /usr/local/bin/yardr\n",
 		"server     running  pid 4711  build abcdef123456  since 10-05 09:12\n",
 		// The test binary carries no revision: another build than the server's.
 		"           this yardr is build unknown\n",
@@ -98,7 +103,7 @@ func TestStatusServerOnly(t *testing.T) {
 		}
 	}
 	if rep := statusJSON(t, a()); rep.Faults == nil || *rep.Faults != 2 || rep.Hooks != nil || rep.Peers != nil || rep.Daemon.Running ||
-		!rep.Server.Running || !rep.Server.Differs || rep.Server.PID != 4711 {
+		!rep.Server.Running || !rep.Server.Differs || rep.Server.PID != 4711 || rep.Binary != "/usr/local/bin/yardr" {
 		t.Fatalf("json: %+v", rep)
 	}
 }
@@ -139,6 +144,11 @@ func TestStatusLeavesAStoppedServerStopped(t *testing.T) {
 	holdDaemon(t, home)
 	announce(t, home, "127.0.0.1:9000", false, "")
 	announce(t, home, "0.0.0.0:9001", true, "")
+	// The record of the binary is a file of the home, which status reads
+	// without the server.
+	if err := cfg.RecordBinary("/usr/local/bin/yardr"); err != nil {
+		t.Fatal(err)
+	}
 	before, err := os.ReadDir(home)
 	if err != nil {
 		t.Fatal(err)
@@ -150,7 +160,8 @@ func TestStatusLeavesAStoppedServerStopped(t *testing.T) {
 	}
 	me := strconv.Itoa(os.Getpid())
 	wantText(t, out,
-		"yard       "+home+"\n",
+		"yard       "+home+"\n"+
+			"binary     /usr/local/bin/yardr\n",
 		"server     not running: any yardr command that needs the yard starts it ("+hereAt(home, "yardr ready")+"), or "+hereAt(home, "yardr server start")+"\n",
 		"daemon     running (pid "+me+")\n",
 		"           login service: "+hereAt(home, "not installed (yardr daemon install)")+"\n",
@@ -174,7 +185,8 @@ func TestStatusLeavesAStoppedServerStopped(t *testing.T) {
 		}
 	}
 	var rep statusReport
-	if err := json.Unmarshal([]byte(js), &rep); err != nil || rep.Server.Running || rep.Server.PID != 0 || !rep.Daemon.Running || len(rep.Web.Views) != 2 {
+	if err := json.Unmarshal([]byte(js), &rep); err != nil || rep.Server.Running || rep.Server.PID != 0 || !rep.Daemon.Running || len(rep.Web.Views) != 2 ||
+		rep.Binary != "/usr/local/bin/yardr" {
 		t.Fatalf("json: %v %+v", err, rep)
 	}
 

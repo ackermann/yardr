@@ -31,6 +31,11 @@ type statusReport struct {
 	Home     string `json:"home"`
 	Name     string `json:"name,omitempty"`
 	Operator string `json:"operator,omitempty"`
+	// Binary is the yardr the yard says it runs, from <home>/binary
+	// (config.RecordBinary), whether or not a server answers; absent while
+	// the yard has recorded none. It is what was recorded, not a check that
+	// the path runs.
+	Binary string `json:"binary,omitempty"`
 
 	Server serverStatus `json:"server"`
 	Daemon daemonState  `json:"daemon"`
@@ -201,6 +206,8 @@ func (a *app) statusCmd() *cobra.Command {
 		Long: `Print what runs right now and where it is reached, in one screen:
 
   yard       its home, its name, the operator
+  binary     the yardr the yard runs, as its server, daemon or init last
+             recorded it in <home>/binary; no line before one did
   server     running or not, its pid, the build it runs and since when; the
              build of this yardr when that is another
   daemon     running or not, its pid; its login service
@@ -276,7 +283,7 @@ func (a *app) status(ctx context.Context, cfg *config.Config) (*statusReport, er
 			return nil, notInitialized{cfg.Home}
 		}
 	}
-	rep := &statusReport{Home: cfg.Home,
+	rep := &statusReport{Home: cfg.Home, Binary: cfg.RecordedBinary(),
 		Daemon:     readDaemon(ctx, cfg),
 		HerdrLogin: herdrLoginState(ctx, true),
 		Web:        webStatus{Views: webViews(cfg), Service: stateOf(ctx, cfg, svcWeb)},
@@ -485,6 +492,9 @@ func (r *statusReport) parts() []statusPart {
 		yard += fmt.Sprintf("  name %s  operator %s", r.Name, r.Operator)
 	}
 	parts := []statusPart{{"yard", []string{yard}}}
+	if r.Binary != "" {
+		parts = append(parts, statusPart{"binary", []string{r.Binary}})
+	}
 
 	var srv []string
 	switch s := r.Server; {

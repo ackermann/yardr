@@ -595,6 +595,7 @@ yard has:
 
 ```
 yard       /Users/jo/.yardr  name yardr  operator Jo
+binary     /usr/local/bin/yardr
 server     running  pid 4711  build abcdef123456  since 10-05 09:12
 daemon     running (pid 4720)
            login service: not installed (yardr daemon install)
@@ -615,6 +616,7 @@ work       3 sessions running (web/builders 2, web/reviewers 1); 2 beads wait fo
 | part | what it says |
 |---|---|
 | `yard` | the home, the yard's name, the operator |
+| `binary` | the yardr binary the yard runs, as `<home>/binary` last recorded it when `yardr init`, the server or the daemon started ([configuration.md](configuration.md#which-yardr-a-yard-runs)): what the file holds, not a check that the path runs. Absent while the yard has recorded none, as a yard made by a yardr from before the file has |
 | `server` | its pid, the build it runs and since when that build runs (a server that replaced itself with a new build counts from then). `this yardr is build <build>` follows when the yardr that was asked is another build. `not running: any yardr command that needs the yard starts it (yardr ready), or yardr server start` when none answers: status starts none ([below](#a-server-that-is-not-running)). `cannot be reached: <why>` when one answers and cannot be asked about the yard: then only `yard`, `daemon` and `web view` follow |
 | `daemon` | `running (pid <pid>)` or `not running`, and its login service, both as `yardr daemon status` prints them |
 | `herdr` | the herdr session the yard's panes are in and its socket, and whether the yard's `herdr_session` setting names it or the shell does; then the login service for its server: `installed and loaded: <manager> starts herdr's server at login (<file>)`, `installed: launchd starts herdr's server from the next login on (<file>)` for one written beside a server that ran, `one of your own, not yardr's (<file>)`, or `not installed (yardr up --login)` |
@@ -634,7 +636,7 @@ so it takes as long as doctor does.
 It is read-only and starts nothing. The exit status is 0 on any home that
 holds a yard, faults or not, and 2 on a home with none, where it says what
 any command says there and starts no onboarding. `--json` prints the same as
-one object: `home`, `name`, `operator`, `server` (`running`, `error`, `pid`,
+one object: `home`, `name`, `operator`, `binary`, `server` (`running`, `error`, `pid`,
 `build`, `since`, `cli_build`, `differs`), `daemon` (`running`, `pid`,
 `service`), `herdr` (`name`, `socket`, `from`), `herdr_login_service`
 (`supported`, `manager`, `name`, `file`, `installed`, `loaded`, and
@@ -656,6 +658,7 @@ machine say without the store, and exits 0:
 
 ```
 yard       /Users/jo/.yardr
+binary     /usr/local/bin/yardr
 server     not running: any yardr command that needs the yard starts it (yardr ready), or yardr server start
 daemon     not running
            login service: not installed (yardr daemon install)
@@ -667,7 +670,8 @@ crew, hooks, peers and work: not known while the server is not running
 ```
 
 The yard's name and its operator are settings in the store, so they are
-left out, and so is the line about doctor's faults. In the JSON
+left out, and so is the line about doctor's faults. The `binary` line is a
+file of the home, so it stays. In the JSON
 `server.running` is `false` and `name`, `operator`, `crew`, `hooks`,
 `peers`, `devices`, `work` and `faults` are absent. A home counts as a yard here when
 it holds a store (`yard.db`): whether that store was ever set up is known

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"os/user"
@@ -91,8 +92,13 @@ func TestInitHarnessClaude(t *testing.T) {
 	for p := range snapshot(t, home) {
 		files = append(files, strings.TrimPrefix(p, home+"/"))
 	}
-	if !slices.Equal(files, []string{"packs/starter/roles/yardmaster.md"}) {
-		t.Fatalf("init wrote into the home: %v; want the yardmaster's role alone", files)
+	slices.Sort(files)
+	if !slices.Equal(files, []string{"binary", "packs/starter/roles/yardmaster.md"}) {
+		t.Fatalf("init wrote into the home: %v; want the yardmaster's role and the record of the yardr binary alone", files)
+	}
+	// The record names the yardr that ran init, here the test binary.
+	if self, err := os.Executable(); err != nil || config.At(home).RecordedBinary() != self {
+		t.Errorf("recorded binary = %q, want %q (%v)", config.At(home).RecordedBinary(), self, err)
 	}
 	// The yardmaster, on the harness with its unattended flags.
 	r, err := st.GetCrew(ctx, "yardmaster")
@@ -179,6 +185,61 @@ func TestInitHarnessClaude(t *testing.T) {
 	}
 	if _, err := st.GetCrew(ctx, "x"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("refused init left a crew member: %v", err)
+	}
+}
+
+// Init records the yardr it runs, as the server and the daemon record theirs
+// when they start: init from another path replaces the record, and one that
+// cannot be written (a directory stands where the file goes) is a warning
+// that leaves the yard made. The executable is swapped here, which a test
+// that runs in parallel with others cannot do.
+func TestInitRecordsTheYardrItRuns(t *testing.T) {
+	home := newHomeDir(t)
+	errs := captureStderr(t)
+	a := testApp(t, storetest.New(t), home)
+	a.actor = "me"
+	a.stderr = errs
+	cfg := config.At(home)
+	self, selfErr := "", error(nil)
+	stub(t, &executable, func() (string, error) { return self, selfErr })
+	initFrom := func() {
+		t.Helper()
+		if _, err := run(t, a.rootCmd(), "init", "--harness", "claude", "--operator", "Jo"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	self = "/opt/yardr/bin/yardr"
+	initFrom()
+	if got := cfg.RecordedBinary(); got != self {
+		t.Fatalf("recorded binary = %q, want %q", got, self)
+	}
+	self = "/usr/local/bin/yardr"
+	initFrom()
+	if got := cfg.RecordedBinary(); got != self {
+		t.Fatalf("recorded binary after init from another path = %q, want %q", got, self)
+	}
+	if errs.Len() != 0 {
+		t.Fatalf("init said:\n%s", errs)
+	}
+
+	if err := os.Remove(cfg.BinaryFile()); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(cfg.BinaryFile(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	initFrom()
+	if want := "warning: cannot record the yardr binary in " + cfg.BinaryFile(); !strings.Contains(errs.String(), want) {
+		t.Errorf("init did not say %q:\n%s", want, errs)
+	}
+	errs.Reset()
+
+	// Nor does an executable the system cannot name stop it.
+	selfErr = errors.New("no executable path")
+	initFrom()
+	if !strings.Contains(errs.String(), "no executable path") {
+		t.Errorf("init did not say why it could not record the binary:\n%s", errs)
 	}
 }
 
@@ -824,7 +885,9 @@ func TestSettingsWithoutYard(t *testing.T) {
 
 // The daemon runs on a store without default_kind, empty even, and without a
 // terminal: after it replaced itself into a build with the onboarding check
-// it was refused and ended (yard-w6np).
+// it was refused and ended (yard-w6np). It records the yardr it runs in the
+// home as it starts, and a record it cannot write (a directory stands where
+// the file goes) is a warning in its log that leaves it running.
 func TestDaemonWithoutYard(t *testing.T) {
 	requireNonInteractive(t)
 	// herdr is not running in an empty config dir: the daemon only warns.
@@ -838,7 +901,8 @@ func TestDaemonWithoutYard(t *testing.T) {
 	t.Setenv("HERDR_SOCKET_PATH", "")
 
 	a := testApp(t, storetest.New(t), newHomeDir(t))
-	if _, err := a.config(); err != nil {
+	cfg, err := a.config()
+	if err != nil {
 		t.Fatal(err)
 	}
 	root := a.rootCmd()
@@ -849,6 +913,60 @@ func TestDaemonWithoutYard(t *testing.T) {
 	err = root.ExecuteContext(ctx)
 	if errors.As(err, new(notInitialized)) || time.Since(start) < 400*time.Millisecond {
 		t.Fatalf("daemon ended after %v: %v", time.Since(start), err)
+	}
+	// Nothing but the daemon wrote the record in this home: the test binary
+	// is the yardr it ran.
+	if self, err := os.Executable(); err != nil || cfg.RecordedBinary() != self {
+		t.Errorf("recorded binary = %q, want %q (%v)", cfg.RecordedBinary(), self, err)
+	}
+
+	// The daemon logs to the process's stderr, which is read back through a
+	// pipe until the daemon says it started, and is the process's own again
+	// before anything is asserted.
+	if err := os.Remove(cfg.BinaryFile()); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(cfg.BinaryFile(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stderr := os.Stderr
+	os.Stderr = w
+	t.Cleanup(func() { os.Stderr = stderr })
+	logged := &syncBuffer{}
+	read := make(chan struct{})
+	go func() { _, _ = io.Copy(logged, r); close(read) }()
+	root = a.rootCmd()
+	root.SetArgs([]string{"daemon", "--interval", "50ms"})
+	ctx, stop := context.WithCancel(context.Background())
+	defer stop()
+	done := make(chan error, 1)
+	go func() { done <- root.ExecuteContext(ctx) }()
+	for deadline := time.Now().Add(10 * time.Second); !strings.Contains(logged.String(), "yardr daemon started"); {
+		select {
+		case err := <-done:
+			t.Fatalf("the daemon ended before it started: %v\n%s", err, logged)
+		case <-time.After(5 * time.Millisecond):
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the daemon did not start:\n%s", logged)
+		}
+	}
+	stop()
+	if err := <-done; err != nil {
+		t.Errorf("the daemon ended with %v", err)
+	}
+	os.Stderr = stderr
+	w.Close()
+	<-read
+	r.Close()
+	for _, want := range []string{"cannot record the yardr binary", cfg.BinaryFile()} {
+		if !strings.Contains(logged.String(), want) {
+			t.Errorf("the daemon's log does not say %q:\n%s", want, logged)
+		}
 	}
 }
 

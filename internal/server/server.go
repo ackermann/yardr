@@ -177,6 +177,15 @@ func (r *runner) serve(ctx context.Context) (string, bool, error) {
 		ln.Close()
 		return "", false, err
 	}
+	// Which yardr the yard runs, for the programs that have no PATH to find
+	// it by. Written before the server answers, so a client that finds it
+	// up finds the record; one that cannot be written costs those programs
+	// their answer, never the yard its server.
+	if r.bin != nil {
+		if err := c.RecordBinary(r.bin.Path); err != nil {
+			log.Warn("cannot record the yardr binary", "binary", r.bin.Path, "file", c.BinaryFile(), "err", err)
+		}
+	}
 	held, err := c.Hold(c.Socket())
 	if err != nil {
 		ln.Close()

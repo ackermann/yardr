@@ -146,6 +146,14 @@ func writeJSON(path string, v any) error {
 	if err != nil {
 		return err
 	}
+	return writeFile(path, b)
+}
+
+// writeFile writes b to path through a temporary file in its directory,
+// renamed into place, so a reader never sees a half-written file. Each call
+// has a temporary file of its own: two writers at once leave one whole
+// file, the later rename's.
+func writeFile(path string, b []byte) error {
 	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-*")
 	if err != nil {
 		return err

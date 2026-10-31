@@ -496,8 +496,10 @@ func TestInitWithADefaultPackWithoutAYardmaster(t *testing.T) {
 	if !strings.Contains(out, "yardmaster none: the yard's default pack, ledgers, has no crew member called yardmaster") {
 		t.Errorf("the summary does not say there is no yardmaster:\n%s", out)
 	}
-	if files := snapshot(t, home); len(files) != 0 {
-		t.Errorf("init wrote into the home: %v", slices.Sorted(maps.Keys(files)))
+	// Installs nothing of the pack's: the record of the yardr binary is the
+	// one file init writes.
+	if files := slices.Sorted(maps.Keys(snapshot(t, home))); !slices.Equal(files, []string{filepath.Join(home, "binary")}) {
+		t.Errorf("init wrote into the home: %v", files)
 	}
 	if got, _ := st.Settings(ctx); got["default_kind"] != "claude" {
 		t.Errorf("the yard is not marked set up: %v", got)

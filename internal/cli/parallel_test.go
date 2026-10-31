@@ -134,6 +134,7 @@ var allowSerial = map[string]string{
 	"TestInitFinishesAfterAFailedRun":                       "t.Setenv",
 	"TestInitNamesTelemetrySwitch":                          "setInteractive,stubAsk",
 	"TestInitOperatorDefaultsToUser":                        "t.Setenv",
+	"TestInitRecordsTheYardrItRuns":                         "stub:executable",
 	"TestInitStart":                                         "stubLookPath,stubPane,stubStart",
 	"TestInitStartAsksAgainWhileTheYardmasterIsBlocked":     "blockedYardmaster",
 	"TestInitStartAsksOnlyWhereTheChatOpens":                "blockedYardmaster,setInteractive",

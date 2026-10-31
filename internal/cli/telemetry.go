@@ -1,13 +1,17 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"time"
 
+	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
 
+	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/telemetry"
 )
@@ -173,4 +177,71 @@ func printInstallID(w io.Writer, id string) {
 	}
 	fmt.Fprintln(w, "install id: "+id)
 	fmt.Fprintln(w, telemetry.IDSentence)
+}
+
+// askTelemetry is the onboarding's one telemetry question, asked after the
+// yard exists and answered either way: Yes goes through the same consent
+// activation as yardr telemetry on, and No writes the off setting, so a
+// completed onboarding never asks again. A yard whose setting is already
+// set is not asked: a resumed onboarding skips the question, and so does
+// one the operator answered by hand. Non-interactive init never reaches
+// here, and leaves the switch off. An answer prints nothing, as the
+// form's other confirms do; the question carries what telemetry is, the
+// four questions, where batches go, the pseudonymous id and its id-only
+// profile, that show previews the exact next batch, and that off prevents
+// new requests from starting. A form left with ctrl+c records nothing:
+// an aborted consent is not consent, and the onboarding goes on.
+func (a *app) askTelemetry(ctx context.Context, cfg *config.Config) error {
+	st, err := a.store(ctx)
+	if err != nil {
+		return err
+	}
+	stored, err := st.Settings(ctx)
+	if err != nil {
+		return err
+	}
+	if _, set := stored[store.TelemetrySetting]; set {
+		return nil
+	}
+	on := false
+	err = ask(huh.NewConfirm().Key("telemetry").Title("Turn telemetry on?").
+		Description(telemetry.Questions + " " + telemetry.Profile + " " + telemetry.IDSentence +
+			" `yardr telemetry show` previews the exact allow-listed next batch from current state" +
+			" before anything is sent. The daemon sends the first batch the day you turn it on; counts from earlier days are never sent." +
+			" `yardr telemetry off` prevents new requests from starting.").
+		Value(&on))
+	if errors.Is(err, huh.ErrUserAborted) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	if on {
+		_, err = telemetry.On(ctx, st, store.TelemetryState(cfg.Home), a.who(), time.Now())
+		return err
+	}
+	_, err = telemetry.Off(ctx, st, store.TelemetryState(cfg.Home), a.who(), time.Now())
+	return err
+}
+
+// sayTelemetry names the telemetry switch after a non-interactive init,
+// which asks nothing and leaves it off: where a terminal is available,
+// the operator is told the command that turns it on. A yard that already
+// decided, and --json, stay quiet. A hint that cannot be read is skipped,
+// never an error: the yard is made.
+func (a *app) sayTelemetry(w io.Writer, ctx context.Context, cfg *config.Config) {
+	if a.json || !interactive() {
+		return
+	}
+	st, err := a.store(ctx)
+	if err != nil {
+		return
+	}
+	stored, err := st.Settings(ctx)
+	if err != nil {
+		return
+	}
+	if _, set := stored[store.TelemetrySetting]; set {
+		return
+	}
+	fmt.Fprintf(w, "Telemetry is off. `%s telemetry on` records consent for one daily batch of counts and fixed names (docs/telemetry.md).\n", yardrAt(cfg.Home))
 }
