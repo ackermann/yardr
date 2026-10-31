@@ -58,7 +58,8 @@ type Routes struct {
 	Head   uint64        `json:"head"`
 }
 
-// Peers is /peers: `yardr peer list --json`.
+// Peers is /peers: `yardr peer list --json`. The page is the operator's
+// to read: a peer's URL and key are the yard's to dial with.
 type Peers struct {
 	Peers []store.Peer `json:"peers"`
 	Head  uint64       `json:"head"`
@@ -195,21 +196,37 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	// Peers stands in its place for the operator alone, as Telemetry
+	// stands last: the hub links no page its reader is refused.
+	operator := s.isOperator(r.Context())
 	out := Config{Head: head, Links: []ConfigLink{
 		{Title: "Depots", Path: "/depots", Blurb: "the repositories and directories beads are worked in"},
 		{Title: "Groups", Path: "/groups", Blurb: "who works a stage"},
 		{Title: "Routes", Path: "/routes", Blurb: "which group a stage sends its beads to, first match wins"},
-		{Title: "Peers", Path: "/peers", Blurb: "the yards this one is linked with"},
-		{Title: "Deps", Path: "/deps", Blurb: "the edges with an open end, grouped by the blocked bead"},
-		{Title: "Limits", Path: "/limits", Blurb: "what the subscriptions the yard burns still carry"},
 	}}
-	if s.isOperator(r.Context()) {
+	if operator {
+		out.Links = append(out.Links, peersLink)
+	}
+	out.Links = append(out.Links,
+		ConfigLink{Title: "Deps", Path: "/deps", Blurb: "the edges with an open end, grouped by the blocked bead"},
+		ConfigLink{Title: "Limits", Path: "/limits", Blurb: "what the subscriptions the yard burns still carry"},
+	)
+	if operator {
 		out.Links = append(out.Links, telemetryLink)
 	}
 	s.respond(w, r, Page{Template: "config", Title: "Config", Menu: "config", Data: out, head: head})
 }
 
+// peersLink is the Peers page on the config hub: the yards this one is
+// linked with, the operator's alone.
+var peersLink = ConfigLink{Title: "Peers", Path: "/peers", Blurb: "the yards this one is linked with"}
+
 func (s *Server) handlePeers(w http.ResponseWriter, r *http.Request) {
+	if !s.isOperator(r.Context()) {
+		s.respond(w, r, Page{Status: http.StatusForbidden, Template: "error", Title: "Forbidden",
+			Data: errorData{Error: "the peers list is the operator's to read"}})
+		return
+	}
 	listedPage(s, w, r, func() ([]store.Peer, error) { return s.st.Peers(r.Context()) },
 		func(rows []store.Peer, head uint64) any { return Peers{rows, head} }, "peers", "Peers")
 }

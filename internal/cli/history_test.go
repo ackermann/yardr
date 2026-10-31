@@ -22,6 +22,11 @@ func TestBeadHistory(t *testing.T) {
 	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
+	// The old values a diff is said from are the operator's to read, and
+	// the history is read as the command's actor.
+	if err := st.SetSetting(ctx, store.OperatorSetting, "jo", "jo"); err != nil {
+		t.Fatal(err)
+	}
 	b, err := st.CreateBead(ctx, store.NewBead{Title: "a door", Body: "Hang it.\n"}, "me")
 	if err != nil {
 		t.Fatal(err)
@@ -71,6 +76,19 @@ jo             noted: hung today
 	a.json = false
 	if _, err := run(t, a.beadCmd(), "history", "none-zzzz"); err == nil {
 		t.Error("an unknown bead has a history")
+	}
+	// As a member: the update stands, but its old values and its diff
+	// are the operator's.
+	if _, err := st.AddUser(ctx, "sam", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	out, err = run(t, (&app{st: st, actor: "sam"}).beadCmd(), "history", b.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "updated: title \"the door\" · priority 1 · body") ||
+		strings.Contains(out, "a door") || strings.Contains(out, "--- was") {
+		t.Errorf("a member's history:\n%s", out)
 	}
 }
 

@@ -26,11 +26,11 @@ type Change struct {
 const everyEvent = math.MaxInt32
 
 // History is a bead's history, the oldest event first: every event of the
-// bead the log still has. It is what `yardr bead history` prints and what
-// the bead's page shows, so the two say the same. Nothing but the log keeps
-// what a bead was, so the history starts where pruning left the log
-// (store.Prune).
-func History(ctx context.Context, st store.API, bead string) ([]Change, error) {
+// bead the log still has, as viewer is told them (store.EventFor). It is
+// what `yardr bead history` prints and what the bead's page shows, so the
+// two say the same. Nothing but the log keeps what a bead was, so the
+// history starts where pruning left the log (store.Prune).
+func History(ctx context.Context, st store.API, bead, viewer string) ([]Change, error) {
 	b, err := st.GetBead(ctx, bead)
 	if err != nil {
 		return nil, err
@@ -52,6 +52,20 @@ func History(ctx context.Context, st store.API, bead string) ([]Change, error) {
 			break
 		}
 	}
+	operator := false
+	if viewer != "" {
+		if u, err := st.GetUser(ctx, viewer); err == nil && u.IsOperator() {
+			operator = true
+		}
+	}
+	// An event the viewer is told nothing of stands in no history.
+	kept := make([]store.Event, 0, len(evs))
+	for _, e := range evs {
+		if told, ok := store.EventFor(viewer, operator, e); ok {
+			kept = append(kept, told)
+		}
+	}
+	evs = kept
 	rd := readerOf(st, evs)
 	rd.titles[b.ID], rd.byBead[b.ID] = b.Title, evs
 	out := make([]Change, len(evs))

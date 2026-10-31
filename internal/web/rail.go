@@ -120,9 +120,9 @@ var railColumns = map[string][]columnRow{
 }
 
 // settingsRows is the Settings column: Config, then the hub's own lists,
-// each with the filter its page carries. Telemetry stands for the operator
-// alone, as on the hub; Pair device for a signed-in view alone, as the
-// menu filtered it before the rail, and the handler still refuses any
+// each with the filter its page carries. Peers and Telemetry stand for the
+// operator alone, as on the hub; Pair device for a signed-in view alone, as
+// the menu filtered it before the rail, and the handler still refuses any
 // other view.
 func (s *Server) settingsRows(ctx context.Context) []columnRow {
 	rows := []columnRow{
@@ -130,11 +130,16 @@ func (s *Server) settingsRows(ctx context.Context) []columnRow {
 		{"Depots", "/depots", ""},
 		{"Groups", "/groups", ""},
 		{"Routes", "/routes", ""},
-		{"Peers", "/peers", ""},
-		{"Deps", "/deps", ""},
-		{"Limits", "/limits", ""},
 	}
-	if s.isOperator(ctx) {
+	operator := s.isOperator(ctx)
+	if operator {
+		rows = append(rows, columnRow{"Peers", "/peers", ""})
+	}
+	rows = append(rows,
+		columnRow{"Deps", "/deps", ""},
+		columnRow{"Limits", "/limits", ""},
+	)
+	if operator {
 		rows = append(rows, columnRow{"Telemetry", "/telemetry", ""})
 	}
 	if s.jwt != nil {

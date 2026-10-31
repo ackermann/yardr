@@ -134,8 +134,8 @@ func (s *Server) enter(remote string) (leave func(), status int) {
 //
 // The streams open at once are limited (streamMax, streamPerAddr): one
 // past the limit is answered 429 or 503 with Retry-After, before the yard
-// is asked anything. In JWT mode a stream ends at its token's expiry, and
-// the client reconnects with a fresh token.
+// is asked anything. In JWT mode a stream ends when its mapped user is
+// removed or its token expires, and the client reconnects with a fresh token.
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	format := q.Get("format")
@@ -236,7 +236,11 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		case e, ok := <-ch:
-			if !ok || !send(s.frame(ctx, e, format)) {
+			if !ok {
+				return
+			}
+			frame, current := s.frame(ctx, e, format)
+			if !current || !send(frame) {
 				return
 			}
 		case <-exp:
@@ -247,15 +251,35 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 
 // frame is e as server-sent events in format (html, json, card, seq or
 // home, see handleEvents): the last of them, and only it, has e's seq as
-// its id. An event the stream leaves out is its id alone: no message for
-// the client, but its cursor passes it.
-func (s *Server) frame(ctx context.Context, e store.Event, format string) []byte {
+// its id. What the request is told of the event is the store's decision
+// for the user it acts as (store.EventFor): mail goes out to its parties
+// alone, and a reader who is no operator is held the data their kind's row
+// lists nothing of. An event the stream leaves out is its id alone: no
+// message for the client, but its cursor passes it. In JWT mode the stream
+// ends when the mapped user has been removed.
+func (s *Server) frame(ctx context.Context, e store.Event, format string) ([]byte, bool) {
 	var b bytes.Buffer
+	viewer := s.acting(ctx)
+	operator := false
+	if s.jwt != nil {
+		var removed bool
+		operator, removed = s.jwtUserStatus(ctx, viewer)
+		if removed {
+			return nil, false
+		}
+	} else {
+		operator = s.isOperator(ctx)
+	}
+	told, ok := store.EventFor(viewer, operator, e)
+	if !ok {
+		return message(&b, e.Seq, "", nil), true
+	}
+	e = told
 	switch {
 	case format == "json":
 		// One line: json.Marshal escapes every newline in a string.
 		if data, err := json.Marshal(e); err == nil {
-			return message(&b, e.Seq, "", data)
+			return message(&b, e.Seq, "", data), true
 		}
 	case format == "card":
 		if p, ok := s.place(ctx, e); ok {
@@ -263,7 +287,7 @@ func (s *Server) frame(ctx context.Context, e store.Event, format string) []byte
 		}
 		fallthrough
 	case format == "seq":
-		return message(&b, e.Seq, "", strconv.AppendUint(nil, e.Seq, 10))
+		return message(&b, e.Seq, "", strconv.AppendUint(nil, e.Seq, 10)), true
 	case format == "home":
 		if rd := s.newReader(nil); inFeed(e) && inHomeFeed(ctx, rd, e) {
 			var html bytes.Buffer
@@ -271,7 +295,7 @@ func (s *Server) frame(ctx context.Context, e store.Event, format string) []byte
 				s.log.Error("web: /events", "seq", e.Seq, "err", err)
 				break
 			}
-			return message(&b, e.Seq, "", html.Bytes())
+			return message(&b, e.Seq, "", html.Bytes()), true
 		}
 	case inFeed(e):
 		var html bytes.Buffer
@@ -279,9 +303,9 @@ func (s *Server) frame(ctx context.Context, e store.Event, format string) []byte
 			s.log.Error("web: /events", "seq", e.Seq, "err", err)
 			break
 		}
-		return message(&b, e.Seq, "", html.Bytes())
+		return message(&b, e.Seq, "", html.Bytes()), true
 	}
-	return message(&b, e.Seq, "", nil)
+	return message(&b, e.Seq, "", nil), true
 }
 
 // message writes one server-sent event to b and returns b's bytes. id 0 is

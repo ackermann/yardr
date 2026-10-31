@@ -23,6 +23,7 @@ import (
 
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
+	"yardr.dev/yardr/internal/telemetry"
 	"yardr.dev/yardr/internal/web"
 )
 
@@ -732,8 +733,19 @@ func TestLine(t *testing.T) {
 // takes for an empty answer.
 func TestRailPages(t *testing.T) {
 	t.Parallel()
-	f := newFixture(t)
+	// Peers are the operator's to read, so the rail is walked as the
+	// operator's, which names seventeen pages with Telemetry.
+	api, own := storetest.NewOwned(t)
+	own.SetTelemetrySwitch(telemetry.Switch{})
+	srv, err := web.NewServer(api, filepath.Join(t.TempDir(), ".depot"), nil)
+	must(t, err)
+	token := srv.ActAs("ada")
+	ts := httptest.NewServer(srv)
+	t.Cleanup(func() { shut(ts) })
+	f := &fixture{t: t, st: api, ts: ts}
+	f.signIn(srv, token)
 	ctx := context.Background()
+	must(t, f.st.SetSetting(ctx, store.OperatorSetting, "ada", "ada"))
 	must(t, f.st.PutDepot(ctx, store.Depot{Name: "line", Base: "origin/main"}, "me"))
 	run, err := f.st.CreateBead(ctx, store.NewBead{Title: "at work", Stage: "new", Depot: "line"}, "me")
 	must(t, err)
@@ -760,7 +772,7 @@ func TestRailPages(t *testing.T) {
 		}
 	}
 	// One page per mode exposes every column; the rail itself names
-	// sixteen pages.
+	// seventeen pages for the operator.
 	column := regexp.MustCompile(`(?s)<nav class="rail-column".*?</nav>`)
 	links := regexp.MustCompile(`<li><a href="([^"]+)"`)
 	var paths []string
@@ -773,14 +785,14 @@ func TestRailPages(t *testing.T) {
 			}
 		}
 	}
-	if len(paths) != 16 {
-		t.Fatalf("the rail has %d pages, want 16: %v", len(paths), paths)
+	if len(paths) != 17 {
+		t.Fatalf("the rail has %d pages, want 17: %v", len(paths), paths)
 	}
 	for _, path := range paths {
 		r := f.get(path)
 		switch path {
 		case "/", "/talk", "/line", "/flows", "/flows?panel=1", "/beads", "/sessions", "/crew", "/previews", "/config",
-			"/depots", "/groups", "/routes", "/peers", "/deps", "/limits":
+			"/depots", "/groups", "/routes", "/peers", "/deps", "/limits", "/telemetry":
 			if r.status != 200 {
 				t.Errorf("%s: status %d", path, r.status)
 			}
@@ -1151,9 +1163,9 @@ func TestNoOtherHost(t *testing.T) {
 	}
 	var runs int
 	seen := map[string]bool{}
-	// /telemetry stands alone: the hub links it for the operator alone,
-	// and the walk reads as no one.
-	queue := []string{"/", "/nowhere", "/telemetry"}
+	// /telemetry and /peers stand alone: the hub links them for the
+	// operator alone, and the walk reads as no one.
+	queue := []string{"/", "/nowhere", "/telemetry", "/peers"}
 	ref := regexp.MustCompile(`(?:href|src)="([^"]+)"`)
 	for len(queue) > 0 {
 		path := queue[0]

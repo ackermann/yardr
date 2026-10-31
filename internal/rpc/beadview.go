@@ -13,7 +13,7 @@ import (
 // a file of the yard's with the values it holds, and for the file the account
 // of an approved setup is set in, which is the candidate's when the approval
 // took one: only a device of the operator is told them (isOperator, as
-// deviceTold tells the operator's words). To any other device the card reads
+// store.DeviceTold tells the operator's words). To any other device the card reads
 // as one with none and naming no file
 // (store.SetupAsked.WithoutCandidatesAndFile) and what the setup printed says
 // the account is set and not where, or that it failed and no more, since the

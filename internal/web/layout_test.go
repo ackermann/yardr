@@ -1,10 +1,13 @@
 package web_test
 
 import (
+	"context"
 	"os"
 	"regexp"
 	"strings"
 	"testing"
+
+	"yardr.dev/yardr/internal/store"
 )
 
 // At 1100 px and wider every page fills the window: home and the line
@@ -15,7 +18,9 @@ import (
 // what the pixels do is the bead's screenshots'.
 func TestPagesFillTheWindow(t *testing.T) {
 	t.Parallel()
-	f := newFixture(t)
+	// Peers are the operator's to read, so the walk is the operator's.
+	f, _ := talkFixture(t, "ada")
+	must(t, f.st.SetSetting(context.Background(), store.OperatorSetting, "ada", "ada"))
 	run, _, _, _, _ := stocked(t, f)
 	for _, path := range []string{"/", "/line"} {
 		r := f.get(path)

@@ -97,7 +97,10 @@ const (
 // feed words it, and under an update of the body, the diff.
 func TestBeadHistoryJSON(t *testing.T) {
 	t.Parallel()
-	f := newFixture(t)
+	// The old values a diff is said from are the operator's to read, so
+	// the page is read as the operator's.
+	f, _ := talkFixture(t, "ada")
+	must(t, f.st.SetSetting(context.Background(), store.OperatorSetting, "ada", "ada"))
 	b := edited(t, f.st)
 	var got web.BeadPage
 	f.getJSON("/beads/"+b.ID, &got)
@@ -125,9 +128,12 @@ func TestBeadHistoryJSON(t *testing.T) {
 // when it is read again, which it is at the stream's next event.
 func TestBeadHistoryHTML(t *testing.T) {
 	t.Parallel()
-	f := newFixture(t)
-	b := edited(t, f.st)
+	// As the JSON is: the old values a diff is said from are the
+	// operator's to read.
+	f, _ := talkFixture(t, "ada")
 	ctx := context.Background()
+	must(t, f.st.SetSetting(ctx, store.OperatorSetting, "ada", "ada"))
+	b := edited(t, f.st)
 	head, err := f.st.Head(ctx)
 	must(t, err)
 	r := f.get("/beads/" + b.ID)
@@ -178,6 +184,38 @@ func (s bare) Events(ctx context.Context, bead string, limit int) ([]store.Event
 	return evs, err
 }
 
+// A bead's history is told as its viewer is told it: the old values an
+// update's words and its diff are said from are the operator's, so a
+// member's history, and nobody's, stands without them.
+func TestHistoryTellsEachViewerTheirOwn(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	ctx := context.Background()
+	must(t, f.st.SetSetting(ctx, store.OperatorSetting, "ada", "ada"))
+	must(t, func() error { _, err := f.st.AddUser(ctx, "sam", "ada"); return err }())
+	b := edited(t, f.st)
+	op, err := web.History(ctx, f.st, b.ID, "ada")
+	must(t, err)
+	if len(op) != 5 || op[2].Diff != secondDiff || !strings.Contains(op[2].Note, "→") {
+		t.Errorf("the operator's history: %+v", op)
+	}
+	for _, viewer := range []string{"sam", ""} {
+		h, err := web.History(ctx, f.st, b.ID, viewer)
+		must(t, err)
+		if len(h) != 5 {
+			t.Fatalf("%q's history: %+v", viewer, h)
+		}
+		for _, c := range h {
+			if c.Diff != "" {
+				t.Errorf("%q's history diffs: %+v", viewer, c)
+			}
+		}
+		if strings.Contains(h[2].Note, "→") {
+			t.Errorf("%q's update names old values: %q", viewer, h[2].Note)
+		}
+	}
+}
+
 // An update from before events kept the old body has no diff, and takes
 // none from the updates after it; a bead nobody changed has its making; an
 // unknown bead is an error.
@@ -185,17 +223,20 @@ func TestHistoryOfOldEvents(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
 	ctx := context.Background()
+	// The old values a diff is said from are the operator's to read, so
+	// the history is read as the operator's.
+	must(t, f.st.SetSetting(ctx, store.OperatorSetting, "ada", "ada"))
 	b := edited(t, f.st)
-	h, err := web.History(ctx, bare{f.st}, b.ID)
+	h, err := web.History(ctx, bare{f.st}, b.ID, "ada")
 	must(t, err)
 	if len(h) != 5 || h[1].Diff != "" || h[1].Note != "body" || h[2].Diff != secondDiff {
 		t.Errorf("history: %+v", h)
 	}
 	plain := bead(t, f.st, "plain")
-	if h, err := web.History(ctx, f.st, plain.ID); err != nil || len(h) != 1 || h[0].Text != "created" {
+	if h, err := web.History(ctx, f.st, plain.ID, "ada"); err != nil || len(h) != 1 || h[0].Text != "created" {
 		t.Errorf("a new bead's history: %+v, %v", h, err)
 	}
-	if _, err := web.History(ctx, f.st, "none-zzzz"); err == nil {
+	if _, err := web.History(ctx, f.st, "none-zzzz", "ada"); err == nil {
 		t.Error("an unknown bead has a history")
 	}
 }

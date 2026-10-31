@@ -219,6 +219,28 @@ func TestPreviewsPage(t *testing.T) {
 	if refused := running.Previews[1]; refused.App != "other" || refused.State != store.PreviewRefused || len(refused.Log) != 0 {
 		t.Fatalf("refused card = %+v", refused)
 	}
+	// A view that reads only shows the cards without the start command
+	// and the log tail, which are the operator's to read: the approval's
+	// command with the card's.
+	if running.Previews[0].Approval == nil || running.Previews[0].Approval.Command == "" {
+		t.Fatalf("the running card carries no approval command: %+v", running.Previews[0])
+	}
+	var readOnly web.Previews
+	f.getJSON("/previews", &readOnly)
+	if len(readOnly.Previews) != 2 {
+		t.Fatalf("read-only previews = %+v", readOnly)
+	}
+	for _, c := range readOnly.Previews {
+		if c.Command != "" || len(c.Log) != 0 {
+			t.Errorf("the read-only card shows the command or the log: %+v", c)
+		}
+		if c.Approval != nil && c.Approval.Command != "" {
+			t.Errorf("the read-only card shows the approval's command: %+v", c.Approval)
+		}
+	}
+	if body := f.get("/previews").body; strings.Contains(body, card.Command) {
+		t.Error("the read-only page shows the start command")
+	}
 }
 
 // A crew session's approval attempt is refused on the page, as the

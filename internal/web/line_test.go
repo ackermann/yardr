@@ -811,7 +811,10 @@ func TestWaitsStranded(t *testing.T) {
 // the line alone.
 func TestColumnIsLive(t *testing.T) {
 	t.Parallel()
-	f := newFixture(t)
+	// Peers are the operator's to read, so the walk is the operator's,
+	// made one before the yard is staged and its head read.
+	f, _ := talkFixture(t, "ada")
+	must(t, f.st.SetSetting(context.Background(), store.OperatorSetting, "ada", "ada"))
 	f.populate()
 	head, err := f.st.Head(context.Background())
 	must(t, err)

@@ -27,14 +27,22 @@ func feedSection(t *testing.T, text string) string {
 
 // ownedFixture serves a yard the test can log any event kind on, as
 // TestFeedOtherWords does.
-func ownedFixture(t *testing.T) (*fixture, *store.Store) {
+func ownedFixture(t *testing.T, as string) (*fixture, *store.Store) {
 	t.Helper()
 	api, own := storetest.NewOwned(t)
 	srv, err := web.NewServer(api, filepath.Join(t.TempDir(), ".depot"), nil)
 	must(t, err)
+	var token string
+	if as != "" {
+		token = srv.ActAs(as)
+	}
 	ts := httptest.NewServer(srv)
 	t.Cleanup(func() { shut(ts) })
-	return &fixture{t: t, st: api, ts: ts}, own
+	f := &fixture{t: t, st: api, ts: ts}
+	if as != "" {
+		f.signIn(srv, token)
+	}
+	return f, own
 }
 
 // Home's feed keeps what a person wants on a phone, each one line, with
@@ -42,7 +50,8 @@ func ownedFixture(t *testing.T) (*fixture, *store.Store) {
 // once: its move to the terminal stage is hidden beside it.
 func TestHomeFeedKeeps(t *testing.T) {
 	t.Parallel()
-	f, own := ownedFixture(t)
+	// The mail below is to me, and mail goes to its parties alone.
+	f, own := ownedFixture(t, "me")
 	ctx := context.Background()
 	must(t, f.st.PutDepot(ctx, store.Depot{Name: "line", Base: "origin/main"}, "me"))
 	fl, err := store.ParseFlow("new -> review on done\nreview -> merged on done\nmerged terminal\n")
@@ -170,7 +179,7 @@ func TestHomeFeedKeeps(t *testing.T) {
 // A close by hand, a release, a reopen and a firing timer stand.
 func TestHomeFeedMoves(t *testing.T) {
 	t.Parallel()
-	f, own := ownedFixture(t)
+	f, own := ownedFixture(t, "")
 	ctx := context.Background()
 	must(t, f.st.PutDepot(ctx, store.Depot{Name: "line", Base: "origin/main"}, "me"))
 	fl, err := store.ParseFlow("new -> review on done | decide\ndecide -> new\n" +
@@ -322,7 +331,7 @@ func TestHomeFeedAllJSON(t *testing.T) {
 // kept fragment is a message: the column still re-reads on it.
 func TestHomeStream(t *testing.T) {
 	t.Parallel()
-	f, own := ownedFixture(t)
+	f, own := ownedFixture(t, "")
 	ctx := context.Background()
 	b := bead(t, f.st, "a door")
 	head, err := f.st.Head(ctx)

@@ -292,7 +292,7 @@ func (s *Server) beadPage(ctx context.Context, id, hostport string) (*BeadPage, 
 		return nil, err
 	}
 	d.Sessions = append(d.Sessions, own...)
-	if d.History, err = History(ctx, s.st, b.ID); err != nil {
+	if d.History, err = History(ctx, s.st, b.ID, s.acting(ctx)); err != nil {
 		return nil, err
 	}
 	// The bead's estimate and its cards', over one shared queue snapshot.

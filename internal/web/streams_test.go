@@ -2,6 +2,7 @@ package web_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -224,6 +225,129 @@ func TestStreamsBadRequestFreesPlace(t *testing.T) {
 		}
 	}
 	served(t, srv, "10.0.0.1:1", "after three bad requests")
+}
+
+// The stream and the feed tell each viewer their own events: mail to its
+// parties alone, a setting's value for a told setting alone, and every
+// other event whole to an operator and held to its row otherwise. Nobody
+// is party to no mail.
+func TestStreamTellsEachViewerTheirOwn(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	ctx := context.Background()
+	must(t, f.st.SetSetting(ctx, store.OperatorSetting, "ada", "ada"))
+	for _, name := range []string{"sam", "bob"} {
+		must(t, func() error { _, err := f.st.AddUser(ctx, name, "ada"); return err }())
+	}
+	must(t, f.st.Mail(ctx, "ada", "for ada's eyes", "bob"))
+	must(t, f.st.LogDispatch(ctx, "", "move_refused", "yard", map[string]any{"session": "s1", "reason": "not_allowed",
+		"command": "yardr bead done yd-1 --outcome shipped", "error": "flow has no outcome shipped"}))
+	must(t, f.st.SetSetting(ctx, store.WebJWTUsersSetting, "ada@example.net=ada", "ada"))
+	must(t, f.st.SetSetting(ctx, store.StyleSetting, "guide", "ada"))
+	head, err := f.st.Head(ctx)
+	must(t, err)
+
+	sam, ada := f.as(t, "sam"), f.as(t, "ada")
+	streamOf := func(v *fixture) *stream {
+		t.Helper()
+		if v.session == nil {
+			return v.stream(t, "/events?format=json&after=0")
+		}
+		return v.stream(t, "/events?format=json&after=0", "Cookie", v.session.Name+"="+v.session.Value)
+	}
+	// framesOf replays the log's head frames for v: no more is written
+	// after, so no frame waits on the yard.
+	framesOf := func(v *fixture) []frame {
+		t.Helper()
+		s := streamOf(v)
+		defer s.cancel()
+		var out []frame
+		for range head {
+			out = append(out, s.next(t))
+		}
+		return out
+	}
+	type event struct {
+		Kind string         `json:"kind"`
+		Data map[string]any `json:"data"`
+	}
+	// dataOf is the data the frames tell of the kind, and of the
+	// setting key where one is named: absent where a frame carries no
+	// data for it, as a dropped event is its id alone.
+	dataOf := func(frames []frame, kind, key string) map[string]any {
+		t.Helper()
+		for _, fr := range frames {
+			if fr.data == "" {
+				continue
+			}
+			var e event
+			must(t, json.Unmarshal([]byte(fr.data), &e))
+			if e.Kind != kind {
+				continue
+			}
+			if key != "" && e.Data["key"] != key {
+				continue
+			}
+			return e.Data
+		}
+		return nil
+	}
+	for _, v := range []struct {
+		name string
+		f    *fixture
+		// party reads the mail whole; operator reads every other
+		// event whole and the operator's words with their value.
+		party, operator bool
+	}{
+		{"nobody", f, false, false},
+		{"a member", sam, false, false},
+		{"the operator", ada, true, true},
+	} {
+		frames := framesOf(v.f)
+		if data := dataOf(frames, "mail", ""); (data != nil) != v.party {
+			t.Errorf("%s: the stream tells mail %v, want told: %v", v.name, data != nil, v.party)
+		} else if v.party && data["text"] != "for ada's eyes" {
+			t.Errorf("%s: the stream tells mail %v, want it whole", v.name, data)
+		}
+		data := dataOf(frames, "move_refused", "")
+		if data == nil {
+			t.Errorf("%s: the stream drops the refusal, want it told", v.name)
+		} else if _, told := data["command"]; told != v.operator {
+			t.Errorf("%s: the stream tells the refusal %v, want the command told: %v", v.name, data, v.operator)
+		}
+		if data := dataOf(frames, "setting_changed", store.WebJWTUsersSetting); data == nil {
+			t.Errorf("%s: the stream drops the users change, want its key told", v.name)
+		} else if _, told := data["value"]; told {
+			t.Errorf("%s: the stream tells the users change %v, want its key alone", v.name, data)
+		}
+		data = dataOf(frames, "setting_changed", store.StyleSetting)
+		if data == nil {
+			t.Errorf("%s: the stream drops the style change, want its key told", v.name)
+		} else if _, told := data["value"]; told != v.operator {
+			t.Errorf("%s: the stream tells the style change %v, want its value told: %v", v.name, data, v.operator)
+		}
+		// The feed's JSON names every entry the viewer is told: the
+		// mail for its party alone, the refusal with its words for
+		// the operator alone.
+		events := homeJSON(t, v.f, "/").Events
+		var mail, refusal *web.Entry
+		for i := range events {
+			switch events[i].Kind {
+			case "mail":
+				mail = &events[i]
+			case "move_refused":
+				refusal = &events[i]
+			}
+		}
+		if (mail != nil) != v.party {
+			t.Errorf("%s: the feed names mail: %v, want named: %v", v.name, mail != nil, v.party)
+		}
+		if refusal == nil {
+			t.Errorf("%s: the feed names no refusal", v.name)
+		} else if (refusal.Note != "") != v.operator {
+			t.Errorf("%s: the feed names the refusal %q, want its words: %v", v.name, refusal.Note, v.operator)
+		}
+	}
 }
 
 // What a stream is counted under: loopback is one client however it is

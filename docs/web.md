@@ -259,17 +259,22 @@ request is ever served as the default user — and so is a start without
 `web_jwt_audience` or `web_jwt_jwks`, or while the keys cannot be fetched.
 A request without the header, or with a token that is malformed, badly
 signed, expired, of another issuer or for another audience, is 401; a valid
-token whose email maps to no user is 403. The sandbox origin takes the
-same token on every request, so a note's bytes have no tokenless path.
+token whose email maps to no user is 403, and so is a valid token for a
+user the yard removed, with no restart between the removal and the
+refusal. The sandbox origin takes the same token on every request, so a
+note's bytes have no tokenless path.
 
 Each request then acts as its own user: the talk page holds the visitor's
 conversation and sends mail as them, an ask answers where it is addressed
 to them, a bead sends on where it waits for them, and the home and line
 needs queue shows each visitor only the asks addressed to them — two
-visitors act as themselves on one view. The POST routes exist in JWT mode
+visitors act as themselves on one view, and read as themselves too: the
+stream, the feed and a bead's history tell each visitor their own events
+([The stream](#the-stream)). The POST routes exist in JWT mode
 as with `--as`, and a form's POST is still taken only from the view's own
-pages ([Acting as a user](#acting-as-a-user)). The event stream closes at
-the token's expiry, and the client reconnects with a fresh token. `yardr
+pages ([Acting as a user](#acting-as-a-user)). The event stream closes when
+its user is removed or the token expires, and the client reconnects with a
+fresh token. `yardr
 status` and the start line say whose tokens the view verifies (`jwt from
 <issuer>`).
 
@@ -293,7 +298,8 @@ what reads it ([One bead](#one-bead)).
 address's port), every interface, so
 that a phone on the same LAN can open `http://<this machine's IP>:8791/`.
 Outside JWT mode there is still no authentication for reading: anyone who can
-reach this machine on that port can read the whole yard. A view that acts is
+reach this machine on that port can read the yard as nobody — its beads, its
+feed and its lists, but no mail and nothing held for the operator. A view that acts is
 refused `--unsafe` there: the token and the cookie that guard its writes
 would cross the network over plain HTTP, where anyone on it can read them, so
 `--as`, `YARDR_WEB_AS` or `web_as` together with `--unsafe` ends at start and
@@ -927,14 +933,16 @@ at a route of the same name, with the same fields.** The rows are the
 command's own, of the same Go types, so a field a command gains is in the
 view's answer too. They are under a key named as the route, beside `head`,
 the yard's newest seq from before the list was read: `/events?after=<head>`
-then brings whatever changed since.
+then brings whatever changed since. Two answers are the operator's to
+read: `/peers` is refused to anyone else, and `/previews` answers anyone
+with the start command and the running preview's log tail held back.
 
 | command | route | rows under |
 |---|---|---|
 | `yardr depot list` | `/depots` | `depots` |
 | `yardr group list` | `/groups` | `groups`, each row with its resolved `provider` |
 | `yardr route list` | `/routes` | `routes`, in match order |
-| `yardr peer list` | `/peers` | `peers` |
+| `yardr peer list` | `/peers`, the operator alone | `peers` |
 | `yardr dep list <bead>`, for every bead | `/deps` | `deps`: the edges with an open end, the oldest first, each end with its title, stage and status; `groups`: the same grouped by the blocked bead |
 | `yardr dep list <bead>`, for every bead | `/deps?all=1` | `deps`: every edge of the yard once, the oldest first, the ones between closed beads too |
 | `yardr bead list` | `/beads` | `beads` |
@@ -945,7 +953,7 @@ then brings whatever changed since.
 | `yardr bead history <bead>` | `/beads/<bead>` | `history` |
 | `yardr flow show <depot>` | `/flows` | `depots[].flows`, as the page has them ([Flows](#flows)) |
 | `yardr limits` | `/limits` | `limits` with `unmapped`: what the command answers with no kind named, one entry per provider in use, with the burning kinds and users beside the report |
-| `yardr preview list` | `/previews` | `previews`, each row with the depot's HEAD now beside the commit it runs, whether it is stale, and the running preview's log tail |
+| `yardr preview list` | `/previews` | `previews`, each row with the depot's HEAD now beside the commit it runs, whether it is stale, and the running preview's log tail, the command and the log for the operator alone |
 
 ```json
 {
@@ -985,6 +993,8 @@ and the command's are added:
   the page's `head` (the depot's HEAD now, read at page load), `stale`
   (set when the depot has moved past the commit the preview runs) and
   `log` (the running preview's tail, newest last) beside them. The
+  start command and the log are the operator's to read: anyone else
+  gets the card without them. The
   yard's `idle` bound and `max_age` stand beside the rows, as the card
   shows them ("4h", "7d").
 
@@ -1013,8 +1023,8 @@ and the command's are added:
 - `head` is the depot's HEAD now, beside the `commit` the preview runs;
   `stale` is set when the two differ and both are known. A row with no
   repository has neither.
-- `log` is there while the preview runs: the last hundred lines of its
-  captured output, newest last.
+- `log` is there while the preview runs, for the operator: the last
+  hundred lines of its captured output, newest last.
 - On a view that acts, the card's buttons post to `/previews` as the
   user: Approve writes `ApprovePreview`, Refuse writes `RefusePreview`,
   Stop writes `PreviewStop`, Restart writes `RestartPreview`, and Open
@@ -1237,8 +1247,9 @@ were most of the feed.
 The rest stands behind `All activity`, whole: creations, claims, starts,
 updates, dependencies, subscriptions, crew turns and starts and stops,
 prompts and plumbing, an agent's or the landing's note, and every
-routine move. A bead's page keeps every event of the bead, none left
-out, and `/events?format=json` keeps every event for machines.
+routine move. A bead's page keeps every event of the bead the visitor is
+told, and `/events?format=json` keeps every event the visitor is told
+for machines.
 
 An entry says its event in the yard's words:
 
@@ -1255,8 +1266,13 @@ An entry says its event in the yard's words:
 | `claimed` | claimed by *group* for *stage* | |
 | `started` | session started, with the agent's name when the runner gives one | |
 | `session_<state>` (a session the dispatcher ended) | session ended: *state* (`tone` `held`) | the reason |
-| any other | the kind, spelled out: `setting changed` | its plain values: `key name · value north` |
+| any other | the kind, spelled out: `setting changed` | its plain values: `key operator · value ada` |
 
+- An entry says only what its visitor is told: mail stands for its
+  parties alone, and the words of a pane, a command or an error, a
+  setting's value outside the told list, a timer's words and the old
+  values an update's words and diffs are said from stand for the operator
+  alone.
 - A crew member's journal entries and handoffs (`journal`, `handoff`) are left
   out: they are its notes to itself.
 - The reason of a hold and the note of a move are the note their actor
@@ -1910,13 +1926,14 @@ So:
   as an event the feed leaves out is. Home hangs its feed on it, and
   `/?all=1` on the unfiltered stream.
 - With `?format=json`, or an `Accept` that prefers JSON, the `data` is the
-  event itself, as `yardr watch --json` prints it
-  (`{"seq", "id", "bead", "kind", "actor", "data", "at"}`), and no event is
-  left out. `EventSource` cannot set `Accept`; the parameter is for it.
+  event as the visitor is told it, as `yardr watch --json` prints it
+  (`{"seq", "id", "bead", "kind", "actor", "data", "at"}`), and no event
+  the visitor is told is left out. `EventSource` cannot set `Accept`; the
+  parameter is for it.
 - With `?format=seq` the `data` is the event's seq and nothing else, for a
   page that reads itself again when something happens (`/beads`, a bead's
-  page, the depot, group, route, peer, edge and quota lists). No event is
-  left out.
+  page, the depot, group, route, peer, edge and quota lists). No event the
+  visitor is told is left out.
 - With `?format=card` every event is what `format=seq` sends, and an event
   of a bead first moves the bead's card on `/flows`, in two messages named
   after elements of the page, which listen for them (`sse-swap`): first
@@ -1929,6 +1946,13 @@ So:
   off between them is sent the whole move again. A note changes no card
   and is sent as its seq alone. The names are the elements' ids, each part
   escaped as a URL path segment.
+
+**Whose events.** Every format above tells each visitor their own events:
+the request's user in JWT mode, the view's user with `--as`, nobody
+otherwise. Mail goes to its parties alone, a setting's value for a told
+setting alone, and every other event whole to an operator and held to its
+kind's row otherwise. An event the visitor is told nothing of is sent as
+its `id` with no `data`, as one the feed leaves out is.
 
 ```
 id: 1254
@@ -1954,7 +1978,7 @@ where it stopped if it still lives. A quiet stream gets a comment line
 every 20 seconds, which finds a client that went away without closing.
 
 **How many.** The open streams are limited, since each holds a
-subscription of the yard and the view does not know whose it is:
+subscription of the yard, and the count is of connections, not users:
 
 | | limit | past it |
 |---|---|---|

@@ -176,10 +176,22 @@ func jwtServer(t *testing.T, st store.API, jwks *jwksStub, header string, users 
 }
 
 // serveJWT serves a yard in JWT mode against the stub's keys, carrying the
-// header ("" for the default) and the users table.
+// header ("" for the default) and the users table. The mapped users are
+// users of the yard: a token for one it removed is refused.
 func serveJWT(t *testing.T, jwks *jwksStub, header string, users map[string]string) (*httptest.Server, *web.Server) {
 	t.Helper()
-	srv, _ := jwtServer(t, storetest.New(t), jwks, header, users)
+	st := storetest.New(t)
+	srv, _ := jwtServer(t, st, jwks, header, users)
+	seen := map[string]bool{}
+	for _, user := range users {
+		if seen[user] {
+			continue
+		}
+		seen[user] = true
+		if _, err := st.AddUser(context.Background(), user, user); err != nil {
+			t.Fatal(err)
+		}
+	}
 	ts := httptest.NewServer(srv)
 	t.Cleanup(func() { shut(ts) })
 	return ts, srv
@@ -342,6 +354,52 @@ func TestJWTModeServesAndRefuses(t *testing.T) {
 	}
 	if got := jwtGet(t, ts, "/", header, signRSA(t, keys.a, "a", jwtClaims("stranger@example.net"))); !strings.Contains(got.body, "web_jwt_users") {
 		t.Errorf("the 403 names no setting: %q", got.body)
+	}
+}
+
+// A user the yard removed is refused on a running view, with no restart:
+// the email table is the start's, but the user is read now. Whoever is
+// still a user is served.
+func TestJWTRemovedUserRefused(t *testing.T) {
+	t.Parallel()
+	keys := mustJWTTestKeys(t)
+	jwks := newJWKStub(t, jwksDoc(t, rsaJWK("a", &keys.a.PublicKey)))
+	f := jwtFixture(t, jwks, "", map[string]string{"jo@example.net": "jo", "sam@example.net": "sam"})
+	ctx := context.Background()
+	must(t, f.st.SetSetting(ctx, store.OperatorSetting, "ada", "ada"))
+	for _, name := range []string{"jo", "sam"} {
+		must(t, func() error { _, err := f.st.AddUser(ctx, name, "ada"); return err }())
+	}
+	header := web.DefaultJWTHeader
+	jo := signRSA(t, keys.a, "a", jwtClaims("jo@example.net"))
+	if r := jwtGet(t, f.ts, "/", header, jo); r.status != 200 {
+		t.Fatalf("before the removal: status %d: %s", r.status, r.body)
+	}
+	head, err := f.st.Head(ctx)
+	must(t, err)
+	stream := f.stream(t, "/events?format=json&after="+strconv.FormatUint(head, 10), header, jo)
+	// The first event confirms the stream is following before the user is
+	// removed.
+	must(t, f.st.LogDispatch(ctx, "", "move_refused", "yard", map[string]any{"session": "s1", "reason": "not_allowed"}))
+	if got := stream.next(t); got.id <= head {
+		t.Fatalf("the stream's first event is %d, want after %d", got.id, head)
+	}
+	must(t, f.st.DeleteUser(ctx, "jo", "ada"))
+	// A live stream ends when the mapped yard user is removed too.
+	select {
+	case got, ok := <-stream.frames:
+		if ok {
+			t.Errorf("the stream sent event %d after the removal", got.id)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the stream did not end after the user was removed")
+	}
+	if r := jwtGet(t, f.ts, "/", header, jo); r.status != http.StatusForbidden || !strings.Contains(r.body, "no longer a user") {
+		t.Errorf("after the removal: status %d, want 403 naming the removed user: %s", r.status, r.body)
+	}
+	sam := signRSA(t, keys.a, "a", jwtClaims("sam@example.net"))
+	if r := jwtGet(t, f.ts, "/", header, sam); r.status != 200 {
+		t.Errorf("who is still a user: status %d, want 200: %s", r.status, r.body)
 	}
 }
 

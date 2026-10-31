@@ -65,10 +65,10 @@ import (
 //     operator's included: a device token never opens a pairing
 //     (socketOnly);
 //   - every call is made as the user the credential resolves to (asUser);
-//   - Settings answers the keys of deviceSettings and no other, and the
-//     stream carries the value of a setting_changed for those alone
-//     (deviceTold), so a lost token gives away no address or secret that
-//     the yard keeps in another setting;
+//   - Settings answers the keys of the store's device settings and no
+//     other, and the stream carries the value of a setting_changed for
+//     those alone (store.DeviceTold), so a lost token gives away no
+//     address or secret that the yard keeps in another setting;
 //   - Bead and UserAsks tell the file of a setup card's typed account, the
 //     candidates of the card, the yard's other accounts by file and the values
 //     they hold, and the file the account of an approved setup is set in, to a
@@ -243,36 +243,6 @@ func NewUserServer(st *store.Store, yard func(context.Context) string, log *slog
 	return u
 }
 
-// deviceSettings are the settings a device is told: the operator, the caps
-// on a file, and the operator's own words to the agents, the last to a
-// device of the operator alone (deviceTold). What docs/api.md promises, and
-// nothing else: no edge, no hook URL, no JWT audience, no backup directory.
-// Settings answers these alone, and a setting_changed carries its value for
-// these alone, so a lost device token gives away no address or secret of
-// the yard.
-var deviceSettings = []string{
-	store.OperatorSetting,
-	store.BlobMaxSetting,
-	store.FilesMaxSetting,
-	store.StyleSetting,
-	store.NoteSetting,
-}
-
-// deviceTold reports whether a device of user is told the setting key: one
-// of deviceSettings, but the operator's own words to the agents
-// (operator_style, operator_note) only when operator: the device's user is
-// an operator of the yard (isOperator). A yard without an operator tells the
-// words to no device, since there is nobody they are the words of.
-func deviceTold(key string, operator bool) bool {
-	if !slices.Contains(deviceSettings, key) {
-		return false
-	}
-	if key == store.StyleSetting || key == store.NoteSetting {
-		return operator
-	}
-	return true
-}
-
 // isOperator reports whether user is an operator of the yard: a user whose
 // role is store.RoleOperator, read now, so that a change of role moves the
 // next call with it. Nobody (""), a name that is no user, and a store that
@@ -295,8 +265,8 @@ func userOf(ctx context.Context) string {
 }
 
 // settings is Settings as a device is told it: the allow-listed settings
-// alone (deviceTold), the operator's own words to the agents only to a
-// device of the operator. The socket tells whoever calls, since an agent's
+// alone (store.DeviceTold), the operator's own words to the agents only to
+// a device of the operator. The socket tells whoever calls, since an agent's
 // session reads them there (yardr prime); over the network a device is a
 // person's, and anything else stays on the yard's own machine.
 func (u *UserServer) settings(ctx context.Context) (map[string]string, error) {
@@ -307,7 +277,7 @@ func (u *UserServer) settings(ctx context.Context) (map[string]string, error) {
 	operator := u.isOperator(ctx, userOf(ctx))
 	out := map[string]string{}
 	for key, value := range all {
-		if deviceTold(key, operator) {
+		if store.DeviceTold(key, operator) {
 			out[key] = value
 		}
 	}
@@ -1716,77 +1686,19 @@ func (u *UserServer) events(w http.ResponseWriter, r *http.Request) {
 }
 
 // deviceEvent is the event e as the device c is sent it, and whether it is
-// sent at all. Mail, a read receipt and a reaction go out only to the parties
-// of each, and whole. A setting_changed carries its value only for a setting
-// the device is told (deviceTold): the key of a setting is always told, since a
-// device matches on it alone for what it reads again, and the values it is not
-// told stay on the yard's own machine with the settings themselves. Every other
-// kind is told to a device of an operator whole, and to any other device with
-// the data its kind's row lists and no more (store.Event.WithoutHeld,
-// toldEvent): the files, the commands and the words of an error that name them
-// are an operator's configuration, and a kind that has no row tells no data.
-// A hook delivery goes out to every device, as a bead's events do: it is the
-// yard's news, told to no one user, and whose subscriptions it reached is on
-// the event. So does the hook_files that says its files are recorded:
-// DeliveryFiles and the blob route serve them to every device, so the event
-// that tells of them is sent to every one.
+// sent at all: the store's decision for the device's user (store.EventFor),
+// after the bead the event is of, which the web view's reads do not ask
+// after. A bead the device's user may not see is not told at all: the event
+// is dropped, as ListBeads drops the bead. The core policy lets everyone
+// see every bead, so the stream reads as before.
 func (u *UserServer) deviceEvent(ctx context.Context, c *Caller, e store.Event) (store.Event, bool) {
-	// A bead the device's user may not see is not told at all: the event
-	// is dropped, as ListBeads drops the bead. The core policy lets
-	// everyone see every bead, so the stream reads as before.
 	if e.Bead != nil {
 		if err := u.st.May(ctx, c.User, store.ActSee, store.Object{Kind: store.KindBead, Name: *e.Bead}); err != nil {
 			return store.Event{}, false
 		}
 	}
-	switch e.Kind {
-	case "mail":
-		// Whose inbox it is in is the store's to say (MailReceiver), as
-		// for the inbox itself: mail that left for a linked yard is its
-		// sender's alone.
-		return e, e.Actor == c.User || store.MailReceiver(e) == c.User
-	case "mail_read":
-		// The reader alone: who wrote what was read is not named, so a
-		// sender reads again whether its mail was read.
-		reader, _ := e.Data["reader"].(string)
-		if reader == "" {
-			reader = e.Actor
-		}
-		return e, reader == c.User
-	case "reaction":
-		// The reactor and the other party to the mail, as React names
-		// them: the reaction carries the mail's first words.
-		to, _ := e.Data["to"].(string)
-		return e, e.Actor == c.User || to == c.User
-	case "setting_changed":
-		key, _ := e.Data["key"].(string)
-		// An operator alone is told the words: read who is one now, so a
-		// change of role moves the next such event with it.
-		operator := (key == store.StyleSetting || key == store.NoteSetting) && u.isOperator(ctx, c.User)
-		told, _ := e.WithoutHeld()
-		if value, ok := e.Data["value"]; ok && deviceTold(key, operator) {
-			told.Data = maps.Clone(told.Data)
-			told.Data["value"] = value
-		}
-		return told, true
-	default:
-		return u.toldEvent(ctx, c, e), true
-	}
-}
-
-// toldEvent is the event e as the device c is sent it: whole for a device of
-// an operator, and for any other held to what the kind of e lists
-// (store.Event.WithoutHeld). The role is read now, as for their words, so that
-// a replay and a change of role move with it, and a yard whose users cannot be
-// read, or that has no operator, tells the held data to no device. It is read
-// only when something is held, since an event whose data is all told needs
-// nobody's word for it, and a stream replays a long log. The copy is the
-// device's own: the store hands one event, and one map of its data, to every
-// stream.
-func (u *UserServer) toldEvent(ctx context.Context, c *Caller, e store.Event) store.Event {
-	told, held := e.WithoutHeld()
-	if !held || u.isOperator(ctx, c.User) {
-		return e
-	}
-	return told
+	// Read who is an operator now, so a replay and a change of role move
+	// with it, and a yard whose users cannot be read, or that has no
+	// operator, tells the held data to no device.
+	return store.EventFor(c.User, u.isOperator(ctx, c.User), e)
 }

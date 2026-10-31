@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/json"
+	"net/http"
 	"reflect"
 	"slices"
 	"strings"
@@ -49,10 +50,13 @@ func (f *fixture) listOf(target, key string, headers ...string) (list any, head 
 // The lists answer what their list commands print with --json, under the
 // route's name, with the yard's head, and an empty list for a yard that
 // has none. Each has a page, so only a client that asks for JSON gets it.
+// Peers are the operator's to read, so the lists are read as the
+// operator's.
 func TestLists(t *testing.T) {
 	t.Parallel()
-	f := newFixture(t)
+	f, _ := talkFixture(t, "ada")
 	ctx := context.Background()
+	must(t, f.st.SetSetting(ctx, store.OperatorSetting, "ada", "ada"))
 	routes := map[string]func() any{
 		"depots": func() any { v, err := f.st.Depots(ctx); must(t, err); return v },
 		"groups": func() any { v, err := f.st.Groups(ctx); must(t, err); return v },
@@ -101,7 +105,7 @@ func TestLists(t *testing.T) {
 	}
 	_, key, err := ed25519.GenerateKey(nil)
 	must(t, err)
-	_, err = f.st.AddPeer(ctx, store.Peer{Name: "north", Key: store.Public(key), URL: "http://127.0.0.1:1"}, "me")
+	_, err = f.st.AddPeer(ctx, store.Peer{Name: "north", Key: store.Public(key), URL: "http://127.0.0.1:1"}, "ada")
 	must(t, err)
 	beads := f.byTitle()
 	must(t, f.st.AddDep(ctx, beads["one"].ID, beads["three"].ID, store.DepBlocks, "", "", "me"))
@@ -290,21 +294,23 @@ func TestConfigPages(t *testing.T) {
 
 // The peer and edge pages render the rows their list commands print:
 // `yardr peer list` and every bead's `yardr dep list`, each edge once, a
-// staged edge with the stages it names.
+// staged edge with the stages it names. Peers are the operator's to read,
+// so both pages are read as the operator's.
 func TestConfigPagesPeersDeps(t *testing.T) {
 	t.Parallel()
-	f := newFixture(t)
+	f, _ := talkFixture(t, "ada")
 	f.populate()
 	ctx := context.Background()
+	must(t, f.st.SetSetting(ctx, store.OperatorSetting, "ada", "ada"))
 	_, key, err := ed25519.GenerateKey(nil)
 	must(t, err)
-	_, err = f.st.AddPeer(ctx, store.Peer{Name: "north", Key: store.Public(key), URL: "http://127.0.0.1:1"}, "me")
+	_, err = f.st.AddPeer(ctx, store.Peer{Name: "north", Key: store.Public(key), URL: "http://127.0.0.1:1"}, "ada")
 	must(t, err)
 	_, key, err = ed25519.GenerateKey(nil)
 	must(t, err)
-	_, err = f.st.AddPeer(ctx, store.Peer{Name: "laptop", Key: store.Public(key)}, "me")
+	_, err = f.st.AddPeer(ctx, store.Peer{Name: "laptop", Key: store.Public(key)}, "ada")
 	must(t, err)
-	_, err = f.st.AllowPeer(ctx, "north", store.PeerAllow{Send: []string{"ping", "mail"}, Receive: []string{"ping"}}, "me")
+	_, err = f.st.AllowPeer(ctx, "north", store.PeerAllow{Send: []string{"ping", "mail"}, Receive: []string{"ping"}}, "ada")
 	must(t, err)
 
 	peers := squash(f.get("/peers").body)
@@ -355,7 +361,8 @@ func TestConfigPagesPeersDeps(t *testing.T) {
 	}
 
 	// An empty yard says so on each page.
-	empty := newFixture(t)
+	empty, _ := talkFixture(t, "ada")
+	must(t, empty.st.SetSetting(context.Background(), store.OperatorSetting, "ada", "ada"))
 	for path, want := range map[string]string{
 		"/peers": "This yard has no peers.",
 		"/deps":  "This yard has no edges.",
@@ -367,6 +374,44 @@ func TestConfigPagesPeersDeps(t *testing.T) {
 	// With no edges at all, no toggle to all of them.
 	if body := empty.get("/deps").body; strings.Contains(body, `aria-label="Edges"`) {
 		t.Error("/deps of an empty yard shows the open/all toggle with nothing behind it")
+	}
+}
+
+// /peers is the operator's to read: any other reader is refused, in HTML
+// and in JSON, and told no URL and no key.
+func TestPeersRefusedWithoutOperator(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	ctx := context.Background()
+	must(t, f.st.SetSetting(ctx, store.OperatorSetting, "ada", "ada"))
+	must(t, func() error { _, err := f.st.AddUser(ctx, "sam", "ada"); return err }())
+	_, key, err := ed25519.GenerateKey(nil)
+	must(t, err)
+	pub := store.Public(key)
+	_, err = f.st.AddPeer(ctx, store.Peer{Name: "north", Key: pub, URL: "http://127.0.0.1:1"}, "ada")
+	must(t, err)
+	member := f.as(t, "sam")
+	for _, v := range []struct {
+		name string
+		f    *fixture
+	}{
+		{"nobody", f},
+		{"a member", member},
+	} {
+		for _, accept := range []string{"text/html", "application/json"} {
+			r := v.f.get("/peers", "Accept", accept)
+			if r.status != http.StatusForbidden {
+				t.Errorf("%s (%s): /peers is %d, want 403", v.name, accept, r.status)
+			}
+			for _, told := range []string{"north", "http://127.0.0.1:1", pub} {
+				if strings.Contains(r.body, told) {
+					t.Errorf("%s (%s): the refusal tells %q", v.name, accept, told)
+				}
+			}
+		}
+	}
+	if r := f.as(t, "ada").get("/peers"); r.status != 200 {
+		t.Errorf("the operator: /peers is %d, want 200: %s", r.status, r.body)
 	}
 }
 
@@ -524,12 +569,14 @@ func TestConfigEscapes(t *testing.T) {
 	}
 }
 
-// The hub links to the six configuration pages, and each marks its own
-// Settings column row current and links back. The hub itself is static
+// The hub links to the configuration pages, for the operator — the six
+// lists with Peers in its place, and Telemetry last — and each marks its
+// own Settings column row current and links back. The hub itself is static
 // links with no live part; the column keeps the operator and JWT filters.
 func TestConfigHub(t *testing.T) {
 	t.Parallel()
-	f := newFixture(t)
+	f, _ := talkFixture(t, "ada")
+	must(t, f.st.SetSetting(context.Background(), store.OperatorSetting, "ada", "ada"))
 	f.populate()
 	hub := squash(f.get("/config").body)
 	for _, want := range []string{
@@ -539,10 +586,12 @@ func TestConfigHub(t *testing.T) {
 		`<a href="/peers">Peers</a>`,
 		`<a href="/deps">Deps</a>`,
 		`<a href="/limits">Limits</a>`,
+		`<a href="/telemetry">Telemetry</a>`,
 		`the repositories and directories beads are worked in`,
 		`first match wins`,
 		`the yards this one is linked with`,
 		`what the subscriptions the yard burns still carry`,
+		`opt-in telemetry switch`,
 		`<a href="/config" aria-current="page">Config</a>`,
 	} {
 		if !strings.Contains(hub, want) {
@@ -554,8 +603,9 @@ func TestConfigHub(t *testing.T) {
 	}
 	var got web.Config
 	f.getJSON("/config", &got)
-	if len(got.Links) != 6 || got.Links[0].Path != "/depots" || got.Links[2].Path != "/routes" ||
-		got.Links[3].Path != "/peers" || got.Links[4].Path != "/deps" || got.Links[5].Path != "/limits" || got.Head == 0 {
+	if len(got.Links) != 7 || got.Links[0].Path != "/depots" || got.Links[2].Path != "/routes" ||
+		got.Links[3].Path != "/peers" || got.Links[4].Path != "/deps" || got.Links[5].Path != "/limits" ||
+		got.Links[6].Path != "/telemetry" || got.Head == 0 {
 		t.Errorf("the hub as JSON: %+v", got)
 	}
 	for path, label := range map[string]string{
@@ -584,7 +634,6 @@ func TestConfigHub(t *testing.T) {
 			`<li><a href="/depots">Depots</a></li>`,
 			`<li><a href="/groups">Groups</a></li>`,
 			`<li><a href="/routes">Routes</a></li>`,
-			`<li><a href="/peers">Peers</a></li>`,
 			`<li><a href="/deps">Deps</a></li>`,
 			`<li><a href="/limits">Limits</a></li>`,
 		} {
@@ -592,19 +641,28 @@ func TestConfigHub(t *testing.T) {
 				t.Errorf("a member's column lacks %s: %s", want, body)
 			}
 		}
-		for _, foreign := range []string{`>Telemetry<`, `>Pair device<`} {
+		// Peers is the operator's to read: neither the hub nor the
+		// column links it for a member.
+		for _, foreign := range []string{`>Telemetry<`, `>Pair device<`, `<a href="/peers">Peers</a>`,
+			`<li><a href="/peers">Peers</a></li>`} {
 			if strings.Contains(body, foreign) {
 				t.Errorf("a member's column holds %s: %s", foreign, body)
 			}
 		}
-		// The operator sees Telemetry, and an unsigned view still does
-		// not see Pair device.
+		// The operator sees Peers and Telemetry, and an unsigned view
+		// still does not see Pair device.
 		op, _ := talkFixture(t, "jo")
 		must(t, func() error { _, err := op.st.AddUser(ctx, "jo", "jo"); return err }())
 		must(t, op.st.SetSetting(ctx, store.OperatorSetting, "jo", "jo"))
 		body = op.get("/config").body
-		if !strings.Contains(body, `<li><a href="/telemetry">Telemetry</a></li>`) {
-			t.Errorf("the operator's column holds no Telemetry: %s", body)
+		for _, want := range []string{
+			`<a href="/peers">Peers</a>`,
+			`<li><a href="/peers">Peers</a></li>`,
+			`<li><a href="/telemetry">Telemetry</a></li>`,
+		} {
+			if !strings.Contains(body, want) {
+				t.Errorf("the operator's column holds no %s: %s", want, body)
+			}
 		}
 		if strings.Contains(body, `>Pair device<`) {
 			t.Errorf("an unsigned view's column holds Pair device: %s", body)

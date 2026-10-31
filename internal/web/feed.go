@@ -528,7 +528,8 @@ func (s *Server) keptHome(ctx context.Context, f *Feed) []Entry {
 }
 
 // feed reads the newest feedPage entries with a seq under before (0: the
-// newest of all).
+// newest of all), as the request's user is told them (store.EventFor): an
+// event the user is told nothing of stands in no page.
 func (s *Server) feed(ctx context.Context, before uint64) (*Feed, error) {
 	head, err := s.st.Head(ctx)
 	if err != nil {
@@ -565,12 +566,13 @@ func (s *Server) feed(ctx context.Context, before uint64) (*Feed, error) {
 			return nil, err
 		}
 		rd := s.newReader(evs)
+		viewer, operator := s.acting(ctx), s.isOperator(ctx)
 		for i := len(evs) - 1; i >= 0 && len(f.Events) < feedPage; i-- {
 			if e := evs[i]; e.Seq < under {
 				under = e.Seq
-				if inFeed(e) {
-					f.Events = append(f.Events, rd.entry(ctx, e))
-					f.evs = append(f.evs, e)
+				if told, ok := store.EventFor(viewer, operator, e); ok && inFeed(told) {
+					f.Events = append(f.Events, rd.entry(ctx, told))
+					f.evs = append(f.evs, told)
 				}
 			}
 		}

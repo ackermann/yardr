@@ -15,7 +15,8 @@ import (
 // command in full, the directory, the port, the depot commit and dirty
 // mark, the proposer and the lifetime, the running preview's log tail,
 // and a stale mark when the depot HEAD has moved past the running
-// commit.
+// commit. The command and the log are the operator's to read; any other
+// reader gets the card without them.
 type Previews struct {
 	// As is the user the request acts as, "" when it acts as none: the
 	// card's buttons are drawn only for a request that acts.
@@ -112,6 +113,11 @@ func (s *Server) previewsPage(ctx context.Context, head uint64) (Previews, error
 	}
 	d := Previews{As: s.acting(ctx), Previews: []PreviewCard{},
 		Idle: age(store.PreviewIdle(settings)), MaxAge: age(store.PreviewAgeLimit), Head: head}
+	// The start command and the running preview's log are the operator's
+	// to read: a command names paths, and a log the words of what ran. A
+	// reader who is no operator gets the card without them, the
+	// approval's command with the card's: it is the same command.
+	operator := s.isOperator(ctx)
 	for _, p := range all {
 		c := PreviewCard{Preview: p}
 		// A row forgotten between the list and this read leaves the
@@ -120,9 +126,17 @@ func (s *Server) previewsPage(ctx context.Context, head uint64) (Previews, error
 			c.Head = h
 			c.Stale = h != "" && p.Commit != "" && h != p.Commit
 		}
-		if p.State == store.PreviewRunning {
+		if p.State == store.PreviewRunning && operator {
 			if lines, err := preview.LogTail(filepath.Join(s.home, "previews", p.App+".log"), 100); err == nil {
 				c.Log = lines
+			}
+		}
+		if !operator {
+			c.Command = ""
+			if c.Approval != nil {
+				approval := *c.Approval
+				approval.Command = ""
+				c.Approval = &approval
 			}
 		}
 		d.Previews = append(d.Previews, c)

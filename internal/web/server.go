@@ -306,7 +306,25 @@ func (s *Server) verifyJWT(w http.ResponseWriter, r *http.Request) (*http.Reques
 		http.Error(w, msg, code)
 		return nil, false
 	}
+	// The email table is the start's: a user removed since is read now,
+	// so no restart stands between an uninvite and the view refusing
+	// them. A store that cannot be read refuses nothing here; the page
+	// it is read for fails as it does without JWT mode.
+	if _, removed := s.jwtUserStatus(r.Context(), id.user); removed {
+		http.Error(w, "the gateway's token acts as "+id.user+", who is no longer a user of the yard", http.StatusForbidden)
+		return nil, false
+	}
 	return r.WithContext(context.WithValue(r.Context(), jwtUserKey{}, id)), true
+}
+
+// jwtUserStatus reads the mapped user now, so an open event stream follows
+// removals too. Other store errors keep the request's existing behaviour.
+func (s *Server) jwtUserStatus(ctx context.Context, user string) (operator, removed bool) {
+	u, err := s.st.GetUser(ctx, user)
+	if errors.Is(err, store.ErrNotFound) {
+		return false, true
+	}
+	return err == nil && u.IsOperator(), false
 }
 
 // misdirected answers a request whose Host header names no host of this

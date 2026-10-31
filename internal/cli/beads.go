@@ -572,9 +572,9 @@ func (a *app) newBeadHistoryCmd() *cobra.Command {
 	history := &cobra.Command{
 		Use:   "history <id>",
 		Short: "Show what happened to a bead, and what each update changed",
-		Long: `Every event of the bead the log still has, the oldest first: when, who and
-what, and under an update that changed the body, a diff of the body before
-and after it.
+		Long: `Every event of the bead the log still has, the oldest first: when, who
+and what, and under an update that changed the body, a diff of the body before
+and after it. What it tells is what its actor is told: the old values and diffs are the operator's.
 
 Only the log keeps what a bead was, so the history reaches back as far as
 the log does: yardr store prune removes events past their retention, of open
@@ -587,7 +587,7 @@ kept the previous values says that the body changed, without a diff.`,
 				return err
 			}
 			// The view's own reading, so the bead's page shows these lines.
-			h, err := web.History(c.Context(), st, args[0])
+			h, err := web.History(c.Context(), st, args[0], a.who())
 			if err != nil {
 				return err
 			}

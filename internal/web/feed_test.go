@@ -134,9 +134,11 @@ func TestFeedOtherWords(t *testing.T) {
 	api, own := storetest.NewOwned(t)
 	srv, err := web.NewServer(api, filepath.Join(t.TempDir(), ".depot"), nil)
 	must(t, err)
+	token := srv.ActAs("ada")
 	ts := httptest.NewServer(srv)
 	t.Cleanup(func() { shut(ts) })
 	f := &fixture{t: t, st: api, ts: ts}
+	f.signIn(srv, token)
 	ctx := context.Background()
 	b, err := api.CreateBead(ctx, store.NewBead{Title: "a window", Stage: "new"}, "me")
 	must(t, err)
@@ -158,7 +160,13 @@ func TestFeedOtherWords(t *testing.T) {
 		"command": "yardr bead done " + b.ID + " --outcome shipped", "error": "flow has no outcome shipped", "hint": "a long hint"}))
 	_, err = api.CloseBead(ctx, b.ID, "dropped", store.Expect{}, "me")
 	must(t, err)
-	must(t, api.SetSetting(ctx, "name", "north", "me"))
+	// operator_style, whose value the operator is told: a setting no
+	// device is told carries its key alone.
+	must(t, api.SetSetting(ctx, store.StyleSetting, "guide", "me"))
+	// The wording is the operator's to read whole: the view acts as ada,
+	// made the operator after the yard was staged, so no event of hers
+	// stands among the words below.
+	must(t, api.SetSetting(ctx, store.OperatorSetting, "ada", "ada"))
 
 	h := homeJSON(t, f, "/")
 	got := map[string]web.Entry{}
@@ -177,7 +185,7 @@ func TestFeedOtherWords(t *testing.T) {
 		"move_refused": {Text: "move refused (not allowed): yardr bead done " + b.ID + " --outcome shipped",
 			Note: "flow has no outcome shipped", Tone: "held"},
 		"closed":          {Text: "closed: dropped"},
-		"setting_changed": {Text: "setting changed", Note: "key name · value north"},
+		"setting_changed": {Text: "setting changed", Note: "key operator_style · value guide"},
 	} {
 		e := got[kind]
 		if e.Text != want.Text || e.Note != want.Note || e.Tone != want.Tone || e.Commit != "" {
@@ -754,11 +762,12 @@ func TestSlowClient(t *testing.T) {
 	must(t, err)
 	settle(t, "the client has no stream", func() bool { return srv.Streams() == 1 })
 
-	// More than the connection's buffers hold: 48 MB.
+	// More than the connection's buffers hold: 48 MB, in the stage the
+	// stream tells: a held value never reaches the socket.
 	big := strings.Repeat("x", 1<<20)
 	const n = 48
 	for range n {
-		must(t, st.LogDispatch(ctx, "", "backoff", "me", map[string]any{"reason": big}))
+		must(t, st.LogDispatch(ctx, "", "backoff", "me", map[string]any{"stage": big}))
 	}
 	settle(t, "the client that reads nothing still has its stream", func() bool { return srv.Streams() == 0 })
 }
@@ -785,10 +794,12 @@ func TestSlowClientNoHoldUp(t *testing.T) {
 	quick := openStream(t, ts.URL+"/events?format=json&after=0")
 	settle(t, "two clients are not two streams", func() bool { return srv.Streams() == 2 })
 
+	// In the stage the stream tells: a held value never reaches the
+	// socket, and the reading client is held every value.
 	big := strings.Repeat("x", 1<<10)
 	const n = 48
 	for range n {
-		must(t, st.LogDispatch(ctx, "", "backoff", "me", map[string]any{"reason": big}))
+		must(t, st.LogDispatch(ctx, "", "backoff", "me", map[string]any{"stage": big}))
 	}
 	for i := range n {
 		if fr := quick.next(t); fr.id != uint64(i+1) || len(fr.data) < len(big) {
@@ -917,11 +928,12 @@ func TestSteadyClient(t *testing.T) {
 	// event-line cap (rpc/client.go streamOf scans each line with it: a
 	// longer line ends the stream without the event, and the resubscribe
 	// after the last seen ends on the same line again, so a frame over
-	// the cap never arrives over the socket). 14 MiB of reason at 64 KB
+	// the cap never arrives over the socket). 14 MiB of stage at 64 KB
 	// every 50 ms is 224 pieces, 11.2 s of sleeps alone, past one 10 s
-	// deadline on any machine.
+	// deadline on any machine. The stage, which the stream tells: a held
+	// value never reaches the socket.
 	big := strings.Repeat("x", 14<<20)
-	must(t, st.LogDispatch(context.Background(), "", "backoff", "me", map[string]any{"reason": big}))
+	must(t, st.LogDispatch(context.Background(), "", "backoff", "me", map[string]any{"stage": big}))
 	var got []byte
 	// Whole when the frame's bytes are all here: the retry line comes
 	// first, so length alone is not the end.
@@ -963,9 +975,11 @@ func TestFeedTimers(t *testing.T) {
 	api, _ := storetest.NewOwned(t)
 	srv, err := web.NewServer(api, filepath.Join(t.TempDir(), ".depot"), nil)
 	must(t, err)
+	token := srv.ActAs("ada")
 	ts := httptest.NewServer(srv)
 	t.Cleanup(func() { shut(ts) })
 	f := &fixture{t: t, st: api, ts: ts}
+	f.signIn(srv, token)
 	ctx := context.Background()
 	_, err = api.AddUser(ctx, "jo", "me")
 	must(t, err)
@@ -981,6 +995,9 @@ func TestFeedTimers(t *testing.T) {
 	if pass.Fired != 2 {
 		t.Fatalf("pass = %+v", pass)
 	}
+	// What a timer says is the operator's to read, so the feed is read
+	// as the operator's, made one after the timers fired.
+	must(t, api.SetSetting(ctx, store.OperatorSetting, "ada", "ada"))
 
 	var texts []string
 	for _, e := range homeJSON(t, f, "/").Events {

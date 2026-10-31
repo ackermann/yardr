@@ -11,7 +11,7 @@ import (
 // is open: the kinds are many, they are written in many places, and a key a
 // writer adds says nothing of whether its value is a file of an operator's, a
 // command, an address or the words of an error that names one. So the data is
-// told by an allow-list, as a device's settings are (rpc.deviceSettings):
+// told by an allow-list, as a device's settings are (deviceSettings):
 // eventDataTold names, for each kind, the keys of its data the person is told,
 // and every other key is held, as is every key of a kind that has no row. A
 // kind added later tells no data until its author lists it, and rpc's
@@ -33,9 +33,11 @@ import (
 //
 // An operator is told every event whole. That is the caller's to decide,
 // since only it knows who is asking: the listener reads the role of a device's
-// user (rpc.UserServer.deviceEvent), and the store reads it for each user a
-// notification is written for (notify). The socket, the terminal, the agents
-// and the web view read the event whole from the store.
+// user and the web view the role of its visitor, both through EventFor, and
+// the store reads it for each user a notification is written for (notify).
+// The socket, `yardr events` and the agents read the event whole from the
+// store; `yardr bead history` reads it as its actor through EventFor, as the
+// bead's page does.
 var eventDataTold = map[string][]string{
 	// Beads, and what is done to them.
 	"created":            {"title", "stage", "type", "depot", "originator"},
@@ -376,6 +378,97 @@ func (e Event) WithoutHeld() (Event, bool) {
 	}
 	e.Data = data
 	return e, true
+}
+
+// EventFor is the event e as viewer is told it, and whether it is told at
+// all: the one decision the device stream and the web view share. Mail, a
+// read receipt and a reaction go out only to the parties of each, and
+// whole; nobody ("") is party to none. A setting_changed carries its value
+// only for a setting a device is told (DeviceTold): the key of a setting
+// is always told, since a device matches on it alone for what it reads
+// again, and the values it is not told stay on the yard's own machine with
+// the settings themselves. Every other kind is told to an operator whole,
+// and to anyone else with the data its kind's row lists and no more
+// (WithoutHeld): the files, the commands and the words of an error that
+// name them are an operator's configuration, and a kind that has no row
+// tells no data. A hook delivery goes out to every viewer, as a bead's
+// events do: it is the yard's news, told to no one user, and whose
+// subscriptions it reached is on the event. So does the hook_files that
+// says its files are recorded: DeliveryFiles and the blob route serve them
+// to every device, so the event that tells of them is sent to every one.
+// Whether viewer may see the bead of e is the caller's to ask (May with
+// ActSee), since only it has the store; the core policy lets everyone see
+// every bead.
+func EventFor(viewer string, operator bool, e Event) (Event, bool) {
+	switch e.Kind {
+	case "mail":
+		// Whose inbox it is in is the store's to say (MailReceiver), as
+		// for the inbox itself: mail that left for a linked yard is its
+		// sender's alone. Nobody is party to none, whatever an event
+		// with no actor, or mail that left, says: both read as "".
+		return e, viewer != "" && (e.Actor == viewer || MailReceiver(e) == viewer)
+	case "mail_read":
+		// The reader alone: who wrote what was read is not named, so a
+		// sender reads again whether its mail was read.
+		reader, _ := e.Data["reader"].(string)
+		if reader == "" {
+			reader = e.Actor
+		}
+		return e, viewer != "" && reader == viewer
+	case "reaction":
+		// The reactor and the other party to the mail, as React names
+		// them: the reaction carries the mail's first words.
+		to, _ := e.Data["to"].(string)
+		return e, viewer != "" && (e.Actor == viewer || to == viewer)
+	case "setting_changed":
+		key, _ := e.Data["key"].(string)
+		// The operator's own words to the agents alone are an
+		// operator's to read (DeviceTold): the caller reads who is one
+		// now, so a change of role moves the next such event with it.
+		words := operator && (key == StyleSetting || key == NoteSetting)
+		told, _ := e.WithoutHeld()
+		if value, ok := e.Data["value"]; ok && DeviceTold(key, words) {
+			told.Data = maps.Clone(told.Data)
+			told.Data["value"] = value
+		}
+		return told, true
+	default:
+		if operator {
+			return e, true
+		}
+		told, _ := e.WithoutHeld()
+		return told, true
+	}
+}
+
+// deviceSettings are the settings a device is told: the operator, the caps
+// on a file, and the operator's own words to the agents, the last to a
+// device of the operator alone (DeviceTold). What docs/api.md promises, and
+// nothing else: no edge, no hook URL, no JWT audience, no backup directory.
+// Settings answers these alone, and a setting_changed carries its value for
+// these alone, so a lost device token gives away no address or secret of
+// the yard. The web view tells a setting's value by the same list.
+var deviceSettings = []string{
+	OperatorSetting,
+	BlobMaxSetting,
+	FilesMaxSetting,
+	StyleSetting,
+	NoteSetting,
+}
+
+// DeviceTold reports whether the value of the setting key is told outside
+// the yard's own machine: one of deviceSettings, but the operator's own
+// words to the agents (operator_style, operator_note) only when operator:
+// the reader is an operator of the yard. A yard without an operator tells
+// the words to nobody, since there is nobody they are the words of.
+func DeviceTold(key string, operator bool) bool {
+	if !slices.Contains(deviceSettings, key) {
+		return false
+	}
+	if key == StyleSetting || key == NoteSetting {
+		return operator
+	}
+	return true
 }
 
 // loginTakebackLine reports whether the answer sentence line is the taking

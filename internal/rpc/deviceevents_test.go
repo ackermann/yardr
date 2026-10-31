@@ -303,7 +303,7 @@ func TestApprovalParagraphKindsTellApproved(t *testing.T) {
 // A row that lists one of these names is a mistake the table's author is asked
 // to look at again; the few that are not (a hook delivery is the sender's
 // words, and the files it names are the sender's) are said here. Mail is told
-// whole to its parties and to nobody else, which the listener decides, and no
+// whole to its parties and to nobody else, which EventFor decides, and no
 // other kind is.
 func TestNoRowTellsWhatNamesAFileOrACommand(t *testing.T) {
 	never := []string{"path", "dir", "worktree", "handle", "command", "argv", "test", "error", "hint", "tail", "line", "dialog",
@@ -331,6 +331,6 @@ func TestNoRowTellsWhatNamesAFileOrACommand(t *testing.T) {
 		}
 	}
 	if want := []string{"mail", "mail_read", "reaction"}; !slices.Equal(whole, want) {
-		t.Errorf("the kinds told whole are %v, want %v: those the listener tells to their parties alone", whole, want)
+		t.Errorf("the kinds told whole are %v, want %v: those EventFor tells to their parties alone", whole, want)
 	}
 }
