@@ -291,11 +291,15 @@ func TestAskCopiedByReach(t *testing.T) {
 
 // The answer of a name with reach lands on the ask for the user as a note
 // by name@peer, marked as the user's word, and takes the ask out of the
-// home queue. From any other name, and once the grant is taken back, it is
-// an answer to no ask this yard asked that yard.
+// home queue. From any other name, to an ask never copied there (whether
+// open or ended), and once the grant is taken back, it is an answer to no
+// ask this yard asked that yard.
 func TestReachAnswerLands(t *testing.T) {
 	// Sequential: the package's fake clock (via newHomeYard).
 	y := reachYard(t)
+	// Asked before reach was given: the grant sends what is asked from
+	// now on, so no copy of this one waits anywhere.
+	earlyBead, early := y.asked(t, linksAsk())
 	y.allow(t, PeerAllow{Reach: map[string]string{"mckean": "mckean"}})
 	bead, seq := y.asked(t, linksAsk())
 
@@ -316,7 +320,7 @@ func TestReachAnswerLands(t *testing.T) {
 	if got := y.take(t, y.answer(peerAnswer{From: "mckean", Bead: bead, Seq: otherSeq, Option: 1})); got.Refused != RefusedNoSuchAsk {
 		t.Fatalf("an answer to another user's ask = %+v", got)
 	}
-	if r := y.state(t, bead, seq); r.State != AskOpen || len(y.queue(t).Open) != 1 {
+	if r := y.state(t, bead, seq); r.State != AskOpen || len(y.queue(t).Open) != 2 {
 		t.Fatalf("after the refused answers: %v, %+v", r.State, y.queue(t).Open)
 	}
 
@@ -331,8 +335,31 @@ func TestReachAnswerLands(t *testing.T) {
 	if lines := strings.Join(r.LinesMarked(TrustedAs(ps)), "\n"); !strings.Contains(lines, "mckean@north (as mckean) picked 1 (Move them now): tonight") {
 		t.Fatalf("lines:\n%s", lines)
 	}
-	if q := y.queue(t); len(q.Open) != 0 || len(q.Decided) != 1 || q.Decided[0].Ask != seq {
+	if q := y.queue(t); len(q.Open) != 1 || len(q.Decided) != 1 || q.Decided[0].Ask != seq {
 		t.Fatalf("the home queue after the pick: %+v", q)
+	}
+	// Once the ask from before the grant ends here, a late answer is still
+	// refused: it was never sent to this peer and name.
+	if err := y.AddAnswer(y.ctx, earlyBead, Answer{Ask: early, Option: 1}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	if got := y.take(t, y.answer(peerAnswer{From: "mckean", Bead: earlyBead, Seq: early, Option: 1})); got.Refused != RefusedNoSuchAsk {
+		t.Fatalf("an answer to an ask from before the grant = %+v", got)
+	}
+	if r := y.state(t, earlyBead, early); r.State != AskAnswered || r.Current.Note.Author != "mckean" || r.Current.Answer.Option != 1 {
+		t.Fatalf("the ended ask from before the grant after it: %+v", r)
+	}
+	// A copied ask keeps its record after ending here, so an answer that
+	// was already on its way still lands as the newer pick.
+	endedBead, ended := y.asked(t, linksAsk())
+	if err := y.AddAnswer(y.ctx, endedBead, Answer{Ask: ended, Option: 2}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	if got := y.take(t, y.answer(peerAnswer{From: "mckean", Bead: endedBead, Seq: ended, Option: 1})); got.Refused != "" {
+		t.Fatalf("a late answer to the ended copied ask = %+v", got)
+	}
+	if r := y.state(t, endedBead, ended); r.State != AskAnswered || r.Current.Note.Author != "mckean@north" || r.Current.Answer.Option != 1 {
+		t.Fatalf("the ended copied ask after its late answer: %+v", r)
 	}
 
 	// The grant taken back before the answer arrives.

@@ -867,10 +867,10 @@ one yard stands aside in the others until the same time.
   copies then. A newer pick on an ask that has one is not told again.
 - **Who is told** is each name the ask was copied to, but for the one whose
   answer ended it, which knows. An answer from `mckean@airy` settles the
-  ask at a third yard and sends airy nothing. The yard keeps where each
-  open ask's copies went for this and for nothing else, and drops the
-  record with the answer that ends the ask; an aside keeps it, since the
-  ask is not ended. So a settle goes only where
+  ask at a third yard and sends airy nothing. The yard keeps the copy list
+  after the ask ends so an answer already on its way can still be checked
+  against it. An aside keeps its copies active, since the ask is not ended.
+  So a settle goes only where
   the question went: none for an ask that was open before the grant, and
   none for a copy that was given up. A name whose reach was taken back
   since, and a link that carries `ask` out no more, are told nothing, as
@@ -1499,7 +1499,7 @@ asker: notes stay local, mail stays the way to talk across.
 
 **The answer's way home.** The asking yard keeps no record of what it sent:
 the ask note is the record. (For an ask for one of its own users it keeps
-where the copies went, until the ask ends, to
+where the copies went, even after the ask ends, to
 [say that it did](#reach-a-users-asks-are-also-sent-to-the-name).) An answer is taken only for an ask that is on
 the named bead, with the named seq, addressed to a person of the answering
 yard, and only from that person. Trust gates nothing, since the yard
@@ -1508,8 +1508,14 @@ whose yard it is. An ask addressed to a user of this yard is answered from
 the other yard too, by a name the link gives
 [reach](#reach-a-users-asks-are-also-sent-to-the-name) for that user when
 the answer arrives. There the grant does gate: the yard solicited the
-answer by it, so it must stand. What is taken lands as a note of kind `answer` by the
-rules any answer lands by, written by `name@peer`: a newer pick supersedes
+answer by it, so it must stand. Only an ask with a copy record for that
+peer and name is answered. An ask never copied there, including one asked
+before the grant or one never queued, is refused as `no_such_ask`. The copy
+record stays after the ask ends so an answer already on its way can still
+be checked against it; the ask's state decides whether that answer takes
+a newer pick or is refused with its end. What is taken lands as a note of
+kind `answer` by the rules any answer lands by, written by `name@peer`: a
+newer pick supersedes
 for display and every pick stays; words on an ask with no options, and
 Decline, end it. Across yards "newer" is note order on the bead, never a
 clock: the note is stamped when it arrives. An ask picked in both yards,
@@ -1533,7 +1539,7 @@ send back an answer given to it.
 
 | reason | when |
 |---|---|
-| `no_such_ask` | no such bead, no ask of that seq on it, an ask addressed to someone who is no person of the answering yard, or an ask for a user of this yard from a name the link gives no reach for them (never given, or taken back since). An unsolicited answer, whoever is trusted |
+| `no_such_ask` | no such bead, no ask of that seq on it, an ask addressed to someone who is no person of the answering yard, or an ask for a user of this yard from a name the link gives no reach for them (never given, or taken back since), or that was never copied to that name. An unsolicited answer, whoever is trusted |
 | `wrong_person` | the answer is by another name than the one the ask is addressed to |
 | `ask_declined` | the ask was declined: it takes no further answer |
 | `ask_taken_back` | the ask was taken back by whoever asked it: it takes no further answer |

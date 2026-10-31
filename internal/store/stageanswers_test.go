@@ -875,7 +875,8 @@ func TestStageAnswerFromLink(t *testing.T) {
 }
 
 // An answer arriving over reach counts as the member's word where the link
-// trusts the name as them: it is taken and moves.
+// trusts the name as them: it is taken as words on the bead and moves
+// nothing, and the bead stays for the stage's members to move by hand.
 func TestStageAnswerTrustedMember(t *testing.T) {
 	t.Parallel()
 	s, own, ctx := stageAskYardOwned(t, stageAskChoice)
@@ -924,11 +925,15 @@ func TestStageAnswerTrustedMember(t *testing.T) {
 		map[string]any{"option": 2}); taken.Refused != "" {
 		t.Fatalf("the trusted answer = %+v", taken)
 	}
-	if cur, err := s.GetBead(ctx, b.ID); err != nil || cur.Stage != "new" {
+	if cur, err := s.GetBead(ctx, b.ID); err != nil || cur.Stage != "review" {
 		t.Fatalf("bead = %+v, %v", cur, err)
 	}
-	if outcome, ok := stageAnswerAdvanced(t, s, b.ID, "new"); !ok || outcome != "changes" {
-		t.Fatalf("advanced into new: outcome %q, found %v", outcome, ok)
+	if outcome, ok := stageAnswerAdvanced(t, s, b.ID, "new"); ok || outcome != "" {
+		t.Fatalf("advanced into new: outcome %q, found %v; want the bead left in review", outcome, ok)
+	}
+	got = stageAsks(t, s, b.ID)
+	if len(got) != 1 || got[0].State != store.AskAnswered || got[0].Current.Note.Author != "ada@north" || got[0].Current.Answer.Option != 2 {
+		t.Fatalf("the card = %+v", got)
 	}
 }
 

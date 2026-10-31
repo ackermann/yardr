@@ -1770,7 +1770,7 @@ internal/store/crew.go 1585 crew records and their events
 internal/store/flows.go 1454 flow parsing and storage
 internal/store/graph.go 1316 the dependency graph and its queries
 internal/store/hooks.go 1118 webhook parsing and the say shapes
-internal/store/peerasks.go 1239 peer asks, their answers and ask copies
+internal/store/peerasks.go 1076 peer asks, their answers and ask copies
 internal/store/peerbeads.go 1763 peer bead intake and fetching
 internal/store/peers.go 1617 peer records and their allowances
 internal/store/peersend.go 1261 sending beads to peers and settling them

@@ -285,8 +285,8 @@ func ParseAnswer(n Note) (Answer, error) {
 // asked, since the writer addressed a user of this yard and it is the
 // operator's grant that sends the copy: a crew member without the peer and
 // a bead's agent are copied too. A copy that cannot be queued is told to
-// the person and refuses nothing. Where the copies went is kept until the
-// ask ends (bAskCopies), and so is where an ask addressed across went.
+// the person and refuses nothing. The copies stay in bAskCopies for
+// late-answer checks, as does where an ask addressed across went.
 // From a session's or a crew member's pane the ask is recorded as that
 // session's actor or that crew member, whatever actor says; from anywhere
 // else, as given (paneAuthor).
