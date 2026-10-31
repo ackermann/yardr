@@ -1375,9 +1375,9 @@ func (w *wtx) setOriginator(ctx context.Context, id, to string, exp Expect, acto
 // update is recorded as that session's actor or that crew member, whatever
 // actor says; from anywhere else, as given (paneAuthor). A bead's agent
 // may not change a bead's type or depot (checkFlowChange), may say
-// merge-ok, or record merge_head, only on its own bead (checkMergeOK), may
-// record reviewed_head only on its own too (checkReviewedHead), and may not
-// record ci_head on any (checkCIHead).
+// merge-ok only on its own bead and may not record merge_head on any
+// (checkMergeOK), may record reviewed_head only on its own (checkReviewedHead),
+// and may not record ci_head on any (checkCIHead).
 func (s *Store) UpdateBead(ctx context.Context, id string, p BeadPatch, exp Expect, actor string) (*Bead, error) {
 	if p.Title != nil && strings.TrimSpace(*p.Title) == "" {
 		return nil, fmt.Errorf("a bead needs a title")
@@ -2265,25 +2265,25 @@ const (
 	metaMergeHead = "merge_head"
 )
 
-// checkMergeOK refuses a bead's agent (beadAgent) a patch that grants or
-// takes the merge-ok label, or records merge_head, on a bead its session
-// does not own. The label is the whole of the permission to merge the pull
-// request, so an agent that could say it on another bead could have the
-// yard merge a pull request nobody cleared: the reviewer says it on the
-// pull request it read, and a maintainer's yes is theirs. check alone lets
-// a pane write any bead no session owns, which a pull request waiting at
-// approved is.
+// checkMergeOK refuses a bead's agent (beadAgent) a patch that records
+// merge_head, on any bead, its own included, and one that grants or takes the
+// merge-ok label on a bead its session does not own. merge_head is the commit
+// a maintainer said yes to, so it is a person's to write; the reviewer's part
+// is the label, for a bot's bump, which merge-pr merges at the head it has.
+// The label is the whole of the permission to merge the pull request, so an
+// agent that could say it on another bead could have the yard merge a pull
+// request nobody cleared. check alone lets a pane write any bead no session
+// owns, which a pull request waiting at approved is.
 func (w *wtx) checkMergeOK(ctx context.Context, b *beadRow, p BeadPatch) error {
-	if !slices.Contains(p.AddLabels, labelMergeOK) && !slices.Contains(p.RemoveLabel, labelMergeOK) {
-		if _, ok := p.Metadata[metaMergeHead]; !ok {
-			return nil
-		}
+	_, yes := p.Metadata[metaMergeHead]
+	if !yes && !slices.Contains(p.AddLabels, labelMergeOK) && !slices.Contains(p.RemoveLabel, labelMergeOK) {
+		return nil
 	}
 	sess, err := beadAgent(w.Tx, ctx)
-	if err != nil || sess == nil || sess.Bead == b.UUID {
+	if err != nil || sess == nil || (sess.Bead == b.UUID && !yes) {
 		return err
 	}
-	return fmt.Errorf("bead %s: the session %s of a bead's agent may say merge-ok only on its own bead %s, whatever actor the command names; the reviewer says it on the pull request it read, and a maintainer's yes is theirs: yardr bead note %s \"why it is merge-ok\"",
+	return fmt.Errorf("bead %s: the session %s of a bead's agent may say merge-ok only on its own bead %s and may not record merge_head on any, whatever actor the command names; the reviewer says merge-ok on the pull request it read, and a maintainer's yes is theirs: yardr bead note %s \"why it is merge-ok\"",
 		b.ID, sess.ID, handlesIn(w.Tx).of(sess.Bead), b.ID)
 }
 

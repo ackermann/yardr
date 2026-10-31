@@ -2608,7 +2608,7 @@ func TestContributorsTextsSayWhatIsNotRun(t *testing.T) {
 			"The yard tests only a head a reviewer read",
 			"is merged by the yard, as its GitHub App and in no person's\nname",
 			"yardr bead update <id> --add-label merge-ok --meta merge_head=<sha>",
-			"That is how a yes reaches the bead, whoever types it.",
+			"That is how a yes reaches the bead, whoever types it. A bead's agent may not:\n`merge_head` is refused to it on any bead, its own included.",
 			"a head that\nmoved since is held, not merged",
 			"Nothing of the yard pushes to a pull\nrequest",
 		},

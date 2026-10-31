@@ -18,8 +18,9 @@ commit they looked at on the pull request's page:
 
     yardr bead update <id> --add-label merge-ok --meta merge_head=<sha>
 
-That is how a yes reaches the bead, whoever types it. A pull request that
-is not a bot's from a branch of the repository itself (a fork, a person's
+That is how a yes reaches the bead, whoever types it. A bead's agent may not:
+`merge_head` is refused to it on any bead, its own included. A pull request
+that is not a bot's from a branch of the repository itself (a fork, a person's
 branch, a bot's fork) is merged at that commit and at no other: a head that
 moved since is held, not merged. A bot's pull request from the repository
 itself is merged at the head it has when the yard looks, which nothing

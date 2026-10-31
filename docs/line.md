@@ -1849,6 +1849,10 @@ command that gives it with the head commit they looked at:
 yardr bead update <id> --add-label merge-ok --meta merge_head=<sha>
 ```
 
+A bead's agent gives `merge-ok` on its own bead only, which is all the
+reviewer does for a bump, and is refused `merge_head` on any bead, its own
+included: the sha is recorded by a person.
+
 merge-pr reads the pull request from the bead's tracks link, which must be
 `https://github.com/<owner>/<repo>/pull/<n>` and nothing else, and asks
 GitHub as the yard's App with an installation token minted for that one
