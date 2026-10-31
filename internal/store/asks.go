@@ -716,11 +716,11 @@ func (s *Store) AskNew(ctx context.Context, nb NewBead, ask Ask, actor string) (
 // alone on an ask with no options, Later, or Decline with why.
 //
 // A plain ask takes its answer only from whom it was put to or an
-// operator; anyone else's is refused naming the addressee. A run, secret
-// or setup ask takes Later and a decline from anyone here, and its settling
-// answer through its own approval alone; a mapping ask takes Later from
-// anyone and a decline from whom it was put to; a stage ask takes every
-// answer from its members alone (below).
+// operator; anyone else's is refused naming the addressee. A run, secret,
+// setup or depot-push ask takes Later and a decline under the same rule, and
+// its settling answer through its own approval alone; a mapping ask takes
+// Later from anyone and a decline from whom it was put to; a stage ask takes
+// every answer from its members alone (below).
 //
 // A declined ask and an ask answered with words take no further answer; a
 // picked ask takes only a newer pick, which supersedes for display. Words
@@ -998,8 +998,9 @@ func answerShape(id string, ans *Answer) error {
 // names among notes, the notes of the bead id, at the time at: the one set
 // of rules for an answer written here, one queued home to another yard, and
 // one another yard sent home. mayAnswer asks the policy whether the
-// answerer may answer a plain ask put to to (ActAnswerAsk); nil where
-// the answer is recorded as the addressee's, checked before. With the
+// answerer may answer an ask put to to (ActAnswerAsk): any answer to a plain
+// ask, and Later or a decline to a run, secret, setup or depot-push ask; nil
+// where the answer is recorded as the addressee's, checked before. With the
 // refusal it answers what the other yard is told of one that came from
 // there: RefusedNoSuchAsk for an ask that is none, RefusedAskDeclined,
 // RefusedAskAnswered and RefusedAskTakenBack for one that takes no further
@@ -1024,11 +1025,10 @@ func answerable(id string, notes []Note, ans Answer, at time.Time, actor string,
 	}
 	// Whose before what and what state it is in: a plain ask is its
 	// addressee's or an operator's to answer, and nobody else is told
-	// whether it would otherwise land. A stage ask answers to its
-	// members (stageAnswer); a run, secret or setup ask to its own
-	// approval, with Later and a decline anyone's here; a mapping ask
-	// to whom it was put to (answerMapping), with Later anyone's.
-	if ask.Stage == "" && ask.Secret == nil && ask.Run == nil && ask.Setup == nil && ask.DepotPush == nil && ask.Identity == nil && mayAnswer != nil {
+	// whether it would otherwise land. Later and a decline on an approval card
+	// are held to the same. A stage ask: stageAnswer; a mapping ask: answerMapping.
+	approval := ask.Secret != nil || ask.Run != nil || ask.Setup != nil || ask.DepotPush != nil
+	if ask.Stage == "" && ask.Identity == nil && mayAnswer != nil && (!approval || ans.Decline || ans.Later) {
 		if err := mayAnswer(ask.To); err != nil {
 			return "", err
 		}

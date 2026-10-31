@@ -2012,7 +2012,12 @@ func TestUserOtherCallsTellNoFileOrCommandToADeviceThatIsNotTheOperators(t *test
 // no terminal to approve at, so the setup that brings a program, a strong
 // card, is approved the same way. The approval is recorded and left for the
 // server to carry out, and the answer's event says it came by the edge and
-// claims no witness.
+// claims no witness. The account a setup types is a secret, and on a yard
+// that is not hosted none crosses the edge
+// (TestUserGiveSecretIsNotTakenOverTheLink): an approval that types it is
+// refused in the link's words, whatever else its body holds, and the ask
+// stays open; one that types none, a candidate taken or the account kept,
+// holds no secret and crosses. A hosted yard takes the typed account too.
 func TestUserApprovesASetupAskOverTheLink(t *testing.T) {
 	ctx := context.Background()
 	y, _ := setupYard(t)
@@ -2049,18 +2054,33 @@ func TestUserApprovesASetupAskOverTheLink(t *testing.T) {
 	}
 	// The plain pack brings no program, so its card carries no code, and
 	// takes the account typed rather than a candidate; it is approved over
-	// the link the same way.
-	plain, err := y.st.AddAsk(ctx, "yd-crm", store.Ask{Question: "Set up the plain source?", To: "jo",
-		Context: []string{"the night run reads through it."},
-		Setup:   &store.AskSetup{Pack: "plain", To: []store.Grantee{{Crew: "yardmaster"}}}}, "yardmaster")
-	if err != nil {
-		t.Fatal(err)
+	// the link the same way. A hosted yard takes the typed account down the
+	// link: the service runs the edge and the machine the yard lives on, so
+	// a refusal would guard nothing. A device the edge says came in plain
+	// HTTP is refused as an approval ever is.
+	plainAsk := func(t *testing.T, y *secretYard) uint64 {
+		t.Helper()
+		n, err := y.st.AddAsk(ctx, "yd-crm", store.Ask{Question: "Set up the plain source?", To: "jo",
+			Context: []string{"the night run reads through it."},
+			Setup:   &store.AskSetup{Pack: "plain", To: []store.Grantee{{Crew: "yardmaster"}}}}, "yardmaster")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return n
 	}
-	w = y.post("ApproveSetup", edgelink.RemoteAddr, y.jo, strings.NewReader(
-		fmt.Sprintf(`{"bead":"yd-crm","ask":%d,"option":1,"values":{"PLAIN_TOKEN":%q},"weighed":true}`, plain, candidateAddress)))
+	plain := plainAsk(t, y)
+	typed := fmt.Sprintf(`{"bead":"yd-crm","ask":%d,"option":1,"values":{"PLAIN_TOKEN":%q},"weighed":true}`, plain, candidateAddress)
+	w = y.post("ApproveSetup", edgelink.RemoteAddr, y.jo, strings.NewReader(typed), "X-Forwarded-Proto", "http")
+	if !strings.Contains(w.Body.String(), "an approval is taken over https only, or from the yard's own machine") {
+		t.Fatalf("a typed account said plain by the edge is answered %s", w.Body)
+	}
+	w = y.post("ApproveSetup", edgelink.RemoteAddr, y.jo, strings.NewReader(typed))
 	got.Result = nil
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil || got.Result == nil {
 		t.Fatalf("answered %d %s (%v)", w.Code, w.Body, err)
+	}
+	if !slices.Equal(got.Result.Given, []string{"PLAIN_TOKEN"}) {
+		t.Errorf("the approval is %+v, want PLAIN_TOKEN typed", got.Result)
 	}
 	if rec, err := y.st.CarryOf(ctx, "yd-crm", plain); err != nil || rec == nil || rec.State != store.CarryApproved {
 		t.Fatalf("the approval left the carrying out %+v, %v", rec, err)
@@ -2069,4 +2089,92 @@ func TestUserApprovesASetupAskOverTheLink(t *testing.T) {
 	if last := noted[len(noted)-1]; last.Actor != "jo" || store.Via(last) != "phone via edge" {
 		t.Errorf("the answer's event is %+v, want jo's via phone via edge", last)
 	}
+
+	// A yard that is not hosted takes no typed account down the link,
+	// whatever shape the body has, and says so in the words of every other
+	// secret refused there, without a word of what was sent. It keeps the
+	// account that stands, which types nothing, as before.
+	t.Run("not hosted", func(t *testing.T) {
+		y, _ := setupYard(t)
+		plain := plainAsk(t, y)
+		typed := fmt.Sprintf(`{"bead":"yd-crm","ask":%d,"option":1,"values":{"PLAIN_TOKEN":%q},"weighed":true}`, plain, candidateAddress)
+		const never = "a secret never crosses the edge: this request came down the link from the edge. " +
+			"Answer on the yard's machine (ssh -t <host> yardr bead answer <bead> <ask> <n> --secret)." +
+			" The edge saw what was sent with it: if it was a real key, make a new one at the service."
+		for _, c := range []struct{ name, body string }{
+			{"the account typed", typed},
+			{"the account typed beside a candidate", strings.Replace(typed, `"weighed"`, `"account":"courier-existing","weighed"`, 1)},
+			{"values that are no object of strings", fmt.Sprintf(`{"bead":"yd-crm","ask":%d,"option":1,"values":%q,"weighed":true}`, plain, candidateAddress)},
+			{"a case-folded name", strings.Replace(typed, `"values"`, `"Values"`, 1)},
+			{"the array of yardr's own builds", fmt.Sprintf(`["yd-crm", %d, 1, {"PLAIN_TOKEN":%q}, "", "jo", true]`, plain, candidateAddress)},
+			{"no body", ``},
+		} {
+			t.Run(c.name, func(t *testing.T) {
+				w := y.post("ApproveSetup", edgelink.RemoteAddr, y.jo, strings.NewReader(c.body))
+				var refused struct {
+					Error *wireError `json:"error"`
+				}
+				if err := json.Unmarshal(w.Body.Bytes(), &refused); err != nil || refused.Error == nil || refused.Error.Message != never {
+					t.Fatalf("answered %d %s (%v), want the refusal %q", w.Code, w.Body, err, never)
+				}
+				if strings.Contains(w.Body.String(), candidateAddress) {
+					t.Errorf("answered %s, with what was typed", w.Body)
+				}
+			})
+		}
+		if rec, err := y.st.CarryOf(ctx, "yd-crm", plain); err != nil || rec != nil {
+			t.Fatalf("the refused approvals left %+v, %v", rec, err)
+		}
+		if q, _ := y.queue(t, y.jo); !slices.ContainsFunc(q.Open, func(a store.OpenAsk) bool { return a.Ask == plain }) {
+			t.Fatalf("jo's open asks are %+v after the refusals, want the plain setup among them", q.Open)
+		}
+		// The plain source stands in the yard with its account in its file,
+		// so the pack's card is an update that keeps it with a bare pick,
+		// and that crosses: a device the edge says came in plain HTTP is
+		// refused as an approval ever is.
+		if _, err := y.st.PutSource(ctx, "plain.yaml", plainDecl, "jo"); err != nil {
+			t.Fatal(err)
+		}
+		file := filepath.Join(filepath.Dir(y.db), "sources", "plain.env")
+		if err := os.WriteFile(file, []byte("PLAIN_TOKEN="+candidateAddress+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		kept := plainAsk(t, y)
+		keep := fmt.Sprintf(`{"bead":"yd-crm","ask":%d,"option":1,"weighed":true}`, kept)
+		w := y.post("ApproveSetup", edgelink.RemoteAddr, y.jo, strings.NewReader(keep), "X-Forwarded-Proto", "http")
+		if !strings.Contains(w.Body.String(), "an approval is taken over https only, or from the yard's own machine: the proxy in front of the yard says this request came to it in plain HTTP") {
+			t.Fatalf("a keep said plain by the edge is answered %s", w.Body)
+		}
+		w = y.post("ApproveSetup", edgelink.RemoteAddr, y.jo, strings.NewReader(keep))
+		var got struct {
+			Result *store.AskSetupApproved `json:"result"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil || got.Result == nil {
+			t.Fatalf("answered %d %s (%v)", w.Code, w.Body, err)
+		}
+		if !got.Result.Keep || len(got.Result.Given) != 0 {
+			t.Errorf("the approval is %+v, want the account kept and none typed", got.Result)
+		}
+		if rec, err := y.st.ClaimCarry(ctx, "boot", time.Now()); err != nil || rec == nil || rec.Bead != "yd-crm" || rec.Ask != kept {
+			t.Fatalf("the approval left the carrying out %+v, %v", rec, err)
+		}
+		noted := eventsOfKind(t, y.st, "noted")
+		if last := noted[len(noted)-1]; last.Actor != "jo" || store.Via(last) != "phone via edge" {
+			t.Errorf("the answer's event is %+v, want jo's via phone via edge", last)
+		}
+		// Taking the listed account holds no typed value, so it crosses on a
+		// connected yard just as keeping the account that stands does.
+		candidate := y.askSetup(t, "jo")
+		pick := fmt.Sprintf(`{"bead":"yd-crm","ask":%d,"option":1,"account":"courier-existing","weighed":true}`, candidate)
+		w = y.post("ApproveSetup", edgelink.RemoteAddr, y.jo, strings.NewReader(pick))
+		var picked struct {
+			Result *store.AskSetupApproved `json:"result"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &picked); err != nil || picked.Result == nil {
+			t.Fatalf("answered %d %s (%v), want the candidate approval", w.Code, w.Body, err)
+		}
+		if picked.Result.Account != "courier-existing" || len(picked.Result.Given) != 0 || picked.Result.Keep {
+			t.Errorf("the approval is %+v, want courier-existing taken", picked.Result)
+		}
+	})
 }

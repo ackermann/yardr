@@ -673,6 +673,9 @@ func TestSecretAskTakesNoWords(t *testing.T) {
 	if kept, _ := json.Marshal(evs); bytes.Contains(kept, []byte(typed)) {
 		t.Fatal("an event holds what was typed")
 	}
+	// Later and a decline are the addressee's or an operator's, as on any
+	// ask: another user and a crew member can neither hide the card nor end it.
+	y.refusesStrangers(t, seq)
 	if err := y.DeferAsk(y.ctx, y.bead, seq, "mckean"); err != nil {
 		t.Fatalf("putting a secret ask aside: %v", err)
 	}

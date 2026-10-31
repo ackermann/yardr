@@ -161,6 +161,8 @@ func TestDepotPushCardAndApprovalDefersToCarrier(t *testing.T) {
 	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "yardmaster", true, nil); err == nil || !strings.Contains(err.Error(), "approving a command is") {
 		t.Fatalf("crew approval = %v, want the operator's refusal", err)
 	}
+	// Nor does anyone but the operator put the card aside or decline it.
+	y.refusesStrangers(t, seq)
 	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true, nil)
 	if err != nil {
 		t.Fatal(err)

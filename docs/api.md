@@ -1062,7 +1062,8 @@ that reached the listener from the yard's own machine, where the proxy or
 tunnel that ends TLS stands (or a client on that machine) — the two
 approvals, `SessionScreen` and the teammates calls also down the link from
 the edge, and `GiveSecret` there for every secret on a hosted yard and for
-the code of a harness login alone on any other
+the code of a harness login alone on any other, `ApproveSetup` with the
+account typed being a secret there too
 ([edge.md](edge.md#footplate-through-the-link)) — and never from one whose
 proxy says it came in plain (`X-Forwarded-Proto: http`; the header is read
 for a no and never for a yes). Any other is refused with
@@ -1113,6 +1114,18 @@ person to the yard's own machine. On either yard a device of a user who is
 not the operator is refused its own giving down the link in the same words,
 and a giving that is taken is held to the approvals' rule there: when the
 edge says the device reached it in plain HTTP, it is refused as they are.
+
+`ApproveSetup` carries a secret when it types the account (`values`), and is
+held to the same rule down the link. A hosted yard takes it whole. Any other
+yard takes it without `values`, a candidate taken (`account`) or the account
+kept (neither), which hold no secret, and refuses it with `values` in the
+words of every other secret there, which send the person to the yard's own
+machine (`yardr bead answer <bead> <ask> <n> --secret`). It reads the body to
+tell, as it does for a giving, and a body it cannot read as the arguments of
+the call is refused so too. A client does not offer to type a setup's account
+down the link of a yard that is not hosted: it says "answer it at the yard".
+The refusal comes after the request has crossed, so it cannot keep the edge
+from having read what was sent; its words say so, as they do for a giving.
 
 A hosted yard takes `GiveSecret`, `SourceGrants`, `SessionScreen`,
 `Teammates`, `UninviteTeammate` and `TelemetryShow` from one peer besides
@@ -4650,7 +4663,7 @@ POST /call/Bead
 | `asks[].ran.argv` | array of string | the command that ran, in words: the one the ask proposed; on a setup ask, `setup` with the pack's name. On a run ask that set a setting or added a source, told to a device of the operator alone ([over the network](#over-the-network)): `[]` on any other device's card, and on every device's of a yard with no operator. A depot-push card and its `ran` are absent for devices of nonoperators. The socket tells the whole card |
 | `asks[].ran.result` | string | what the command printed, made by the yard: a line for each thing it changed, with a line break between them; on a setup ask or depot-push ask not yet carried out, `approved, to be carried out`, and afterwards what the carrying out printed. Its line `the account <names> is set in <file>` names the file the account is set in, which is the candidate's when the approval took one, and the words of a carrying out that failed can name it too, and the candidate's source: both are told to a device of the operator alone ([over the network](#over-the-network)). A depot-push result is told to a device of the operator alone too; any other device is told `the account <names> is set` for that line and, for a failure, that it failed and no more; so is every device of a yard with no operator. The socket tells the whole result |
 | `asks[].ran.pending_reason` | string, may be absent | while an approved member invite or removal is still owed after a signed 429 or 503, why the edge refused its report, in the edge's words. It is cleared when the report lands or the carrying out fails, and is told to a device of the current operator alone; other devices are told none |
-| `asks[].setup` | object, may be absent | the setup a setup ask proposes: the pack with the yard's sentences for what approving it does, the account to type beside the preset pick or the candidates to take instead (on an update, the account that already stands), and the presets the ask's options count. Absent on any other ask. `AnswerAsk` refuses a pick and words on it, `DeferAsk` and `DeclineAsk` take it as any ask, and it is approved with [`ApproveSetup`](#for-the-operator-alone), by the operator: at the yard (`yardr bead answer <bead> <ask> <n> --secret`, `--account <source>` where the card lists a candidate, or a bare `<n>` where the card is `given`), or from a device of the operator. A strong card ([weighty cards](#weighty-cards)) is approved from a device as any weighty card is; the bead page approves it only on a hosted yard, under a fresh sign-in. All of `setup` is the yard's, made when the ask was written, and none of it the asker's: show it apart from `question` and `context`, which are the asker's words, and draw those as plain text |
+| `asks[].setup` | object, may be absent | the setup a setup ask proposes: the pack with the yard's sentences for what approving it does, the account to type beside the preset pick or the candidates to take instead (on an update, the account that already stands), and the presets the ask's options count. Absent on any other ask. `AnswerAsk` refuses a pick and words on it, `DeferAsk` and `DeclineAsk` take it as any ask, and it is approved with [`ApproveSetup`](#for-the-operator-alone), by the operator: at the yard (`yardr bead answer <bead> <ask> <n> --secret`, `--account <source>` where the card lists a candidate, or a bare `<n>` where the card is `given`), or from a device of the operator, but for the account typed down the link from the edge, which a yard that is not hosted refuses ([TLS is yours](#tls-is-yours-and-the-clients-rule)). A strong card ([weighty cards](#weighty-cards)) is approved from a device as any weighty card is; the bead page approves it only on a hosted yard, under a fresh sign-in. All of `setup` is the yard's, made when the ask was written, and none of it the asker's: show it apart from `question` and `context`, which are the asker's words, and draw those as plain text |
 | `asks[].setup.pack` | string | the embedded pack to set up, of kind source, whose `yardr pack show <pack>` prints the presets numbered |
 | `asks[].setup.base` | string, may be absent | the selected region base name; absent when calls go to the declarations' own bases |
 | `asks[].setup.label` | string, may be absent | the build the pack is embedded in, as the card shows it |
@@ -5198,7 +5211,7 @@ POST /call/AnswerAsk
 
 ### `DeferAsk`
 
-Puts the ask aside: it leaves the person's queue for 24 hours or until the asker's next note on the bead, whichever is first. It is what `yardr bead answer` does with `--later`. On a `bead@peer` it is 24 hours by this yard's clock and nothing else, and the put-aside travels home as an answer does. It answers nothing; putting it aside is then a `noted` event in the stream.
+Puts the ask aside: it leaves the person's queue for 24 hours or until the asker's next note on the bead, whichever is first. It is what `yardr bead answer` does with `--later`. A plain ask, and a run, secret, setup or depot-push ask, is put aside by its addressee or an operator and refused for anyone else, naming the addressee. On a `bead@peer` it is 24 hours by this yard's clock and nothing else, and the put-aside travels home as an answer does. It answers nothing; putting it aside is then a `noted` event in the stream.
 
 | argument | type | |
 |---|---|---|
@@ -5215,7 +5228,7 @@ POST /call/DeferAsk
 
 ### `DeclineAsk`
 
-Ends the ask with no option picked: the person will not decide it. It is what `yardr bead answer` does with `--decline`, and reads wherever the ask is shown as "`<user>` declined to decide this: `<words>`". On a `bead@peer` the decline travels home as an answer does, and ends the ask in both yards. It answers nothing; declining is then a `noted` event in the stream.
+Ends the ask with no option picked: the person will not decide it. It is what `yardr bead answer` does with `--decline`, and reads wherever the ask is shown as "`<user>` declined to decide this: `<words>`". A plain ask, and a run, secret, setup or depot-push ask, is declined by its addressee or an operator and refused for anyone else, naming the addressee. On a `bead@peer` the decline travels home as an answer does, and ends the ask in both yards. It answers nothing; declining is then a `noted` event in the stream.
 
 | argument | type | |
 |---|---|---|
@@ -5382,10 +5395,11 @@ cards](#weighty-cards)). Where they are served, and to whom:
   is read for the ask it names, and nothing of it is said back; so is
   a giving of a device of the operator down the link from the edge, unless
   the yard is hosted
-  ([TLS is yours](#tls-is-yours-and-the-clients-rule)). Against
+  ([TLS is yours](#tls-is-yours-and-the-clients-rule)), as is an
+  `ApproveSetup` of the operator's device that types the account. Against
   such an answer a client says "answer it at the yard" and sends its user
   to a terminal there (`ssh -t <host> yardr bead answer <bead> <ask>
-  --secret`, or `--approve`).
+  --secret`, `<n> --secret` for a setup, or `--approve`).
 
 Over the listener the value travels under the TLS in front of it and under
 no other protection, and the yard takes it only where it can see that the
@@ -5701,14 +5715,14 @@ The change and the answer are one write: the command ran and the ask is approved
 
 ### `ApproveSetup`
 
-Approves a setup ask (an ask of `Bead` with `setup`), and the yard then applies the pack, takes the account, and grants the preset picked, as the operator: `setup.pack`, the account `setup.account`, and the preset's grants to `setup.to`. It is what `yardr bead answer <n> --secret` (or `--account <source>`, or a bare `<n>` where the card is `given`) does. The request settles the account in one of three ways: it types it, takes a candidate the card lists, or keeps the account that stands. What the card says (`setup.given`, `setup.missing`, `setup.candidates`) decides which are open to it, and the paragraph under the reply's fields says how. The examples are, in order, a first setup with the account typed, a first setup with a candidate taken, an update that keeps the account that stands, and an update that types the names it is missing. In one write the yard checks that it would write the same card now and records the approval, which holds the preset, the names given, the candidate taken or the account kept, and `ran`; the server carries it out after the call. Typed values live in its memory alone until the account's write; a picked candidate hands none. Where the pack's source names a check call, the typed account is tried with it before the write: a refused check refuses the approval with the check's words. A refused approval changes nothing, records nothing and leaves the ask open. It is the operator's to approve: on the socket it is refused for anyone else and for a call that comes from the pane of an agent, whatever `actor` says, and on the listener it is there for a device of the operator and for no other caller. Picking `you decide` grants the asker's recommended preset, and is refused where none is recommended. Refused too: an ask that sets up no pack; one that was declined, taken back or approved already, since a setup runs once for one ask; a `bead@peer`, since a setup is approved in the yard that asked and never over a link; values and a candidate together; values that are not exactly the names the card asks for, and a candidate the card lists none of; and an ask whose card is from before the yard changed, where the pack's bytes or presets, a source, the account's owed-ness, a candidate or a grantee moved. That one is declined, and asked again if it is still wanted. A newer build alone is no such change. A setup takes the account, so its card is always weighty ([weighty cards](#weighty-cards)): the call is refused unless it says `weighed`, with nothing changed and the ask open. A setup whose pack brings a program the yard will run is a strong card, and a device approves a strong card as it does any weighty one, with `weighed`: the answer's event carries `via` and no `data.witness`. On a hosted yard the bead page approves it only under a fresh sign-in, which the answer's event records (`data.witness`); a stale witness, or another user's, refuses with the ask open. The answer is then a `noted` event in the stream.
+Approves a setup ask (an ask of `Bead` with `setup`), and the yard then applies the pack, takes the account, and grants the preset picked, as the operator: `setup.pack`, the account `setup.account`, and the preset's grants to `setup.to`. It is what `yardr bead answer <n> --secret` (or `--account <source>`, or a bare `<n>` where the card is `given`) does. The request settles the account in one of three ways: it types it, takes a candidate the card lists, or keeps the account that stands. What the card says (`setup.given`, `setup.missing`, `setup.candidates`) decides which are open to it, and the paragraph under the reply's fields says how. The examples are, in order, a first setup with the account typed, a first setup with a candidate taken, an update that keeps the account that stands, and an update that types the names it is missing. In one write the yard checks that it would write the same card now and records the approval, which holds the preset, the names given, the candidate taken or the account kept, and `ran`; the server carries it out after the call. Typed values live in its memory alone until the account's write; a picked candidate hands none. Where the pack's source names a check call, the typed account is tried with it before the write: a refused check refuses the approval with the check's words. A refused approval changes nothing, records nothing and leaves the ask open. It is the operator's to approve: on the socket it is refused for anyone else and for a call that comes from the pane of an agent, whatever `actor` says, and on the listener it is there for a device of the operator and for no other caller. Down the link from the edge the account typed (`values`) is a secret, and only a hosted yard takes it: any other yard refuses it in the words that send the person to the yard's own machine (`yardr bead answer <bead> <ask> <n> --secret`), and takes a candidate taken and the account kept ([TLS is yours](#tls-is-yours-and-the-clients-rule)). Picking `you decide` grants the asker's recommended preset, and is refused where none is recommended. Refused too: an ask that sets up no pack; one that was declined, taken back or approved already, since a setup runs once for one ask; a `bead@peer`, since a setup is approved in the yard that asked and never over a link; values and a candidate together; values that are not exactly the names the card asks for, and a candidate the card lists none of; and an ask whose card is from before the yard changed, where the pack's bytes or presets, a source, the account's owed-ness, a candidate or a grantee moved. That one is declined, and asked again if it is still wanted. A newer build alone is no such change. A setup takes the account, so its card is always weighty ([weighty cards](#weighty-cards)): the call is refused unless it says `weighed`, with nothing changed and the ask open. A setup whose pack brings a program the yard will run is a strong card, and a device approves a strong card as it does any weighty one, with `weighed`: the answer's event carries `via` and no `data.witness`. On a hosted yard the bead page approves it only under a fresh sign-in, which the answer's event records (`data.witness`); a stale witness, or another user's, refuses with the ask open. The answer is then a `noted` event in the stream.
 
 | argument | type | |
 |---|---|---|
 | `bead` | string | the bead |
 | `ask` | number | the ask note's seq |
 | `option` | number | the preset pick, counting `asks[].options` as shown, `you decide` last |
-| `values` | object | each name the person typed, with its value: every name of `setup.account` on a first setup, the names of `setup.missing` alone on an update that has any, and on an update that is `given` every name of `setup.account`, to change the account that stands; left out where a candidate is taken or the account is kept |
+| `values` | object | each name the person typed, with its value: every name of `setup.account` on a first setup, the names of `setup.missing` alone on an update that has any, and on an update that is `given` every name of `setup.account`, to change the account that stands; left out where a candidate is taken or the account is kept, and refused down the link from the edge by a yard that is not hosted |
 | `account` | string | the candidate taken instead of typing, one the card lists (`setup.candidates[].source`); left out where the values are typed or the account is kept |
 | `actor` | string | who approves: the operator's name |
 | `weighed` | bool | `true` once the person has seen the card's weight and passed the client's gate; left out, `false`, and a weighty card, which every setup is, is refused |

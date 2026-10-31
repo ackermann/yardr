@@ -660,7 +660,9 @@ func TestUserGivesTheirOwnCredential(t *testing.T) {
 // back, and nothing is given. Each but a device of a user who is not the
 // operator is answered before the request's body is read: that one is read
 // for the ask it names, which may be for the user's own address or
-// credential (TestUserGivesTheirOwnAddress).
+// credential (TestUserGivesTheirOwnAddress). The two calls every device is
+// served that end or hide a card, DeferAsk and DeclineAsk, take it from the
+// operator's device and from its addressee's alone.
 func TestUserGiveSecretIsForTheOperatorsDeviceAlone(t *testing.T) {
 	ctx := context.Background()
 	none, _ := json.Marshal(noSuchMethod("GiveSecret"))
@@ -690,6 +692,17 @@ func TestUserGiveSecretIsForTheOperatorsDeviceAlone(t *testing.T) {
 			``,
 		} {
 			notThere(t, y.give(onTheMachine, y.sam, strings.NewReader(body)))
+		}
+		// Nor does that device put the card aside or decline it, calls it is
+		// served: the refusal names the addressee, and the card stays open.
+		for method, body := range map[string]string{
+			"DeferAsk":   fmt.Sprintf(`{"bead":"yd-crm","ask":%d}`, y.ask),
+			"DeclineAsk": fmt.Sprintf(`{"bead":"yd-crm","ask":%d,"words":""}`, y.ask),
+		} {
+			got := call(t, y.h, y.sam, method, body)
+			if want := "ask 1 is for jo: only they or the operator (jo) may answer it; this is sam"; !strings.Contains(got, want) {
+				t.Errorf("%s from sam's device is answered %s, want it to say %q", method, got, want)
+			}
 		}
 		y.untouched(t, "sam's device")
 	})

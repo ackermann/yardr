@@ -69,8 +69,8 @@ const (
 	RouterAddrSetting = "router_addr"
 	// HostedSetting says the yard is a hosted one, made and run by the
 	// hosting service, whose own edge it is reached through: GiveSecret is
-	// taken down the edge link for every secret, from the operator's
-	// devices (rpc).
+	// taken down the edge link for every secret, and ApproveSetup with the
+	// account typed, from the operator's devices (rpc).
 	HostedSetting = "hosted"
 	// TelemetrySetting is the one switch for yardr's opt-in telemetry
 	// (internal/telemetry): true sends the daily batch, false sends
@@ -246,8 +246,8 @@ var KnownSettings = append([]Setting{
 			return nil
 		}},
 	{Key: HostedSetting, Help: "whether this is a hosted yard, made and run by the hosting service (true), and not one you run yourself, connected to the edge or not (false): " +
-		"the provisioner writes it when it makes a yard. On a hosted yard GiveSecret is taken for every secret down the edge link from the operator's devices; " +
-		"on any other yard down the link it is taken for a harness login's code alone. Read on every call; default: false",
+		"the provisioner writes it when it makes a yard. On a hosted yard GiveSecret is taken for every secret down the edge link from the operator's devices, and so is ApproveSetup with the account typed; " +
+		"on any other yard down the link GiveSecret is taken for a harness login's code alone, and ApproveSetup only without an account typed. Read on every call; default: false",
 		Default: "false", Check: func(v string) error {
 			if v != "true" && v != "false" {
 				return fmt.Errorf("%s %q: true or false", HostedSetting, v)

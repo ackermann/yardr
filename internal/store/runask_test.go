@@ -428,8 +428,9 @@ func TestApproveAskRefusals(t *testing.T) {
 // Nothing but ApproveAsk approves: a pick, words and an answer that arrives
 // saying what ran are refused on a run ask, here and as the rules an answer
 // from another yard lands by. Later puts it aside, from where it is still
-// approved, and a decline ends it. Both come from anyone, even neither the
-// addressee nor an operator: a run ask keeps its own rules.
+// approved, and a decline ends it. Both are the addressee's or an operator's,
+// as on any ask: another user's and a crew member's are refused, naming the
+// addressee, and leave the ask as it was.
 func TestRunAskTakesNoOtherAnswer(t *testing.T) {
 	// Sequential: the package's fake clock (via newAskYard).
 	y, _ := runYard(t)
@@ -461,7 +462,8 @@ func TestRunAskTakesNoOtherAnswer(t *testing.T) {
 		t.Fatalf("AnswerAsk with words = %v", err)
 	}
 
-	y.answer(t, Answer{Ask: seq, Later: true}, "ada")
+	y.refusesStrangers(t, seq)
+	y.answer(t, Answer{Ask: seq, Later: true}, "mckean")
 	if r := y.asked(t, seq); r.State != AskAside {
 		t.Fatalf("the ask put aside is %s", r.State)
 	}
@@ -473,9 +475,9 @@ func TestRunAskTakesNoOtherAnswer(t *testing.T) {
 	}
 
 	second := y.ask(t, runAsk("peer allow airy --mail-limit 400"), "yardmaster")
-	y.answer(t, Answer{Ask: second, Decline: true, Words: "300 is enough"}, "ada")
+	y.answer(t, Answer{Ask: second, Decline: true, Words: "300 is enough"}, "mckean")
 	r := y.asked(t, second)
-	if r.State != AskDeclined || !slices.Contains(r.Lines(), "  ada declined to decide this: 300 is enough") {
+	if r.State != AskDeclined || !slices.Contains(r.Lines(), "  mckean declined to decide this: 300 is enough") {
 		t.Fatalf("the declined ask is %s:\n%s", r.State, strings.Join(r.Lines(), "\n"))
 	}
 	if got := y.limit(t); got != 300 {

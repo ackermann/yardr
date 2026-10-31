@@ -1156,7 +1156,8 @@ func TestSetupHeldAlreadyRefusesApproval(t *testing.T) {
 }
 
 // A setup ask takes no pick and no words through the plain answer path:
-// Later and Decline go there, with words for a decline.
+// Later and Decline go there, with words for a decline, and from its
+// addressee or an operator alone.
 func TestSetupPlainAnswerShapes(t *testing.T) {
 	y, _ := runYard(t)
 	y.setSetupPack(setupMailPack())
@@ -1165,6 +1166,7 @@ func TestSetupPlainAnswerShapes(t *testing.T) {
 		!strings.Contains(err.Error(), "takes a preset pick with the account") {
 		t.Errorf("a plain pick was recorded or refused otherwise: %v", err)
 	}
+	y.refusesStrangers(t, seq)
 	y.answer(t, Answer{Ask: seq, Later: true}, "mckean")
 	if got := y.asked(t, seq); got.State != AskAside {
 		t.Errorf("a put-aside setup reads %s", got.State)

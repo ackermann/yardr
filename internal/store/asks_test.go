@@ -430,6 +430,27 @@ func TestAnswerIsTheAddresseesAndTheOperators(t *testing.T) {
 	}
 }
 
+// refusesStrangers checks that another user and a crew member can neither put
+// the ask seq aside nor decline it, with or without words: it is mckean's, and
+// each is refused naming the addressee. The ask stays open and nothing is
+// written, so an approval card (run, secret, setup, depot-push) is held to the
+// rule a plain ask is.
+func (y *askYard) refusesStrangers(t *testing.T, seq uint64) {
+	t.Helper()
+	before := len(answerNotes(t, y))
+	for _, who := range []string{"ada", "yardmaster"} {
+		for _, ans := range []Answer{{Ask: seq, Later: true}, {Ask: seq, Decline: true}, {Ask: seq, Decline: true, Words: "not mine"}} {
+			want := fmt.Sprintf("ask %d is for mckean: only they or the operator (mckean) may answer it; this is %s", seq, who)
+			if err := y.AddAnswer(y.ctx, y.bead, ans, who); err == nil || err.Error() != want {
+				t.Errorf("%+v by %s = %v, want %q", ans, who, err, want)
+			}
+		}
+	}
+	if r := y.asked(t, seq); r.State != AskOpen || len(answerNotes(t, y)) != before {
+		t.Fatalf("ask %d is %s after the refusals, with %d answers (had %d): want it open and unanswered", seq, r.State, len(answerNotes(t, y)), before)
+	}
+}
+
 // The rendering is numbered text with the recommendation marked and the
 // state, never the raw JSON.
 func TestAskLines(t *testing.T) {

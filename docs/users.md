@@ -79,8 +79,10 @@ user the setting names.
 **An ask is answered only by whom it was put to.** A plain ask has one
 addressee (`--to`), and the store takes its answer only from them or an
 operator; anyone else's is refused, naming the addressee. Run asks keep
-their own rule — any operator approves one, whoever of them it was put
-to — and a stage ask is its members' to answer
+their own rule for approving — any operator approves one, whoever of them it
+was put to — but a run, secret, setup or depot-push ask is put aside or
+declined by its addressee or an operator, as a plain ask is answered. A stage
+ask is its members' to answer
 ([chat.md](chat.md#questions-for-you)). An operator reads and acknowledges
 any user's inbox ([below](#the-inbox)); a member reads only their own.
 Only the user reads their queue of decisions
@@ -913,7 +915,8 @@ command runs once for one ask; an approval is taken only from a request
 that reached the listener from the yard's own machine, where TLS ends, or
 down the link from the edge ([edge.md](edge.md#footplate-through-the-link);
 a secret is taken besides from the yard's router, and down the link when the
-yard is hosted or the secret is a harness login's code,
+yard is hosted or the secret is a harness login's code, a setup approval that
+types the account being such a secret,
 [api.md](api.md#tls-is-yours-and-the-clients-rule));
 and each approval through a device is marked `via
 <device>` on the answer and on the change's own event, which names the
@@ -924,9 +927,11 @@ vouches for, approves nothing.
 
 **Approvals cross the edge.** A paired-device token approves run and setup
 asks from wherever it reaches the yard, down the link from the edge
-included, a strong card among them. The same physical device may open the
-hosted web after a fresh account sign-in, which is how a strong card is
-approved there. The edge sees the device's token on every call, so a
+included, a strong card among them, but for the account a setup types, a
+secret that crosses a hosted yard's link and not a connected yard's
+(below). The same physical device may open the hosted web after a fresh
+account sign-in, which is how a strong card is approved there. The edge
+sees the device's token on every call, so a
 dishonest or compromised edge, or a stolen phone that is unlocked, can
 approve exactly the command stored on any ask, a strong one too. What
 holds it is that the command is fixed on the ask, that the operator paired
@@ -943,18 +948,20 @@ the link as from the yard's own machine. The edge reads the code with the
 device's token. The code is used once, within minutes, and the yard hands it
 to the waiting login in its memory and keeps it nowhere. On a yard the
 operator runs and has connected to the edge it is the only secret that
-crosses: an API key, a source's credential, a hook's signing secret and a
-user's own login code are refused down the link and answered at the yard's
-own machine. `yardr user device rm` ends a device's reach at its next
-request.
+crosses: an API key, a source's credential, the account a setup approval
+types, a hook's signing secret and a user's own login code are refused down
+the link and answered at the yard's own machine. A setup approved by taking a
+candidate or keeping the account types nothing, and crosses. `yardr user
+device rm` ends a device's reach at its next request.
 
 **On a hosted yard every secret crosses the edge.** A hosted yard is one the
 service made and runs, and its `hosted` setting is `true`
 ([configuration.md](configuration.md#settings)). The service runs the edge
 and the machine the yard lives on, and the operator has no shell on that
 machine to answer at, so a paired device of the operator gives any secret ask
-down the link: an API key, a source's credential, a hook's signing secret, a
-user's own address or credential, and the login's code. The edge reads the
+down the link: an API key, a source's credential, the account a setup
+approval types, a hook's signing secret, a user's own address or credential,
+and the login's code. The edge reads the
 value with the device's token, as it reads every call; the yard writes it to
 its file, as it does for a giving at the yard's own machine. A device of a
 user who is not the operator still gives nothing down the link, hosted or

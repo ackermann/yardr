@@ -84,7 +84,10 @@ var Calls = map[string][]string{
 // 3.6). Like GiveSecret it carries a secret a person typed, on its way to
 // the file a source's credential is read from, or the candidate taken
 // instead, or on an update nothing: the account that stands is kept. Like
-// ApproveAsk it is the operator's device's and no other's.
+// ApproveAsk it is the operator's device's and no other's. Down the link from
+// the edge the account typed is a secret as GiveSecret's is: a hosted yard
+// takes it, and any other refuses it, but takes the other two
+// (UserServer.call).
 //
 // Each of the three, and AnswerAsk for a pick on a mapping ask, takes the
 // argument weighed: the client's word that its person saw the weight of a

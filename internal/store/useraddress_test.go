@@ -231,7 +231,9 @@ func TestGiveSecretGivesAUsersOwnAddress(t *testing.T) {
 // A user's own address is given by that user or by the operator, and by
 // nobody else: another user and a crew member are refused, whoever was
 // asked, and so is a name the ask did not ask for. No refusal says back
-// what was sent, and none writes the file or a note.
+// what was sent, and none writes the file or a note. Putting the card aside
+// and declining it are the same two's: the user, who is no operator, keeps
+// both for their own card.
 func TestGiveSecretRefusesAnotherUsersAddress(t *testing.T) {
 	// Sequential: the package's fake clock (via newAskYard).
 	y, file := addressYard(t)
@@ -272,6 +274,30 @@ func TestGiveSecretRefusesAnotherUsersAddress(t *testing.T) {
 	crm := y.ask(t, secretAsk("crm"), "yardmaster")
 	if _, err := y.GiveSecret(y.ctx, y.bead, crm, map[string]string{"CRM_TOKEN": value}, "ada", true); err == nil || !strings.Contains(err.Error(), "setting a source's credential is the operator's (mckean)") {
 		t.Fatalf("ada giving the source's credential: %v", err)
+	}
+	// Later and a decline are held to the same two: another user and a crew
+	// member are refused naming ada, and ada, though no operator, ends her
+	// own card.
+	own := y.ask(t, addressAsk("ada", "ada"), "yardmaster")
+	before := len(answerNotes(t, y))
+	for _, who := range []string{"bob", "yardmaster"} {
+		for _, ans := range []Answer{{Ask: own, Later: true}, {Ask: own, Decline: true}} {
+			want := "ask " + itoa(own) + " is for ada: only they or the operator (mckean) may answer it; this is " + who
+			if err := y.AddAnswer(y.ctx, y.bead, ans, who); err == nil || err.Error() != want {
+				t.Errorf("%+v by %s = %v, want %q", ans, who, err, want)
+			}
+		}
+	}
+	if r := y.asked(t, own); r.State != AskOpen || len(answerNotes(t, y)) != before {
+		t.Fatalf("ada's card is %s after the refusals, with %d answers (had %d): want it open and unanswered", r.State, len(answerNotes(t, y)), before)
+	}
+	y.answer(t, Answer{Ask: own, Later: true}, "ada")
+	if r := y.asked(t, own); r.State != AskAside {
+		t.Fatalf("the card ada put aside is %s", r.State)
+	}
+	y.answer(t, Answer{Ask: own, Decline: true}, "ada")
+	if r := y.asked(t, own); r.State != AskDeclined {
+		t.Fatalf("the card ada declined is %s", r.State)
 	}
 }
 
