@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -80,11 +81,17 @@ func (y *yard) run(t *testing.T) context.CancelFunc {
 
 func (y *yard) propose(t *testing.T, app, command string, port int, approve bool) {
 	t.Helper()
-	ctx := context.Background()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte("hello preview"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	y.proposeIn(t, app, command, dir, port, approve)
+}
+
+// proposeIn proposes the preview to run in dir, and approves it when asked.
+func (y *yard) proposeIn(t *testing.T, app, command, dir string, port int, approve bool) {
+	t.Helper()
+	ctx := context.Background()
 	if _, err := y.st.ProposePreview(ctx, store.NewPreview{App: app, Command: command, Dir: dir, Port: port}, "builder"); err != nil {
 		t.Fatal(err)
 	}
@@ -93,6 +100,26 @@ func (y *yard) propose(t *testing.T, app, command string, port int, approve bool
 			t.Fatal(err)
 		}
 	}
+}
+
+// gitTree is a directory with one commit, for a preview to read its depot
+// tree from; the second result runs git in it.
+func gitTree(t *testing.T) (string, func(args ...string) string) {
+	t.Helper()
+	dir := t.TempDir()
+	run := func(args ...string) string {
+		t.Helper()
+		out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	run("init", "-q")
+	run("config", "user.email", "a@b.c")
+	run("config", "user.name", "a")
+	run("commit", "-q", "--allow-empty", "-m", "one")
+	return dir, run
 }
 
 func (y *yard) state(app string) store.Preview {
@@ -254,6 +281,90 @@ func TestStartWithoutApprovalIsRefused(t *testing.T) {
 	if got := y.state("demo"); got.State != store.PreviewPending {
 		t.Fatalf("state = %+v", got)
 	}
+}
+
+// A start runs the approved command only on the depot tree the approval
+// was given on. An unchanged tree starts as it always did; one whose
+// commit has moved is not started: the approval is taken back, the card
+// waits pending for a new one, and the command runs once it is given. The
+// command writes its marker outside the tree, so it leaves the tree as it
+// found it. (The dirty mark is the store's rule, in its own test.)
+func TestStartRunsOnlyOnTheApprovedTree(t *testing.T) {
+	ctx := context.Background()
+	// start runs the approved form and waits for the command to have run
+	// and exited; marker is the file the command touches.
+	start := func(t *testing.T, y *yard, marker string) {
+		t.Helper()
+		if err := y.sup.Start(ctx, "demo"); err != nil {
+			t.Fatalf("start: %v", err)
+		}
+		waitFor(t, "the approved command to run and exit", func() bool {
+			_, err := os.Stat(marker)
+			return err == nil && y.state("demo").StateDetail == "exited"
+		})
+	}
+
+	t.Run("an unchanged tree starts", func(t *testing.T) {
+		y := newYard(t)
+		dir, _ := gitTree(t)
+		marker := filepath.Join(t.TempDir(), "ran")
+		y.proposeIn(t, "demo", "touch "+marker, dir, freePort(t), true)
+		start(t, y, marker)
+	})
+
+	t.Run("another tree waits for a new approval", func(t *testing.T) {
+		y := newYard(t)
+		dir, git := gitTree(t)
+		marker := filepath.Join(t.TempDir(), "ran")
+		y.proposeIn(t, "demo", "touch "+marker, dir, freePort(t), true)
+		git("commit", "-q", "--allow-empty", "-m", "two")
+		err := y.sup.Start(ctx, "demo")
+		if err == nil || !strings.Contains(err.Error(), "approval is taken back") {
+			t.Fatalf("start on another tree err = %v, want the approval taken back", err)
+		}
+		head := git("rev-parse", "HEAD")
+		got := y.state("demo")
+		if got.State != store.PreviewPending || got.StateDetail != store.PreviewTreeChangedDetail || got.Approval != nil || got.Commit != head {
+			t.Fatalf("after the refused start = %+v, want pending at %q with no approval", got, head)
+		}
+		// No pass over the registry, and no second start, runs a card that
+		// waits for its person.
+		y.sup.reconcile(ctx, false)
+		if err := y.sup.Start(ctx, "demo"); err == nil {
+			t.Fatal("start of a card with no approval succeeded")
+		}
+		if _, err := os.Stat(marker); err == nil {
+			t.Fatal("the command ran on a tree its approval was not given on")
+		}
+		if _, err := y.st.ApprovePreview(ctx, "demo", "ada"); err != nil {
+			t.Fatal(err)
+		}
+		start(t, y, marker)
+	})
+
+	// A preview that runs when the tree moves and its restart is asked for
+	// goes back to pending too, so what ran is stopped with the approval.
+	t.Run("a running preview whose approval is taken back is stopped", func(t *testing.T) {
+		if _, err := os.Stat(python3()); err != nil {
+			t.Skip("python3 not available for the stand-in app")
+		}
+		y := newYard(t)
+		y.run(t)
+		dir, git := gitTree(t)
+		port := freePort(t)
+		y.proposeIn(t, "demo", fmt.Sprintf("python3 -m http.server %d --bind 127.0.0.1", port), dir, port, true)
+		waitFor(t, "preview running", func() bool { return y.state("demo").State == store.PreviewRunning })
+		git("commit", "-q", "--allow-empty", "-m", "two")
+		if _, err := y.st.RestartPreview(ctx, "demo", "ada"); err == nil || !strings.Contains(err.Error(), "approval is taken back") {
+			t.Fatalf("restart on another tree err = %v, want the approval taken back", err)
+		}
+		waitFor(t, "the taken-back preview's process to be gone", func() bool {
+			return !y.sup.Running("demo") && listeningAddress(port) == ""
+		})
+		if got := y.state("demo"); got.State != store.PreviewPending || got.Approval != nil {
+			t.Fatalf("after the process stopped = %+v, want pending with no approval", got)
+		}
+	})
 }
 
 func TestNonLoopbackBindIsRefused(t *testing.T) {
@@ -495,8 +606,15 @@ func TestOnDemandStartThroughEndpoint(t *testing.T) {
 		t.Skip("python3 not available for the stand-in app")
 	}
 	y := newYard(t) // no Run: the request alone must start it
+	t.Cleanup(func() { y.sup.kill("demo") })
+	dir, git := gitTree(t)
+	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte("hello preview"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	git("add", "index.html")
+	git("commit", "-q", "-m", "index")
 	port := freePort(t)
-	y.propose(t, "demo", fmt.Sprintf("python3 -m http.server %d --bind 127.0.0.1", port), port, true)
+	y.proposeIn(t, "demo", fmt.Sprintf("python3 -m http.server %d --bind 127.0.0.1", port), dir, port, true)
 	srv := httptest.NewServer(y.sup.Handler())
 	defer srv.Close()
 	resp, err := http.Get(srv.URL + "/preview/demo/")
@@ -511,7 +629,39 @@ func TestOnDemandStartThroughEndpoint(t *testing.T) {
 	if got := y.state("demo"); got.State != store.PreviewRunning || got.LastRequestAt == nil {
 		t.Fatalf("after on-demand start = %+v", got)
 	}
+	if _, err := y.st.PreviewStop(context.Background(), "demo", "ada"); err != nil {
+		t.Fatal(err)
+	}
 	y.sup.kill("demo")
+	git("commit", "-q", "--allow-empty", "-m", "two")
+	resp, err = http.Get(srv.URL + "/preview/demo/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ = io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusServiceUnavailable || !strings.Contains(string(raw), "approval is taken back") {
+		t.Fatalf("on-demand start on another tree = %d %s, want refusal", resp.StatusCode, raw)
+	}
+	got := y.state("demo")
+	if got.State != store.PreviewPending || got.StateDetail != store.PreviewTreeChangedDetail || got.Approval != nil || got.Commit != git("rev-parse", "HEAD") {
+		t.Fatalf("after refused on-demand start = %+v, want pending at the new tree without approval", got)
+	}
+	if y.sup.Running("demo") || listeningAddress(port) != "" {
+		t.Fatal("on-demand start ran the command on another tree")
+	}
+	if _, err := y.st.ApprovePreview(context.Background(), "demo", "ada"); err != nil {
+		t.Fatal(err)
+	}
+	resp, err = http.Get(srv.URL + "/preview/demo/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	raw, _ = io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(raw), "hello preview") {
+		t.Fatalf("on-demand answer after a new approval = %d %s", resp.StatusCode, raw)
+	}
 }
 
 func TestInFlightCap(t *testing.T) {

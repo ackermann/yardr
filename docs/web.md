@@ -997,7 +997,8 @@ and the command's are added:
     {"app": "demo", "command": "serve .", "dir": "~/site", "port": 8080,
      "depot": "site", "commit": "a1b2c3d4e5f6", "dirty": true,
      "state": "running", "proposer": "yardr-9c2k-new", "proposed_at": "2026-10-04T00:02:11Z",
-     "approval": {"by": "mckean", "at": "2026-10-04T00:31:40Z", "command": "serve .", "dir": "~/site", "port": 8080},
+     "approval": {"by": "mckean", "at": "2026-10-04T00:31:40Z", "command": "serve .", "dir": "~/site", "port": 8080,
+                  "commit": "a1b2c3d4e5f6", "dirty": true},
      "pid": 4411, "started_at": "2026-10-04T00:31:41Z",
      "head": "a1b2c3d4e5f6", "log": ["listening on 8080"]}
   ],
@@ -1019,6 +1020,16 @@ and the command's are added:
   Stop writes `PreviewStop`, Restart writes `RestartPreview`, and Open
   links to the yard-side `/preview/<app>/` endpoint. A write the store
   refuses comes back on the redrawn page with why.
+- An approval is for the `commit` and `dirty` mark its card showed, and
+  they stand beside the approval's `command`, `dir` and `port`. A start
+  or a Restart on a depot tree that reads otherwise is refused: the
+  approval is taken back, the preview stops if it ran, and the card is
+  pending again with the tree as it now stands and the state detail
+  `tree changed since approval`. It runs once Approve is pressed on that
+  card. An approval from before the tree was recorded names none, so on
+  a repository it is taken back the same way at its next start or
+  restart. A directory in no repository has no commit and is never
+  dirty, so nothing differs.
 
 `/depots`, `/groups`, `/routes`, `/peers`, `/deps` and `/limits` have one
 page each, as rows of the rail's Settings column: the lists as their

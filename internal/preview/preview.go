@@ -32,6 +32,7 @@ type Store interface {
 	Previews(ctx context.Context) ([]store.Preview, error)
 	GetPreview(ctx context.Context, app string) (*store.Preview, error)
 	UpdatePreview(ctx context.Context, app string, upd store.PreviewUpdate) (*store.Preview, error)
+	CheckPreviewTree(ctx context.Context, app string) error
 	LogPreviewEvent(ctx context.Context, app, kind, detail string) error
 	Settings(ctx context.Context) (map[string]string, error)
 }
@@ -214,7 +215,9 @@ func (s *Supervisor) reconcile(ctx context.Context, first bool) {
 					s.stop(ctx, p.App, "idle")
 				}
 			}
-		case store.PreviewStopped, store.PreviewRefused, store.PreviewCrashed, store.PreviewFailed:
+		case store.PreviewPending, store.PreviewStopped, store.PreviewRefused, store.PreviewCrashed, store.PreviewFailed:
+			// A pending row owns no process: one that still runs is that
+			// of a row whose approval was taken back while it ran.
 			s.mu.Lock()
 			pr := s.running[p.App]
 			s.mu.Unlock()
@@ -230,9 +233,12 @@ func (s *Supervisor) reconcile(ctx context.Context, first bool) {
 }
 
 // Start starts the approved preview app. A row with no approval record
-// is refused, whatever asks (section 4.1); a running preview is left as
-// it is. At most PreviewRunningLimit run at once, and one start at a
-// time: a start past either limit waits for a later pass.
+// is refused, whatever asks (section 4.1), and so is one whose depot tree
+// no longer reads as it did when the approval was given: its approval is
+// taken back and it waits for a new one (store.CheckPreviewTree). A
+// running preview is left as it is. At most PreviewRunningLimit run at
+// once, and one start at a time: a start past either limit waits for a
+// later pass.
 func (s *Supervisor) Start(ctx context.Context, app string) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -269,6 +275,11 @@ func (s *Supervisor) Start(ctx context.Context, app string) error {
 	s.mu.Unlock()
 	if running >= store.PreviewRunningLimit {
 		return fmt.Errorf("preview %s: %d previews are already running, the most at once", app, store.PreviewRunningLimit)
+	}
+	// The tree is read last, just before the command is spawned, so the
+	// approval is judged on the tree the command will run in.
+	if err := s.Store.CheckPreviewTree(ctx, app); err != nil {
+		return err
 	}
 	return s.spawn(ctx, p)
 }
@@ -611,9 +622,9 @@ func nonLoopbackBind(port int) string {
 
 // finishRestart completes a restart the person asked for on the card:
 // the process is stopped above, so the approved form is approved again
-// and starts on the next pass, at the commit the ask re-read. The row
-// is read again first, so a stop or forget that won while the process
-// stopped stands instead of the restart.
+// and starts on the next pass, on the tree the ask found unchanged. The
+// row is read again first, so a stop or forget that won while the
+// process stopped stands instead of the restart.
 func (s *Supervisor) finishRestart(ctx context.Context, app string) {
 	cur, err := s.Store.GetPreview(ctx, app)
 	if err != nil || cur.State != store.PreviewStopped || cur.StateDetail != store.PreviewRestartDetail {

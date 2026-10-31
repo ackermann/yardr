@@ -19,7 +19,7 @@ import (
 // process are the supervisor's (internal/preview, part of yardr server);
 // the approval card and the edge's origin are later beads. The supervisor
 // may start only a row whose approval stands, and only the command that
-// approval names.
+// approval names, on the depot tree it was given on.
 
 var bPreviews = []byte("previews") // <app>
 
@@ -88,15 +88,35 @@ type PreviewApproval struct {
 	Command string `json:"command"`
 	Dir     string `json:"dir"`
 	Port    int    `json:"port"`
+	// Commit and Dirty are the depot tree the approval was given on: the
+	// commit and dirty mark the card showed. A start or restart on a tree
+	// that reads otherwise is not covered by the approval
+	// (CheckPreviewTree). An approval recorded before the tree was kept
+	// has neither, so it stands only on a directory in no repository.
+	Commit string `json:"commit,omitempty"`
+	Dirty  bool   `json:"dirty,omitempty"`
+}
+
+// stands says whether the approval was given on a tree that reads as
+// commit and dirty do now.
+func (a *PreviewApproval) stands(commit string, dirty bool) bool {
+	return a.Commit == commit && a.Dirty == dirty
 }
 
 // PreviewRestartDetail is the state detail of a stopped preview whose
 // person asked for a restart on the card: the supervisor kills its
 // process if one still runs, flips the row back to approved, and starts
-// the approved form again on its next pass, at the commit the ask
-// re-read. The web view and the supervisor are separate processes
-// sharing only the store, so the ask is completed asynchronously.
+// the approved form again on its next pass. The web view and the
+// supervisor are separate processes sharing only the store, so the ask
+// is completed asynchronously.
 const PreviewRestartDetail = "restart"
+
+// PreviewTreeChangedDetail is the state detail of a preview whose
+// approval was taken back because its depot tree no longer reads as it
+// did when the person approved it (CheckPreviewTree, RestartPreview):
+// the row is pending again, showing the tree as it now stands, and
+// waits for a new approval.
+const PreviewTreeChangedDetail = "tree changed since approval"
 
 // Preview is one row of the registry.
 type Preview struct {
@@ -106,7 +126,8 @@ type Preview struct {
 	Port    int    `json:"port"`
 	// Depot, Commit and Dirty are the depot state the yard read itself
 	// at proposal (design section 4.1), so the crew cannot misstate the
-	// commit the person is approving.
+	// commit the person is approving; a card taken back to pending shows
+	// the tree as the yard then read it.
 	Depot  string `json:"depot,omitempty"`
 	Commit string `json:"commit,omitempty"`
 	Dirty  bool   `json:"dirty,omitempty"`
@@ -274,10 +295,12 @@ func (s *Store) PreviewHead(ctx context.Context, app string) (string, error) {
 
 // ApprovePreview approves the pending preview app as actor, writing the
 // approval the supervisor requires before any start. The approved form
-// is the proposal as it stands; a later change to command, directory or
-// port is refused by the supervisor until it is approved as its own
-// proposal. This is the write the approval card (a later bead) makes;
-// tests make it directly as their fixture.
+// is the proposal as it stands, on the depot tree the card shows; a
+// later change to command, directory or port is refused by the
+// supervisor until it is approved as its own proposal, and a start or
+// restart on another tree takes the approval back (CheckPreviewTree).
+// This is the write the approval card (a later bead) makes; tests make
+// it directly as their fixture.
 func (s *Store) ApprovePreview(ctx context.Context, app, actor string) (*Preview, error) {
 	p := new(Preview)
 	err := s.write(func(w *wtx) error {
@@ -298,12 +321,14 @@ func (s *Store) ApprovePreview(ctx context.Context, app, actor string) (*Preview
 		if p.State != PreviewPending && p.Approval == nil {
 			return fmt.Errorf("preview %s is %s and has no proposal to approve", app, p.State)
 		}
-		p.Approval = &PreviewApproval{By: actor, At: now(), Command: p.Command, Dir: p.Dir, Port: p.Port}
+		p.Approval = &PreviewApproval{By: actor, At: now(), Command: p.Command, Dir: p.Dir, Port: p.Port,
+			Commit: p.Commit, Dirty: p.Dirty}
 		p.State, p.StateDetail = PreviewApproved, ""
 		if err := put(w.Tx, bPreviews, app, p); err != nil {
 			return err
 		}
-		return w.event("", "preview_approved", actor, map[string]any{"app": app, "command": p.Command, "port": p.Port})
+		return w.event("", "preview_approved", actor, map[string]any{"app": app, "command": p.Command, "port": p.Port,
+			"commit": p.Commit, "dirty": p.Dirty})
 	})
 	if err != nil {
 		return nil, err
@@ -468,21 +493,24 @@ func (s *Store) PreviewStop(ctx context.Context, app, actor string) (*Preview, e
 
 // RestartPreview asks for the preview app to stop and start its approved
 // form again: the ask on the Previews page's Restart button. Only a row
-// with an approval restarts; the depot commit is re-read as proposals
-// read it, so the restart runs what the yard has built since. Starting
-// crew code is the person's authority, so the gate is the operator's,
-// the same rule as approval. The row is left stopped for the supervisor
-// to complete (PreviewRestartDetail).
+// with an approval restarts, and only on the depot tree the approval was
+// given on: the tree is read as proposals read it, and one that reads
+// otherwise takes the approval back, as a start does (CheckPreviewTree),
+// and the ask is refused. Starting crew code is the person's authority,
+// so the gate is the operator's, the same rule as approval. The row is
+// left stopped for the supervisor to complete (PreviewRestartDetail).
 func (s *Store) RestartPreview(ctx context.Context, app, actor string) (*Preview, error) {
-	// The commit is re-read before the write, as proposals read it:
-	// the read opens its own transaction, which a write cannot hold.
+	// The tree is read before the write, as proposals read it: the read
+	// opens its own transaction, which a write cannot hold.
 	row, err := s.GetPreview(ctx, app)
 	if err != nil {
 		return nil, err
 	}
-	_, head, _ := s.previewDepotState(ctx, row.Dir)
+	_, commit, dirty := s.previewDepotState(ctx, row.Dir)
 	p := new(Preview)
+	var tookBack bool
 	err = s.write(func(w *wtx) error {
+		tookBack = false // a batch may run this twice
 		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
 		if err != nil {
 			return err
@@ -500,10 +528,11 @@ func (s *Store) RestartPreview(ctx context.Context, app, actor string) (*Preview
 		if p.Approval == nil {
 			return fmt.Errorf("preview %s has no approved form to restart", app)
 		}
-		p.State, p.StateDetail = PreviewStopped, PreviewRestartDetail
-		if head != "" {
-			p.Commit = head
+		if !p.Approval.stands(commit, dirty) {
+			tookBack = true
+			return takeBackPreviewApproval(w, p, actor, commit, dirty)
 		}
+		p.State, p.StateDetail = PreviewStopped, PreviewRestartDetail
 		if err := put(w.Tx, bPreviews, app, p); err != nil {
 			return err
 		}
@@ -512,7 +541,78 @@ func (s *Store) RestartPreview(ctx context.Context, app, actor string) (*Preview
 	if err != nil {
 		return nil, err
 	}
+	if tookBack {
+		return nil, errPreviewTreeChanged(app)
+	}
 	return p, nil
+}
+
+// CheckPreviewTree is the supervisor's check before it starts the
+// approved command of the preview app: the approval stands while the
+// depot tree reads, as proposals read it (previewDepotState), as it did
+// when the person approved the card. When it does, nothing is written.
+// When it does not, the approval is taken back in one write: the row is
+// pending again with no approval, shows the tree as it now stands for the
+// person to approve, and says why in its state detail
+// (PreviewTreeChangedDetail), and the start is refused. Like
+// UpdatePreview it is the supervisor's, in the owning process, and not on
+// the socket.
+func (s *Store) CheckPreviewTree(ctx context.Context, app string) error {
+	// The tree is read before the write: the read opens its own
+	// transaction, which a write cannot hold.
+	row, err := s.GetPreview(ctx, app)
+	if err != nil {
+		return err
+	}
+	if row.Approval == nil {
+		return fmt.Errorf("preview %s: no approval record; a start with none is refused", app)
+	}
+	// The tree read is that of the directory the approved command runs in.
+	_, commit, dirty := s.previewDepotState(ctx, row.Approval.Dir)
+	if row.Approval.stands(commit, dirty) {
+		return nil
+	}
+	err = s.write(func(w *wtx) error {
+		p := new(Preview)
+		ok, err := get(w.Tx, bPreviews, app, p)
+		if err != nil {
+			return err
+		} else if !ok {
+			return fmt.Errorf("preview %s: %w", app, ErrNotFound)
+		}
+		// An approval given while the tree was read is judged by that
+		// reading as well, and one already taken back needs no second
+		// event.
+		if p.Approval == nil || p.Approval.stands(commit, dirty) {
+			return nil
+		}
+		return takeBackPreviewApproval(w, p, "yard", commit, dirty)
+	})
+	if err != nil {
+		return err
+	}
+	return errPreviewTreeChanged(app)
+}
+
+// takeBackPreviewApproval returns p to a pending proposal because its
+// depot tree reads commit and dirty now, and its approval was given on
+// another: the approval is gone, the card shows the tree the person
+// would now approve, and the detail says why.
+func takeBackPreviewApproval(w *wtx, p *Preview, actor, commit string, dirty bool) error {
+	p.Approval = nil
+	p.State, p.StateDetail = PreviewPending, PreviewTreeChangedDetail
+	p.Commit, p.Dirty = commit, dirty
+	if err := put(w.Tx, bPreviews, p.App, p); err != nil {
+		return err
+	}
+	return w.event("", "preview_refused", actor, map[string]any{"app": p.App, "detail": PreviewTreeChangedDetail})
+}
+
+// errPreviewTreeChanged is what a start or restart on another tree is
+// refused with, once takeBackPreviewApproval has written: the page and
+// the supervisor's caller show it as it stands.
+func errPreviewTreeChanged(app string) error {
+	return fmt.Errorf("preview %s: the depot tree is not the one its approval was given on; the approval is taken back and the card waits for a new one", app)
 }
 
 // ForgetPreview removes the preview app and its approval with it, so

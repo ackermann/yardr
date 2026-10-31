@@ -34,7 +34,10 @@ approves the card (in the web view, a later bead). The supervisor in
 yardr server then starts the approved command, captures its output
 to ~/.yardr/previews/<app>.log, restarts a crash with backoff, and
 stops it after preview_idle without a request (four hours while
-unset) or seven days running.`}
+unset) or seven days running. An approval is for the commit and dirty
+mark its card showed: a start or restart on a tree that reads
+otherwise takes the approval back, and the card waits pending for a
+new one.`}
 	cmd.AddCommand(a.previewProposeCmd(), a.previewListCmd(), a.previewStopCmd(), a.previewLogsCmd(), a.previewForgetCmd())
 	return cmd
 }

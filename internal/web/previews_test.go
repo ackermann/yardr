@@ -251,7 +251,10 @@ func TestPreviewsCrewApprovalRefused(t *testing.T) {
 }
 
 // After the depot HEAD moves past the running commit, the card carries
-// the stale mark; Restart runs the approved command at the new commit.
+// the stale mark. Restart does not run the approved command at the new
+// commit: the approval was given on the old one, so the page comes back
+// with why, the card is pending again at the new commit with its process
+// stopped, and the preview runs at that commit once approved anew.
 func TestPreviewsStaleAndRestart(t *testing.T) {
 	t.Parallel()
 	if !python3Available() {
@@ -268,7 +271,7 @@ func TestPreviewsStaleAndRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	acting := f.as(t, "ada")
-	f.supervise(t)
+	sup := f.supervise(t)
 	if r := acting.postForm("/previews", url.Values{"app": {"demo"}, "action": {"approve"}}, "Origin", acting.ts.URL); r.status != http.StatusSeeOther {
 		t.Fatalf("approve: status %d: %s", r.status, r.body)
 	}
@@ -292,10 +295,35 @@ func TestPreviewsStaleAndRestart(t *testing.T) {
 	if page := acting.get("/previews").body; !strings.Contains(page, "stale") {
 		t.Error("the page does not mark the stale preview")
 	}
-	if r := acting.postForm("/previews", url.Values{"app": {"demo"}, "action": {"restart"}}, "Origin", acting.ts.URL); r.status != http.StatusSeeOther {
-		t.Fatalf("restart: status %d: %s", r.status, r.body)
+	r := acting.postForm("/previews", url.Values{"app": {"demo"}, "action": {"restart"}}, "Origin", acting.ts.URL)
+	if r.status != http.StatusOK || !strings.Contains(r.body, "approval is taken back") {
+		t.Fatalf("restart on the moved depot: status %d, want the page redrawn with why: %s", r.status, r.body)
 	}
-	waitPreview(t, "restart at the new commit", func() bool {
+	if p, err := f.st.GetPreview(ctx, "demo"); err != nil || p.State != store.PreviewPending ||
+		p.StateDetail != store.PreviewTreeChangedDetail || p.Approval != nil || p.Commit != second {
+		t.Fatalf("after the refused restart = %+v, %v, want pending at %q with no approval", p, err, second)
+	}
+	// Stopped means gone from the supervisor and the port it held answering
+	// no more: the approval given next starts on that port again.
+	waitPreview(t, "the taken-back preview's process stopped", func() bool {
+		if sup.Running("demo") {
+			return false
+		}
+		c, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", fmt.Sprint(port)), time.Second)
+		if err != nil {
+			return true
+		}
+		c.Close()
+		return false
+	})
+	// The pending card is the one the page offers Approve on.
+	if page := acting.get("/previews").body; !strings.Contains(page, `value="approve">Approve`) || !strings.Contains(page, store.PreviewTreeChangedDetail) {
+		t.Errorf("the page does not offer the taken-back card for approval: %s", page)
+	}
+	if r := acting.postForm("/previews", url.Values{"app": {"demo"}, "action": {"approve"}}, "Origin", acting.ts.URL); r.status != http.StatusSeeOther {
+		t.Fatalf("approve anew: status %d: %s", r.status, r.body)
+	}
+	waitPreview(t, "start at the new commit", func() bool {
 		p, err := f.st.GetPreview(ctx, "demo")
 		return err == nil && p.State == store.PreviewRunning && p.Commit == second
 	})
