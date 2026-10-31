@@ -1,18 +1,77 @@
 # Installing yardr
 
-yardr is one static binary. There are two ways to get it: a release archive,
-which needs no Go, or `go install` from a checkout. Either way it then needs
-git, herdr and an agent harness beside it, and `yardr doctor` says which of
-those are missing.
+yardr is one static binary, and `install.sh` is the one way to install it, on
+macOS and Linux, arm64 and amd64. It puts `yardr` in `~/.local/bin`, and the
+script is the only definition of where yardr goes. Then yardr needs git, herdr
+and an agent harness beside it, and `yardr doctor` says which of those are
+missing.
+
+```sh
+curl -fsSL https://yardr.dev/install.sh | sh
+```
+
+To read the script before it runs, download it and run the file:
+`curl -fsSLO https://yardr.dev/install.sh`, then `sh install.sh`. A contributor
+installs the checkout instead, with `./install.sh --from-source`
+([From a checkout](#from-a-checkout)).
+
+## What install.sh does
+
+With no flag it installs the latest release. [From a release
+archive](#from-a-release-archive) takes the same steps by hand:
+
+1. It reads `https://yardr.dev/releases/latest.json` for the version and the
+   archive of this system: macOS or Linux, arm64 or amd64, as `uname` says it,
+   except that a Mac's shell started under Rosetta is taken for the Apple
+   silicon Mac it runs on.
+2. It requests each file directly from yardr.dev over https, without following
+   redirects, and stops unless the response is 2xx. What `latest.json` names
+   has to be a plain path under `/releases/`, or the script stops.
+3. Where `minisign` is on PATH, it checks the signature on `checksums.txt`
+   against yardr's release key ([Signed checksums](#signed-checksums)) before it
+   fetches the archive. Where it is not, the script says that only the checksum
+   was checked, which shows the download is whole and not who made it. Install
+   [minisign](https://jedisct1.github.io/minisign/) (`brew install minisign` on
+   macOS, `apt install minisign` on Debian) and run the script again to check
+   who did.
+4. It checks the archive against its line in `checksums.txt`. A signature or a
+   checksum that does not check ends the script with nothing written to
+   `~/.local/bin` and nothing left in the temporary directory (`$TMPDIR`, else
+   `/tmp`).
+5. It makes `~/.local/bin` if there is none, writes `yardr`, the one member it
+   unpacks, to a temporary file there, runs it with `--version`, and renames it
+   into place. A yardr that is running goes on with the file it runs from while
+   the server and daemon notice the new one ([Upgrading](#upgrading)), and a
+   program that does not run replaces nothing. The script ends by printing what
+   `yardr --version` said: the release's tag and revision.
+6. Where `~/.local/bin` is not on PATH, it says the one line to add to the
+   shell's startup file (`~/.zshrc`, `~/.bashrc` or `~/.profile`), and writes
+   no profile itself:
+
+   ```sh
+   export PATH="$HOME/.local/bin:$PATH"
+   ```
+
+   Where another `yardr` comes first on PATH, it says that too, as that is the
+   one a shell then runs.
+
+It needs `curl`, `tar`, `awk` and `sha256sum` or `shasum`, and is plain POSIX sh.
+It writes `~/.local/bin/yardr` and nothing else of yours, and there is no flag
+for another directory. `server-yard`, the other program an archive holds, is
+not unpacked: [On a server](#on-a-server-no-desktop) says where to take it
+from.
 
 ## From a release archive
+
+What install.sh does, by hand: for a machine that should not pipe a script to a
+shell, and for `server-yard`.
 
 Each release has four archives, `yardr_<version>_<os>_<arch>.tar.gz` for
 darwin/arm64, darwin/amd64, linux/amd64 and linux/arm64. An archive holds
 `yardr`, `server-yard` (the script of [On a server](#on-a-server-no-desktop)),
 the README, and the licence (FSL-1.1-ALv2) as `LICENSE` and `NOTICE`.
-`checksums.txt`, with the sha256 of each archive, is
-a file of the release beside the archives, not inside them: download it with
+`checksums.txt`, with the sha256 of each archive, and `install.sh` are files of
+the release beside the archives, not inside them: download `checksums.txt` with
 the archive.
 
 Releases are public at yardr.dev: `https://yardr.dev/releases/<tag>/`
@@ -58,7 +117,7 @@ The key after `-P` is yardr's release key (id `0ECCFE6E81F150B3`), whose
 secret half stays with whoever cuts the releases; a release before v0.10.1
 may have no signature.
 
-### macOS
+## macOS
 
 A release's darwin binaries are signed with an Apple Developer ID and
 notarized by Apple when the release was built on a Mac that has the identity
@@ -71,7 +130,7 @@ codesign -dv --verbose=2 ~/.local/bin/yardr
 
 A signed one prints `Authority=Developer ID Application: …` and
 `Identifier=dev.yardr.yardr`. An unsigned arm64 binary is signed ad hoc by
-the Go linker, exactly like a `go install`ed build (`Signature=adhoc`), and
+the Go linker, exactly like a build from a checkout (`Signature=adhoc`), and
 an unsigned amd64 binary carries no signature at all.
 
 What macOS does with an unsigned binary depends on how it arrived. `curl`
@@ -98,25 +157,28 @@ The signature says who built the binary. `checksums.txt` is of the archive
 with the signed binary in it, and still says only that the download is
 whole.
 
-## With go install
+## From a checkout
 
-From a checkout, with the Go toolchain `go.mod` names:
+A contributor installs the checkout with the same script. It needs Go, the
+toolchain `go.mod` names ([how to install it](https://go.dev/doc/install)):
 
 ```sh
-go install .
+./install.sh --from-source
 ```
 
-This writes `yardr` to `$(go env GOPATH)/bin`, which has to be on PATH.
-`yardr --version`, or `yardr version`, prints its revision (`abcdef123456`,
-with `-modified` for a build from a tree with uncommitted changes).
+It runs `go build` in the checkout the script sits in, and installs the result
+as a release's `yardr` is installed: a temporary file in `~/.local/bin`, run
+with `--version`, renamed into place. Nothing is downloaded. `yardr --version`,
+or `yardr version`, prints its revision (`abcdef123456`, with `-modified` for a
+build from a tree with uncommitted changes).
 
 Where the binary sits is no condition of upgrading it from source later:
-[`yardr upgrade`](#upgrading) writes to the binary it runs from, `~/.local/bin`
-as well as Go's bin directory.
+[`yardr upgrade`](#upgrading) writes to the binary it runs from, wherever that
+is.
 
 ## What yardr doctor still asks for
 
-Neither way installs anything but yardr. Run `yardr doctor`
+`install.sh` installs nothing but yardr. Run `yardr doctor`
 ([doctor.md](doctor.md)): it works before there is a yard and names what is
 missing, with where to get it:
 
@@ -348,7 +410,9 @@ and a person with root once, for step 3 where there is no polkit.
 
 One script does these steps, and a second run of it changes nothing:
 `server-yard --harness <kind> --operator <name>`, which a release archive holds
-beside `yardr` (`tar -xzf <archive> server-yard`) and a checkout has as
+beside `yardr` (`install.sh` unpacks `yardr` alone: download the archive as
+[From a release archive](#from-a-release-archive) does, and run
+`tar -xzf <archive> server-yard`) and a checkout has as
 `contrib/server-yard/server-yard`
 ([its README](../contrib/server-yard/README.md), with a run of it on a fresh
 Debian server). What follows is what it does, step by step.
@@ -357,10 +421,11 @@ Debian server). What follows is what it does, step by step.
    harness have to be on the PATH of three shells: yours, a shell without a
    terminal (`ssh host yardr doctor`), and a systemd user service. The last
    two read no profile, and on many systems `~/.local/bin` is on PATH only
-   through `~/.profile`. Either install into a directory all three have
-   (`/usr/local/bin`), or keep `~/.local/bin` and name it where it is
-   missing: `yardr doctor` says which program your login shell finds that
-   the shell it runs in does not, and in which directory.
+   through `~/.profile`. Either move the programs to a directory all three
+   have (`/usr/local/bin`; `install.sh` writes `~/.local/bin` alone), or keep
+   `~/.local/bin` and name it where it is missing: `yardr doctor` says which
+   program your login shell finds that the shell it runs in does not, and in
+   which directory.
 
 2. **Run herdr's server as a service**, with the systemd user unit under
    [A service file of your own](#a-service-file-of-your-own). Nothing
@@ -459,14 +524,21 @@ hook_addr 127.0.0.1:8791`
 
 ## Upgrading
 
-Install the newer build over the old one, by any of three ways: unpack the
-newer archive and move `yardr` to where the old one is, `go install` again, or
-run `yardr upgrade` on a depot's checkout, which builds it and writes the build
-over the binary it runs from, wherever that is
-([upgrade.md](upgrade.md#where-it-writes)). The server and daemon notice the
-new file and replace themselves ([configuration.md](configuration.md#upgrading)).
-The ways mix: a release archive replaces a `go install`ed build of an earlier
-commit, and the other way round.
+Install the newer build over the old one, by either of two ways: run
+`install.sh` again, which installs the latest release over it (`./install.sh
+--from-source` does the same from a checkout), or run `yardr upgrade` on a
+depot's checkout, which builds it and writes the build over the binary it runs
+from, wherever that is ([upgrade.md](upgrade.md#where-it-writes)). The server
+and daemon notice the new file and replace themselves
+([configuration.md](configuration.md#upgrading)).
+
+The ways mix: a release replaces a build from a checkout of an earlier commit,
+and the other way round. A release installed over a newer build from a checkout
+is allowed too, and the running server and daemon then skip it until they are
+restarted ([configuration.md](configuration.md#upgrading)). `install.sh`
+writes `~/.local/bin/yardr` and no other: a yardr installed somewhere else is
+left where it is, and runs instead of the new one while it comes first on PATH,
+which the script says. `command -v yardr` says which runs.
 
 ## Removing yardr
 
@@ -602,7 +674,9 @@ will stand on the GitHub release. The yardmaster shapes the bead in
 - `verify` downloads the draft, checks the signature against the release
   key, the archives against the checksums, and each archive's
   build-provenance attestation from the release workflow for this tag
-  (`gh attestation verify`). A bad signature asks `sign` again.
+  (`gh attestation verify`). `install.sh` is in no checksum, so it is held to
+  the tag instead: the draft holds the tagged commit's own file, byte for byte,
+  or the bead waits in `decide`. A bad signature asks `sign` again.
 - `publish` releases the draft, files the yardr.dev sync bead and advances
   it to `new`; the release bead is `published`.
 
@@ -616,20 +690,23 @@ group and the routes are the yard's, and the yardmaster adds them once
 `contrib/release/build <version> [out-dir]` builds the four archives and
 `checksums.txt` (into `dist/` by default) on any machine with Go: it
 cross-compiles without cgo, stamps the version, and runs the binary for the
-machine it is on to check the stamp. It refuses a tree with uncommitted or
-untracked files. The darwin binaries it builds are not signed, and it says
-so, unless it is told to sign them ([below](#signed-darwin-binaries)). The
-same holds for `checksums.txt` ([Signed checksums](#signed-checksums)).
-With `SOURCE_DATE_EPOCH` set to seconds since the epoch the build is
-reproducible: every archive entry carries that time, and the same inputs
-make the same bytes.
+machine it is on to check the stamp. It copies the tree's `install.sh` beside
+them: a file of the release in no archive (footplate refuses an archive member
+it does not know) and in no line of `checksums.txt` (the site's sync refuses
+any other name there). It refuses a tree with uncommitted or untracked files.
+The darwin binaries it builds are not signed, and it says so, unless it is told
+to sign them ([below](#signed-darwin-binaries)). The same holds for
+`checksums.txt` ([Signed checksums](#signed-checksums)). With
+`SOURCE_DATE_EPOCH` set to seconds since the epoch the build is reproducible:
+every archive entry carries that time, and the same inputs make the same
+bytes.
 
 `.github/workflows/release.yml` runs when a tag `v*` is pushed: the same
 test jobs as `ci.yml`, then that script with `SOURCE_DATE_EPOCH` fixed to
 the tagged commit (so a tag rebuilt makes the release's archives again), an
 SBOM of the source, build-provenance attestations for the four archives,
-and a draft release holding the archives and `checksums.txt`. Every action
-it uses is pinned by full commit SHA. A tag with a pre-release part
+and a draft release holding the archives, `checksums.txt` and `install.sh`.
+Every action it uses is pinned by full commit SHA. A tag with a pre-release part
 (`v1.2.3-rc.1`) makes a pre-release. Started by hand (Actions, "release",
 "Run workflow") it is a dry run: the same tests and build, the archives
 and the SBOM kept for a week as the run's artifacts, and nothing attested
@@ -646,7 +723,8 @@ make the draft, so the flow builds the release on this machine instead.
 pushing the tag: when it answers `false`, it runs
 `contrib/release/build` from the tagged checkout with `SOURCE_DATE_EPOCH`
 from the tagged commit, as the workflow sets it, and makes the draft from
-the four archives and `checksums.txt`, with the bead's body as its notes.
+the four archives, `checksums.txt` and `install.sh`, with the bead's body as
+its notes.
 There is no attestation: nothing but this machine vouches for the build,
 and the build's note says so. The five signing commands, `sign`, and
 `publish` are unchanged; `verify` checks the signature and the checksums
@@ -721,7 +799,7 @@ draft, all of them together, as `checksums.txt` is of this build's
 archives:
 
 ```sh
-gh release upload v1.2.3 dist/*.tar.gz dist/checksums.txt --clobber
+gh release upload v1.2.3 dist/*.tar.gz dist/checksums.txt dist/install.sh --clobber
 ```
 
 A signature the draft had is of the checksums this replaces: build with
@@ -763,9 +841,10 @@ minisign -G -p ~/.minisign/yardr-release.pub -s ~/.minisign/yardr-release.key
 
 The public half is one line, which `minisign -G` prints and the `.pub` file
 holds. yardr's is `RWSzUPGBbv7MDqH+nnbNmYdOm20UTkuk7eC5e6XuVtYRwZtaEZRlV/WB`
-(id `0ECCFE6E81F150B3`), the one
-[From a release archive](#from-a-release-archive) verifies with. A new key
-is a new footplate, as footplate verifies with the one it was built with.
+(id `0ECCFE6E81F150B3`), the one `install.sh` and
+[From a release archive](#from-a-release-archive) verify with. A new key
+is a new footplate and a new `install.sh`, as each verifies with the one it
+was built with.
 
 A draft the workflow made has unsigned checksums. They are signed as they
 stand, with no new build, and the signature is added to the draft:

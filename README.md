@@ -26,20 +26,18 @@ A design or a change to yardr is judged by three things.
 
 ## Install
 
-A release archive needs no Go (darwin and linux, arm64 and amd64):
+On macOS and Linux, arm64 and amd64, with no Go needed:
 
 ```sh
-tag=v1.2.3; target=darwin_arm64  # current tag: version in https://yardr.dev/releases/latest.json, or the invite reply; target or darwin_amd64, linux_amd64, linux_arm64
-curl -fSL -O https://yardr.dev/releases/$tag/checksums.txt -O https://yardr.dev/releases/$tag/yardr_${tag#v}_$target.tar.gz
-shasum -a 256 --ignore-missing -c checksums.txt   # must say OK; Linux: sha256sum --ignore-missing -c checksums.txt
-tar -xzf yardr_${tag#v}_$target.tar.gz yardr && mv yardr ~/.local/bin/  # any directory on PATH
+curl -fsSL https://yardr.dev/install.sh | sh   # the latest release, checked, into ~/.local/bin
 ```
 
-From a checkout, with Go: `go install .`
+From a checkout, with Go: `./install.sh --from-source`.
 
-Either way yardr needs git, herdr and an agent harness (claude, codex, …) on PATH;
+yardr needs git, herdr and an agent harness (claude, codex, …) on PATH;
 `yardr doctor` says which are missing. [docs/install.md](docs/install.md) has the rest:
-macOS and a downloaded binary, herdr's server, a server without a desktop, upgrading.
+what the script checks and the same steps by hand, macOS and a downloaded binary,
+herdr's server, a server without a desktop, upgrading.
 
 ## Core concepts
 

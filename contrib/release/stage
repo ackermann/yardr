@@ -26,7 +26,9 @@
 #     CI to wait for: build runs contrib/release/build on this machine
 #     instead (SOURCE_DATE_EPOCH from the tagged commit, as the workflow
 #     sets it) and makes the draft from it, with no attestation; a draft
-#     already standing is adopted in both modes.
+#     already standing is adopted in both modes. The draft is the build's
+#     archives and checksums.txt and, when the build wrote one, its
+#     install.sh.
 #   verify: downloads the release, checks checksums.txt.minisig against the
 #     release key, the archives against checksums.txt, and each archive's
 #     build-provenance attestation (gh attestation verify), skipped with
@@ -34,7 +36,10 @@
 #     publish; a missing or bad signature reports failed with what minisign
 #     said, so sign is asked again, and archives that do not match, an
 #     attestation that does not verify, or a check that could not run,
-#     report question, to decide.
+#     report question, to decide. An install.sh on the release is no archive
+#     and in no checksum, so it is held to the tag instead: it must be the
+#     tagged commit's own file, byte for byte, and a release without one
+#     is questioned where the tag has one.
 #   publish: releases the draft, files the yardr.dev sync bead and advances
 #     it to new, notes its id on the release bead. Then done, to published.
 #
@@ -251,9 +256,13 @@ build() {
     if [ "$n_dist" -ne 4 ] || [ -n "$missing" ] || [ ! -f "$tmp/dist/checksums.txt" ]; then
       fail failed "the build on this machine did not make the four expected archives and checksums.txt (found $n_dist archives; missing:$missing); fix the failure, delete the tag here and on $REMOTE, and advance the bead back to build" "$(tail -n 20 "$tmp/build.log")"
     fi
+    # The installer rides beside the archives when the build wrote one;
+    # another depot's release flow, which runs this script too, may have none.
+    installer=""
+    [ ! -f "$tmp/dist/install.sh" ] || installer="$tmp/dist/install.sh"
     printf '%s\n' "$body" >"$tmp/notes.md"
     if [ "$existing" = true ]; then
-      gh release upload "$v" --repo "$GHREPO" "$tmp/dist"/*.tar.gz "$tmp/dist/checksums.txt" --clobber >"$tmp/upload.log" 2>&1 ||
+      gh release upload "$v" --repo "$GHREPO" "$tmp/dist"/*.tar.gz "$tmp/dist/checksums.txt" ${installer:+"$installer"} --clobber >"$tmp/upload.log" 2>&1 ||
         fail failed "uploading this machine's build to the standing draft for $v failed; build again by hand (contrib/release/build $v dist) and upload it, then advance the bead to sign" "$(cat "$tmp/upload.log")"
       if gh release edit "$v" --repo "$GHREPO" --notes-file "$tmp/notes.md" >"$tmp/notes.log" 2>&1; then
         echo "== $BEAD: the draft's notes are the bead's body"
@@ -261,7 +270,7 @@ build() {
         fail failed "the draft for $v holds this machine's build but setting its notes from the bead failed; set them by hand from the bead's body, then advance the bead to sign" "$(cat "$tmp/notes.log")"
       fi
     else
-      if gh release create "$v" --repo "$GHREPO" --draft --verify-tag --notes-file "$tmp/notes.md" "$tmp/dist"/*.tar.gz "$tmp/dist/checksums.txt" >"$tmp/create.log" 2>&1; then
+      if gh release create "$v" --repo "$GHREPO" --draft --verify-tag --notes-file "$tmp/notes.md" "$tmp/dist"/*.tar.gz "$tmp/dist/checksums.txt" ${installer:+"$installer"} >"$tmp/create.log" 2>&1; then
         echo "== $BEAD: draft $v holds this machine's build"
       else
         fail failed "the build for $v is made but creating its draft failed; build again by hand (contrib/release/build $v dist) and make the draft from it, then advance the bead to sign" "$(cat "$tmp/create.log")"
@@ -339,6 +348,13 @@ gh release upload $v --repo $GHREPO $dir/checksums.txt.minisig --clobber
 Then Done: the verify stage checks the signature next."
 }
 
+# tagged_installer: the install.sh the tag $v holds, on stdout; fails where the
+# depot is not known, the tag is not in it, or the tag has none. git -C with an
+# empty path would stay in the current directory, hence the test first.
+tagged_installer() {
+  [ -n "$REPO" ] && git -C "$REPO" show "refs/tags/$v:install.sh" 2>/dev/null
+}
+
 verify() {
   command -v gh >/dev/null 2>&1 || fail question "gh is not on PATH (and logged in); the release group runs where jq, gh and minisign are"
   command -v minisign >/dev/null 2>&1 || fail question "minisign is not on PATH; the release group runs where jq, gh and minisign are"
@@ -374,17 +390,30 @@ verify() {
     b=${f##*/}
     case $b in
     checksums.txt | checksums.txt.minisig | download.log | check.log) continue ;;
+    install.sh) continue ;; # held to the tag below
     esac
     printf '%s\n' "$names" | grep -q -x -F "$b" || extra="$extra $b"
   done
   [ -z "$extra" ] ||
     fail question "release $v holds files its checksums.txt does not name ($extra); it is remade by hand (the release and the tag deleted, the bead back to build)"
+  # The installer is the one file that rides beside the archives with no
+  # checksum (the site's sync refuses any other name in checksums.txt), so
+  # what vouches for it is the tag: the release holds the tagged commit's own
+  # install.sh, and holds it when the tag has one.
+  installer_note=""
+  if [ -f "$tmp/install.sh" ]; then
+    { tagged_installer >"$tmp/tagged-install.sh" && cmp -s "$tmp/tagged-install.sh" "$tmp/install.sh"; } ||
+      fail question "release $v holds an install.sh that is not tag $v's own (compared in ${REPO:-no depot}); it is remade by hand (the release and the tag deleted, the bead back to build)"
+    installer_note=" Its install.sh is tag $v's own."
+  elif tagged_installer >/dev/null; then
+    fail question "tag $v has an install.sh and release $v holds none; it is remade by hand (the release and the tag deleted, the bead back to build)"
+  fi
   # With Actions off the release was built on this machine, with no
   # attestation to check; the signature and the checksums are the whole
   # of it.
   if actions_off; then
     echo "== $BEAD: Actions is off on $GHREPO; skipping attestations"
-    done_with publish "verify: the signature on $v is good ($minisign_out), its $n archives match checksums.txt (no attestation: built on this machine)."
+    done_with publish "verify: the signature on $v is good ($minisign_out), its $n archives match checksums.txt (no attestation: built on this machine).$installer_note"
   fi
   # Each file's attestation says CI's release workflow built it; without
   # one the files are not the workflow's, however well they checksum.
@@ -395,7 +424,7 @@ verify() {
       --source-ref "refs/tags/$v" 2>&1) ||
       fail question "the attestation for $b on release $v is missing or bad: the files are not CI's build, or the check could not reach GitHub. It is remade by hand (the release and the tag deleted, the bead back to build), or checked again where the failure was the network" "$attest_out"
   done
-  done_with publish "verify: the signature on $v is good ($minisign_out), its $n archives match checksums.txt, and every archive's attestation verifies."
+  done_with publish "verify: the signature on $v is good ($minisign_out), its $n archives match checksums.txt, and every archive's attestation verifies.$installer_note"
 }
 
 publish() {

@@ -1761,9 +1761,10 @@ dropped on open.
 
 ### Upgrading
 
-Installing a newer build over the binary is enough: `go install`, a release
-archive moved over it, or `yardr upgrade`, which writes the depot's build to
-the binary it runs from ([upgrade.md](upgrade.md#where-it-writes)). The
+Installing a newer build over the binary is enough: `install.sh` (the latest
+release, or `--from-source` from a checkout) or `yardr upgrade`, which writes
+the depot's build to the binary it runs from
+([upgrade.md](upgrade.md#where-it-writes)). The
 server and the daemon each remember the binary they were started from and
 replace themselves (`exec`, same pid) once a newer build is installed over
 it. A build is newer when:
@@ -1781,12 +1782,12 @@ reinstall) is skipped once per install, logged and recorded as a
 `reason`; stop the server (`yardr server stop`) to run it anyway. Builders
 never `go install` from their worktrees; the yardmaster installs after merge.
 
-A binary from a [release archive](install.md) upgrades the same way: unpack
-the newer archive and move `yardr` over the old one (`tar` itself also
-replaces the file rather than writing into it). A release build carries the
-same revision and commit time as a `go install` of its commit, and those,
-not the tag `yardr version` prints, decide whether it is newer; so archives,
-`go install`s and `yardr upgrade`s replace each other by commit time.
+A binary from a [release archive](install.md) upgrades the same way, and
+`install.sh` renames a new file over the old one rather than writing into
+it. A release build carries the same revision and commit time as a build of
+its commit from a checkout, and those, not the tag `yardr version` prints,
+decide whether it is newer; so releases, builds from a checkout and `yardr
+upgrade`s replace each other by commit time.
 
 A new build changes nothing in a yard that is set up: no prompt, group,
 route or flow moves until the operator runs `yardr depot init` or `yardr

@@ -2,11 +2,12 @@ name: release
 
 # A pushed tag v* tests, builds, attests and drafts the release: the same
 # test jobs as ci.yml, then the four archives and checksums.txt built
-# reproducibly, an SBOM of the source, build-provenance attestations for
-# the archives, and a draft release holding the files. The yard's release
-# flow pushes the tag and waits for the draft (docs/install.md, "Making a
-# release"); mckean signs the draft's checksums by hand, and the flow
-# publishes the draft once the signature verifies. Run by hand
+# reproducibly (install.sh is copied beside them, in no archive), an SBOM
+# of the source, build-provenance attestations for the archives, and a
+# draft release holding the files. The yard's release flow pushes the tag
+# and waits for the draft (docs/install.md, "Making a release"); mckean
+# signs the draft's checksums by hand, and the flow publishes the draft
+# once the signature verifies. Run by hand
 # (workflow_dispatch) it is a dry run: the same tests and the same build,
 # the archives and the SBOM kept as workflow artifacts, and nothing
 # attested or published.
@@ -109,9 +110,10 @@ jobs:
         with:
           path: ./
           format: spdx-json
-          # The draft holds the archives and checksums.txt alone (the
-          # site's sync refuses any other name in the checksums); the
-          # SBOM is kept as a workflow artifact of this job.
+          # The draft holds the archives, checksums.txt and install.sh
+          # alone (the site's sync refuses any other name in the
+          # checksums); the SBOM is kept as a workflow artifact of this
+          # job.
           upload-release-assets: "false"
 
   build:
@@ -189,12 +191,12 @@ jobs:
           # a published release is never touched.
           if existing=$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null); then
             if [ "$existing" = true ]; then
-              gh release upload "$TAG" dist/*.tar.gz dist/checksums.txt --clobber
+              gh release upload "$TAG" dist/*.tar.gz dist/checksums.txt dist/install.sh --clobber
             else
               echo "release $TAG is already published; not touching it" >&2
               exit 1
             fi
           else
-            gh release create "$TAG" dist/*.tar.gz dist/checksums.txt \
+            gh release create "$TAG" dist/*.tar.gz dist/checksums.txt dist/install.sh \
               --verify-tag --generate-notes --title "$TAG" --draft $prerelease
           fi

@@ -6,7 +6,7 @@ commands. These pages go deeper. Yardr's [Principles](../README.md#principles) e
 | page | what it covers |
 |---|---|
 | [glossary.md](glossary.md) | yardr's words in one table, each with what it is, and the words yardr used before |
-| [install.md](install.md) | getting the binary: a release archive (download, verify, put on PATH) or `go install`; macOS and a downloaded binary; what `yardr doctor` still asks for; herdr's server; a server without a desktop, in order; making a release |
+| [install.md](install.md) | getting the binary: `install.sh` (a release, checked, into `~/.local/bin`, or a checkout with `--from-source`) and the same steps by hand; macOS and a downloaded binary; what `yardr doctor` still asks for; herdr's server; a server without a desktop, in order; making a release |
 | [team-server.md](team-server.md) | a yard for a team on one Linux box, for its IT operator: the box, installing from a handed-over archive, the network (the listener on loopback, a reverse proxy on the same box, the web view behind the company's login, the pages origin, pairing, egress, no edge), the documents as a synced folder, adding people, what is stored and where, whole-home backups, upgrading by hand |
 | [agents.md](agents.md) | for an agent that installs or sets up yardr for a person: the loop over `yardr doctor`, what to ask the person, commands and their wrong guesses, what each command does without a terminal, where things are |
 | [setup.md](setup.md) | `yardr setup`: the setup after the onboarding as forms: a depot, its way of working from a pack, a first bead, each page ending in the command it shows; changing over to the yardmaster and back |

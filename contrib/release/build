@@ -1,7 +1,11 @@
 #!/bin/sh
 # Builds yardr's release archives: one yardr_<version>_<os>_<arch>.tar.gz per
 # target, each holding the binary, the server-yard script, the README, LICENSE
-# and NOTICE, and a checksums.txt (sha256) over them.
+# and NOTICE, and a checksums.txt (sha256) over them. The tree's install.sh is
+# copied beside them: a file of the release, in no archive (footplate refuses
+# an archive member it does not know, and the site's sync lists the members)
+# and in no line of checksums.txt (the site's sync refuses any other name
+# there). Whoever uploads the release uploads what is in the out-dir.
 #
 #   contrib/release/build <version> [out-dir]      (out-dir defaults to dist)
 #
@@ -289,6 +293,8 @@ if [ -n "$minisign_key" ]; then
   signature=checksums.txt.minisig
   echo "checksums.txt: signed with minisign"
 fi
+# Last, so that a build that fails above leaves no installer behind.
+cp install.sh "$out/install.sh"
 echo "wrote to $out:"
 # shellcheck disable=SC2086
-(cd "$out" && ls -l $archives checksums.txt $signature)
+(cd "$out" && ls -l $archives checksums.txt $signature install.sh)

@@ -2200,6 +2200,7 @@ contrib/isolated-yard/         contrib/isolated-yard .
 contrib/server-yard/           contrib/server-yard contrib/isolated-yard .
 contrib/release/               contrib/release .
 README.md                      contrib/release .
+install.sh                     contrib/release .
 LICENSE                        contrib/release .
 NOTICE                         contrib/release
 .github/SECURITY.md           .

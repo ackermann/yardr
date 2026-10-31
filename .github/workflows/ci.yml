@@ -102,14 +102,15 @@ jobs:
       # reason, on the line above (internal/cli/sourcecmd.go has the one).
       - name: staticcheck
         run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...
-      # The test gate and every contrib script with a shell shebang, found
-      # by that line: a new script is covered without touching this step.
-      # shellcheck ships on the runner's image; the install is for images
-      # without it.
+      # The test gate, the installer and every contrib script with a shell
+      # shebang, found by that line: a new script is covered without
+      # touching this step. shellcheck reads the dialect from the shebang,
+      # so install.sh is held to POSIX sh. shellcheck ships on the runner's
+      # image; the install is for images without it.
       - name: shellcheck
         run: |
           command -v shellcheck >/dev/null || { sudo apt-get update && sudo apt-get install -y shellcheck; }
-          grep -rlE '^#!(/bin/|/usr/bin/env )(sh|bash)' .yardr/test contrib | xargs shellcheck
+          grep -rlE '^#!(/bin/|/usr/bin/env )(sh|bash)' .yardr/test install.sh contrib | xargs shellcheck
 
   # The darwin leg. The linux job above runs the whole suite, and running
   # all of it on macOS too would buy little for its minutes, so this job

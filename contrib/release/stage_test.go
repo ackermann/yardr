@@ -112,8 +112,9 @@ exit "${FAKE_MINISIGN_RC:-0}"
 `
 
 // fakeBuild stands in for contrib/release/build in the checkout: it logs
-// its arguments and SOURCE_DATE_EPOCH, and writes four archives and a
-// checksums.txt to its out-dir.
+// its arguments and SOURCE_DATE_EPOCH, and writes four archives, a
+// checksums.txt and, unless FAKE_BUILD_NO_INSTALLER is set (another depot's
+// build, which has none), an install.sh to its out-dir.
 const fakeBuild = `#!/bin/sh
 printf 'build %s SOURCE_DATE_EPOCH=%s\n' "$*" "${SOURCE_DATE_EPOCH:-}" >>"$FAKE_DIR/calls.log"
 out=$2
@@ -125,6 +126,7 @@ for t in $targets; do
   printf 'fake %s\n' "$t" >"$out/yardr_${1#v}_${os}_${arch}.tar.gz"
 done
 printf 'fake checksums\n' >"$out/checksums.txt"
+[ -n "${FAKE_BUILD_NO_INSTALLER:-}" ] || printf 'fake installer\n' >"$out/install.sh"
 exit "${FAKE_BUILD_RC:-0}"
 `
 
@@ -537,6 +539,8 @@ func TestStageBuildBuildsOnThisMachineWhenActionsIsOff(t *testing.T) {
 	s.mustContain(got, "gh release create v1.2.3 --repo yardr-dev/yardr --draft --verify-tag --notes-file")
 	s.mustContain(got, ".tar.gz")
 	s.mustContain(got, "checksums.txt")
+	// The installer the build wrote goes up beside the archives.
+	s.mustContain(got, "dist/install.sh")
 	s.mustLack(got, "gh run list")
 	if n := strings.Count(got, "gh release view"); n != 1 {
 		t.Errorf("gh release view was asked %d times; want 1 (the look before tagging)", n)
@@ -568,6 +572,23 @@ func TestStageBuildBuildsOnThisMachineWhenActionsIsOff(t *testing.T) {
 	}
 }
 
+// Another depot's release flow runs this script too, with a build that writes
+// no installer: nothing is uploaded under that name.
+func TestStageBuildUploadsNoInstallerThatTheBuildDidNotWrite(t *testing.T) {
+	s := newStage(t)
+	checkout, _ := s.repo()
+	s.build(checkout)
+	s.view(viewAbsent)
+	s.show("yardr v1.2.3", "notes")
+	s.run("build", "YARDR_DEPOT_PATH="+checkout, "FAKE_GH_ACTIONS_ENABLED=false", "FAKE_BUILD_NO_INSTALLER=1")
+	got := s.log()
+	s.mustContain(got, "gh release create v1.2.3 --repo yardr-dev/yardr --draft --verify-tag --notes-file")
+	s.mustContain(got, "checksums.txt")
+	s.mustLack(got, "install.sh")
+	s.mustContain(got, "yardr bead done yardr-rel1 --note -")
+	s.mustLack(got, "--outcome")
+}
+
 func TestStageBuildAdoptsAStandingDraftWhenActionsIsOff(t *testing.T) {
 	s := newStage(t)
 	checkout, _ := s.repo()
@@ -584,6 +605,7 @@ func TestStageBuildAdoptsAStandingDraftWhenActionsIsOff(t *testing.T) {
 	s.mustContain(out, "adopting it")
 	s.mustContain(got, "build v1.2.3")
 	s.mustContain(got, "gh release upload v1.2.3 --repo yardr-dev/yardr")
+	s.mustContain(got, "dist/install.sh")
 	s.mustLack(got, "gh release create")
 	s.mustContain(got, "gh release edit v1.2.3 --repo yardr-dev/yardr --notes-file")
 	s.mustLack(got, "gh run list")
@@ -747,6 +769,18 @@ func (s *stage) release(archives map[string]string, corrupt, minisig bool) {
 	s.env = append(s.env, "FAKE_RELEASE_DIR="+dir)
 }
 
+// releaseDir is where release put verify's download.
+func (s *stage) releaseDir() string {
+	s.t.Helper()
+	for _, kv := range s.env {
+		if v, ok := strings.CutPrefix(kv, "FAKE_RELEASE_DIR="); ok {
+			return v
+		}
+	}
+	s.t.Fatal("no release was served")
+	return ""
+}
+
 func TestStageVerifyChecksASignedRelease(t *testing.T) {
 	s := newStage(t)
 	s.release(map[string]string{"a.tar.gz": "a\n", "b.tar.gz": "b\n"}, false, true)
@@ -846,6 +880,70 @@ func TestStageVerifyQuestionsAnUnlistedFile(t *testing.T) {
 	s.mustContain(got, "--outcome question")
 	s.mustContain(got, "does not name")
 	s.mustContain(got, "stowaway.tar.gz")
+}
+
+// install.sh rides beside the archives with no checksum, so verify holds it to
+// the tag it was cut from: the release has the tagged commit's own, byte for
+// byte, and has one where the tag does.
+func TestStageVerifyHoldsTheInstallerToTheTag(t *testing.T) {
+	const one, two = "#!/bin/sh\necho one\n", "#!/bin/sh\necho two\n"
+	const notTags = "is not tag v1.2.3's own"
+	for _, tc := range []struct {
+		name    string
+		release string // the install.sh on the release; "-" for none
+		tagged  string // the install.sh the tag holds; "-" for none
+		noDepot bool   // verify is not told where the depot is
+		want    string // what a question says, else it passes
+	}{
+		{"the tag's own", one, one, false, ""},
+		{"another file", two, one, false, notTags},
+		{"an empty one, where the tag has none", "", "-", false, notTags},
+		{"none, where the tag has none", "-", "-", false, ""},
+		{"none, where the tag has one", "-", one, false, "tag v1.2.3 has an install.sh and release v1.2.3 holds none"},
+		{"one, where the tag has none", one, "-", false, notTags},
+		{"one, with no depot to compare it in", one, one, true, "compared in no depot"},
+		{"none, with no depot to ask", "-", one, true, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newStage(t)
+			checkout, _ := s.repo()
+			if tc.tagged != "-" {
+				if err := os.WriteFile(filepath.Join(checkout, "install.sh"), []byte(tc.tagged), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				s.git(checkout, "add", "install.sh")
+				s.git(checkout, "commit", "-q", "-m", "installer")
+			}
+			s.git(checkout, "tag", "v1.2.3")
+			s.release(map[string]string{"a.tar.gz": "a\n"}, false, true)
+			if tc.release != "-" {
+				if err := os.WriteFile(filepath.Join(s.releaseDir(), "install.sh"), []byte(tc.release), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			s.show("yardr v1.2.3", "notes")
+			var extra []string
+			if !tc.noDepot {
+				extra = append(extra, "YARDR_DEPOT_PATH="+checkout)
+			}
+			s.run("verify", extra...)
+			got := s.log()
+			if tc.want != "" {
+				s.mustContain(got, "yardr bead done yardr-rel1 --outcome question --note -")
+				s.mustContain(got, tc.want)
+				s.mustLack(got, "gh attestation verify")
+				return
+			}
+			s.mustContain(got, "yardr bead done yardr-rel1 --note -")
+			s.mustLack(got, "--outcome")
+			s.mustContain(got, "1 archives match checksums.txt")
+			if tc.release != "-" {
+				s.mustContain(got, "Its install.sh is tag v1.2.3's own.")
+			} else {
+				s.mustLack(got, "install.sh")
+			}
+		})
+	}
 }
 
 func TestStagePublishFilesTheSyncBead(t *testing.T) {

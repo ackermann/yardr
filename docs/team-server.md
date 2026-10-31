@@ -46,6 +46,10 @@ are relied on no longer.
 
 ## Installing from the archive
 
+On a box that reaches yardr.dev, `install.sh` does the checks below for
+`yardr` ([install.md](install.md#what-installsh-does)); it does not unpack
+`server-yard`, which the archive also holds and the steps below take from it.
+
 Each release is handed over as three files: the archive whose name
 matches the box (`yardr_<version>_linux_amd64.tar.gz` or
 `yardr_<version>_linux_arm64.tar.gz`), `checksums.txt`, and the

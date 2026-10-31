@@ -101,6 +101,21 @@ func TestBuildStampsTheVersionAndPacksTheArchive(t *testing.T) {
 	if out, err := check.CombinedOutput(); err != nil {
 		t.Errorf("checksums.txt does not verify: %v\n%s", err, out)
 	}
+
+	// The installer is a file of the release beside the archive: not in it
+	// (members holds the archive to its five), and in no line of checksums.txt
+	// (one line, above), which the site's sync would refuse. The tree's own
+	// file, so that the release stage can hold it to the tag's.
+	tree, err := os.ReadFile("../../install.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.ReadFile(filepath.Join(dist, "install.sh")); err != nil || !bytes.Equal(got, tree) {
+		t.Errorf("dist/install.sh is not the tree's install.sh (%v)", err)
+	}
+	if fi, err := os.Stat(filepath.Join(dist, "install.sh")); err != nil || fi.Mode().Perm()&0o111 == 0 {
+		t.Errorf("dist/install.sh is not executable: %v, %v", fi, err)
+	}
 }
 
 // members checks that the archive holds the files the script lists and
@@ -618,7 +633,7 @@ func TestBuildFailsWhenMinisignDoesNotSign(t *testing.T) {
 	if err == nil || !strings.Contains(out, "minisign did not sign checksums.txt") {
 		t.Fatalf("err %v; want an error saying that minisign did not sign:\n%s", err, out)
 	}
-	for _, name := range []string{"checksums.txt", "checksums.txt.minisig"} {
+	for _, name := range []string{"checksums.txt", "checksums.txt.minisig", "install.sh"} {
 		if _, err := os.Stat(filepath.Join(dist, name)); err == nil {
 			t.Errorf("the failed build left %s", name)
 		}
@@ -674,7 +689,7 @@ func TestReleaseWorkflowCreateReleaseStep(t *testing.T) {
 			if err := os.Mkdir(dist, 0o755); err != nil {
 				t.Fatal(err)
 			}
-			for _, name := range []string{"yardr_1.2.3_linux_amd64.tar.gz", "checksums.txt"} {
+			for _, name := range []string{"yardr_1.2.3_linux_amd64.tar.gz", "checksums.txt", "install.sh"} {
 				if err := os.WriteFile(filepath.Join(dist, name), nil, 0o644); err != nil {
 					t.Fatal(err)
 				}
@@ -724,14 +739,14 @@ func TestReleaseWorkflowCreateReleaseStep(t *testing.T) {
 			var want [][]string
 			switch tc.draft {
 			case "missing":
-				create := []string{"release", "create", tc.tag, "dist/yardr_1.2.3_linux_amd64.tar.gz", "dist/checksums.txt",
+				create := []string{"release", "create", tc.tag, "dist/yardr_1.2.3_linux_amd64.tar.gz", "dist/checksums.txt", "dist/install.sh",
 					"--verify-tag", "--generate-notes", "--title", tc.tag, "--draft"}
 				if strings.Contains(tc.tag, "-") {
 					create = append(create, "--prerelease")
 				}
 				want = [][]string{view, create}
 			case "true":
-				upload := []string{"release", "upload", tc.tag, "dist/yardr_1.2.3_linux_amd64.tar.gz", "dist/checksums.txt", "--clobber"}
+				upload := []string{"release", "upload", tc.tag, "dist/yardr_1.2.3_linux_amd64.tar.gz", "dist/checksums.txt", "dist/install.sh", "--clobber"}
 				want = [][]string{view, upload}
 			default:
 				want = [][]string{view}
