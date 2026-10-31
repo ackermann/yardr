@@ -280,7 +280,7 @@ Mail was queued for one of a linked yard: the conversation with `<data.to>@<data
 
 ```json
 {
-  "seq": 184,
+  "seq": 185,
   "kind": "mail",
   "actor": "jo",
   "data": {
@@ -308,7 +308,7 @@ A user or a crew member acknowledged its mail. Every letter to `data.reader` wit
 
 ```json
 {
-  "seq": 186,
+  "seq": 187,
   "kind": "mail_read",
   "data": {
     "reader": "jo",
@@ -452,7 +452,7 @@ A user acknowledged their notifications, in this client or another.
 
 ```json
 {
-  "seq": 187,
+  "seq": 188,
   "kind": "notifications_read",
   "data": {
     "reader": "jo",
@@ -746,11 +746,12 @@ nothing else. What is not the same:
   answers the device's user and no other; `Users` lists them all.
 - **`Settings` answers the promised keys alone**: `operator`,
   `blob_max_bytes` and `files_max`, and the operator's own words to the
-  agents, `operator_style` and `operator_note`, for a device of an
-  operator alone, and for none in a yard with no operator. No other
-  setting is answered on the listener. A `setting_changed` in the stream
-  follows the same rule: it has its `value` only for a key the device is
-  told, and for any other it has the `key` and no `value`.
+  agents, `operator_style` and `operator_note`, and whether the yard is
+  hosted, `hosted`, for a device of an operator alone, and for none in a
+  yard with no operator. No other setting is answered on the listener. A
+  `setting_changed` in the stream follows the same rule: it has its
+  `value` only for a key the device is told, and for any other it has the
+  `key` and no `value`.
 - **`Bead` tells a setup card's account file and candidates, and the file
   an approved setup's account is set in, to a device of an operator
   alone**: the file a typed value goes to (`asks[].setup.account_file`),
@@ -1157,7 +1158,7 @@ POST /call/Head
 {}
 
 {
-  "result": 181
+  "result": 182
 }
 ```
 
@@ -1167,7 +1168,7 @@ POST /call/Head
 
 ### `Settings`
 
-The yard's operator setting, when set, and its caps on a file; to the devices of an operator, also the operator's words to their agents. `yardr chat` reads the operator only to name them when the current name is not a user of the yard; a client can omit this call when it already knows who it is for and sends no file.
+The yard's operator setting, when set, and its caps on a file; to the devices of an operator, also the operator's words to their agents and whether the yard is a hosted one. `yardr chat` reads the operator only to name them when the current name is not a user of the yard; a client can omit this call when it already knows who it is for and sends no file.
 
 ```
 POST /call/Settings
@@ -1177,6 +1178,7 @@ POST /call/Settings
   "result": {
     "blob_max_bytes": "8388608",
     "files_max": "64",
+    "hosted": "false",
     "operator": "jo",
     "operator_note": "I read diffs, not prose",
     "operator_style": "show"
@@ -1189,10 +1191,13 @@ POST /call/Settings
 | `operator` | string, may be absent | the user name of the operator an ask with no `--to` goes to (one of the users whose role is `operator`); absent when the yard has not set one |
 | `operator_style` | string, may be absent | how the operator asked agents to work with them: `guide`, `show`, `work` or `report`; absent when the operator has not set one, and to a device of any user who is not an operator |
 | `operator_note` | string, may be absent | the one line the operator asked agents to know about them; absent as `operator_style` is |
+| `hosted` | string, may be absent | `true` where the yard is a hosted one, which the hosting service made and runs (its provisioner writes it when it makes the yard, [configuration.md](configuration.md#settings)); `false` or absent where its operator runs the yard. Absent too to a device of any user who is not an operator, whatever the yard is. Only `true` says the yard is hosted |
 | `blob_max_bytes` | string, may be absent | the most bytes `PutBlob` takes, a whole number in a string; absent when the yard has not set one, and the cap is then 8388608 (8 MiB) |
 | `files_max` | string | how many files one mail or note may carry, a whole number in a string; the yard's own count, so a client needs no copy of the number |
 
-The operator's words are what every session of an agent reads when it starts (`yardr prime`), so the socket tells them to whoever calls, and every other setting with them. Over the network a device is told these keys alone: the words to a device of an operator and to no other, and to none in a yard with no operator. A `setting_changed` in a device's stream has its `value` only for a key the device is told; for any other it has the `key` and no `value`.
+The operator's words are what every session of an agent reads when it starts (`yardr prime`), so the socket tells them to whoever calls, and every other setting with them. Over the network a device is told these keys alone: the words and `hosted` to a device of an operator and to no other, and to none in a yard with no operator. A `setting_changed` in a device's stream has its `value` only for a key the device is told; for any other it has the `key` and no `value`.
+
+`hosted` is how a client down the link from the edge learns which yard it has reached: a hosted yard takes `GiveSecret` there for every secret, and any other yard for a harness login's code alone ([TLS is yours](#tls-is-yours-and-the-clients-rule)).
 
 ### `Users`
 
@@ -1666,7 +1671,7 @@ POST /call/Conversation
       "as": "jo"
     },
     {
-      "seq": 182,
+      "seq": 183,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1674,7 +1679,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 183,
+      "seq": 184,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1700,7 +1705,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 182,
+      "seq": 183,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1708,7 +1713,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 183,
+      "seq": 184,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1735,7 +1740,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 184,
+      "seq": 185,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "clerk@north",

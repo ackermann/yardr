@@ -422,12 +422,12 @@ func EventFor(viewer string, operator bool, e Event) (Event, bool) {
 		return e, viewer != "" && (e.Actor == viewer || to == viewer)
 	case "setting_changed":
 		key, _ := e.Data["key"].(string)
-		// The operator's own words to the agents alone are an
-		// operator's to read (DeviceTold): the caller reads who is one
-		// now, so a change of role moves the next such event with it.
-		words := operator && (key == StyleSetting || key == NoteSetting)
+		// The operator's own words to the agents, and whether the yard is
+		// hosted, are an operator's to read (DeviceTold): the caller reads
+		// who is one now, so a change of role moves the next such event
+		// with it.
 		told, _ := e.WithoutHeld()
-		if value, ok := e.Data["value"]; ok && DeviceTold(key, words) {
+		if value, ok := e.Data["value"]; ok && DeviceTold(key, operator) {
 			told.Data = maps.Clone(told.Data)
 			told.Data["value"] = value
 		}
@@ -442,30 +442,37 @@ func EventFor(viewer string, operator bool, e Event) (Event, bool) {
 }
 
 // deviceSettings are the settings a device is told: the operator, the caps
-// on a file, and the operator's own words to the agents, the last to a
-// device of the operator alone (DeviceTold). What docs/api.md promises, and
-// nothing else: no edge, no hook URL, no JWT audience, no backup directory.
-// Settings answers these alone, and a setting_changed carries its value for
-// these alone, so a lost device token gives away no address or secret of
-// the yard. The web view tells a setting's value by the same list.
+// on a file, the operator's own words to the agents, and whether the yard is
+// hosted, the last two to a device of the operator alone (DeviceTold).
+// What docs/api.md promises, and nothing else: no edge, no hook URL, no JWT
+// audience, no backup directory. Settings answers these alone, and a
+// setting_changed carries its value for these alone, so a lost device token
+// gives away no address or secret of the yard. The web view tells a
+// setting's value by the same list.
+//
+// Whether the yard is hosted is told because nothing else tells a device,
+// and it changes what the device may offer: down the edge link GiveSecret is
+// taken for every secret on a hosted yard, and for a harness login's code
+// alone on any other.
 var deviceSettings = []string{
 	OperatorSetting,
 	BlobMaxSetting,
 	FilesMaxSetting,
 	StyleSetting,
 	NoteSetting,
+	HostedSetting,
 }
 
 // DeviceTold reports whether the value of the setting key is told outside
 // the yard's own machine: one of deviceSettings, but the operator's own
-// words to the agents (operator_style, operator_note) only when operator:
-// the reader is an operator of the yard. A yard without an operator tells
-// the words to nobody, since there is nobody they are the words of.
+// words to the agents (operator_style, operator_note) and whether the yard
+// is hosted only when operator: the reader is an operator of the yard. A
+// yard without an operator tells them to nobody.
 func DeviceTold(key string, operator bool) bool {
 	if !slices.Contains(deviceSettings, key) {
 		return false
 	}
-	if key == StyleSetting || key == NoteSetting {
+	if key == StyleSetting || key == NoteSetting || key == HostedSetting {
 		return operator
 	}
 	return true

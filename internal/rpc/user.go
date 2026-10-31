@@ -265,10 +265,10 @@ func userOf(ctx context.Context) string {
 }
 
 // settings is Settings as a device is told it: the allow-listed settings
-// alone (store.DeviceTold), the operator's own words to the agents only to
-// a device of the operator. The socket tells whoever calls, since an agent's
-// session reads them there (yardr prime); over the network a device is a
-// person's, and anything else stays on the yard's own machine.
+// alone (store.DeviceTold), the operator's words and the hosted setting only
+// to a device of the operator. The socket tells whoever calls, since an
+// agent's session reads them there (yardr prime); over the network a device
+// is a person's, and anything else stays on the yard's own machine.
 func (u *UserServer) settings(ctx context.Context) (map[string]string, error) {
 	all, err := u.st.Settings(ctx)
 	if err != nil {

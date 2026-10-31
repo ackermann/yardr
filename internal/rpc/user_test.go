@@ -828,12 +828,12 @@ func TestUserPushRegisterRefused(t *testing.T) {
 
 // Settings tells a device only the settings docs/api.md promises: the
 // operator, the caps on a file, and the operator's own words to the agents
-// to a device of the operator alone. hook_public_url and edge, set beside
-// them, are answered to no device, and the words are answered to sam's
-// neither, nor to any device on a yard that names no operator. Set to
-// nothing a promised key is not there either. The socket answers every key
-// to whoever calls, as before, since an agent's session reads them there
-// (yardr prime).
+// and whether the yard is hosted to a device of the operator alone.
+// hook_public_url and edge, set beside them, are answered to no device, and
+// the words and hosted are answered to sam's neither, nor to any device on a
+// yard that names no operator. Set to nothing a promised key is not there
+// either. The socket answers every key to whoever calls, as before, since an
+// agent's session reads them there (yardr prime).
 func TestUserSettingsTellsADeviceThePromisedSettingsAlone(t *testing.T) {
 	ctx := context.Background()
 	st, u, jo := userYard(t)
@@ -870,6 +870,7 @@ func TestUserSettingsTellsADeviceThePromisedSettingsAlone(t *testing.T) {
 
 	set(store.StyleSetting, "work")
 	set(store.NoteSetting, "I read diffs, not prose")
+	set(store.HostedSetting, "true")
 	set(store.BlobMaxSetting, "16777216")
 	set(store.HookPublicURLSetting, "https://hooks.example.com/south")
 	key, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "edge.key"))
@@ -883,7 +884,17 @@ func TestUserSettingsTellsADeviceThePromisedSettingsAlone(t *testing.T) {
 	words := maps.Clone(told)
 	words[store.StyleSetting] = "work"
 	words[store.NoteSetting] = "I read diffs, not prose"
+	words[store.HostedSetting] = "true"
 	check("set", "the operator's device", settings(jo), words)
+
+	// A yard set to false is told as it is set, so that a device reads the
+	// value and not whether the key is there.
+	set(store.HostedSetting, "false")
+	words[store.HostedSetting] = "false"
+	check("with hosted false", "the operator's device", settings(jo), words)
+	check("with hosted false", "sam's device", settings(tablet.Token), told)
+	set(store.HostedSetting, "true")
+	words[store.HostedSetting] = "true"
 
 	// One of the two words set to nothing is the one that is gone.
 	set(store.NoteSetting, "")
@@ -898,7 +909,7 @@ func TestUserSettingsTellsADeviceThePromisedSettingsAlone(t *testing.T) {
 	if err := json.Unmarshal(post(t, overSocket(sock), "Settings", `{}`), &viaSocket); err != nil {
 		t.Fatal(err)
 	}
-	for _, key := range []string{store.OperatorSetting, store.StyleSetting, store.NoteSetting,
+	for _, key := range []string{store.OperatorSetting, store.StyleSetting, store.NoteSetting, store.HostedSetting,
 		store.BlobMaxSetting, store.FilesMaxSetting, store.HookPublicURLSetting, store.EdgeSetting} {
 		if _, ok := viaSocket.Result[key]; !ok {
 			t.Errorf("the socket answers %v, want %s among it", viaSocket.Result, key)
@@ -923,10 +934,10 @@ func TestUserSettingsTellsADeviceThePromisedSettingsAlone(t *testing.T) {
 
 // A device's stream carries a setting_changed for every key, but its value
 // only for a setting the device is told, as in Settings: sam's stream has
-// the operator's value and none for hook_public_url, max_sessions or the
-// operator's words, while the operator's own device has the words' values
-// too. A device matches on the key alone for what it reads again, so it
-// keeps working without the values.
+// the operator's value and none for hook_public_url, max_sessions, the
+// operator's words or whether the yard is hosted, while the operator's own
+// device has the values of the last two too. A device matches on the key
+// alone for what it reads again, so it keeps working without the values.
 func TestUserStreamHoldsBackUntoldSettingsValues(t *testing.T) {
 	ctx := context.Background()
 	st, u, jo := userYard(t)
@@ -989,6 +1000,10 @@ func TestUserStreamHoldsBackUntoldSettingsValues(t *testing.T) {
 	set(store.StyleSetting, "work")
 	check("sam's stream", sams, store.StyleSetting, "", false)
 	check("the operator's stream", jos, store.StyleSetting, "work", true)
+
+	set(store.HostedSetting, "true")
+	check("sam's stream", sams, store.HostedSetting, "", false)
+	check("the operator's stream", jos, store.HostedSetting, "true", true)
 
 	// The teammates mapping is read by Teammates alone: its change
 	// carries the key to every stream and its addresses to none.

@@ -742,7 +742,8 @@ file or command of a user or a crew member); and
 `Settings`, which answers a device the promised keys
 alone: `operator`, `blob_max_bytes` and `files_max`, and to a device of
 an operator alone the operator's own words to their agents,
-`operator_style` and `operator_note`. No other setting is told to a device
+`operator_style` and `operator_note`, and whether the yard is hosted,
+`hosted`. No other setting is told to a device
 (a lost token gives away no `edge`, `hook_public_url` or `backup_dir`),
 and the `setting_changed` event of such a setting comes with its key and
 without its value.
