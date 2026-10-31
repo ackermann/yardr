@@ -184,7 +184,9 @@ func TestHookDeliveryPrintsPrintableThreadFields(t *testing.T) {
 	t.Parallel()
 	e := store.Event{Seq: 7, Kind: "hook", At: time.Date(2026, 10, 2, 9, 14, 0, 0, time.Local), Data: map[string]any{
 		"source": "linear", "type": "comment", "action": "create",
-		"thread": map[string]any{"title": "Retries\r\n\x1b[2K"}, "url": "https://x/\rhidden\x1b[2K",
+		"actor":  map[string]any{"id": "u1", "name": "Jane\r\n\x1b[2K"},
+		"thread": map[string]any{"title": "Retries\r\n\x1b[2K"},
+		"text":   "can you\rlook\x1b[2K?", "url": "https://x/\rhidden\x1b[2K",
 	}}
 	var buf bytes.Buffer
 	printInboxEvent(&buf, e, "yardmaster", "", nil)
@@ -195,7 +197,7 @@ func TestHookDeliveryPrintsPrintableThreadFields(t *testing.T) {
 	if strings.ContainsAny(got, "\r\x1b") {
 		t.Fatalf("hook delivery printed a control character: %q", got)
 	}
-	want := "     7 10-02 09:14  hook (-) linear comment create on \"Retries???[2K\"  https://x/?hidden?[2K\n"
+	want := "     7 10-02 09:14  hook (-) linear comment create by Jane???[2K on \"Retries???[2K\": can you?look?[2K?  https://x/?hidden?[2K\n"
 	if got != want {
 		t.Fatalf("got  %q\nwant %q", got, want)
 	}

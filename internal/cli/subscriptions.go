@@ -843,7 +843,7 @@ func printHookDelivery(w io.Writer, e store.Event, member, home string, files []
 	what := strings.Join(slices.DeleteFunc([]string{str("source"), str("type"), str("action")},
 		func(s string) bool { return s == "" }), " ")
 	if who != "" {
-		what += " by " + who
+		what += " by " + printable(who)
 	}
 	thread, _ := e.Data["thread"].(map[string]any)
 	title, _ := thread["title"].(string)
@@ -852,7 +852,7 @@ func printHookDelivery(w io.Writer, e store.Event, member, home string, files []
 	}
 	fmt.Fprintf(w, "%6d %s  hook (%s) %s", e.Seq, e.At.Local().Format("01-02 15:04"), or(store.Reason(e, member), "-"), what)
 	if t := str("text"); t != "" {
-		fmt.Fprintf(w, ": %s", t)
+		fmt.Fprintf(w, ": %s", printable(t))
 	}
 	if u := str("url"); u != "" {
 		fmt.Fprintf(w, "  %s", printable(u))
