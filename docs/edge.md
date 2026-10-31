@@ -19,8 +19,11 @@ yardr edge disconnect                      # leave the edge, and put back the ho
 
 A connected yard is a yard you run on your own machine that keeps one link
 open to the edge. A hosted yard is a yard the service runs for you
-([below](#hosted-and-connected)). Both take webhooks at the same URLs, and
-both are on the trial's invite list. People who have no yard of their own
+([below](#hosted-and-connected)). Both take webhooks at the same URLs.
+Connecting needs a verified account, not the invite: an account the invite
+list does not name may connect its own yard, up to the account cap below,
+and gets no hosted yard, which still needs the invite list. People who have
+no yard of their own
 read the same on the edge's public notice,
 `https://my.yardr.dev/edge/notice`, which needs no sign-in.
 
@@ -62,8 +65,10 @@ approve it, and you may change the name there; what the edge answers back,
 your account's handle and the yard's name, is what is kept. You type and
 paste nothing on this machine: the yard's key is its credential, and every
 answer from the edge is checked against the pinned key.
-Connecting takes the trial's invite, as a hosted yard does: an account whose
-email is not on the list is refused.
+Connecting needs a verified account, not the invite: an account the invite
+list does not name may connect its own yard, up to the account cap below,
+and gets no hosted yard, which still needs the invite list. An account whose
+email is not verified is refused.
 
 **Connecting sets two settings.** The `edge` setting holds the edge's
 address, its pinned key, the account's handle and this yard's name, and the
@@ -154,8 +159,10 @@ edge's 16 MiB bound; past it the edge cuts the response.
 What the edge reads of it: every call and its answer — conversations, beads,
 mail, asks, notes — and the device token each call carries, with which the
 edge could act as that device within what the device may do. The edge is
-ours and connecting is invite-only, and a token is revoked per device on the
-yard: `yardr user device rm <user> <device>`.
+ours, and connecting needs a verified account, not the invite: an account
+the invite list does not name may connect its own yard, up to the account
+cap below, and gets no hosted yard, which still needs the invite list. A
+token is revoked per device on the yard: `yardr user device rm <user> <device>`.
 
 Approvals cross the link: `ApproveAsk` and `ApproveSetup` are taken from a
 paired device of the operator down the link, as from the yard's own
@@ -194,14 +201,14 @@ checks the gateway's JWT and acts as the mapped yard user.
 
 | | hosted yard | connected yard |
 |---|---|---|
-| account, handle, sign-up | the edge's, by invite | the same |
+| account, handle, sign-up | the edge's, by invite | the edge's, by verified sign-up |
 | webhook URL | `https://my.yardr.dev/hooks/<account>/<yard>/<hook>` | the same |
 | peer URL | `https://my.yardr.dev/peers/<account>/<yard>` | the same |
 | how the edge reaches it | TCP to its container or droplet | the link the yard opened |
 | footplate | Kratos session plus device token, pairing by code | the same, through the link |
 | secrets given from a device | every secret, from the operator's devices | the code of a harness login |
 | who runs it, upgrades, backs up | the service | the person |
-| invite list | yes, for the trial | yes, the same list |
+| invite list | yes, for the trial | no: any verified account connects its own yard, and gets no hosted yard |
 
 One account holds up to three yards in the trial, hosted and connected
 side by side, each under a name of its own. A fourth yard is refused, and
