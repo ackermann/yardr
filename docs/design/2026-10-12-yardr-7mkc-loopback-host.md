@@ -45,11 +45,11 @@ What weakens, said plainly: today a loopback view answers to loopback names only
 What a person would type, with the view's port as it is:
 
 ```sh
-yardr web serve --host adventuretime.tail5cf2e8.ts.net
+yardr web serve --host yard.tailnet-name.ts.net
 tailscale serve --bg 8791
 ```
 
-and open `https://adventuretime.tail5cf2e8.ts.net/` on the phone: the yard, through the tailnet's HTTPS, while the view itself listens on 127.0.0.1:8791 and answers to `localhost`, `127.0.0.1` and the tailnet name. The exact `tailscale serve` words are the trial's to confirm — Tailscale's CLI changed in version 1.52, and docs record the version they were verified with. With any other reverse proxy the contract is one sentence: forward the client's Host header unchanged, and terminate TLS and decide who reaches it yourself; `proxy_set_header Host $host` is that sentence in nginx. A proxy that rewrites Host to `localhost` needs no `--host` at all and works today.
+and open `https://yard.tailnet-name.ts.net/` on the phone: the yard, through the tailnet's HTTPS, while the view itself listens on 127.0.0.1:8791 and answers to `localhost`, `127.0.0.1` and the tailnet name. The exact `tailscale serve` words are the trial's to confirm — Tailscale's CLI changed in version 1.52, and docs record the version they were verified with. With any other reverse proxy the contract is one sentence: forward the client's Host header unchanged, and terminate TLS and decide who reaches it yourself; `proxy_set_header Host $host` is that sentence in nginx. A proxy that rewrites Host to `localhost` needs no `--host` at all and works today.
 
 When design yardr-8wxe's `--as` lands (beads yardr-y6ty and yardr-bvt3), it composes with no further change: `--as` says whose writes the view takes, `--host` says which names it answers to, and a view that acts behind a proxy is the edge's to guard, as that design's risk table says ("The edge alone: the view has no login").
 

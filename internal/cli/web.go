@@ -401,7 +401,7 @@ yours in front of it (docs/web.md, "Behind a proxy").
 	v.install.Example = `  yardr web install                       # http://127.0.0.1:8791/
   yardr web install --addr 127.0.0.1:9000
   yardr web install --host yard.example.net   # for a proxy that forwards that name
-  yardr web install --host adventuretime.tail5cf2e8.ts.net --as mckean
+  yardr web install --host yard.tailnet-name.ts.net --as mckean
   yardr web uninstall`
 	return cmd
 }

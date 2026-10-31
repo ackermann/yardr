@@ -321,7 +321,7 @@ func TestWebAnswersTo(t *testing.T) {
 		{false, nil, ""},
 		{false, []string{"yard.example.net", "yard.lan"}, "a loopback address, localhost, yard.example.net, yard.lan"},
 		{true, nil, "an IP address, localhost"},
-		{true, []string{"adventuretime", "adventuretime.local", "yard.example.net"}, "an IP address, localhost, adventuretime, adventuretime.local, yard.example.net"},
+		{true, []string{"devbox", "devbox.local", "yard.example.net"}, "an IP address, localhost, devbox, devbox.local, yard.example.net"},
 	} {
 		if got := webAnswersTo(c.unsafe, c.names); got != c.want {
 			t.Errorf("webAnswersTo(%v, %v) = %q, want %q", c.unsafe, c.names, got, c.want)

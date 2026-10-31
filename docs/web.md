@@ -171,17 +171,18 @@ through the proxy is the one loopback client to the stream limits
 
 One example, with Tailscale's `tailscale serve`, which shares a port on
 loopback with the devices of your tailnet over HTTPS. Any other proxy that
-keeps to the three points above does as well. Run against the view on
+keeps to the three points above does as well. Below, `yard.tailnet-name.ts.net`
+stands for your machine's name on your tailnet. Run against the view on
 14 Oct 2026 (Tailscale client 1.102.4, tailscaled 1.94.1):
 
 ```sh
-yardr web install --host adventuretime.tail5cf2e8.ts.net --as mckean   # or: yardr web serve --host adventuretime.tail5cf2e8.ts.net
-tailscale serve --bg --https=8444 http://127.0.0.1:8791                # https://adventuretime.tail5cf2e8.ts.net:8444/ -> 127.0.0.1:8791
+yardr web install --host yard.tailnet-name.ts.net --as mckean   # or: yardr web serve --host yard.tailnet-name.ts.net
+tailscale serve --bg --https=8444 http://127.0.0.1:8791         # https://yard.tailnet-name.ts.net:8444/ -> 127.0.0.1:8791
 ```
 
 `tailscale serve` passes the tailnet name through as `Host`, with the
 port: an echo server on a spare tailnet-only port saw
-`Host=adventuretime.tail5cf2e8.ts.net:8445`
+`Host=yard.tailnet-name.ts.net:8445`
 (`X-Forwarded-Host` the same, `X-Forwarded-Proto=https`). So
 `--host <tailnet name>` is required, and the view matches it with the port
 present. The `--https=8444` gives the view a tailnet-only port of its own:
@@ -190,7 +191,7 @@ is not served there.
 
 A view that acts prints its token URL under loopback, which is this
 machine's. A browser behind the proxy opens it under the name it reaches the
-view by, with the same token: `https://adventuretime.tail5cf2e8.ts.net:8444/?token=<token>`,
+view by, with the same token: `https://yard.tailnet-name.ts.net:8444/?token=<token>`,
 once, and its cookie is that name's ([Acting as a user](#acting-as-a-user)).
 The token is the `token` of the view's record (`jq -r .token
 <home>/webviews/web-*.json`). That step is not part of the run above.
@@ -307,8 +308,8 @@ read-only.
   loopback names the flag.
 - A request is answered when its `Host` header is an IP address (any), a
   loopback name, or this machine's host name as `os.Hostname` gives it,
-  with or without `.local`, in any case (`adventuretime` and
-  `adventuretime.local`), or a name given with `--host` (below). Every
+  with or without `.local`, in any case (`devbox` and
+  `devbox.local`), or a name given with `--host` (below). Every
   other name is still answered 421, so a page on another site cannot read
   the yard through a visitor's browser by pointing a name of its own at
   this machine.
@@ -332,7 +333,7 @@ read-only.
 - In JWT mode the warning says requests other than `/health` need a token
   signed by the gateway.
   The line after it says what the view answers to:
-  `serving the yard url=http://[::]:8791/ pages=http://[::]:8789/ answers_to="an IP address, localhost, adventuretime, adventuretime.local, yard.example.net"` when started with `--unsafe --host yard.example.net`.
+  `serving the yard url=http://[::]:8791/ pages=http://[::]:8789/ answers_to="an IP address, localhost, devbox, devbox.local, yard.example.net"` when started with `--unsafe --host yard.example.net`.
 
 ## Acting as a user
 
@@ -384,7 +385,7 @@ not act, and a test holds the view to it.
 ```sh
 yardr settings set web_as mckean   # the view acts as mckean, with no flag
 yardr web serve --as mckean
-yardr web install --host adventuretime.tail5cf2e8.ts.net --as mckean   # behind tailscale serve, for a phone
+yardr web install --host yard.tailnet-name.ts.net --as mckean   # behind tailscale serve, for a phone
 ```
 
 Each write carries the revision the page was drawn from: one from a page

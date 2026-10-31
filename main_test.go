@@ -1,8 +1,11 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -316,6 +319,85 @@ func TestNoGoCodeNamesGitHub(t *testing.T) {
 	// Not for want of looking: the walk started at the repository's root.
 	if files < 100 {
 		t.Fatalf("%d Go files read", files)
+	}
+}
+
+// ownHostWords are the words of a machine's own host name that no tracked
+// file may carry: each one's length and the SHA-256 of its lowercase form,
+// in hex. They are held as digests because a test that carried the words
+// would be a hit of its own. To keep another word out, add the output of
+// printf %s <word> | shasum -a 256, and the word's length.
+var ownHostWords = []struct {
+	length int
+	digest string
+}{
+	{13, "0199c024260de59899233f90fd5dac0b956ced2a20361dc7d5c322564f46fe5c"},
+	{10, "4ac2a8aa58aad7519a388e95a67c7f1c1167d325262845e8061a88db9c4fcac3"},
+}
+
+// namesOwnHost says whether line holds one of ownHostWords: a run of letters
+// and digits, in any case, so a host name, a .local name and a URL each show
+// the word in them. Only a run of a word's length is hashed, so the scan of
+// the whole tree costs a fraction of a second.
+func namesOwnHost(line string) bool {
+	alnum := func(c byte) bool { return 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9' }
+	for i := 0; i < len(line); {
+		if !alnum(line[i]) {
+			i++
+			continue
+		}
+		j := i
+		for j < len(line) && alnum(line[j]) {
+			j++
+		}
+		for _, w := range ownHostWords {
+			if j-i != w.length {
+				continue
+			}
+			sum := sha256.Sum256([]byte(strings.ToLower(line[i:j])))
+			if hex.EncodeToString(sum[:]) == w.digest {
+				return true
+			}
+		}
+		i = j
+	}
+	return false
+}
+
+// AGENTS.md keeps a machine's own facts out of what a user reads, and a host
+// name is one: a doc or a test written on one machine names a placeholder
+// (yard.example.net, or a ts.net name with a placeholder for the tailnet), and
+// a test of a host name's rules holds the placeholder to them as it would the
+// machine's own name. This reads the files git tracks, as git grep does. A hit
+// names its file and line and not the line, so a failure does not print the
+// word it is about.
+func TestNoFileNamesAMachineHost(t *testing.T) {
+	t.Parallel()
+	listed, err := exec.Command("git", "ls-files", "-z").Output()
+	if err != nil {
+		t.Fatalf("git ls-files: %v", err)
+	}
+	var files int
+	for path := range strings.SplitSeq(strings.TrimSuffix(string(listed), "\x00"), "\x00") {
+		// A file the index lists and the work tree has lost is not at the
+		// tip, and a link or a submodule has no text of its own.
+		if info, err := os.Lstat(path); err != nil || !info.Mode().IsRegular() {
+			continue
+		}
+		body, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		files++
+		for n, line := range strings.Split(string(body), "\n") {
+			if namesOwnHost(line) {
+				t.Errorf("%s:%d names a machine's own host name: write a placeholder (yard.example.net) in its place", path, n+1)
+			}
+		}
+	}
+	// Not for want of looking: git lists the whole tree.
+	if files < 500 {
+		t.Fatalf("%d files read", files)
 	}
 }
 

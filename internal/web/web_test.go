@@ -908,23 +908,23 @@ func TestUnsafeHost(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv.AllowNetwork("AdventureTime.local")
+	srv.AllowNetwork("DevBox.local")
 	ts := httptest.NewServer(srv)
 	t.Cleanup(func() { shut(ts) })
 	f := &fixture{t: t, st: st, ts: ts}
 	for _, host := range []string{"192.168.178.90:8791", "192.168.178.90", "10.0.0.1:1", "[2001:db8::1]:8791", "[fe80::1]",
-		"adventuretime", "adventuretime.local:8791", "ADVENTURETIME.LOCAL", "localhost:8791", "127.0.0.1:8791", "[::1]:8791"} {
+		"devbox", "devbox.local:8791", "DEVBOX.LOCAL", "localhost:8791", "127.0.0.1:8791", "[::1]:8791"} {
 		if r := f.get("/", "Host", host); r.status != 200 {
 			t.Errorf("Host %s: status %d", host, r.status)
 		}
 	}
-	for _, host := range []string{"evil.example", "evil.example:8791", "192.168.178.90.evil.example", "adventuretime.evil.example",
-		"adventuretime.local.evil.example", "other.local", "local", ".local"} {
+	for _, host := range []string{"evil.example", "evil.example:8791", "192.168.178.90.evil.example", "devbox.evil.example",
+		"devbox.local.evil.example", "other.local", "local", ".local"} {
 		r := f.get("/", "Host", host)
 		if r.status != http.StatusMisdirectedRequest {
 			t.Errorf("Host %s: status %d, want 421", host, r.status)
 		}
-		if !strings.Contains(r.body, "adventuretime.local") {
+		if !strings.Contains(r.body, "devbox.local") {
 			t.Errorf("Host %s: the refusal does not say what to ask for: %q", host, r.body)
 		}
 	}
@@ -958,25 +958,25 @@ func TestGivenHost(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv.AllowNetwork("adventuretime", "adventuretime.tail5cf2e8.ts.net", "Yard.Example.net", "adventuretime")
-	if got, want := srv.Names(), []string{"adventuretime", "adventuretime.local", "adventuretime.tail5cf2e8.ts.net", "yard.example.net"}; !slices.Equal(got, want) {
+	srv.AllowNetwork("devbox", "yard.tailnet-name.ts.net", "Yard.Example.net", "devbox")
+	if got, want := srv.Names(), []string{"devbox", "devbox.local", "yard.tailnet-name.ts.net", "yard.example.net"}; !slices.Equal(got, want) {
 		t.Errorf("names %v, want %v", got, want)
 	}
 	ts := httptest.NewServer(srv)
 	t.Cleanup(func() { shut(ts) })
 	f := &fixture{t: t, st: st, ts: ts}
-	for _, host := range []string{"adventuretime.tail5cf2e8.ts.net", "adventuretime.tail5cf2e8.ts.net:8791", "ADVENTURETIME.Tail5CF2E8.ts.net:8791",
-		"yard.example.net:443", "YARD.EXAMPLE.NET", "adventuretime.local:8791", "192.168.178.90:8791"} {
+	for _, host := range []string{"yard.tailnet-name.ts.net", "yard.tailnet-name.ts.net:8791", "YARD.Tailnet-Name.ts.net:8791",
+		"yard.example.net:443", "YARD.EXAMPLE.NET", "devbox.local:8791", "192.168.178.90:8791"} {
 		if r := f.get("/", "Host", host); r.status != 200 {
 			t.Errorf("Host %s: status %d", host, r.status)
 		}
 	}
 	for host, name := range map[string]string{
-		"other.tail5cf2e8.ts.net:8791":        "other.tail5cf2e8.ts.net",
-		"Evil.Example":                        "evil.example",
-		"tail5cf2e8.ts.net":                   "tail5cf2e8.ts.net",
-		"x.adventuretime.tail5cf2e8.ts.net:1": "x.adventuretime.tail5cf2e8.ts.net",
-		"yard.example.net.evil.example":       "yard.example.net.evil.example",
+		"other.tailnet-name.ts.net:8791": "other.tailnet-name.ts.net",
+		"Evil.Example":                   "evil.example",
+		"tailnet-name.ts.net":            "tailnet-name.ts.net",
+		"x.yard.tailnet-name.ts.net:1":   "x.yard.tailnet-name.ts.net",
+		"yard.example.net.evil.example":  "yard.example.net.evil.example",
 	} {
 		r := f.get("/", "Host", host)
 		if r.status != http.StatusMisdirectedRequest {
@@ -1007,14 +1007,14 @@ func TestLoopbackHost(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv.AllowHosts("adventuretime.tail5cf2e8.ts.net", "Yard.Example.net", "yard.example.net")
-	if got, want := srv.Names(), []string{"adventuretime.tail5cf2e8.ts.net", "yard.example.net"}; !slices.Equal(got, want) {
+	srv.AllowHosts("yard.tailnet-name.ts.net", "Yard.Example.net", "yard.example.net")
+	if got, want := srv.Names(), []string{"yard.tailnet-name.ts.net", "yard.example.net"}; !slices.Equal(got, want) {
 		t.Errorf("names %v, want %v", got, want)
 	}
 	ts := httptest.NewServer(srv)
 	t.Cleanup(func() { shut(ts) })
 	f := &fixture{t: t, st: st, ts: ts}
-	for _, host := range []string{"adventuretime.tail5cf2e8.ts.net", "adventuretime.tail5cf2e8.ts.net:8791", "ADVENTURETIME.Tail5CF2E8.ts.net:443",
+	for _, host := range []string{"yard.tailnet-name.ts.net", "yard.tailnet-name.ts.net:8791", "YARD.Tailnet-Name.ts.net:443",
 		"yard.example.net:443", "YARD.EXAMPLE.NET", "localhost:8791", "127.0.0.1:8791", "[::1]:8791"} {
 		if r := f.get("/", "Host", host); r.status != 200 {
 			t.Errorf("Host %s: status %d", host, r.status)
@@ -1025,11 +1025,11 @@ func TestLoopbackHost(t *testing.T) {
 	hostname, _ := os.Hostname()
 	own := strings.TrimSuffix(strings.ToLower(hostname), ".local")
 	refused := map[string]string{
-		"other.tail5cf2e8.ts.net:8791":      "other.tail5cf2e8.ts.net",
+		"other.tailnet-name.ts.net:8791":    "other.tailnet-name.ts.net",
 		"Evil.Example":                      "evil.example",
 		"yard.example.net.evil.example:443": "yard.example.net.evil.example",
-		"adventuretime":                     "adventuretime",
-		"adventuretime.local:8791":          "adventuretime.local",
+		"devbox":                            "devbox",
+		"devbox.local:8791":                 "devbox.local",
 	}
 	if _, err := web.CheckHost(own); err == nil {
 		refused[own+":8791"] = own
@@ -1040,7 +1040,7 @@ func TestLoopbackHost(t *testing.T) {
 		if r.status != http.StatusMisdirectedRequest {
 			t.Errorf("Host %s: status %d, want 421", host, r.status)
 		}
-		for _, want := range []string{"ask for it as localhost or 127.0.0.1 or adventuretime.tail5cf2e8.ts.net or yard.example.net, not " + host +
+		for _, want := range []string{"ask for it as localhost or 127.0.0.1 or yard.tailnet-name.ts.net or yard.example.net, not " + host +
 			". If that name is this machine's, start the view with --host " + name + "\n"} {
 			if !strings.Contains(r.body, want) {
 				t.Errorf("Host %s: the refusal lacks %q: %q", host, want, r.body)
@@ -1058,11 +1058,11 @@ func TestLoopbackHost(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	named.AllowHosts("adventuretime", "adventuretime.local")
+	named.AllowHosts("devbox", "devbox.local")
 	nts := httptest.NewServer(named)
 	t.Cleanup(func() { shut(nts) })
 	nf := &fixture{t: t, st: st, ts: nts}
-	for _, host := range []string{"adventuretime:8791", "AdventureTime.local"} {
+	for _, host := range []string{"devbox:8791", "DevBox.local"} {
 		if r := nf.get("/", "Host", host); r.status != 200 {
 			t.Errorf("given, Host %s: status %d", host, r.status)
 		}
@@ -1085,10 +1085,10 @@ func TestLoopbackHost(t *testing.T) {
 func TestCheckHost(t *testing.T) {
 	t.Parallel()
 	for name, want := range map[string]string{
-		"adventuretime":                    "adventuretime",
-		"AdventureTime.Tail5cf2e8.ts.net.": "adventuretime.tail5cf2e8.ts.net",
-		"my_box.lan":                       "my_box.lan",
-		"xn--bcher-kva.example":            "xn--bcher-kva.example",
+		"devbox":                    "devbox",
+		"Yard.Tailnet-Name.ts.net.": "yard.tailnet-name.ts.net",
+		"my_box.lan":                "my_box.lan",
+		"xn--bcher-kva.example":     "xn--bcher-kva.example",
 	} {
 		if got, err := web.CheckHost(name); err != nil || got != want {
 			t.Errorf("CheckHost(%q) = %q, %v, want %q", name, got, err, want)

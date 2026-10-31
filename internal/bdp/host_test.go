@@ -124,14 +124,14 @@ func TestNoHostIsRefused(t *testing.T) {
 // loopback.
 func TestAllowHosts(t *testing.T) {
 	const scope = "https://beads.example/team/"
-	ts := hostServer(t, scope, func(s *bdp.Server) { s.AllowHosts("Proxy.Lan", "proxy.lan", "yard.tail5cf2e8.ts.net") })
+	ts := hostServer(t, scope, func(s *bdp.Server) { s.AllowHosts("Proxy.Lan", "proxy.lan", "yard.tailnet-name.ts.net") })
 	for _, host := range []string{"", "localhost:8765", "127.0.0.1:8765", "[::1]:8765", "beads.example", "BEADS.example:443",
-		"proxy.lan", "PROXY.LAN:8765", "yard.tail5cf2e8.ts.net:8444"} {
+		"proxy.lan", "PROXY.LAN:8765", "yard.tailnet-name.ts.net:8444"} {
 		if got := statusUnder(t, ts, scope, host); got != 200 {
 			t.Errorf("Host %q: status %d, want 200", host, got)
 		}
 	}
-	refused := []string{"other.lan", "proxy.lan.evil.example", "x.proxy.lan:8765", "tail5cf2e8.ts.net", "192.168.1.5:8765", "10.0.0.1", "[2001:db8::1]:8765"}
+	refused := []string{"other.lan", "proxy.lan.evil.example", "x.proxy.lan:8765", "tailnet-name.ts.net", "192.168.1.5:8765", "10.0.0.1", "[2001:db8::1]:8765"}
 	// The machine's own host name is one of the names not given: only
 	// --unsafe adds it by itself.
 	if hostname, _ := os.Hostname(); hostname != "" {
@@ -151,15 +151,15 @@ func TestAllowHosts(t *testing.T) {
 // name, with or without .local; another site's name is still refused.
 func TestAllowNetwork(t *testing.T) {
 	const scope = "https://beads.example/team/"
-	ts := hostServer(t, scope, func(s *bdp.Server) { s.AllowNetwork("AdventureTime.local", "Yard.Example.net", "adventuretime") })
+	ts := hostServer(t, scope, func(s *bdp.Server) { s.AllowNetwork("DevBox.local", "Yard.Example.net", "devbox") })
 	for _, host := range []string{"", "192.168.178.90:8765", "192.168.178.90", "10.0.0.1:1", "[2001:db8::1]:8765", "[fe80::1]",
-		"adventuretime", "adventuretime.local:8765", "ADVENTURETIME.LOCAL", "yard.example.net:443", "localhost:8765", "beads.example"} {
+		"devbox", "devbox.local:8765", "DEVBOX.LOCAL", "yard.example.net:443", "localhost:8765", "beads.example"} {
 		if got := statusUnder(t, ts, scope, host); got != 200 {
 			t.Errorf("Host %q: status %d, want 200", host, got)
 		}
 	}
-	for _, host := range []string{"evil.example", "evil.example:8765", "192.168.178.90.evil.example", "adventuretime.evil.example",
-		"adventuretime.local.evil.example", "other.local", "local", ".local"} {
+	for _, host := range []string{"evil.example", "evil.example:8765", "192.168.178.90.evil.example", "devbox.evil.example",
+		"devbox.local.evil.example", "other.local", "local", ".local"} {
 		if got := statusUnder(t, ts, scope, host); got != http.StatusMisdirectedRequest {
 			t.Errorf("Host %s: status %d, want 421", host, got)
 		}

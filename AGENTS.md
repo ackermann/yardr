@@ -152,7 +152,10 @@ it lists every exported name with its comment, faster than grepping.
 - A user doc, a pack's `SETUP.md`, a help text or a message the product
   prints is read on any yard, on Linux or macOS: it carries no path,
   version or fact of the machine it was written on (no `/Users/<name>`,
-  no `/opt/homebrew`, no "this machine's", no version seen in a shell);
+  no `/opt/homebrew`, no "this machine's", no version seen in a shell,
+  no host name of its own: an example names a placeholder such as
+  `yard.example.net`, and the root package's `TestNoFileNamesAMachineHost`
+  holds every tracked file, tests too, to that);
   an install step names the tool's own install page and gives both
   platforms' commands where they differ, Homebrew as one way on macOS
   and never the only way; sample output uses `~` and the placeholder
