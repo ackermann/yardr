@@ -1006,9 +1006,24 @@ func TestPackApplyDepotRefusals(t *testing.T) {
 	if _, err := y.AddAsk(y.ctx, y.bead, ask, "yardmaster"); err == nil || !strings.Contains(err.Error(), "yardr pack check starter --depot yardr") {
 		t.Fatalf("a plan that asks: AddAsk = %v", err)
 	}
+	// With no single depot, the refusal says a first install is asked with its
+	// depot named, and that the terminal is for a plan that still asks.
 	f.plan, f.depot = &AskPlan{}, ""
-	if _, err := y.AddAsk(y.ctx, y.bead, ask, "yardmaster"); err == nil || !strings.Contains(err.Error(), "no single depot") {
-		t.Fatalf("no single depot: AddAsk = %v", err)
+	_, err := y.AddAsk(y.ctx, y.bead, ask, "yardmaster")
+	if err == nil {
+		t.Fatal("no single depot: AddAsk was accepted")
+	}
+	for _, want := range []string{
+		"no single depot",
+		`--run "pack apply starter --depot <depot>"`,
+		"a plan that still asks is the operator's to type in a terminal",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("no single depot: AddAsk = %v, want %q", err, want)
+		}
+	}
+	if strings.Contains(err.Error(), "a first install, and one of several depots, is the operator's to type in a terminal") {
+		t.Errorf("no single depot: a first install is called a terminal's: %v", err)
 	}
 	if notes, err := y.Notes(y.ctx, y.bead); err != nil || len(notes) != 0 {
 		t.Fatalf("the refused asks left %d notes, %v", len(notes), err)

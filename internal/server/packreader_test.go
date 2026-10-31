@@ -120,9 +120,24 @@ func TestPresetReaderFor(t *testing.T) {
 func TestReadEmbeddedDepotPack(t *testing.T) {
 	ctx := context.Background()
 	st := packReaderYard(t)
-	if _, err := readEmbeddedPack(ctx, "starter", "", store.Mappings{}, st, t.TempDir()); err == nil ||
-		!strings.Contains(err.Error(), "no standing import") {
-		t.Fatalf("a first install = %v", err)
+	// Named with no depot, a pack no depot holds has none to re-apply to: the
+	// refusal says a first install is asked with its depot named, and leaves
+	// the terminal to a plan that still asks.
+	_, err := readEmbeddedPack(ctx, "starter", "", store.Mappings{}, st, t.TempDir())
+	if err == nil {
+		t.Fatal("a first install named with no depot was read")
+	}
+	for _, want := range []string{
+		"no standing import",
+		`--run "pack apply starter --depot <depot>"`,
+		"a plan that still asks is the operator's to type in a terminal",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("a first install named with no depot = %v, want %q", err, want)
+		}
+	}
+	if strings.Contains(err.Error(), "asks what a card cannot answer") {
+		t.Errorf("a first install named with no depot is called a terminal's: %v", err)
 	}
 	if err := st.PutDepot(ctx, store.Depot{Name: "yardr", Path: t.TempDir()}, "mckean"); err != nil {
 		t.Fatal(err)
@@ -225,6 +240,23 @@ func TestReadEmbeddedDepotPack(t *testing.T) {
 	}
 	if !foundCrewAsk {
 		t.Errorf("the mapped reading asks nothing of the crew:\n%s", strings.Join(mapped.Plan.Missing, "\n"))
+	}
+
+	// Held by two depots, a pack named with none has no one to choose: the
+	// refusal names both and says the ask names which, and an ask that does
+	// reads as a re-apply to it.
+	if _, err := st.RecordPack(ctx, store.PackImport{Pack: "starter", Depot: "web", Source: "embedded in yardr test"}, false, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = readEmbeddedPack(ctx, "starter", "", store.Mappings{}, st, home); err == nil ||
+		!strings.Contains(err.Error(), "depots web, yardr") ||
+		!strings.Contains(err.Error(), `--run "pack apply starter --depot <depot>"`) ||
+		strings.Contains(err.Error(), "to name in a terminal") {
+		t.Fatalf("a pack held by two depots, named with none = %v", err)
+	}
+	again, err := readEmbeddedPack(ctx, "starter", "web", store.Mappings{}, st, home)
+	if err != nil || again.Depot != "web" || again.Plan == nil {
+		t.Fatalf("a pack held by two depots, named to one = %+v, %v", again, err)
 	}
 }
 

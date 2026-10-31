@@ -103,9 +103,9 @@ func readEmbeddedPack(ctx context.Context, name string, depot string, mappings s
 		}
 		switch {
 		case len(depots) == 0:
-			return nil, fmt.Errorf("pack %s: this yard has no standing import of it: a first install asks what a card cannot answer, and is the operator's to type in a terminal (yardr pack check %s --depot <depot> shows its plan there)", name, name)
+			return nil, fmt.Errorf("pack %s: this yard has no standing import of it, so there is nothing to re-apply: a first install is asked with its depot named and the mappings that answer its plan (--run \"pack apply %s --depot <depot>\"); a plan that still asks is the operator's to type in a terminal (yardr pack check %s --depot <depot> shows its plan there)", name, name, name)
 		case len(depots) > 1:
-			return nil, fmt.Errorf("pack %s: this yard holds it in depots %s: which one is the operator's to name in a terminal (yardr pack check %s --depot <depot> shows its plan there)", name, strings.Join(depots, ", "), name)
+			return nil, fmt.Errorf("pack %s: this yard holds it in depots %s, so with no depot named there is no single depot to re-apply to: the ask names which (--run \"pack apply %s --depot <depot>\"; yardr pack check %s --depot <depot> shows its plan)", name, strings.Join(depots, ", "), name, name)
 		}
 		target = depots[0]
 	}

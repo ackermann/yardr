@@ -1800,8 +1800,13 @@ yard.
 pack yardr embeds, with a run ask (`yardr bead ask <id> "<question>"
 --run "pack apply <name>"`, [chat.md](chat.md#questions-for-you)), for
 the operator to approve on a card: an embedded pack of kind `source`
-(the packs table above names them), or a pack of a depot kind
-re-applied to the one depot that holds it where its plan asks nothing.
+with no flag (the packs table above names them), or a pack of a depot
+kind. With no flag a depot pack is re-applied to the one depot that
+holds it where its plan asks nothing; a first install names its depot,
+with the mappings that answer its plan (`--run "pack apply <name>
+--depot <depot>"`). A pack of kind `source` named with `--depot` is
+sent to the setup ask instead (`yardr bead ask <id> "<question>"
+--setup <pack>`, [chat.md](chat.md#setting-up-a-packs-sources)).
 A card is read whole, so a pack whose card would run past 40 lines is
 refused, and the operator applies it in a terminal. Google is split into
 packs (`google-mail`, `google-drive`, `google-docs` and `google-calendar`)

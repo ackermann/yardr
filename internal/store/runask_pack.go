@@ -415,7 +415,7 @@ func (w *wtx) packApplyCard(run AskRun, asking bool) (AskRun, error) {
 		card.BackBy = "the operator"
 	} else {
 		if reading.Depot == "" || reading.Plan == nil {
-			return AskRun{}, fmt.Errorf("pack %s: it has no single depot to re-apply to: a first install, and one of several depots, is the operator's to type in a terminal (yardr pack check %s --depot <depot> shows its plan there)", name, name)
+			return AskRun{}, fmt.Errorf("pack %s: it has no single depot to re-apply to: a first install, and one of several depots, is asked with its depot named and the mappings that answer its plan (--run \"pack apply %s --depot <depot>\"); a plan that still asks is the operator's to type in a terminal (yardr pack check %s --depot <depot> shows its plan there)", name, name, name)
 		}
 		for _, group := range [][]string{reading.Plan.Missing, reading.Plan.Asks, reading.Plan.Refused, reading.Plan.Edited, reading.Plan.NonText} {
 			if len(group) > 0 {
