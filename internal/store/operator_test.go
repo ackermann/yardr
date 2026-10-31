@@ -1201,7 +1201,8 @@ func TestPutDepotKindChangeIsTheOperators(t *testing.T) {
 // the operator's alone, as a crew member's env_file and env_command are:
 // a crew member is refused each by name and from its pane, the operator
 // is allowed each, and everything else of a group or a crew member stays
-// the crew's to change, an unchanged re-put included.
+// the crew's to change, an unchanged re-put included. A group's log names
+// where output is appended, so it stays anyone's.
 func TestGroupAndCrewDefineAreTheOperators(t *testing.T) {
 	t.Parallel()
 	api, own := operatorYard(t)
@@ -1265,6 +1266,28 @@ func TestGroupAndCrewDefineAreTheOperators(t *testing.T) {
 		_, err := api.SetGroup(ctx, "builders", store.GroupEdit{Set: map[string]any{"env_file": "/tmp/builders.env"}}, "jo")
 		return err
 	}())
+	// A group's kind, args, prompt and worktrees name what a session
+	// starts with and where its worktree is made, each changed on its own.
+	refused("change kind on group builders", setGroup("builders", store.GroupEdit{Set: map[string]any{"kind": "codex"}}), "change kind on group builders")
+	must(func() error {
+		_, err := api.SetGroup(ctx, "builders", store.GroupEdit{Set: map[string]any{"kind": "codex"}}, "jo")
+		return err
+	}())
+	refused("change args on group builders", setGroup("builders", store.GroupEdit{Set: map[string]any{"args": "--careful"}}), "change args on group builders")
+	must(func() error {
+		_, err := api.SetGroup(ctx, "builders", store.GroupEdit{Set: map[string]any{"args": "--careful"}}, "jo")
+		return err
+	}())
+	refused("change prompt on group builders", setGroup("builders", store.GroupEdit{Set: map[string]any{"prompt": "roles/other.md"}}), "change prompt on group builders")
+	must(func() error {
+		_, err := api.SetGroup(ctx, "builders", store.GroupEdit{Set: map[string]any{"prompt": "roles/other.md"}}, "jo")
+		return err
+	}())
+	refused("change worktrees on group builders", setGroup("builders", store.GroupEdit{Set: map[string]any{"worktrees": "/tmp/wt"}}), "change worktrees on group builders")
+	must(func() error {
+		_, err := api.SetGroup(ctx, "builders", store.GroupEdit{Set: map[string]any{"worktrees": "/tmp/wt"}}, "jo")
+		return err
+	}())
 	// A new exec group, and a runner change to exec, name what runs too.
 	refused("add an exec group", func(st store.API, actor string) error {
 		return st.PutGroup(ctx, store.Group{Name: "script", Runner: "exec", Config: map[string]any{"cmd": "true"}}, actor)
@@ -1289,15 +1312,32 @@ func TestGroupAndCrewDefineAreTheOperators(t *testing.T) {
 		err := crewWith(func(r *store.CrewMember) { r.Config["env_command"] = "vault read clerk" })(api, "jo")
 		return err
 	}())
+	// A crew member's kind, args and prompt name what its session starts
+	// with, each on its own.
+	refused("change kind on crew member clerk", crewWith(func(r *store.CrewMember) {
+		r.Config["kind"] = "codex"
+	}), "change kind on crew member clerk")
+	must(crewWith(func(r *store.CrewMember) { r.Config["kind"] = "codex" })(api, "jo"))
+	refused("change args on crew member clerk", crewWith(func(r *store.CrewMember) {
+		r.Config["args"] = "--careful"
+	}), "change args on crew member clerk")
+	must(crewWith(func(r *store.CrewMember) { r.Config["args"] = "--careful" })(api, "jo"))
+	refused("change prompt on crew member clerk", crewWith(func(r *store.CrewMember) {
+		r.Config["prompt"] = "roles/other.md"
+	}), "change prompt on crew member clerk")
+	must(crewWith(func(r *store.CrewMember) { r.Config["prompt"] = "roles/other.md" })(api, "jo"))
 	// A crew member's directory, once the yard has the member.
 	refused("change dir on crew member clerk", crewWith(func(r *store.CrewMember) {
 		r.Dir = "/tmp/clerk"
 	}), "change dir on crew member clerk")
 	must(crewWith(func(r *store.CrewMember) { r.Dir = "/tmp/clerk" })(api, "jo"))
-	// Everything else stays the crew's: another setting of a group, a crew
-	// member's model, and a re-put that changes nothing.
+	// Everything else stays the crew's: another setting of a group, a
+	// group's log, a crew member's model, and a re-put that changes nothing.
 	if _, err := api.SetGroup(ctx, "builders", store.GroupEdit{Set: map[string]any{"model": "sonnet"}}, "clerk"); err != nil {
 		t.Fatalf("change model on group builders as clerk: %v", err)
+	}
+	if _, err := api.SetGroup(ctx, "tick", store.GroupEdit{Set: map[string]any{"log": "/tmp/tick.log"}}, "clerk"); err != nil {
+		t.Fatalf("change log on group tick as clerk: %v", err)
 	}
 	must(func() error {
 		err := crewWith(func(r *store.CrewMember) { r.Config["model"] = "sonnet" })(api, "clerk")
@@ -1306,6 +1346,11 @@ func TestGroupAndCrewDefineAreTheOperators(t *testing.T) {
 	if g, _ := api.GetGroup(ctx, "tick"); g != nil {
 		if err := api.PutGroup(ctx, *g, "clerk"); err != nil {
 			t.Fatalf("re-put group tick unchanged as clerk: %v", err)
+		}
+	}
+	if g, _ := api.GetGroup(ctx, "builders"); g != nil {
+		if err := api.PutGroup(ctx, *g, "clerk"); err != nil {
+			t.Fatalf("re-put group builders unchanged as clerk: %v", err)
 		}
 	}
 	if r, _ := api.GetCrew(ctx, "clerk"); r != nil {
@@ -1338,6 +1383,22 @@ func TestGroupAndCrewDefineAreTheOperators(t *testing.T) {
 	})
 	paneRefused("change env_file on group builders", "change env_file on group builders", func() error {
 		_, err := api.SetGroup(pane, "builders", store.GroupEdit{Set: map[string]any{"env_file": "/tmp/pane-builders.env"}}, "jo")
+		return err
+	})
+	paneRefused("change kind on group builders", "change kind on group builders", func() error {
+		_, err := api.SetGroup(pane, "builders", store.GroupEdit{Set: map[string]any{"kind": "pane"}}, "jo")
+		return err
+	})
+	paneRefused("change args on group builders", "change args on group builders", func() error {
+		_, err := api.SetGroup(pane, "builders", store.GroupEdit{Set: map[string]any{"args": "--pane"}}, "jo")
+		return err
+	})
+	paneRefused("change prompt on group builders", "change prompt on group builders", func() error {
+		_, err := api.SetGroup(pane, "builders", store.GroupEdit{Set: map[string]any{"prompt": "roles/pane.md"}}, "jo")
+		return err
+	})
+	paneRefused("change worktrees on group builders", "change worktrees on group builders", func() error {
+		_, err := api.SetGroup(pane, "builders", store.GroupEdit{Set: map[string]any{"worktrees": "/tmp/pane-wt"}}, "jo")
 		return err
 	})
 	paneRefused("change runner to exec", "change runner on group approvals", func() error {
@@ -1376,6 +1437,15 @@ func TestGroupAndCrewDefineAreTheOperators(t *testing.T) {
 	paneRefused("change env_command on crew member clerk", "change env_command on crew member clerk", func() error {
 		return crewPaneSet("env_command", "vault read changed")
 	})
+	paneRefused("change kind on crew member clerk", "change kind on crew member clerk", func() error {
+		return crewPaneSet("kind", "pane")
+	})
+	paneRefused("change args on crew member clerk", "change args on crew member clerk", func() error {
+		return crewPaneSet("args", "--pane")
+	})
+	paneRefused("change prompt on crew member clerk", "change prompt on crew member clerk", func() error {
+		return crewPaneSet("prompt", "roles/pane.md")
+	})
 	paneRefused("change dir on crew member clerk", "change dir on crew member clerk", func() error {
 		r, err := api.GetCrew(ctx, "clerk")
 		if err != nil {
@@ -1390,6 +1460,12 @@ func TestGroupAndCrewDefineAreTheOperators(t *testing.T) {
 	}
 	if g, _ := api.GetGroup(ctx, "builders"); g.Config["model"] != "opus" {
 		t.Fatalf("model from the pane = %+v", g)
+	}
+	if _, err := api.SetGroup(pane, "tick", store.GroupEdit{Set: map[string]any{"log": "/tmp/pane-tick.log"}}, "jo"); err != nil {
+		t.Fatalf("change log on group tick from clerk's pane as the operator: %v", err)
+	}
+	if g, _ := api.GetGroup(ctx, "tick"); g.Config["log"] != "/tmp/pane-tick.log" {
+		t.Fatalf("log from the pane = %+v", g)
 	}
 }
 

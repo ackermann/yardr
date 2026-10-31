@@ -252,7 +252,7 @@ func TestPackApplyByAnotherSessionSetsNoStageMap(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	seedPackGroups(t, a, "../../packs/starter")
+	seedPackHeld(t, a, "../../packs/starter")
 	a.actor = "web-builder-1"
 	const refusal = "only boss's own session or the operator (me) may speak as boss; this is web-builder-1"
 	out := applyStarter(t, a)

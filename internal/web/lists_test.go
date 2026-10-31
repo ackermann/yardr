@@ -93,7 +93,7 @@ func TestLists(t *testing.T) {
 	}
 
 	f.populate()
-	must(t, f.st.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Limit: 3, Config: map[string]any{"kind": "claude"}}, "me"))
+	must(t, f.st.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Limit: 3, Config: map[string]any{"kind": "claude"}}, "ada"))
 	must(t, f.st.PutGroup(ctx, store.Group{Name: "decisions", Runner: "manual", Members: []string{"jo"}}, "me"))
 	line, bug := "line", "bug"
 	for _, r := range []store.Route{

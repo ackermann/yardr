@@ -163,8 +163,9 @@ What you do:
   run steps by the clock, sources (`yardr call`) reach outside
   services, and subscriptions tell people. Then name what each script
   must do and the secrets it needs. What names what runs (a group's runner
-  changing to or from `exec`, its `cmd`, `dir` and `env_file`, a crew
-  member's `env_file` and `env_command`, a test command on a depot the yard
+  changing to or from `exec`, its `cmd`, `dir`, `env_file`, `kind`, `args`,
+  `prompt` and `worktrees`, a crew member's `env_file`, `env_command`,
+  `kind`, `args` and `prompt`, a test command on a depot the yard
   has not) is
   {{operator}}'s to set: put the design, with each such command whole, in
   an ask to {{operator}}, and set the rest yourself; where a run ask names

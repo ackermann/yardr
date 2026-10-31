@@ -416,7 +416,7 @@ func TestExportCarriesNothingOfTheWork(t *testing.T) {
 		t.Fatal(err)
 	}
 	plan := build(t, st, load(t, "../../packs/dir"), pack.Options{Depot: "essays", Home: home})
-	apply(t, st, plan, map[string]string{"group.backlog.members": "SECRET-MEMBER", "group.essays-builders.model": "SECRET-MODEL", "group.essays-builders.args": "--SECRET-ARG"})
+	applyAs(t, st, plan, map[string]string{"group.backlog.members": "SECRET-MEMBER", "group.essays-builders.model": "SECRET-MODEL", "group.essays-builders.args": "--SECRET-ARG"}, "SECRET-TEACHER")
 	b, err := st.CreateBead(ctx, store.NewBead{Title: "SECRET-TITLE correct Mira's essay", Body: "SECRET-BODY she wrote about her summer", Depot: "essays", Labels: []string{"SECRET-LABEL"}}, "me")
 	if err != nil {
 		t.Fatal(err)
@@ -424,7 +424,7 @@ func TestExportCarriesNothingOfTheWork(t *testing.T) {
 	if err := st.AddNote(ctx, b.ID, "SECRET-NOTE two commas missing", "me"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "clerk", Config: map[string]any{"kind": "claude"}}, "me"); err != nil {
+	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "clerk", Config: map[string]any{"kind": "claude"}}, "SECRET-TEACHER"); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.Mail(ctx, "clerk", "SECRET-MAIL Mira's parents called", "me"); err != nil {

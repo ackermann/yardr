@@ -28,8 +28,8 @@ yardr crew set yardmaster set_state=linear
 yardr crew set yardmaster --unset set_state
 ```
 
-The `env_file` and `env_command` settings, and the `--dir` of a crew
-member the yard has, are the operator's
+The `env_file`, `env_command`, `kind`, `args` and `prompt` settings, and
+the `--dir` of a crew member the yard has, are the operator's
 alone besides: the store refuses each from anyone else, a crew member's
 pane included, and a run ask never proposes one. A crew member that needs
 one asks the operator for it, with the command whole in the ask; every

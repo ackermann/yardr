@@ -269,7 +269,7 @@ func TestApplySubscribingTheInvokerItselfPasses(t *testing.T) {
 	withLinear(t, st)
 	o.Crew = map[string]string{"yardmaster": "boss"}
 	plan := build(t, st, load(t, starter), o)
-	seedGroups(t, st, plan)
+	seedGroups(t, st, plan, answered(t, plan, answers))
 	res := applyAs(t, st, plan, answers, "boss")
 	if !res.Wrote() || !res.Recorded {
 		t.Fatalf("result = %+v", res)
@@ -297,7 +297,7 @@ func TestApplyFailsLoudSubscribingAnotherCrew(t *testing.T) {
 	}
 	o.Crew = map[string]string{"yardmaster": "boss"}
 	plan := build(t, st, load(t, starter), o)
-	seedGroups(t, st, plan)
+	seedGroups(t, st, plan, answered(t, plan, answers))
 	res, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{Answers: answered(t, plan, answers), Actor: "clerk"})
 	if res != nil || err == nil || !strings.Contains(err.Error(), "subscription boss ") ||
 		!strings.Contains(err.Error(), want) || !strings.Contains(err.Error(), "the import stopped here") {

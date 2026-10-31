@@ -2,6 +2,7 @@ package pack_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -138,15 +139,71 @@ func apply(t *testing.T, st store.API, p *pack.Plan, answers map[string]string) 
 	return applyAs(t, st, p, answers, "me")
 }
 
-// seedGroups writes a plan's groups as the operator me, so an import run
-// as a crew member below leaves what names what runs as it is and reaches
-// the behaviour under test: a group's cmd is the operator's to change, an
-// import by a crew member is not.
-func seedGroups(t *testing.T, st store.API, p *pack.Plan) {
+// seedGroups writes a plan's groups and crew members as the operator me,
+// with the answers a of the import below merged as the import merges
+// them, so an import run as a crew member leaves what names what runs as
+// it is and reaches the behaviour under test: the held settings are the
+// operator's to change, an import by a crew member is not.
+func seedGroups(t *testing.T, st store.API, p *pack.Plan, a pack.Answers) {
 	t.Helper()
 	for _, o := range p.Objects {
-		if o.Kind == "group" && o.Group != nil {
-			if err := st.PutGroup(ctx, *o.Group, "me"); err != nil {
+		switch {
+		case o.Kind == "group" && o.Group != nil:
+			g := *o.Group
+			g.Config = map[string]any{}
+			for k, v := range o.Group.Config {
+				g.Config[k] = v
+			}
+			agent := o
+			if o.Binds != "" {
+				for _, c := range p.Objects {
+					if c.Kind == "group" && c.Name == o.Binds {
+						agent = c
+					}
+				}
+			}
+			if v, ok := a["group."+agent.Name+".kind"]; ok && slices.Contains(agent.Asks, "group."+agent.Name+".kind") {
+				g.Config["kind"] = strings.TrimSpace(v)
+			}
+			if v, ok := a["group."+agent.Name+".model"]; ok && slices.Contains(agent.Asks, "group."+agent.Name+".model") && strings.TrimSpace(v) != "" {
+				g.Config["model"] = strings.TrimSpace(v)
+			}
+			if v, ok := a["group."+agent.Name+".args"]; ok && slices.Contains(agent.Asks, "group."+agent.Name+".args") && strings.TrimSpace(v) != "" {
+				g.Config["args"] = strings.Fields(v)
+			}
+			if err := st.PutGroup(ctx, g, "me"); err != nil {
+				t.Fatal(err)
+			}
+		case o.Kind == "crew" && o.CrewMember != nil:
+			op := o.CrewMember
+			def := store.CrewMember{Name: op.CrewMember, Runner: "herdr", Config: map[string]any{}, HandoffGrace: "15m"}
+			if have, err := st.GetCrew(ctx, op.CrewMember); err == nil {
+				def = *have
+				if def.Config == nil {
+					def.Config = map[string]any{}
+				}
+			} else if !errors.Is(err, store.ErrNotFound) {
+				t.Fatal(err)
+			} else {
+				get := func(field string) (string, bool) {
+					id := "crew." + o.Name + "." + field
+					v, ok := a[id]
+					return strings.TrimSpace(v), ok && slices.Contains(o.Asks, id)
+				}
+				if v, ok := get("kind"); ok {
+					def.Config["kind"] = v
+				}
+				if v, ok := get("args"); ok && v != "" {
+					def.Config["args"] = strings.Fields(v)
+				}
+				if v, ok := get("dir"); ok {
+					def.Dir = v
+				}
+			}
+			if op.Prompt != "" {
+				def.Config["prompt"] = op.Prompt
+			}
+			if _, err := st.PutCrew(ctx, def, "me"); err != nil {
 				t.Fatal(err)
 			}
 		}

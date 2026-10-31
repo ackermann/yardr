@@ -43,7 +43,7 @@ func TestPrimeCrewReplacesFirstRunWhenSetupComplete(t *testing.T) {
 		{Name: "web/reviewers", Runner: "herdr", Config: map[string]any{"kind": "claude"}},
 		{Name: "web/mergers", Runner: "manual"},
 	} {
-		if err := st.PutGroup(ctx, g, "me"); err != nil {
+		if err := st.PutGroup(ctx, g, "jo"); err != nil {
 			t.Fatal(err)
 		}
 	}

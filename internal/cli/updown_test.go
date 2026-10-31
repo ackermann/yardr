@@ -123,7 +123,11 @@ func downYard(t *testing.T, status map[string]string, beads ...string) (home str
 	if err := st.PutDepot(ctx, store.Depot{Name: "repo"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Limit: 9, Config: map[string]any{"kind": "claude"}}, "me"); err != nil {
+	settings, err := st.Settings(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Limit: 9, Config: map[string]any{"kind": "claude"}}, settings[store.OperatorSetting]); err != nil {
 		t.Fatal(err)
 	}
 	ids = map[string]string{}

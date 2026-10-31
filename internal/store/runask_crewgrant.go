@@ -55,9 +55,14 @@ func crewGrantLink(argv []string) ([]string, string) {
 	return peers, "let a crew member mail its own crew"
 }
 
+// crewAloneKeys are the crew settings a run ask never proposes: the same
+// settings the store holds to the operator in checkCrewDefine.
+var crewAloneKeys = []string{"env_file", "env_command", "kind", "args", "prompt"}
+
 // parseCrewGrant reads the words of crew set <name> with grants. What is
-// no grant refuses with where it is run: set directly, but env_file and
-// env_command as the operator's alone (checkCrewDefine).
+// no grant refuses with where it is run: set directly, but env_file,
+// env_command, kind, args and prompt as the operator's alone
+// (checkCrewDefine).
 func parseCrewGrant(rest []string) ([]string, error) {
 	args, values, err := runWords(crewGrantUse, "crew set", "the asker's", rest, map[string]bool{"--unset": true})
 	if err != nil {
@@ -69,7 +74,7 @@ func parseCrewGrant(rest []string) ([]string, error) {
 	for _, kv := range args[1:] {
 		if k, _, ok := strings.Cut(kv, "="); !ok || k == "" {
 			return nil, fmt.Errorf("%q: want key=value (--unset <key> removes a setting)", kv)
-		} else if k == "env_file" || k == "env_command" {
+		} else if slices.Contains(crewAloneKeys, k) {
 			return nil, fmt.Errorf("--run takes %s: %s is the operator's alone, typed in a terminal and never proposed as a run ask", crewGrantUse, k)
 		} else if !slices.Contains(crewGrantKeys, k) {
 			return nil, fmt.Errorf("--run takes %s: %s is no grant of a crew member, and is set directly", crewGrantUse, k)
@@ -77,7 +82,7 @@ func parseCrewGrant(rest []string) ([]string, error) {
 	}
 	var unsets []string
 	for _, k := range values["--unset"] {
-		if k == "env_file" || k == "env_command" {
+		if slices.Contains(crewAloneKeys, k) {
 			return nil, fmt.Errorf("--run takes %s: %s is the operator's alone, typed in a terminal and never proposed as a run ask", crewGrantUse, k)
 		}
 		if !slices.Contains(crewGrantKeys, k) {

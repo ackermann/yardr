@@ -154,7 +154,7 @@ func TestOnlyOperatorChangesConversationSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	def = *r
-	def.Config["prompt"] = "/tmp/role.md"
+	def.Config["model"] = "sonnet"
 	if _, err := s.PutCrew(ctx, def, "hal"); err != nil {
 		t.Errorf("non-operator changing unrelated config = %v, want ok", err)
 	}

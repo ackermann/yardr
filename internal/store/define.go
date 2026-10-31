@@ -14,11 +14,12 @@ import (
 	"slices"
 )
 
-// checkGroupDefine holds a group's cmd, dir and env_file settings, and a
-// change of its runner to or from exec, to the operator.
+// checkGroupDefine holds a group's cmd, dir, env_file, kind, args, prompt
+// and worktrees settings, and a change of its runner to or from exec, to
+// the operator.
 func checkGroupDefine(ctx context.Context, w *wtx, old, want Group, actor string) error {
 	before, after := asStored(old.Config), asStored(want.Config)
-	for _, key := range []string{"cmd", "dir", "env_file"} {
+	for _, key := range []string{"cmd", "dir", "env_file", "kind", "args", "prompt", "worktrees"} {
 		was, had := before[key]
 		is, has := after[key]
 		if had == has && reflect.DeepEqual(was, is) {
@@ -36,11 +37,11 @@ func checkGroupDefine(ctx context.Context, w *wtx, old, want Group, actor string
 	return nil
 }
 
-// checkCrewDefine holds a crew member's env_file and env_command settings
-// to the operator, and the directory of a member the yard has, which is
-// where its env_command runs and what a relative one is read against. A
-// new member's directory stays anyone's: it can hold no env_command yet
-// that the operator did not set.
+// checkCrewDefine holds a crew member's env_file, env_command, kind, args
+// and prompt settings to the operator, and the directory of a member the
+// yard has, which is where its env_command runs and what a relative one
+// is read against. A new member's directory stays anyone's: it can hold
+// no env_command yet that the operator did not set.
 func (w *wtx) checkCrewDefine(ctx context.Context, before, want CrewMember, existed bool, actor string) error {
 	if existed && want.Dir != before.Dir {
 		if err := w.may(ctx, actor, ActChangeCrew, Object{Kind: KindCrew, Name: want.Name, Does: fmt.Sprintf("change dir on crew member %s", want.Name), Ask: Alone}); err != nil {
@@ -48,7 +49,7 @@ func (w *wtx) checkCrewDefine(ctx context.Context, before, want CrewMember, exis
 		}
 	}
 	b, a := asStored(before.Config), asStored(want.Config)
-	for _, key := range []string{"env_file", "env_command"} {
+	for _, key := range []string{"env_file", "env_command", "kind", "args", "prompt"} {
 		was, had := b[key]
 		is, has := a[key]
 		if had == has && reflect.DeepEqual(was, is) {

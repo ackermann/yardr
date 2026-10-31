@@ -191,7 +191,7 @@ func daemonUp(t *testing.T) *daemonTrial {
 	if err := local.PutDepot(ctx, store.Depot{Name: "repo"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if err := local.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Limit: 9, Config: map[string]any{"kind": "claude"}}, "me"); err != nil {
+	if err := local.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Limit: 9, Config: map[string]any{"kind": "claude"}}, "Jo"); err != nil {
 		t.Fatal(err)
 	}
 	b, err := local.CreateBead(ctx, store.NewBead{Title: "busy", Depot: "repo"}, "me")

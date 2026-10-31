@@ -103,10 +103,10 @@ func DefaultLimit(runner string) int {
 	return 1
 }
 
-// PutGroup adds or replaces a group, and logs group_set. The cmd, dir
-// and env_file settings, and a runner change to or from exec, are the
-// operator's alone (checkGroupDefine); the rest is anyone's. From a pane
-// the write is recorded as the pane's actor (paneAuthor).
+// PutGroup adds or replaces a group, and logs group_set. The cmd, dir,
+// env_file, kind, args, prompt and worktrees settings, and a runner change
+// to or from exec, are the operator's alone (checkGroupDefine); the rest is
+// anyone's. From a pane the write is recorded as the pane's actor (paneAuthor).
 func (s *Store) PutGroup(ctx context.Context, g Group, actor string) error {
 	return s.write(func(w *wtx) error {
 		// Batch reruns this closure, so it writes a copy.

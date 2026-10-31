@@ -30,7 +30,7 @@ func dirYard(t *testing.T) (a *app, invoices store.Depot) {
 	if err := st.SetSetting(ctx, "operator", "Jo", "me"); err != nil {
 		t.Fatal(err)
 	}
-	return &app{st: st, actor: "me", cfg: &config.Config{Home: t.TempDir()}}, invoices
+	return &app{st: st, actor: "Jo", cfg: &config.Config{Home: t.TempDir()}}, invoices
 }
 
 var dirFlags = []string{"--bind", "builders=claude:opus", "--bind", "reviewers=codex", "--members", "backlog=", "--members", "decisions=me"}
@@ -272,7 +272,7 @@ func TestDirPackSharesTheYardsPeopleGroups(t *testing.T) {
 	ctx := context.Background()
 	for _, g := range []store.Group{
 		{Name: "backlog", Runner: "manual", Limit: 4},
-		{Name: "decisions", Runner: "manual", Members: []string{"ann", "me"}},
+		{Name: "decisions", Runner: "manual", Members: []string{"ann", "me", "Jo"}},
 	} {
 		if err := a.st.PutGroup(ctx, g, "me"); err != nil {
 			t.Fatal(err)

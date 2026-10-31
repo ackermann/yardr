@@ -444,9 +444,10 @@ Anything else that is the operator's is still typed by you: a hook's
 replacement and its `--map` and `--as`, a source's `env_file`,
 `mint_command` and `base`, taking a
 peer's identity back (`peer identity --rm`), a user's `notify` and `env_file`,
-`group add` that changes a runner to or from `exec`, or sets `cmd=`, `dir=` or
-`env_file=`, `group set` with `cmd=`, `dir=` or `env_file=` (or `--unset` of
-one), a crew member's `env_file` and `env_command`, a test command on a depot
+`group add` that changes a runner to or from `exec`, or sets `cmd=`, `dir=`,
+`env_file=`, `kind=`, `args=`, `prompt=` or `worktrees=`, `group set` with one
+of those (or `--unset` of one), a crew member's `env_file`, `env_command`,
+`kind`, `args` and `prompt`, a test command on a depot
 the yard has not, the
 `operator` setting and the settings of where the yard reads and serves from,
 and every other command. A crew member's own `source add` for a name the

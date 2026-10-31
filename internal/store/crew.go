@@ -410,8 +410,8 @@ var grants = []struct {
 // not before (grants) is the operator's to save (operatorOnly): a crew
 // member's session granting it to itself, or to another, would make the
 // setting mean nothing. One that keeps or narrows what was allowed is
-// anyone's, as the rest of it is; env_file, env_command and the directory
-// are the operator's alone besides (checkCrewDefine).
+// anyone's, as the rest of it is; env_file, env_command, kind, args, prompt
+// and the directory are the operator's alone besides (checkCrewDefine).
 // crewGrantsAdded answers what want lets its crew member do outside the
 // yard that have does not, a phrase for each grant that grew, in the
 // order PutCrew refuses them: "let <name> open threads in ...".

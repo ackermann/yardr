@@ -71,34 +71,75 @@ func openApp(t *testing.T, sources ...string) *app {
 	return a
 }
 
-// seedPackGroups writes the pack's groups that name what runs (its exec
-// groups) as the operator me, so an import run as a crew member below
-// leaves those as they are and reaches the behaviour under test: a
-// group's cmd is the operator's to change, an import by a crew member
-// is not.
-func seedPackGroups(t *testing.T, a *app, dir string) {
+// seedPackHeld writes the pack's groups and crew members that name what
+// runs (its exec groups, any group with a held setting, and any crew
+// member with a role) as the operator me, so an import run as a crew
+// member below leaves those as they are and reaches the behaviour under
+// test: the held settings are the operator's to change, an import by a
+// crew member is not.
+func seedPackHeld(t *testing.T, a *app, dir string) {
 	t.Helper()
 	ctx := context.Background()
 	p, err := pack.LoadDir(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := pack.Build(ctx, a.st, p, pack.Options{Depot: "web", Home: a.cfg.Home})
+	// The plan the import below builds: starterFlags seats the pack's
+	// yardmaster as the yard's boss.
+	plan, err := pack.Build(ctx, a.st, p, pack.Options{Depot: "web", Home: a.cfg.Home, Crew: map[string]string{"yardmaster": "boss"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The answers the import below gives it: starterFlags' binds, as the
+	// import reads them. A seeded group carries what the import would
+	// write, so the import leaves it as it is.
+	answers, err := packAnswers(plan, []string{"builders=claude:opus", "reviewers=codex", "crew:yardmaster=claude"}, nil, a.cfg.Home, true, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, o := range plan.Objects {
-		if o.Kind != "group" || o.Group == nil {
-			continue
-		}
-		seeded := o.Group.Runner == "exec"
-		for _, key := range []string{"cmd", "dir", "env_file"} {
-			if _, ok := o.Group.Config[key]; ok {
-				seeded = true
+		switch {
+		case o.Kind == "group" && o.Group != nil:
+			seeded := o.Group.Runner == "exec"
+			for _, key := range []string{"cmd", "dir", "env_file", "kind", "args", "prompt", "worktrees"} {
+				if _, ok := o.Group.Config[key]; ok {
+					seeded = true
+				}
 			}
-		}
-		if seeded {
-			if err := a.st.PutGroup(ctx, *o.Group, "me"); err != nil {
+			if !seeded {
+				continue
+			}
+			g := *o.Group
+			g.Config = map[string]any{}
+			for k, v := range o.Group.Config {
+				g.Config[k] = v
+			}
+			agent := o.Name
+			if o.Binds != "" {
+				agent = o.Binds
+			}
+			if v, ok := answers["group."+agent+".kind"]; ok {
+				g.Config["kind"] = v
+			}
+			if v, ok := answers["group."+agent+".model"]; ok && v != "" {
+				g.Config["model"] = v
+			}
+			if v, ok := answers["group."+agent+".args"]; ok && v != "" {
+				g.Config["args"] = strings.Fields(v)
+			}
+			if err := a.st.PutGroup(ctx, g, "me"); err != nil {
+				t.Fatal(err)
+			}
+		case o.Kind == "crew" && o.CrewMember != nil && o.CrewMember.Prompt != "":
+			r, err := a.st.GetCrew(ctx, o.CrewMember.CrewMember)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if r.Config == nil {
+				r.Config = map[string]any{}
+			}
+			r.Config["prompt"] = o.CrewMember.Prompt
+			if _, err := a.st.PutCrew(ctx, *r, "me"); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -484,7 +525,7 @@ func TestPackApplyOnlyTheOperatorGrants(t *testing.T) {
 	a := openApp(t, "linear")
 	ctx := context.Background()
 	dir := openPack(t, "linear")
-	seedPackGroups(t, a, dir)
+	seedPackHeld(t, a, dir)
 	a.actor = "boss"
 	args := append([]string{"apply", dir, "--depot", "web", "--yes"}, starterFlags...)
 	const says = "crew member boss was not let open threads in linear: only the operator (me) may grant that, and this is boss."

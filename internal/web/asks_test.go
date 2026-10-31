@@ -489,7 +489,7 @@ func TestHomeNeedsAskOnlyOpen(t *testing.T) {
 	must(t, err)
 
 	crew, err := f.st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr",
-		Config: map[string]any{"kind": "claude"}}, "me")
+		Config: map[string]any{"kind": "claude"}}, "mckean")
 	must(t, err)
 	askOn(t, f, crew.Journal, pickAsk())
 	ended := askOn(t, f, crew.Journal, pickAsk())

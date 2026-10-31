@@ -687,7 +687,7 @@ func (a *app) initYard(ctx context.Context, cfg *config.Config, o initOptions) (
 			return nil, err
 		}
 	}
-	if err := a.putYardmaster(ctx, st, o, res); err != nil {
+	if err := a.putYardmaster(ctx, st, o, res, who); err != nil {
 		return nil, err
 	}
 	// default_kind last: it marks the yard initialized, so an init cut
@@ -847,9 +847,9 @@ func isDir(path string) bool {
 	return err == nil && info.IsDir()
 }
 
-// putYardmaster adds the yardmaster crew member res describes, unless one is
-// kept or the default pack has none.
-func (a *app) putYardmaster(ctx context.Context, st store.API, o initOptions, res *initResult) error {
+// putYardmaster adds the yardmaster crew member res describes as who, the
+// operator a fresh yard names: its kind, prompt and args are the operator's alone.
+func (a *app) putYardmaster(ctx context.Context, st store.API, o initOptions, res *initResult, who string) error {
 	if res.YardmasterKept || res.NoYardmaster {
 		return nil
 	}
@@ -870,7 +870,7 @@ func (a *app) putYardmaster(ctx context.Context, st store.API, o initOptions, re
 		conf["args"] = list
 	}
 	_, err := st.PutCrew(ctx, store.CrewMember{Name: o.Yardmaster, Runner: "herdr", Config: conf, Dir: res.Dir,
-		On: defaultOn, MaxAge: "24h", HandoffGrace: "15m"}, a.who())
+		On: defaultOn, MaxAge: "24h", HandoffGrace: "15m"}, who)
 	return err
 }
 

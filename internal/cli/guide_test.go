@@ -423,7 +423,7 @@ func TestSetupAfterAStartByHand(t *testing.T) {
 	home, st, _ := setupYard(t, f)
 	ctx := context.Background()
 	depot := committedDepot(t, st)
-	if err := st.PutGroup(ctx, store.Group{Name: "web/builders", Runner: "herdr", Config: map[string]any{"prompt": "roles/builder.md"}}, "me"); err != nil {
+	if err := st.PutGroup(ctx, store.Group{Name: "web/builders", Runner: "herdr", Config: map[string]any{"prompt": "roles/builder.md"}}, "Jo"); err != nil {
 		t.Fatal(err)
 	}
 	if got := todo(t, st); got != stepBuilders {
@@ -642,7 +642,7 @@ func TestSetupListsHerdrLoginWhenComplete(t *testing.T) {
 	ctx := context.Background()
 	a := appOn(st)
 	a.actor = "me"
-	if _, err := run(t, a.rootCmd(), "init", "--harness", "claude"); err != nil {
+	if _, err := run(t, a.rootCmd(), "init", "--harness", "claude", "--operator", "me"); err != nil {
 		t.Fatal(err)
 	}
 	if out := setup(t, st); strings.Contains(out, "Optional") || strings.Contains(out, "herdr's server") {

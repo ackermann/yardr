@@ -60,7 +60,7 @@ func TestDoctorCodexTrust(t *testing.T) {
 	}
 	answeredTools(t, "git", "herdr", "claude", "codex")
 	ctx := context.Background()
-	if _, err := run(t, a().rootCmd(), "init", "--harness", "claude"); err != nil {
+	if _, err := run(t, a().rootCmd(), "init", "--harness", "claude", "--operator", "me"); err != nil {
 		t.Fatal(err)
 	}
 	web := dirDepot(t, st)

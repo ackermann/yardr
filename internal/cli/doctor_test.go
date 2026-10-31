@@ -337,7 +337,7 @@ func TestDoctorSetUpYard(t *testing.T) {
 		return a
 	}
 	ctx := context.Background()
-	if _, err := run(t, a().rootCmd(), "init", "--harness", "claude"); err != nil {
+	if _, err := run(t, a().rootCmd(), "init", "--harness", "claude", "--operator", "me"); err != nil {
 		t.Fatal(err)
 	}
 	next := func(want string) {
@@ -650,7 +650,7 @@ func TestDoctorMissingDependency(t *testing.T) {
 		a.actor = "me"
 		return a
 	}
-	if _, err := run(t, a().rootCmd(), "init", "--harness", "claude"); err != nil {
+	if _, err := run(t, a().rootCmd(), "init", "--harness", "claude", "--operator", "me"); err != nil {
 		t.Fatal(err)
 	}
 	for name, kind := range map[string]string{"b": "codex", "c": "cursor"} {
@@ -749,7 +749,7 @@ func TestDoctorVersionCheck(t *testing.T) {
 	}
 	tools := map[string]string{"git": toolAnswers, "herdr": toolAnswers, "kimi": toolAnswers, "codex": toolFails, "cursor-agent": toolHangs}
 	fakeTools(t, tools) // and the long timeout again
-	if _, err := run(t, a().rootCmd(), "init", "--harness", "kimi"); err != nil {
+	if _, err := run(t, a().rootCmd(), "init", "--harness", "kimi", "--operator", "me"); err != nil {
 		t.Fatal(err)
 	}
 	for name, kind := range map[string]string{"b": "codex", "c": "cursor"} {
@@ -823,7 +823,7 @@ func TestDoctorFailingCrew(t *testing.T) {
 		return a
 	}
 	ctx := context.Background()
-	if _, err := run(t, a().rootCmd(), "init", "--harness", "claude"); err != nil {
+	if _, err := run(t, a().rootCmd(), "init", "--harness", "claude", "--operator", "me"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "scribe", Runner: "herdr", Config: map[string]any{"kind": "claude"}}, "me"); err != nil {
@@ -868,7 +868,7 @@ func TestDoctorCrewNotLoggedIn(t *testing.T) {
 		return a
 	}
 	ctx := context.Background()
-	if _, err := run(t, a().rootCmd(), "init", "--harness", "claude"); err != nil {
+	if _, err := run(t, a().rootCmd(), "init", "--harness", "claude", "--operator", "me"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "scribe", Runner: "herdr", Config: map[string]any{"kind": "codex"}}, "me"); err != nil {
@@ -1432,7 +1432,7 @@ func TestDoctorTry(t *testing.T) {
 		"cursor-agent": tryTool(called, "echo ok"),
 		"pi":           toolFails}
 	fakeTools(t, tools)
-	if _, err := run(t, a().rootCmd(), "init", "--harness", "claude"); err != nil {
+	if _, err := run(t, a().rootCmd(), "init", "--harness", "claude", "--operator", "me"); err != nil {
 		t.Fatal(err)
 	}
 	for name, kind := range map[string]string{"b": "codex", "c": "cursor", "k": "kimi", "p": "pi"} {
@@ -1578,7 +1578,7 @@ func TestDoctorLoginShellFinds(t *testing.T) {
 		return a
 	}
 	answeredTools(t, "git", "herdr", "claude")
-	if _, err := run(t, a().rootCmd(), "init", "--harness", "claude"); err != nil {
+	if _, err := run(t, a().rootCmd(), "init", "--harness", "claude", "--operator", "me"); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.PutGroup(context.Background(), store.Group{Name: "b", Runner: "herdr", Config: map[string]any{"kind": "codex"}}, "me"); err != nil {
