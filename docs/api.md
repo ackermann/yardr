@@ -1002,6 +1002,10 @@ is open. Before, and once the code was used, ran out or was ended, it is as
 every other path here: 401 without a credential, 404 in a yard with no
 device. On any of those the client asks the operator for another code.
 
+The try limit is intended: five wrong codes end the open pairing, a code
+cannot be guessed in five tries, and `yardr user device add` is unaffected,
+so the operator either opens another pairing or adds the device directly.
+
 A redemption the edge forwards carries one header more, `X-Edge-Presenter`,
 the address of the signed-in account the edge resolved. The yard maps it to
 a user through `web_jwt_users`. A mapped presenter may redeem only the
