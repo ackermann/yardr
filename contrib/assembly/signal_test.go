@@ -442,12 +442,19 @@ func TestTrainTestsDeadlineExcludesRaceLockWaitLongerThanLimit(t *testing.T) {
 
 // Past LIMIT plus its waited seconds, the run is killed as before, and a
 // killed run is red: the train goes back to open with a child to fix it, and
-// the tests are not run again. Here LIMIT is 2, the wait 2, and the run 10,
-// killed at 4.
+// the tests are not run again. Here LIMIT is 2, the wait 2, and the run 30,
+// killed at 4. The run outlasts the kill by 26 s, not 6: between the
+// deadline and the kill the watcher starts a few processes (date and the
+// awks that read the log, ps for the tree), and under a pileup's load those
+// stall past a 10 s run, which then ends green and sends the train to review
+// instead of back to open (yardr-hrd1, as yardr-d6wj for merge-local's twin
+// of this test). A run killed on time ends at the kill, so the longer sleep
+// costs it nothing, and a run that finishes fails the assertions below, well
+// short of the exec fuse.
 func TestTrainTestsDeadlinePastRaceLockWaitIsRed(t *testing.T) {
 	y := landedTrainYard(t, "true")
 	ran := filepath.Join(y.home, "ran")
-	y.tests(`echo run >> ` + ran + `; echo "test: waited 2 s for the race lock"; sleep 10`)
+	y.tests(`echo run >> ` + ran + `; echo "test: waited 2 s for the race lock"; sleep 30`)
 	y.opts = "YARDR_TEST_TIMEOUT=2"
 
 	y.exec("integrate-train", "yard-integrators", "r-e")
