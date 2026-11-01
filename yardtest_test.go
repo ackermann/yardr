@@ -4870,27 +4870,34 @@ fi
 		return err
 	}
 	if forceDeadline {
-		pollUntil(t, 30*time.Second, 10*time.Millisecond, func(_ time.Time) bool {
-			_, err := os.Stat(filepath.Join(fake, "fixture-ready"))
-			return err == nil
-		}, func(time.Duration) {
-			killProcessTree(proc.Pid)
-			waitDone()
-			t.Fatalf("the race leg never reached the fixture barrier")
-		})
+		// The leg reaches its fake go test only after the gate's own steps,
+		// and the fake answers each file within a poll of its own: both are
+		// effects the test awaits, and a loaded machine delays them past any
+		// number of seconds a test could pick (the root package's own gate
+		// runs are part of that load). The fuse is against a hang, sized to
+		// the load in pollUntil, and a green run spends none of it. On expiry
+		// the leg's output shows where it stood, which tells a leg that
+		// starved from a wait that gave up too soon.
+		awaitFixture := func(file, what string) {
+			t.Helper()
+			pollUntil(t, 2*time.Minute, 10*time.Millisecond, func(_ time.Time) bool {
+				_, err := os.Stat(filepath.Join(fake, file))
+				return err == nil
+			}, func(fuse time.Duration) {
+				killProcessTree(proc.Pid)
+				waitDone()
+				outFile.Seek(0, 0)
+				b, _ := io.ReadAll(outFile)
+				t.Fatalf("%s in %s; output:\n%s", what, fuse, b)
+			})
+		}
+		awaitFixture("fixture-ready", "the race leg never reached the fixture barrier")
 		if err := os.WriteFile(filepath.Join(fake, "allow-barrier"), nil, 0o600); err != nil {
 			killProcessTree(proc.Pid)
 			waitDone()
 			t.Fatal(err)
 		}
-		pollUntil(t, 30*time.Second, 10*time.Millisecond, func(_ time.Time) bool {
-			_, err := os.Stat(filepath.Join(fake, "barrier-reached"))
-			return err == nil
-		}, func(time.Duration) {
-			killProcessTree(proc.Pid)
-			waitDone()
-			t.Fatalf("the fixture never reached its blocking barrier")
-		})
+		awaitFixture("barrier-reached", "the fixture never reached its blocking barrier")
 	}
 	// The bound is a fuse against a hang, not a performance assertion: the
 	// loop already polls the effect (docs/testing.md R2).
