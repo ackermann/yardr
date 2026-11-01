@@ -179,8 +179,12 @@ func TestPeerHoldEndsAtTheWait(t *testing.T) {
 }
 
 // A peer holds one question: its next ends the one before with an empty
-// answer. And a question whose asker goes away mid-hold is over on a's
-// side too, with nothing left of it.
+// answer. A question its asker gives up errors on the asker's side, and the
+// next question is held fresh and answered when something is queued for it.
+// That a yard forgets the hold of a question whose asker went away is not
+// seen from here, which sees only answers: a peer's next question replaces
+// its own hold whether or not the old one was released. internal/yards pins
+// it, in TestHeldPullForgottenWhenItsAskerGoesAway.
 func TestPeerHoldOnePerPeer(t *testing.T) {
 	t.Parallel()
 	clock := newClock()
@@ -199,8 +203,8 @@ func TestPeerHoldOnePerPeer(t *testing.T) {
 	if got := <-second; got.err == nil {
 		t.Fatalf("the question that was given up was answered: %+v", got.page)
 	}
-	// The ended hold leaves nothing behind: a's next question is held
-	// fresh and answered when something is queued for it.
+	// a's next question is held fresh and answered when something is queued
+	// for it.
 	askedAt = a.asked.Load()
 	third := b.ask(t, context.Background(), "a", clock, 20*time.Second)
 	until(t, "a hears b's next question", func() bool { return a.asked.Load() > askedAt })
