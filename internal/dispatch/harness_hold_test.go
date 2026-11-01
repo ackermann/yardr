@@ -165,7 +165,13 @@ func TestGroupStartsNoFurtherSessionWithAModelThatWaitsForItsReset(t *testing.T)
 	if got := r.starts(); !slices.Equal(got, []string{b.ID, b3.ID}) {
 		t.Fatalf("starts in the wait = %v, want the bead of another model started and the one of the waiting model not", got)
 	}
+	// WaitLimitsIdle waits for the refresher of the one dispatcher it is
+	// given, and each has its own, so every dispatcher that could have asked
+	// is waited for before the count. d2 holds the group back from the
+	// handle and asks nothing, so its wait returns at once; a run it did
+	// make lands before the count and fails it, not after.
 	dispatch.WaitLimitsIdle(d)
+	dispatch.WaitLimitsIdle(d2)
 	if asks := p.asks(); len(asks) != 2 {
 		t.Fatalf("the provider was run %d times, want 2: the stop and the start of the other model; holding a group back asks nothing", len(asks))
 	}
