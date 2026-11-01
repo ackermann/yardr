@@ -3442,7 +3442,11 @@ func TestYardTestLeafPlainRunTakesNoTicket(t *testing.T) {
 	dir, base, _ := plainLockFixture(t, script)
 	writeFile(t, dir, "a/p.go", "package p\n\nvar Changed int\n")
 	gitT(t, dir, "add", "-A")
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// The context is a fuse, and a kill by it reads as a queue, so it is sized
+	// to the load: the gate's own go list and scans take as long as the
+	// machine makes them, while a run that queued waits on the held lock for a
+	// fuse of any size.
+	ctx, cancel := context.WithTimeout(context.Background(), testload.Scale(2*time.Minute))
 	defer cancel()
 	order := filepath.Join(t.TempDir(), "order")
 	release := filepath.Join(t.TempDir(), "release")
