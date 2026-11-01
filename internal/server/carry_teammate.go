@@ -13,21 +13,19 @@ import (
 	"yardr.dev/yardr/internal/store"
 )
 
-// The server's carrying out of an approved teammate invite or removal
-// (design yardr-hosted-d3wc sections 5.2 and 7): under the apply lock,
-// in the design's order, as the operator who approved. An invite makes
-// the yard user and the web_jwt_users mapping first and reports member
-// add after them; a removal reports member remove first and removes
-// the user and the mapping only once it lands. Where a report cannot
-// land (no answer, or a signed 429 or 503) the yard writes still stand or
-// still go as the design orders, and the claim is left standing, never
-// failed: a report the edge refused with ask again later waits out its
-// pause on the record before it is tried again, the watcher drains on
-// every event and a 2s tick, and the next start takes it up
-// (ResumeCarry), so the report lands when the edge answers again. Only a
-// signed refusal waiting cannot cure (403 the report names another yard,
-// 409 a standing membership, 422 an unverified address) fails the carry,
-// with the edge's words.
+// The server's carrying out of an approved teammate invite or removal:
+// under the apply lock, in the order below, as the operator who approved.
+// An invite makes the yard user and the web_jwt_users mapping first and
+// reports member add after them; a removal reports member remove first
+// and removes the user and the mapping only once it lands. Where a report
+// cannot land (no answer, or a signed 429 or 503) the yard writes still
+// stand or still go, and the claim is left standing, never failed: a
+// report the edge refused with ask again later waits out its pause on the
+// record before it is tried again, the watcher drains on every event and
+// a 2s tick, and the next start takes it up (ResumeCarry), so the report
+// lands when the edge answers again. Only a signed refusal waiting cannot
+// cure (403 the report names another yard, 409 a standing membership, 422
+// an unverified address) fails the carry, with the edge's words.
 
 func isTeammateCarry(argv []string) bool {
 	return len(argv) >= 3 && argv[0] == "user" && (argv[1] == "invite" || argv[1] == "uninvite")

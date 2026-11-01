@@ -272,10 +272,10 @@ func (r *runner) serve(ctx context.Context) (string, bool, error) {
 	// shutdown starts so it only waits for calls in flight.
 	srv.RegisterOnShutdown(stopStreams)
 	stopHooks := serveHooks(ctx, c, st, log)
-	// The preview supervisor (design yardr-hosted-q0xp, sections 5-7):
-	// part of this server, holding its registry in the store, starting
-	// approved previews and carrying their traffic on its yard-side
-	// endpoint, served over a preview link beside the yard's own.
+	// The preview supervisor: part of this server, holding its registry
+	// in the store, starting approved previews and carrying their
+	// traffic on its yard-side endpoint, served over a preview link
+	// beside the yard's own.
 	supervisor := preview.New(st, c.Home, log)
 	supervisorDone := make(chan struct{})
 	go func() {

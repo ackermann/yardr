@@ -1,6 +1,6 @@
 // The teammate rows of the run list: an invite and a removal that each
 // do the yard user, the web_jwt_users mapping and the edge member report
-// as one approved operation (design yardr-hosted-d3wc sections 5-7).
+// as one approved operation.
 // Neither is a CLI verb: the card is the only way in, and its approval is
 // carried out by the yard's server after the approval's write (carry.go),
 // because the edge report cannot be one write of the store. The cards

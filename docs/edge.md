@@ -222,17 +222,16 @@ so is a name the account already has a yard under. A connected yard leaves
 with `yardr edge disconnect`; a hosted yard is deleted by the operator on
 request.
 
-**Amended (yardr-hosted-q0ty, yardr-v0as): a hosted yard has a name of its
-own.** A hosted yard takes the account's own name unless its person gives
-it another at `/ready`, and the cap of three counts hosted and connected
-yards of any name. To change a yard's kind, leave it first — `yardr edge
-disconnect` for a connected yard, the operator's delete for a hosted one —
-then choose the other kind under the same name. Nothing converts in place
-and no data moves. The hook URLs carry the account and the yard's name, so
-they are the same across the change. The deliveries the edge kept for a
-connected yard follow its name and account and not its kind, but only a
-connected yard's link reads them, so a hosted yard under a former connected
-yard's name inherits none.
+**Amended: a hosted yard has a name of its own.** A hosted yard takes the
+account's own name unless its person gives it another at `/ready`, and the
+cap of three counts hosted and connected yards of any name. To change a
+yard's kind, leave it first — `yardr edge disconnect` for a connected yard,
+the operator's delete for a hosted one — then choose the other kind under
+the same name. Nothing converts in place and no data moves. The hook URLs
+carry the account and the yard's name, so they are the same across the
+change. The deliveries the edge kept for a connected yard follow its name
+and account and not its kind, but only a connected yard's link reads them,
+so a hosted yard under a former connected yard's name inherits none.
 
 The web view follows the browser's yard. A `GET` or `HEAD` of any page
 with `?yard=<name>` makes that yard the browser's: the edge checks that

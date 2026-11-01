@@ -13,13 +13,13 @@ import (
 )
 
 // A preview is a program the yard's crew built, run inside the yard under
-// the supervisor's care and opened by the yard's person through the edge
-// (design yardr-hosted-q0xp, sections 4-7). This file is the registry: one
-// row per app in the previews bucket. Starting, stopping and watching the
-// process are the supervisor's (internal/preview, part of yardr server);
-// the approval card and the edge's origin are later beads. The supervisor
-// may start only a row whose approval stands, and only the command that
-// approval names, on the depot tree it was given on.
+// the supervisor's care and opened by the yard's person through the edge.
+// This file is the registry: one row per app in the previews bucket.
+// Starting, stopping and watching the process are the supervisor's
+// (internal/preview, part of yardr server); the approval card and the
+// edge's origin are later beads. The supervisor may start only a row
+// whose approval stands, and only the command that approval names, on the
+// depot tree it was given on.
 
 var bPreviews = []byte("previews") // <app>
 
@@ -338,9 +338,8 @@ func (s *Store) ApprovePreview(ctx context.Context, app, actor string) (*Preview
 
 // RefusePreview refuses the pending preview app as actor, leaving the
 // row refused with its proposer, so the refused card stays listed and a
-// later identical proposal is a new card (design yardr-hosted-q0xp
-// section 4.1). Refusal is the operator's, by the same rule as approval;
-// nothing starts.
+// later identical proposal is a new card. Refusal is the operator's, by
+// the same rule as approval; nothing starts.
 func (s *Store) RefusePreview(ctx context.Context, app, actor string) (*Preview, error) {
 	p := new(Preview)
 	err := s.write(func(w *wtx) error {

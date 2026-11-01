@@ -1,10 +1,10 @@
 // Package preview is the yard's preview supervisor: it runs approved
 // previews as the yard user, keeps them running, captures their logs and
-// carries their traffic (design yardr-hosted-q0xp, sections 5-7). It is
-// part of yardr server; the registry it reads is the store's previews
-// table, and its yard-side endpoint is served over the preview link role
-// beside the yard's own link. The edge's origin and the approval card
-// are other beads: this package names no preview host.
+// carries their traffic. It is part of yardr server; the registry it
+// reads is the store's previews table, and its yard-side endpoint is
+// served over the preview link role beside the yard's own link. The
+// edge's origin and the approval card are other beads: this package
+// names no preview host.
 package preview
 
 import (

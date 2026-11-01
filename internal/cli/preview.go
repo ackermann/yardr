@@ -16,9 +16,9 @@ import (
 )
 
 // A preview is a program the yard's crew built, run in the yard under
-// its supervisor and opened by the yard's person through the edge
-// (design yardr-hosted-q0xp, sections 4-7). The records are the
-// store's; the supervisor, part of yardr server, does the running.
+// its supervisor and opened by the yard's person through the edge.
+// The records are the store's; the supervisor, part of yardr server,
+// does the running.
 // This file is the crew's face: propose, list, stop, logs and forget.
 // Start and restart have no crew command: a start is the person's
 // approval or Start, the supervisor's crash restart, or the on-demand
