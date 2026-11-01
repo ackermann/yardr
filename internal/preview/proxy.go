@@ -15,22 +15,22 @@ import (
 	"yardr.dev/yardr/internal/store"
 )
 
-// Handler is the supervisor's yard-side endpoint (section 6.2): the
-// edge reaches a preview through it, never directly. It serves
-// /preview/<app>/... — the path past the app is forwarded whole, so an
-// ordinary web app written for / runs unmodified — checks the app is
-// running (starting an approved, stopped one on demand, section 5),
-// counts the preview's requests in flight (section 7), records the
-// request's moment, and streams the answer back, WebSockets included.
-// No edge credential is forwarded: the router strips its own names,
-// and this drops the same names itself, so the yard-side rule does not
-// depend on the router having stripped first.
+// Handler is the supervisor's yard-side endpoint: the edge reaches a
+// preview through it, never directly. It serves /preview/<app>/... —
+// the path past the app is forwarded whole, so an ordinary web app
+// written for / runs unmodified — checks the app is running (starting
+// an approved, stopped one on demand), counts the preview's requests
+// in flight, records the request's moment, and streams the answer
+// back, WebSockets included. No edge credential is forwarded: the
+// router strips its own names, and this drops the same names itself,
+// so the yard-side rule does not depend on the router having stripped
+// first.
 func (s *Supervisor) Handler() http.Handler {
 	return http.HandlerFunc(s.servePreview)
 }
 
 // edgeHeaders are the names a request through the edge carries that must
-// never reach the app (section 2.3).
+// never reach the app.
 var edgeHeaders = []string{"X-Edge-Token", "X-Edge-JWT", "Edge-Yard", "X-Edge-Refusal"}
 
 var edgeCookies = []string{"ory_kratos_session", "edge_yard", "__Host-edge_preview"}
@@ -59,8 +59,8 @@ func (s *Supervisor) servePreview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !s.Running(app) {
-		// On-demand start of an approved, stopped preview (section 5):
-		// its person has arrived, so start it and wait for its port.
+		// On-demand start of an approved, stopped preview: its person has
+		// arrived, so start it and wait for its port.
 		if p.Approval == nil {
 			http.NotFound(w, r)
 			return
@@ -80,7 +80,7 @@ func (s *Supervisor) servePreview(w http.ResponseWriter, r *http.Request) {
 	}
 	if !s.enter(app) {
 		// The 21st request in flight waits two seconds, then is
-		// answered with the supervisor's own 503 (section 7).
+		// answered with the supervisor's own 503.
 		select {
 		case <-ctx.Done():
 			return
@@ -137,7 +137,7 @@ func (s *Supervisor) waitPort(ctx context.Context, port int) bool {
 }
 
 // enter counts one more request in flight for app, refusing past the
-// cap (section 7).
+// cap.
 func (s *Supervisor) enter(app string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()

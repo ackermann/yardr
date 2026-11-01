@@ -6,10 +6,10 @@ import (
 	"sync"
 )
 
-// The captured output of one preview is kept to 5 MiB over three files
-// (section 6.3): the live file and two rotations, each a third of the
-// allowance, so a preview that logs without end loses its oldest lines
-// and never the yard's disk.
+// The captured output of one preview is kept to 5 MiB over three files:
+// the live file and two rotations, each a third of the allowance, so a
+// preview that logs without end loses its oldest lines and never the
+// yard's disk.
 const (
 	logTotal = 5 << 20
 	logFiles = 3

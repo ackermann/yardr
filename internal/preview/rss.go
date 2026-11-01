@@ -11,7 +11,7 @@ import (
 // processGroupRSS sums the resident set size, in bytes, of every
 // process in the group pgid. It reads ps's table: the one portable
 // source on the yard's platforms, and the watcher samples it on its
-// own tick (section 7), so its cost is the tick's, not a request's.
+// own tick, so its cost is the tick's, not a request's.
 func processGroupRSS(pgid int) (int64, error) {
 	out, err := exec.Command("ps", "-axo", "pgid=,rss=").Output()
 	if err != nil {

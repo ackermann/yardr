@@ -37,9 +37,9 @@ type Store interface {
 	Settings(ctx context.Context) (map[string]string, error)
 }
 
-// Defaults are the design's numbers (sections 5 and 7); a Supervisor
-// field left at its zero value takes the default, so tests may shorten
-// the clocks without changing the shipped figures.
+// Defaults: a Supervisor field left at its zero value takes the default
+// below, so tests may shorten the clocks without changing the shipped
+// figures.
 const (
 	defaultPoll       = time.Second
 	defaultBindWait   = 10 * time.Second
@@ -49,11 +49,13 @@ const (
 )
 
 // crashBackoffs is how long the supervisor waits before restarting a
-// crashed preview again: immediately, then 5, 25 and 125 seconds
-// (section 6.2). A fifth unclean exit in ten minutes leaves it crashed.
+// crashed preview again: immediately, then 5, 25 and 125 seconds. A fifth
+// unclean exit in ten minutes leaves it crashed.
 var crashBackoffs = []time.Duration{0, 5 * time.Second, 25 * time.Second, 125 * time.Second}
 
-// crashWindow and crashLimit are the flapping rule of section 6.2.
+// crashWindow and crashLimit are the flapping rule: an unclean exit that
+// brings the count inside crashWindow to crashLimit leaves the preview
+// crashed instead of restarting it.
 const (
 	crashWindow = 10 * time.Minute
 	crashLimit  = 5
@@ -79,7 +81,7 @@ type Supervisor struct {
 	running  map[string]*proc
 	inflight map[string]int
 	over     map[string]time.Time // app -> first moment over the memory cap
-	startMu  sync.Mutex           // one start at a time (section 7)
+	startMu  sync.Mutex           // one start at a time
 	rebooted bool
 }
 
@@ -131,7 +133,7 @@ func (s *Supervisor) logPath(app string) string {
 // Run supervises until ctx ends, then stops every preview it runs: a
 // preview does not outlive the supervisor that watches it, and a server
 // that replaces itself starts its successor's previews from the
-// registry as stopped (section 5, the reboot rule).
+// registry as stopped.
 func (s *Supervisor) Run(ctx context.Context) {
 	tick := time.NewTicker(s.poll())
 	defer tick.Stop()
@@ -175,7 +177,7 @@ func (s *Supervisor) reconcile(ctx context.Context, first bool) {
 	if first && !s.rebooted {
 		s.rebooted = true
 		// A box reboot, or a server restart, leaves every preview
-		// stopped for its person to start (section 5).
+		// stopped for its person to start.
 		for _, p := range all {
 			if p.State == store.PreviewRunning {
 				detail := "reboot"
@@ -233,12 +235,11 @@ func (s *Supervisor) reconcile(ctx context.Context, first bool) {
 }
 
 // Start starts the approved preview app. A row with no approval record
-// is refused, whatever asks (section 4.1), and so is one whose depot tree
-// no longer reads as it did when the approval was given: its approval is
-// taken back and it waits for a new one (store.CheckPreviewTree). A
-// running preview is left as it is. At most PreviewRunningLimit run at
-// once, and one start at a time: a start past either limit waits for a
-// later pass.
+// is refused, whatever asks, and so is one whose depot tree no longer
+// reads as it did when the approval was given: its approval is taken
+// back and it waits for a new one (store.CheckPreviewTree). A running
+// preview is left as it is. At most PreviewRunningLimit run at once, and
+// one start at a time: a start past either limit waits for a later pass.
 func (s *Supervisor) Start(ctx context.Context, app string) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -382,7 +383,7 @@ func (s *Supervisor) failStart(ctx context.Context, p *store.Preview, detail str
 }
 
 // onExit records a preview's exit: a clean exit has stopped, an unclean
-// one restarts under the crash rule (section 6.2).
+// one restarts under the crash rule.
 func (s *Supervisor) onExit(ctx context.Context, app string, pr *proc, err error) {
 	// The command may have left a background child in its process group.
 	// Its inherited log pipe must close before this exit can be recorded.
@@ -505,8 +506,8 @@ func pruneExits(exits []time.Time, now time.Time) []time.Time {
 }
 
 // watchBind checks, within BindWait of a start, that the preview holds
-// its approved port on loopback alone (section 6.2). A wider bind is
-// stopped and refused; no bind at all is failed.
+// its approved port on loopback alone. A wider bind is stopped and
+// refused; no bind at all is failed.
 func (s *Supervisor) watchBind(ctx context.Context, app string, port int, pr *proc) {
 	deadline := time.Now().Add(s.bindWait())
 	nextWideCheck := time.Time{}
@@ -560,7 +561,8 @@ func (s *Supervisor) refuseBind(ctx context.Context, app, addr string) {
 }
 
 // loopbackHost returns the approved loopback address the preview answers
-// on. Both addresses in the design are valid, though an app only needs one.
+// on. Both loopback addresses are valid — 127.0.0.1 first, then ::1 —
+// though an app only needs one.
 func loopbackHost(port int) string {
 	for _, host := range []string{"127.0.0.1", "::1"} {
 		addr := net.JoinHostPort(host, strconv.Itoa(port))
@@ -689,7 +691,7 @@ func (s *Supervisor) stopAll() {
 }
 
 // checkMemory stops a preview whose process-group RSS has stood over
-// the cap for the full hold (section 7): a watcher, not a hard limit.
+// the cap for the full hold: a watcher, not a hard limit.
 func (s *Supervisor) checkMemory(ctx context.Context) {
 	limit := s.MemLimit
 	if limit <= 0 {
@@ -737,8 +739,8 @@ func (s *Supervisor) checkMemory(ctx context.Context) {
 // ordinary environment less what a listener does not need — the
 // yard's own sockets and session, the agent runtime's, and any
 // credential carried in a name — plus the three names an app may read
-// its port by (section 6.2). Files remain readable; this is hygiene,
-// not a wall, and is described as such.
+// its port by. Files remain readable; this is hygiene, not a wall,
+// and is described as such.
 func previewEnv(app string, port int) []string {
 	var out []string
 	for _, kv := range os.Environ() {

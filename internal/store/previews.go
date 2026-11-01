@@ -40,7 +40,7 @@ const (
 // Preview settings and bounds.
 const (
 	// PreviewIdleSetting is how long a preview may go without a request
-	// before the supervisor stops it (design section 5).
+	// before the supervisor stops it.
 	PreviewIdleSetting = "preview_idle"
 	// DefaultPreviewIdle is the idle bound while the setting is unset.
 	DefaultPreviewIdle = 4 * time.Hour
@@ -51,15 +51,15 @@ const (
 	// PreviewRunningLimit is how many may run at once.
 	PreviewRunningLimit = 2
 	// PreviewMemoryLimit is the process-group RSS cap the supervisor
-	// watches (design section 7).
+	// watches.
 	PreviewMemoryLimit = 512 << 20
 	// PreviewMaxInFlight is the requests in flight per preview.
 	PreviewMaxInFlight = 20
 )
 
-// CheckPreviewApp refuses an app name outside its shape (design
-// section 2.2): lowercase letters and digits with single dashes
-// between, beginning with a letter or digit, at most 30 characters.
+// CheckPreviewApp refuses an app name outside its shape: lowercase
+// letters and digits with single dashes between, beginning with a letter
+// or digit, at most 30 characters.
 func CheckPreviewApp(app string) error {
 	bad := len(app) == 0 || len(app) > 30 || strings.HasPrefix(app, "-") || strings.HasSuffix(app, "-") ||
 		strings.Contains(app, "--")
@@ -83,8 +83,8 @@ type PreviewApproval struct {
 	By string    `json:"by"`
 	At time.Time `json:"at"`
 	// Command, Dir and Port are the approved form. A proposal that
-	// changes any of them is a new card (design section 4.1); the
-	// supervisor compares what it is about to start against these.
+	// changes any of them is a new card; the supervisor compares what it
+	// is about to start against these.
 	Command string `json:"command"`
 	Dir     string `json:"dir"`
 	Port    int    `json:"port"`
@@ -125,9 +125,9 @@ type Preview struct {
 	Dir     string `json:"dir"`
 	Port    int    `json:"port"`
 	// Depot, Commit and Dirty are the depot state the yard read itself
-	// at proposal (design section 4.1), so the crew cannot misstate the
-	// commit the person is approving; a card taken back to pending shows
-	// the tree as the yard then read it.
+	// at proposal, so the crew cannot misstate the commit the person is
+	// approving; a card taken back to pending shows the tree as the yard
+	// then read it.
 	Depot  string `json:"depot,omitempty"`
 	Commit string `json:"commit,omitempty"`
 	Dirty  bool   `json:"dirty,omitempty"`
@@ -143,7 +143,7 @@ type Preview struct {
 	LastRequestAt *time.Time `json:"last_request_at,omitempty"`
 	RestartCount  int        `json:"restart_count,omitempty"`
 	// Exits holds the moments of the recent unclean exits the crash
-	// rule counts (five in ten minutes, design section 6.2).
+	// rule counts (five in ten minutes).
 	Exits []time.Time `json:"exits,omitempty"`
 }
 
@@ -160,9 +160,8 @@ type NewPreview struct {
 
 // previewDepotState reads the depot state a proposal names: the depot
 // whose path holds dir (the longest such), its HEAD commit and whether
-// its tree is dirty (design section 4.1). A directory in no depot reads
-// its own repository, named by its directory; one in no repository has
-// no commit.
+// its tree is dirty. A directory in no depot reads its own repository,
+// named by its directory; one in no repository has no commit.
 func (s *Store) previewDepotState(ctx context.Context, dir string) (depot, commit string, dirty bool) {
 	depots, _ := s.Depots(ctx)
 	root := dir
@@ -227,7 +226,7 @@ func (s *Store) ProposePreview(ctx context.Context, np NewPreview, actor string)
 		}
 		actor = resolved
 		// A forgotten preview is gone, so any row still here is live,
-		// whatever its state (design section 3.1).
+		// whatever its state.
 		if ok, err := get(w.Tx, bPreviews, np.App, new(Preview)); err != nil {
 			return err
 		} else if ok {
@@ -455,9 +454,9 @@ func (s *Store) LogPreviewEvent(ctx context.Context, app, kind, detail string) e
 
 // PreviewStop asks for the preview app to stop: the row is marked
 // stopped and the supervisor kills its process group. The proposer and
-// the yard's person may stop it (design section 5); the store records
-// the ask and the supervisor does the killing, so a stop asked while no
-// supervisor runs still stands at its next start.
+// the yard's person may stop it; the store records the ask and the
+// supervisor does the killing, so a stop asked while no supervisor runs
+// still stands at its next start.
 func (s *Store) PreviewStop(ctx context.Context, app, actor string) (*Preview, error) {
 	p := new(Preview)
 	err := s.write(func(w *wtx) error {
@@ -615,9 +614,9 @@ func errPreviewTreeChanged(app string) error {
 }
 
 // ForgetPreview removes the preview app and its approval with it, so
-// the next start of that app is a new card (design section 5). A running
-// preview is refused: stop it first, so forgetting never orphans a
-// process the registry no longer names.
+// the next start of that app is a new card. A running preview is
+// refused: stop it first, so forgetting never orphans a process the
+// registry no longer names.
 func (s *Store) ForgetPreview(ctx context.Context, app, actor string) (*Preview, error) {
 	p := new(Preview)
 	err := s.write(func(w *wtx) error {
