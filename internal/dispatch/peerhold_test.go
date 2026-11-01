@@ -16,9 +16,11 @@ import (
 	"yardr.dev/yardr/internal/yards"
 )
 
-// asked is the answer to one question, and how long it took.
+// asked is the answer to one question, how long the question asked to be
+// held, and how long it took.
 type asked struct {
 	page store.PeerPage
+	wait time.Duration
 	took time.Duration
 	err  error
 }
@@ -36,7 +38,7 @@ func (y *peerYard) ask(t *testing.T, ctx context.Context, peer string, clock *pe
 	go func() {
 		start := time.Now()
 		batch, err := c.Pull(ctx, *p, p.Pulled, wait)
-		a := asked{took: time.Since(start), err: err}
+		a := asked{wait: wait, took: time.Since(start), err: err}
 		if err == nil {
 			a.err = json.Unmarshal(batch.Body, &a.page)
 		}
@@ -57,7 +59,10 @@ func until(t *testing.T, what string, ok func() bool) {
 	}
 }
 
-// answered takes the answer from ch, which has to come within within.
+// answered takes the answer from ch before within elapses. For an answer
+// whose elapsed time is not under test, pass dispatch.WaitFuse, as in until.
+// A loaded machine delays an answer past any number of seconds a test could
+// pick, and a window that short measures the load.
 func answered(t *testing.T, ch <-chan asked, within time.Duration) asked {
 	t.Helper()
 	select {
@@ -68,6 +73,21 @@ func answered(t *testing.T, ch <-chan asked, within time.Duration) asked {
 		t.Fatalf("no answer within %s", within)
 		return asked{}
 	}
+}
+
+// endedByNext takes the answer of a held question that its peer's next
+// question is to end, as long as the machine takes. A hold that runs out its
+// wait ends with an empty page too. A fuse longer than the wait would then
+// pass a peer whose next question ends nothing, so the answer also has to
+// come before the wait does. That bound is the wait the test gave the
+// question, not a window of the test's own.
+func endedByNext(t *testing.T, ch <-chan asked) asked {
+	t.Helper()
+	got := answered(t, ch, dispatch.WaitFuse)
+	if got.took >= got.wait {
+		t.Fatalf("the held question was answered after %s, as its wait of %s ran out, so the next question did not end it", got.took, got.wait)
+	}
+	return got
 }
 
 // untilQuiet waits until y's listener goes quiet: no request for a
@@ -172,7 +192,7 @@ func TestPeerHoldOnePerPeer(t *testing.T) {
 	ctx, kill := context.WithCancel(context.Background())
 	defer kill()
 	second := b.ask(t, ctx, "a", clock, 20*time.Second)
-	if got := answered(t, first, time.Second); len(got.page.Messages) != 0 {
+	if got := endedByNext(t, first); len(got.page.Messages) != 0 {
 		t.Fatalf("the first question ended with %+v, want an empty page", got.page)
 	}
 	kill()
@@ -185,7 +205,7 @@ func TestPeerHoldOnePerPeer(t *testing.T) {
 	third := b.ask(t, context.Background(), "a", clock, 20*time.Second)
 	until(t, "a hears b's next question", func() bool { return a.asked.Load() > askedAt })
 	id := a.send(t, "b")
-	if got := answered(t, third, time.Second); len(got.page.Messages) != 1 || got.page.Messages[0].ID != id {
+	if got := answered(t, third, dispatch.WaitFuse); len(got.page.Messages) != 1 || got.page.Messages[0].ID != id {
 		t.Fatalf("the next question was answered with %+v, want the ping %s", got.page, id)
 	}
 }
@@ -201,10 +221,10 @@ func TestPeerPullWithoutWaitEndsPriorHold(t *testing.T) {
 	first := b.ask(t, context.Background(), "a", clock, 20*time.Second)
 	until(t, "a hears b's question", func() bool { return a.asked.Load() > askedAt })
 	second := b.ask(t, context.Background(), "a", clock, 0)
-	if got := answered(t, first, time.Second); len(got.page.Messages) != 0 {
+	if got := endedByNext(t, first); len(got.page.Messages) != 0 {
 		t.Fatalf("the held question ended with %+v, want an empty page", got.page)
 	}
-	if got := answered(t, second, time.Second); got.err != nil {
+	if got := answered(t, second, dispatch.WaitFuse); got.err != nil {
 		t.Fatalf("the question without wait: %v", got.err)
 	}
 }
