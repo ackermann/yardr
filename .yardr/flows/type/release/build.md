@@ -5,8 +5,9 @@ The release group works this stage
 tags the depot's base commit, pushes the tag, and waits for the draft
 release CI's release workflow makes for the tag, bounded. The workflow
 tests, builds the four archives and `checksums.txt` reproducibly (with
-`install.sh` copied beside them), attests the archives and drafts the
-release; the stage sets the draft's notes from the
+`install.sh` copied beside them and named in `checksums.txt` too, so
+that the hand signing at the sign stage covers it), attests the archives
+and drafts the release; the stage sets the draft's notes from the
 bead's body, notes the five signing commands on the bead, for the
 version, and reports done. No agent works this stage by hand.
 

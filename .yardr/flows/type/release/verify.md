@@ -5,10 +5,13 @@ downloads `checksums.txt` and `checksums.txt.minisig` from the release,
 checks the signature against the release key, checks the release's
 archives against the checksums, and checks each archive's
 build-provenance attestation (`gh attestation verify`), requiring the
-yardr release workflow and the tag being verified. `install.sh` is in no
-checksum, so it is held to the tag: the release's copy is the tagged
-commit's own file, byte for byte, and the release has one where the tag
-has one. No agent works this stage by hand.
+yardr release workflow and the tag being verified. `install.sh` is no
+archive: it is not counted with the archives, and no attestation is
+asked of it. The checksums name it, so the check against them covers its
+bytes too (a release made before they did has no line for it, and passes
+with a note saying so). It is held to the tag besides: the release's
+copy is the tagged commit's own file, byte for byte, and the release has
+one where the tag has one. No agent works this stage by hand.
 
 Outcomes:
 
