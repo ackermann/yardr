@@ -44,6 +44,16 @@ func newTrainYard(t *testing.T, check string) *yard {
 	return borrowTrain(t, check)
 }
 
+// landedTrainYard is newTrainYard with both children landed on the train's
+// branch, so that the next run is integrate-train's alone: for a test whose
+// subject comes after the landings, which TestTrainEndToEnd and
+// TestTrainThroughPullRequest run themselves. The yard is the template's,
+// copied (fixture_test.go).
+func landedTrainYard(t *testing.T, check string) *yard {
+	t.Helper()
+	return borrowLanded(t, check)
+}
+
 // newTrainYardCLI is newTrainYard through the real CLI end to end, for the
 // one test that keeps that path: TestTrainEndToEnd.
 func newTrainYardCLI(t *testing.T, check string) *yard {
@@ -380,9 +390,7 @@ func TestMergeLocalSquashLandsEachChildAsOneCommitAndTheTrainByRebase(t *testing
 // integrated again until the fix lands. main does not move.
 func TestTrainRedTestsGoBackToOpen(t *testing.T) {
 	// Red when the train's work meets what main gained since it branched.
-	y := newTrainYard(t, `! { test -e child1.txt && test -e clash.txt; } || { echo "child1 clashes with main"; exit 1; }`)
-	y.exec("merge-local", "assembly", "r-1")
-	y.exec("merge-local", "assembly", "r-2")
+	y := landedTrainYard(t, `! { test -e child1.txt && test -e clash.txt; } || { echo "child1 clashes with main"; exit 1; }`)
 	main := y.commit(y.repo, "clash.txt", "main moved\n")
 
 	y.exec("integrate-train", "yard-integrators", "r-e")
@@ -414,9 +422,7 @@ func TestTrainRedTestsGoBackToOpen(t *testing.T) {
 // Exit 3 is an ordinary red result, so the train gets a fix child and goes
 // back to open, not on hold.
 func TestTrainExit3IsRedLikeAnyOther(t *testing.T) {
-	y := newTrainYard(t, "test ! -e RED")
-	y.exec("merge-local", "assembly", "r-1")
-	y.exec("merge-local", "assembly", "r-2")
+	y := landedTrainYard(t, "test ! -e RED")
 	main := y.git(y.repo, "rev-parse", "main")
 	y.tests("echo 'test: flaky: TestX (m.test/m) passed on rerun'; exit 3")
 
@@ -445,9 +451,7 @@ func TestTrainExit3IsRedLikeAnyOther(t *testing.T) {
 // and both tips, and neither branch moves. The merger's done sends it back
 // to open, where the integrator rebases it cleanly and sends it to review.
 func TestTrainRebaseConflictGoesToTheMergers(t *testing.T) {
-	y := newTrainYard(t, "test ! -e RED")
-	y.exec("merge-local", "assembly", "r-1")
-	y.exec("merge-local", "assembly", "r-2")
+	y := landedTrainYard(t, "test ! -e RED")
 	train := y.git(y.repo, "rev-parse", "yard/r-e")
 	main := y.commit(y.repo, "child1.txt", "main's own\n")
 
@@ -507,9 +511,7 @@ func TestTrainRebaseConflictGoesToTheMergers(t *testing.T) {
 // branch) are never forced over: the branch is integrated, the push is
 // refused with a note and the yardmaster is mailed.
 func TestTrainPushRefusesForeignRemoteCommits(t *testing.T) {
-	y := newTrainYard(t, "test ! -e RED")
-	y.exec("merge-local", "assembly", "r-1")
-	y.exec("merge-local", "assembly", "r-2")
+	y := landedTrainYard(t, "test ! -e RED")
 	train := y.git(y.repo, "rev-parse", "yard/r-e")
 	y.commit(y.repo, "child1.txt", "main's own\n")
 	y.exec("integrate-train", "yard-integrators", "r-e") // conflicts: to the mergers
@@ -548,9 +550,7 @@ func TestTrainPushRefusesForeignRemoteCommits(t *testing.T) {
 // merge-local sends a bead whose tests are red back by the flow's failed
 // outcome: a train goes to open (its flow has no new), a plain bead to new.
 func TestMergeLocalRedTestsSendATrainToOpen(t *testing.T) {
-	y := newTrainYard(t, "test ! -e RED")
-	y.exec("merge-local", "assembly", "r-1")
-	y.exec("merge-local", "assembly", "r-2")
+	y := landedTrainYard(t, "test ! -e RED")
 	y.exec("integrate-train", "yard-integrators", "r-e")
 	y.yardr("bead", "done", "r-e") // review -> review-security
 	y.yardr("bead", "done", "r-e") // review-security -> approved

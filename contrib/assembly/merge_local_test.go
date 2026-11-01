@@ -97,6 +97,12 @@ func TestMain(m *testing.M) {
 	// the full run its company is the leg's own other packages, not
 	// another whole suite, since one race leg holds the machine-wide
 	// lock at a time.
+	// A top-level test that only hosts parallel subtests (a table of cases, a
+	// yard each) says t.Parallel itself, and so does one added to this
+	// package. A test that does not is run to its end, subtests included,
+	// before the test runner resumes any test paused in t.Parallel: the
+	// package then spent half of a quiet run on a few processes, with every
+	// other test waiting (yardr-jfxj).
 	flag.Set("test.parallel", strconv.Itoa(max(6, 10*runtime.GOMAXPROCS(0))))
 	// A child this binary's tests start reuses the yardr its parent built:
 	// building it again costs a dozen seconds under load, for the same
@@ -1051,6 +1057,7 @@ func TestMergeLocalConflictWithoutMergeStageOutcomes(t *testing.T) {
 }
 
 func TestMergeLocalRedTests(t *testing.T) {
+	t.Parallel() // as its subtests are: see TestMain
 	t.Run("short output", func(t *testing.T) {
 		y := newYard(t)
 		main := y.git(y.repo, "rev-parse", "main")

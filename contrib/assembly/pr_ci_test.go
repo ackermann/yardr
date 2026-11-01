@@ -240,6 +240,7 @@ func (c *ciYard) checkoutGone(id, what string) {
 // base runs as a command, in the same environment: the landing's switch is set
 // over whatever the group's cmd left in it.
 func TestPRCIJudgesTheHead(t *testing.T) {
+	t.Parallel() // as its subtests are: see TestMain
 	for _, tc := range []struct {
 		what     string
 		files    map[string]string // the pull request's, on top of main
@@ -328,14 +329,7 @@ func TestPRCIJudgesTheHead(t *testing.T) {
 				if err != nil {
 					t.Fatalf("the test command's child pid %q: %v", rawPID, err)
 				}
-				deadline := time.Now().Add(testload.Scale(500 * time.Millisecond))
-				for syscall.Kill(pid, 0) == nil && time.Now().Before(deadline) {
-					time.Sleep(20 * time.Millisecond)
-				}
-				if syscall.Kill(pid, 0) == nil {
-					_ = syscall.Kill(pid, syscall.SIGKILL)
-					t.Errorf("the test command's child process %d outlived the stopped script", pid)
-				}
+				assertGone(t, pid, "the test command's child process")
 			}
 			if !tc.signal {
 				b := c.has(id, tc.what, tc.stage, tc.hold)
@@ -520,6 +514,7 @@ func TestPRCIJudgesTheHead(t *testing.T) {
 // or run for the ones that are known before it is, and the bead's checkout is
 // never made.
 func TestPRCIHoldsWhatItCannotJudge(t *testing.T) {
+	t.Parallel() // as its subtests are: see TestMain
 	none := ""
 	for _, tc := range []struct {
 		what      string

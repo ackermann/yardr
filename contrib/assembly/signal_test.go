@@ -246,6 +246,7 @@ func TestMergeLocalTestsDeadlinePastRaceLockWaitIsRed(t *testing.T) {
 // run of 30 is killed with the scaled deadline in the notes, and without
 // the line the run of 4 is killed at the plain 2.
 func TestMergeLocalTestsDeadlineFollowsParThrottle(t *testing.T) {
+	t.Parallel() // as its subtests are: see TestMain
 	throttle := `echo "test: go test -p=2 (load 40 on 10 cores)"; `
 	for _, tc := range []struct {
 		name  string
@@ -334,7 +335,7 @@ func TestMergeLocalTimeoutThrottleUsesDecimalLimit(t *testing.T) {
 // The landed yard is the template's, copied (fixture_test.go).
 func trainSignalYard(t *testing.T, times int) (y *yard, ran string) {
 	t.Helper()
-	y = borrowLanded(t)
+	y = borrowLanded(t, "true")
 	ran = filepath.Join(y.home, "ran")
 	check := `echo run >> ` + ran + `; echo "output of run $(wc -l < ` + ran + ` | tr -d ' ')"; `
 	if times > 0 {
@@ -391,14 +392,6 @@ func TestTrainTestsEndedBySignalTwiceHold(t *testing.T) {
 	}
 }
 
-// landedTrainYard is newTrainYard with both children landed on the train's
-// branch, so that the next run is integrate-train's alone. The yard is the
-// template's, copied (fixture_test.go).
-func landedTrainYard(t *testing.T) *yard {
-	t.Helper()
-	return borrowLanded(t)
-}
-
 // wantIntegrated fails the test unless the train went to review with its
 // tests passed, not killed at a deadline.
 func wantIntegrated(t *testing.T, y *yard) {
@@ -418,7 +411,7 @@ func wantIntegrated(t *testing.T, y *yard) {
 // LIMIT+N goes to review, not killed. Here LIMIT is 2, the wait 10, and the
 // run 4.
 func TestTrainTestsDeadlineExcludesRaceLockWait(t *testing.T) {
-	y := landedTrainYard(t)
+	y := landedTrainYard(t, "true")
 	y.tests(`echo "test: waited 10 s for the race lock"; sleep 4`)
 	y.opts = "YARDR_TEST_TIMEOUT=2"
 
@@ -432,7 +425,7 @@ func TestTrainTestsDeadlineExcludesRaceLockWait(t *testing.T) {
 // Here it marks the wait at the start, waits 4 seconds, then runs for 1
 // second: 5 seconds total is within LIMIT+the wait (7).
 func TestTrainTestsDeadlineExcludesRaceLockWaitLongerThanLimit(t *testing.T) {
-	y := landedTrainYard(t)
+	y := landedTrainYard(t, "true")
 	y.tests(`echo "test: race lock wait started at $(date +%s)"; sleep 4; echo "test: waited 4 s for the race lock"; sleep 1`)
 	y.opts = "YARDR_TEST_TIMEOUT=3"
 
@@ -446,7 +439,7 @@ func TestTrainTestsDeadlineExcludesRaceLockWaitLongerThanLimit(t *testing.T) {
 // the tests are not run again. Here LIMIT is 2, the wait 2, and the run 10,
 // killed at 4.
 func TestTrainTestsDeadlinePastRaceLockWaitIsRed(t *testing.T) {
-	y := landedTrainYard(t)
+	y := landedTrainYard(t, "true")
 	ran := filepath.Join(y.home, "ran")
 	y.tests(`echo run >> ` + ran + `; echo "test: waited 2 s for the race lock"; sleep 10`)
 	y.opts = "YARDR_TEST_TIMEOUT=2"

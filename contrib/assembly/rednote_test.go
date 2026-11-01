@@ -263,9 +263,7 @@ func TestPRCIRedTestsNoteNamesFailingTests(t *testing.T) {
 // output they have, name the failing test ahead of the tail, and carry its
 // last 200 lines. The full output rides beside the train's note.
 func TestTrainRedTestsFixChildHasTheTail(t *testing.T) {
-	y := newTrainYard(t, "true")
-	y.exec("merge-local", "assembly", "r-1")
-	y.exec("merge-local", "assembly", "r-2")
+	y := landedTrainYard(t, "true")
 	y.tests(failsEarly)
 
 	y.exec("integrate-train", "yard-integrators", "r-e")

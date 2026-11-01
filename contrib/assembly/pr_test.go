@@ -240,10 +240,8 @@ func TestIntegrateTrainDoesNotAdoptAnUnboundPR(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(gh, "exists"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	y := newTrainYard(t, "test ! -e RED")
+	y := landedTrainYard(t, "test ! -e RED")
 	y.opts = "YARDR_PR=1"
-	y.exec("merge-local", "assembly", "r-1")
-	y.exec("merge-local", "assembly", "r-2")
 
 	y.exec("integrate-train", "yard-integrators", "r-e")
 
@@ -272,10 +270,8 @@ func TestIntegrateTrainDoesNotAdoptAnUnboundPR(t *testing.T) {
 // edited by integrate-train; the human must correct the binding first.
 func TestIntegrateTrainHoldsWhenBoundPRHeadRepositoryChanges(t *testing.T) {
 	gh := withFakeGh(t)
-	y := newTrainYard(t, "test ! -e RED")
+	y := landedTrainYard(t, "test ! -e RED")
 	y.opts = "YARDR_PR=1"
-	y.exec("merge-local", "assembly", "r-1")
-	y.exec("merge-local", "assembly", "r-2")
 	y.exec("integrate-train", "yard-integrators", "r-e")
 	if err := os.WriteFile(filepath.Join(gh, "head-owner"), []byte("mallory\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -296,10 +292,8 @@ func TestIntegrateTrainHoldsWhenBoundPRHeadRepositoryChanges(t *testing.T) {
 // integrated again, not an edit of the closed one.
 func TestIntegrateTrainOpensANewPRWhenTheBoundOneIsClosed(t *testing.T) {
 	gh := withFakeGh(t)
-	y := newTrainYard(t, "test ! -e RED")
+	y := landedTrainYard(t, "test ! -e RED")
 	y.opts = "YARDR_PR=1"
-	y.exec("merge-local", "assembly", "r-1")
-	y.exec("merge-local", "assembly", "r-2")
 	y.exec("integrate-train", "yard-integrators", "r-e")
 	if err := os.WriteFile(filepath.Join(gh, "state"), []byte("CLOSED\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -323,10 +317,8 @@ func TestIntegrateTrainPRFailureGoesBackToOpen(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(gh, "fail-create"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	y := newTrainYard(t, "test ! -e RED")
+	y := landedTrainYard(t, "test ! -e RED")
 	y.opts = "YARDR_PR=1"
-	y.exec("merge-local", "assembly", "r-1")
-	y.exec("merge-local", "assembly", "r-2")
 
 	y.exec("integrate-train", "yard-integrators", "r-e")
 
@@ -491,10 +483,8 @@ func TestPRScriptsHoldOnAPRFromAnotherHeadRepository(t *testing.T) {
 
 func TestPRTrainHoldsOnAPRFromAnotherHeadRepository(t *testing.T) {
 	gh := withFakeGh(t)
-	y := newTrainYard(t, "test ! -e RED")
+	y := landedTrainYard(t, "test ! -e RED")
 	y.opts = "YARDR_PR=1"
-	y.exec("merge-local", "assembly", "r-1")
-	y.exec("merge-local", "assembly", "r-2")
 	y.exec("integrate-train", "yard-integrators", "r-e")
 	integrated := y.git(y.repo, "rev-parse", "yard/r-e")
 	y.commit(filepath.Join(y.home, "worktrees", "r", "r-e"), "fix.txt", "the reviewer's fix\n")
@@ -522,10 +512,8 @@ func TestPRTrainHoldsOnAPRFromAnotherHeadRepository(t *testing.T) {
 // integrator must open a new one before review resumes.
 func TestPRTrainClosedPRGoesBackToOpenWithoutPushing(t *testing.T) {
 	gh := withFakeGh(t)
-	y := newTrainYard(t, "test ! -e RED")
+	y := landedTrainYard(t, "test ! -e RED")
 	y.opts = "YARDR_PR=1"
-	y.exec("merge-local", "assembly", "r-1")
-	y.exec("merge-local", "assembly", "r-2")
 	y.exec("integrate-train", "yard-integrators", "r-e")
 	integrated := y.git(y.repo, "rev-parse", "yard/r-e")
 	y.commit(filepath.Join(y.home, "worktrees", "r", "r-e"), "fix.txt", "the reviewer's fix\n")
@@ -636,9 +624,7 @@ func TestPRMergeDirtyCheckoutHolds(t *testing.T) {
 // it back to open for the integrator.
 func TestPRTrainNoPRGoesBackToOpen(t *testing.T) {
 	gh := withFakeGh(t)
-	y := newTrainYard(t, "test ! -e RED")
-	y.exec("merge-local", "assembly", "r-1")
-	y.exec("merge-local", "assembly", "r-2")
+	y := landedTrainYard(t, "test ! -e RED")
 	y.exec("integrate-train", "yard-integrators", "r-e") // no YARDR_PR: no PR
 	y.yardr("bead", "done", "r-e")
 	y.yardr("bead", "done", "r-e") // review-security -> approved
@@ -659,10 +645,8 @@ func TestPRTrainNoPRGoesBackToOpen(t *testing.T) {
 
 func TestPRTrainConflictingGoesBackToOpen(t *testing.T) {
 	gh := withFakeGh(t)
-	y := newTrainYard(t, "test ! -e RED")
+	y := landedTrainYard(t, "test ! -e RED")
 	y.opts = "YARDR_PR=1"
-	y.exec("merge-local", "assembly", "r-1")
-	y.exec("merge-local", "assembly", "r-2")
 	y.exec("integrate-train", "yard-integrators", "r-e")
 	y.yardr("bead", "done", "r-e")
 	y.yardr("bead", "done", "r-e") // review-security -> approved
@@ -686,9 +670,7 @@ func TestPRTrainConflictingGoesBackToOpen(t *testing.T) {
 // through merge-local by the bare edge, never passing in-pr.
 func TestPRTrainWithoutSwitchHoldsAndTrainLandsLocally(t *testing.T) {
 	gh := withFakeGh(t)
-	y := newTrainYard(t, "test ! -e RED")
-	y.exec("merge-local", "assembly", "r-1")
-	y.exec("merge-local", "assembly", "r-2")
+	y := landedTrainYard(t, "test ! -e RED")
 	y.exec("integrate-train", "yard-integrators", "r-e")
 	integrated := y.git(y.repo, "rev-parse", "yard/r-e")
 	// The reviewer's commit is what pr-train would push.

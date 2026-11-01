@@ -180,6 +180,7 @@ const (
 // squash changes; the commits' messages without their trailers; and the
 // footer. Each case is a bead and a branch of commits.
 func TestSquashMessage(t *testing.T) {
+	t.Parallel() // as its subtests are: see TestMain
 	type commit struct {
 		msg   string
 		files map[string]string

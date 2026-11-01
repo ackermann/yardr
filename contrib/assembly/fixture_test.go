@@ -364,10 +364,13 @@ func buildLandedTpl(t *testing.T, root string) {
 	y.runs = nil
 }
 
-// borrowLanded is landedTrainYard from the template.
-func borrowLanded(t *testing.T) *yard {
+// borrowLanded is landedTrainYard from the template, with check as the depot's
+// test command for the runs that follow. The children landed under the
+// template's own, true: no test reads what that left in their notes, and the
+// tests that borrow the yard assert on the train.
+func borrowLanded(t *testing.T, check string) *yard {
 	t.Helper()
-	return borrowTrainTpl(t, landedTpl, "true")
+	return borrowTrainTpl(t, landedTpl, check)
 }
 
 var landTpl = &yardTemplate{name: "land", build: buildLandTpl}

@@ -341,6 +341,7 @@ func (y *yard) mergedAs(gh, id, what, want string, merges ...string) {
 // else: not in an argument, the log or a note, and the depot's checkout is
 // never touched.
 func TestMergePRMerges(t *testing.T) {
+	t.Parallel() // as its subtests are: see TestMain
 	for _, c := range []struct {
 		what   string
 		o      mergeOpts
@@ -436,6 +437,7 @@ func TestMergePRMerges(t *testing.T) {
 // was pushed to after the yes is held too, naming both commits, and merged
 // only after they say yes again, to the head they looked at then.
 func TestMergePRHoldsForTheYes(t *testing.T) {
+	t.Parallel() // as its subtests are: see TestMain
 	yes := "yardr bead update r-p --add-label merge-ok --meta merge_head="
 	for _, c := range []struct {
 		what  string
@@ -488,6 +490,7 @@ func TestMergePRHoldsForTheYes(t *testing.T) {
 // note says what CI passed on and how to have it run again, on a head a
 // reviewer read. The commit is the same in any case of its letters.
 func TestMergePRHoldsUnlessTheYardsCIPassed(t *testing.T) {
+	t.Parallel() // as its subtests are: see TestMain
 	again := "yardr bead advance r-p --to ciwait, then yardr bead unhold r-p"
 	for _, c := range []struct {
 		what  string
@@ -534,6 +537,7 @@ func TestMergePRHoldsUnlessTheYardsCIPassed(t *testing.T) {
 // none to mint with hold the bead with the reason, which is the mint's own
 // words and never a token.
 func TestMergePRHoldsWhatGitHubRefuses(t *testing.T) {
+	t.Parallel() // as its subtests are: see TestMain
 	for _, c := range []struct {
 		what   string
 		files  map[string]string
@@ -598,6 +602,7 @@ func TestMergePRHoldsWhatGitHubRefuses(t *testing.T) {
 // one tracking something that is not a pull request address are held, and
 // nothing is asked of GitHub.
 func TestMergePRRefusesWhatItWasNotGiven(t *testing.T) {
+	t.Parallel() // as its subtests are: see TestMain
 	for _, c := range []struct {
 		id, url string
 		label   bool
