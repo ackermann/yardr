@@ -127,32 +127,41 @@ func runningOf(d string) string {
 // its stages; what that costs is what the machine makes it, a few seconds on an
 // idle box and some ten times that at a load of a hundred, and no minute
 // written for the idle box covers every load (yardr-c3nm). So the fuse is not
-// the time the wait has run but the time that went by with the down unchanged:
-// no down there at all (a watchdog that never decides), or the same shells of
-// it (a command that does not return). A down that goes on forks a subshell for
-// each listing, and changes what downsOf finds as often as it makes progress.
+// the time the wait has run, nor the time that went by with the down unchanged,
+// which a slow look stretches, but the looks that found it unchanged: no down
+// there at all (a watchdog that never decides), or the same shells of it (a
+// command that does not return). A down that goes on forks a subshell for each
+// listing, and changes what downsOf finds as often as it makes progress.
 func waitWhileDown(t *testing.T, d string, fuse time.Duration, cond func() bool) bool {
 	t.Helper()
 	return waitUnchanged(fuse, 250*time.Millisecond, func() []int { return downsOf(t, d) }, cond)
 }
 
 // waitUnchanged polls cond at each look until it holds, and reports whether it
-// did before what watch finds stood still for the fuse (testload.Scale): the
-// time since it last changed, not the time since the wait began.
+// did before what watch finds stood still for the fuse (testload.Scale). The
+// stand-still is the looks since what is watched last changed, counted, not
+// timed: a look takes what the machine makes it (the pause stretched past its
+// length, a slow listing, a cond that starts a process), and a stand-still
+// timed in seconds spent its fuse on that, not on what is watched (yardr-ka44).
 func waitUnchanged(fuse, look time.Duration, watch func() []int, cond func() bool) bool {
 	var seen []int
-	since := time.Now()
-	scaledFuse := testload.Scale(fuse)
-	for ; ; time.Sleep(look) {
+	// The fuse in looks, scaled once, as the wait is armed. A load that rises
+	// after that stretches the looks, and so the time the count spans; one that
+	// falls cannot shorten a look below its length, so the wait that gives up
+	// has outlasted the fuse.
+	fuseLooks := int(testload.Scale(fuse) / look)
+	// still counts the looks since the one that found a change, and the first
+	// look is taken for one.
+	for still := 0; ; still++ {
 		if cond() {
 			return true
 		}
 		if now := watch(); !slices.Equal(now, seen) {
-			seen, since = now, time.Now()
-			scaledFuse = testload.Scale(fuse)
-		} else if time.Since(since) > scaledFuse {
+			seen, still = now, 0
+		} else if still > fuseLooks {
 			return false
 		}
+		time.Sleep(look)
 	}
 }
 
@@ -347,8 +356,9 @@ func TestWatchdogTakesAYardDownOnlyForAGoneOwner(t *testing.T) {
 // yardr-c3nm: a down on a loaded machine is slow, not stuck, and a wait that
 // gave up on the clock failed the watchdog tests in the loads that made it
 // slow. The wait gives up when what it watches (the shells of a down) has not
-// changed for the fuse, however long it has run. The watch here is scripted,
-// one answer a look, and the looks are a millisecond apart.
+// changed for the fuse in looks, however long it has run and however long the
+// looks have taken (yardr-ka44). The watch here is scripted, one answer a
+// look, and the looks are a millisecond apart.
 func TestWaitUnchangedGivesUpOnlyWhenWhatItWatchesStandsStill(t *testing.T) {
 	t.Parallel()
 	const fuse, look = 200 * time.Millisecond, time.Millisecond
@@ -366,6 +376,14 @@ func TestWaitUnchangedGivesUpOnlyWhenWhatItWatchesStandsStill(t *testing.T) {
 		// down in one long command, as the listing of a loaded machine is.
 		// The wait that counted from its start would give up at the first.
 		{"it stands still for less than the fuse between changes", func(n int) []int { return []int{n / 5} }, true},
+		// The same, with each look as long as a loaded machine makes it: a few
+		// looks that together take longer than the fuse. The wait that timed
+		// the stand-still gave up at the second look that found no change
+		// (yardr-ka44).
+		{"it stands still for a few looks that take longer than the fuse", func(n int) []int {
+			time.Sleep(testload.Scale(fuse) / 2)
+			return []int{n / 5}
+		}, true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()

@@ -76,8 +76,10 @@ deadline a test gives the program under test is that program's input, not
 a fuse, and is not scaled. A wait on a program that makes a hundred process
 starts, and so takes as long as the machine makes it (contrib/isolated-yard's
 down), is a fuse against its standing still, not against its taking long: it
-gives up when the program's own processes have not changed for the fuse, as
-`waitWhileDown` does there. Where the code owns the time the test waits on,
+gives up when the program's own processes have not changed for the fuse
+counted in looks, not seconds, since a load stretches the time between looks
+without the program standing still, as `waitWhileDown` does there. Where the
+code owns the time the test waits on,
 the test sets that clock -- the fake clocks named above -- and advances
 it. A deadline taken from the load is the last resort, and only where
 the thing waited on is a program outside the test (a harness binary, a
