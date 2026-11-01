@@ -15,6 +15,7 @@ import (
 
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/scripttest"
+	"yardr.dev/yardr/internal/testload"
 )
 
 // TestMain pins herdr's socket to a path nothing listens on: a test that
@@ -22,6 +23,18 @@ import (
 // never opens a tab in whatever herdr the developer has running.
 func TestMain(m *testing.M) {
 	os.Setenv("HERDR_SOCKET_PATH", filepath.Join(os.TempDir(), "yardr-no-herdr.sock"))
+	// Inherited Git settings reach subprocesses and GIT_EXEC_PATH can make the
+	// shim report a directory unrelated to the git it runs.
+	for _, kv := range os.Environ() {
+		name, _, _ := strings.Cut(kv, "=")
+		if strings.HasPrefix(name, "GIT_") {
+			os.Unsetenv(name)
+		}
+	}
+	// Many tests run git, and on macOS each run is two execs, the system's shim
+	// and the git it runs: the real git first on PATH, for these tests and the
+	// programs they start (testload.PreferRealGit).
+	testload.PreferRealGit()
 	gitHome, err := os.MkdirTemp("", "yardr-git-home")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "runner tests: create git home: %v\n", err)

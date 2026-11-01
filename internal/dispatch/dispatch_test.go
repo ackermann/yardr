@@ -20,9 +20,19 @@ import (
 	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
+	"yardr.dev/yardr/internal/testload"
 )
 
 func TestMain(m *testing.M) {
+	// What the pane or hook that runs the tests sets for git goes first:
+	// inherited Git settings reach every subprocess, and GIT_EXEC_PATH can
+	// make the shim report a directory unrelated to the git it runs.
+	for _, kv := range os.Environ() {
+		name, _, _ := strings.Cut(kv, "=")
+		if strings.HasPrefix(name, "GIT_") {
+			os.Unsetenv(name)
+		}
+	}
 	// The tests run side by side: each owns its state (a store, a home and
 	// servers of its own), and what the yards' own git calls see is the
 	// same for every test, set here once -- git reads nothing of the
@@ -30,6 +40,10 @@ func TestMain(m *testing.M) {
 	// (t.Setenv), which parallel tests cannot share; each says so.
 	os.Setenv("GIT_CONFIG_GLOBAL", "/dev/null")
 	os.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	// The yards' own git calls are many, and on macOS each is two execs, the
+	// system's shim and the git it runs: the real git first on PATH, for
+	// these tests and the scripts they start (testload.PreferRealGit).
+	testload.PreferRealGit()
 	// The bound a source command gets (source.Timeout, 30 s) is read by every
 	// test that runs one, so it is set here once, as the environment is, and
 	// not by a test. A script's start alone took longer than the daemon's

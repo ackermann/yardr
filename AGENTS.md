@@ -104,7 +104,7 @@ it lists every exported name with its comment, faster than grepping.
   is armed; `Scale` makes a wait written for an idle box that many times
   longer, and `Loaded` says the factor is above 1; the contrib suites'
   fuses go through `Scale`; `PreferRealGit` puts git itself ahead of
-  macOS's shim on PATH, for a suite whose tests shell to git.
+  macOS's shim on PATH, for a suite whose tests make many git calls.
 - `telemetry`: the opt-in telemetry switch, install id, day builder and
   the one POST of a batch to the compiled endpoint, behind `yardr
   telemetry on|off|show` and the daemon's telemetry pass; when to send,
@@ -181,14 +181,18 @@ it lists every exported name with its comment, faster than grepping.
   wait is armed, so no wait is raised by hand after it flakes in a landing.
   What a test measures, and what it gives the program under test as a
   deadline, does not go through it.
-- A package whose tests shell to git calls `testload.PreferRealGit()` in its
-  `TestMain`, after it strips the `GIT_` variables from the environment: on
-  macOS the git PATH finds is a shim that starts the real one, so each call
-  is two execs, and a suite makes thousands. It puts git's own directory
-  first on PATH for the test process and what it starts, and leaves PATH as
-  it is on any other system, or where a person's git is first already. It
-  does not reach a git that runs under a PATH the suite builds itself
-  (contrib/isolated-yard's `D/e`, an explicit `PATH=`).
+- A test package with 250 or more git calls invokes
+  `testload.PreferRealGit()` in its `TestMain`, after it strips the `GIT_`
+  variables from the environment; a smaller suite is left as it is. The
+  count is a git first on PATH that appends a line to a file and execs the
+  system's, over one `go test -count=1`: the tests', the code under test's
+  and the scripts' calls alike. On macOS the git PATH finds is a shim that
+  starts the real one, so each call is two execs, and a big suite makes
+  thousands. It puts git's own directory first on PATH for the test process
+  and what it starts, and leaves PATH as it is on any other system, or where
+  a person's git is first already. It does not reach a git that runs under a
+  PATH the suite builds itself (contrib/isolated-yard's `D/e`, an explicit
+  `PATH=`).
 - The test rules are `docs/testing.md` (per-package time budget, sleep
   budget, parallelism); the gate is `sh .yardr/test` in the worktree, and
   its printed `test:` line is the record of a run.

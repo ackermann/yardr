@@ -17,8 +17,26 @@ import (
 	"yardr.dev/yardr/internal/pack"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
+	"yardr.dev/yardr/internal/testload"
 	"yardr.dev/yardr/packs"
 )
+
+// Applying a pack from a directory asks git which commit the directory is at
+// (Commit), and these tests apply a great many: on macOS each ask is two execs,
+// the system's shim and the git it runs, so the real git goes first on PATH
+// (testload.PreferRealGit). Inherited Git settings reach those calls, and
+// GIT_EXEC_PATH can make the shim report a directory unrelated to the git it
+// runs, so what the pane or hook that runs the tests sets for git goes first.
+func TestMain(m *testing.M) {
+	for _, kv := range os.Environ() {
+		name, _, _ := strings.Cut(kv, "=")
+		if strings.HasPrefix(name, "GIT_") {
+			os.Unsetenv(name)
+		}
+	}
+	testload.PreferRealGit()
+	os.Exit(m.Run())
+}
 
 // starter is the pack the repository ships, and these tests' fixture.
 const starter = "../../packs/starter"

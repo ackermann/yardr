@@ -14,6 +14,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"yardr.dev/yardr/internal/testload"
 )
 
 // fakeYardr answers bead show and prime from canned files, logs every call
@@ -142,6 +144,24 @@ type stage struct {
 var gitEnv = []string{"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1",
 	"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
 	"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t"}
+
+// The stage runs make their repositories and the scripts make git calls of
+// their own, many in all: on macOS each is two execs, the system's shim and the
+// git it runs, so the real git goes first on PATH, for the tests and the
+// scripts they start (testload.PreferRealGit). Inherited Git settings reach
+// every subprocess, and GIT_EXEC_PATH can make the shim report a directory
+// unrelated to the git it runs, so what the pane or hook that runs the tests
+// sets for git goes first.
+func TestMain(m *testing.M) {
+	for _, kv := range os.Environ() {
+		name, _, _ := strings.Cut(kv, "=")
+		if strings.HasPrefix(name, "GIT_") {
+			os.Unsetenv(name)
+		}
+	}
+	testload.PreferRealGit()
+	os.Exit(m.Run())
+}
 
 // sumCmd is what checksums are made and checked with here.
 func sumCmd(t *testing.T) string {

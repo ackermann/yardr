@@ -35,6 +35,26 @@ const plainWhy = ": testing without -race (race runs at landing only, docs/testi
 // yard and fails, and the script's filing only warns.
 var noYardHome = filepath.Join(os.TempDir(), "yardr-test-no-yard")
 
+// Every run of the gate's script in a fixture repository makes git calls of
+// its own, and the fixtures make theirs, many in all: on macOS each is two
+// execs, the system's shim and the git it runs, so the real git goes first on
+// PATH, for the tests and the scripts they start (testload.PreferRealGit). A
+// run builds its PATH from this one's (pathWith), so it finds that git too.
+// Inherited Git settings reach every subprocess, and GIT_EXEC_PATH can make the
+// shim report a directory unrelated to the git it runs, so what the pane or
+// hook that runs the tests sets for git goes first; a case that wants one
+// passes it to its run (runEnv).
+func TestMain(m *testing.M) {
+	for _, kv := range os.Environ() {
+		name, _, _ := strings.Cut(kv, "=")
+		if strings.HasPrefix(name, "GIT_") {
+			os.Unsetenv(name)
+		}
+	}
+	testload.PreferRealGit()
+	os.Exit(m.Run())
+}
+
 type readsRow struct {
 	path string
 	pkgs []string // empty for a - row: no test reads the path
