@@ -244,7 +244,13 @@ func TestMergeLocalTestsDeadlinePastRaceLockWaitIsRed(t *testing.T) {
 // deadline follows it: cores over -p, floored at 1, times LIMIT. With
 // -p=2 on 10 cores and LIMIT 2 the deadline is 10: a run of 4 lands, a
 // run of 30 is killed with the scaled deadline in the notes, and without
-// the line the run of 4 is killed at the plain 2.
+// the line a run of 30 is killed at the plain 2. That run is 30, not the
+// 4 of the scaled one, for the reason of the test above: between the
+// deadline and the kill the watcher starts a few processes (date and the
+// awks that read the log, ps for the tree), and under a pileup's load
+// those stall past a run of 4, which then lands instead of going back to
+// new (yardr-aps5). A green run still ends at the kill, so the longer
+// sleep costs it nothing.
 func TestMergeLocalTestsDeadlineFollowsParThrottle(t *testing.T) {
 	t.Parallel() // as its subtests are: see TestMain
 	throttle := `echo "test: go test -p=2 (load 40 on 10 cores)"; `
@@ -258,7 +264,7 @@ func TestMergeLocalTestsDeadlineFollowsParThrottle(t *testing.T) {
 		{"scaled", throttle + `sleep 4`, "merged", nil, "ran past their deadline"},
 		{"scaled past the deadline is red", throttle + `sleep 30`, "new",
 			[]string{"the tests failed", "ran past their deadline of 2s and were killed", "deadline 2 s x 5 for -p=2 on 10 cores"}, ""},
-		{"without the line the deadline is plain", `sleep 4`, "new",
+		{"without the line the deadline is plain", `sleep 30`, "new",
 			[]string{"the tests failed", "ran past their deadline of 2s and were killed"}, "deadline 2 s x"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
