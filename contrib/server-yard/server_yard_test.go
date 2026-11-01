@@ -219,7 +219,43 @@ func (y *yard) runSaying(t *testing.T, env []string, say string, then func(), ar
 			break
 		}
 	}
-	return out.String(), cmd.Wait()
+	err = cmd.Wait()
+	if err != nil {
+		if at := stoppedAt(out.String()); at != "" {
+			err = fmt.Errorf("%w\n%s", err, at)
+		}
+	}
+	return out.String(), err
+}
+
+// stoppedAt says where a run of the script that failed had got to, in lines
+// to lead its failure with. The gate's flaky log keeps the first six lines of
+// a failed test, and the step that failed is a hundred lines down, under the
+// output of the steps that went well: a strike of this suite was filed as
+// ending at the linger line, which is only where the log stopped keeping lines.
+// The script ends with doctor, so its exit status is doctor's, and a FAULT
+// line of the report it prints after "what is still missing" is the step (init
+// prints fault lines of its own when the yardmaster does not come up, which
+// are not). Without one the script stopped itself, and its last lines say why.
+// "" for a run that printed nothing.
+func stoppedAt(out string) string {
+	var last []string
+	doctor := false
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		doctor = doctor || strings.HasPrefix(line, "server-yard: what is still missing")
+		if doctor && strings.HasPrefix(line, "FAULT ") {
+			return "doctor, the script's last step, named a fault:\n" + line
+		}
+		last = append(last, line)
+	}
+	if len(last) == 0 {
+		return ""
+	}
+	return "the script's last lines:\n" + strings.Join(last[max(len(last)-3, 0):], "\n")
 }
 
 // cli runs the yard's yardr with args.
@@ -304,6 +340,54 @@ func TestZombie(t *testing.T) {
 	} {
 		if got := zombie(c.stat); got != c.want {
 			t.Errorf("zombie(%q) = %v, want %v", c.stat, got, c.want)
+		}
+	}
+}
+
+// TestStoppedAt pins what leads the failure of a run of the script: doctor's
+// first fault when doctor ended the run, else the script's last lines. The
+// first output is the shape of a strike of TestServerYardSetsUpAYard, where
+// the harness stand-in did not answer doctor's version probe in time.
+func TestStoppedAt(t *testing.T) {
+	const fault = "FAULT  claude      /tmp/sy.1/bin/claude, the harness of the yard's default, crew member yardmaster: on PATH, but it did not answer its version flag within 20s"
+	for _, c := range []struct{ name, out, want string }{
+		{"a fault of doctor, the script's last step", strings.Join([]string{
+			"server-yard: linger is on for sy-test",
+			"yard created in /tmp/sy.1/yard",
+			"server-yard: waiting for the daemon to come up (up to 60 s)",
+			"server-yard: what is still missing:",
+			"Needed on this machine",
+			"  ok     herdr       /tmp/sy.1/bin/herdr, its server is running",
+			"  " + fault,
+			"  FAULT  yardmaster  yardmaster is not running",
+			"1 fault: something the yard needs is missing or not working (FAULT above).",
+			"Next step: a depot.",
+		}, "\n"), "doctor, the script's last step, named a fault:\n" + fault},
+		{"the script stopped itself", strings.Join([]string{
+			"server-yard: waiting for the daemon to come up (up to 2 s)",
+			"server-yard: the daemon did not come up in 2 s",
+			"server-yard: daemon   not running",
+			"server-yard: see <home>/daemon.log and journalctl --user -u 'yardr-daemon-*'",
+			"",
+		}, "\n"), "the script's last lines:\n" +
+			"server-yard: the daemon did not come up in 2 s\n" +
+			"server-yard: daemon   not running\n" +
+			"server-yard: see <home>/daemon.log and journalctl --user -u 'yardr-daemon-*'"},
+		{"a fault that init printed is not doctor's", strings.Join([]string{
+			"  FAULT  yardmaster  yardmaster is not running: the harness is not logged in",
+			"server-yard: init --start did not see the yardmaster come up; going on",
+			"server-yard: waiting for the daemon to come up (up to 60 s)",
+			"server-yard: the daemon did not come up in 60 s",
+			"server-yard: see <home>/daemon.log",
+		}, "\n"), "the script's last lines:\n" +
+			"server-yard: waiting for the daemon to come up (up to 60 s)\n" +
+			"server-yard: the daemon did not come up in 60 s\n" +
+			"server-yard: see <home>/daemon.log"},
+		{"fewer lines than it would show", "usage: server-yard --harness <kind>\n", "the script's last lines:\nusage: server-yard --harness <kind>"},
+		{"nothing printed", "\n", ""},
+	} {
+		if got := stoppedAt(c.out); got != c.want {
+			t.Errorf("%s: stoppedAt = %q, want %q", c.name, got, c.want)
 		}
 	}
 }
@@ -890,6 +974,10 @@ func TestServerYardStopsWithTheWayOn(t *testing.T) {
 			t.Errorf("%s: the script ended %v; want exit status 1\n%s", c.name, err, out)
 		}
 		mustContain(t, out, c.say...)
+		if err != nil {
+			// The failure leads with the script's last lines, which hold the way on.
+			mustContain(t, err.Error(), "the script's last lines:", c.say[len(c.say)-1])
+		}
 		if strings.Contains(out, "what is still missing") {
 			t.Errorf("%s: the script went on to doctor\n%s", c.name, out)
 		}

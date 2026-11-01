@@ -257,6 +257,13 @@ with a `yardr` that only records that it ran: the daemon they hold back starts
 for a release and when there is no hold, and does not start when the hold only
 goes.
 
+A run of the script that fails leads the test's failure with where it stopped,
+before the whole output: doctor's first fault when doctor ended the run (the
+script's exit status is doctor's), else the script's last lines. The gate's
+flaky log keeps the first six lines of a failed test, and the step that
+failed under load, a harness stand-in that did not answer doctor's version
+flag in time, was a hundred lines down.
+
 The test binary names itself to the servers its yards start (`TestMain`,
 `storetest.NameTestBinary`: `YARDR_TEST_OWNER`, and `YARDR_TEST_HOME_CHECK`
 for how often they look), and each yard's environment hands both on to the
