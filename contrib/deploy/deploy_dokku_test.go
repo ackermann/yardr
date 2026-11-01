@@ -41,8 +41,9 @@ var gitEnv = []string{"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1", "G
 const loadFactorEnv = "DEPLOY_TEST_LOAD_FACTOR"
 
 // As contrib/assembly's: nothing of a yardr or a git running these tests
-// reaches what they start, the home is one with no yard in it, every server
-// they start stops with this binary, and one yardr is built for all of them.
+// reaches what they start, the real git is first on PATH (not macOS's shim, a
+// second exec per call), the home is one with no yard in it, every server they
+// start stops with this binary, and one yardr is built for all of them.
 func TestMain(m *testing.M) {
 	noSync := os.Getenv(store.NoSyncEnv)
 	testLoad := config.Getenv(testload.Env)
@@ -56,6 +57,7 @@ func TestMain(m *testing.M) {
 	// The gate's race-leg factor is kept beside it: testload.Scale sizes
 	// every fuse here by it, and stripped with the rest it never reached one.
 	os.Setenv("YARDR_"+testload.Env, testLoad)
+	testload.PreferRealGit()
 	storetest.NameTestBinary()
 	nowhere, err := os.MkdirTemp("", "ynone")
 	if err != nil {

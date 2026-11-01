@@ -60,6 +60,10 @@ func TestMain(m *testing.M) {
 	}
 	os.Setenv(store.NoSyncEnv, noSync)
 	os.Setenv("YARDR_"+testload.Env, testLoad)
+	// This suite makes thousands of git calls, and on macOS each is two execs,
+	// the system's shim and the git it runs: the real git first on PATH, for
+	// these tests and the scripts they start (testload.PreferRealGit).
+	testload.PreferRealGit()
 	// Every server and daemon these tests start stops by itself when this
 	// binary is gone, however it ended: a kill runs no cleanup. That holds for
 	// the ones a script starts too, since the exec runner hands this

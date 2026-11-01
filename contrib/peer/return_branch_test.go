@@ -43,6 +43,8 @@ func TestMain(m *testing.M) {
 	// The gate's race-leg factor is kept beside it: testload.Scale sizes
 	// every fuse here by it, and stripped with the rest it never reached one.
 	os.Setenv("YARDR_"+testload.Env, testLoad)
+	// As contrib/assembly's: the real git first on PATH, not macOS's shim.
+	testload.PreferRealGit()
 	// As contrib/assembly's: every server and daemon these tests start,
 	// return-branch's among them, stops when this binary is gone.
 	storetest.NameTestBinary()

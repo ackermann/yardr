@@ -10,6 +10,9 @@
 // deadline that is an input of the program under test is the test's to set, and
 // the pause between two looks is no fuse. Loaded is the same factor read as a
 // verdict, for the rare test that must tell a slow machine from a slow program.
+//
+// What else the suites share is the git they run: PreferRealGit makes it git
+// itself, where macOS would put its shim in front.
 package testload
 
 import (

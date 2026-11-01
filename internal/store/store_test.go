@@ -15,14 +15,25 @@ import (
 
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
+	"yardr.dev/yardr/internal/testload"
 )
 
-// Keep the store's Git subprocesses independent of the operator's global
-// and system config. The peer Git tests need this while running in parallel,
-// and t.Setenv cannot set the process environment in a parallel test.
+// Keep the store's Git subprocesses independent of the operator's Git
+// environment. The peer Git tests need this while running in parallel, and
+// t.Setenv cannot set the process environment in a parallel test. In
+// particular, GIT_EXEC_PATH can make the shim report a directory unrelated to
+// the git it runs. The same goes for the git they find: the real one first on
+// PATH, not macOS's shim (a second exec per call).
 func TestMain(m *testing.M) {
+	for _, kv := range os.Environ() {
+		name, _, _ := strings.Cut(kv, "=")
+		if strings.HasPrefix(name, "GIT_") {
+			os.Unsetenv(name)
+		}
+	}
 	os.Setenv("GIT_CONFIG_GLOBAL", "/dev/null")
 	os.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	testload.PreferRealGit()
 	storetest.Main(m)
 }
 

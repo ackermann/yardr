@@ -22,6 +22,7 @@ import (
 	"yardr.dev/yardr/internal/server"
 	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/testload"
 	"yardr.dev/yardr/packs"
 )
 
@@ -52,6 +53,18 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "%s is a test binary, not yardr: it does not run %q\n", os.Args[0], strings.Join(flag.Args(), " "))
 		os.Exit(2)
 	}
+	// Inherited Git settings reach subprocesses and GIT_EXEC_PATH can make the
+	// shim report a directory unrelated to the git it runs.
+	for _, kv := range os.Environ() {
+		name, _, _ := strings.Cut(kv, "=")
+		if strings.HasPrefix(name, "GIT_") {
+			os.Unsetenv(name)
+		}
+	}
+	// Many tests run git, and on macOS each run is two execs, the system's shim
+	// and the git it runs: the real git first on PATH, for these tests and the
+	// programs they start (testload.PreferRealGit).
+	testload.PreferRealGit()
 	// A builder's pane and a assembly script run the tests with their own
 	// session's identity in the environment. Commands read it (a move from
 	// YARDR_SESSION expects that session to own the bead), so it must not
