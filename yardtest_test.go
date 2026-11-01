@@ -3123,7 +3123,10 @@ func holdRaceLock(t *testing.T) (home string, held *os.File) {
 // from when it was first seen. The wait timer starts before the ticket is
 // made, so a release before the first lock attempt leaves a zero wait and no
 // wait line; held that long, the first attempt has run while the lock was
-// held, and the summary's waited seconds are positive.
+// held, and the summary's waited seconds are positive. That holds only while
+// the first attempt follows the ticket within the hold, which a loaded
+// machine breaks: a case that can read the run's output as it goes waits for
+// the run's marker instead (plainLockWaitStarted).
 func holdTicketAge(firstSeen time.Time) {
 	if wait := time.Until(firstSeen.Add(1100 * time.Millisecond)); wait > 0 {
 		time.Sleep(wait)
@@ -3209,6 +3212,26 @@ func plainLockTicket(t *testing.T, cmd *exec.Cmd, qdir, bead string) string {
 		t.Fatalf("no ticket for %s in %s", bead, fuse)
 	})
 	return found
+}
+
+// plainLockWaitStarted waits until a started run prints the marker of its
+// wait's start, which it prints when its first attempt at the lock finds the
+// lock held. A case that holds the lock for the run lets go of it only then:
+// a clock cannot say so, for the first attempt follows the ticket by as long
+// as the run's look at the queue takes (a ps for each ticket where the system
+// has no /proc), which a loaded machine stretches past any hold. A lock let
+// go of before that attempt is taken at once, and the run prints no marker,
+// though it counts the seconds since its ticket as waited.
+func plainLockWaitStarted(t *testing.T, cmd *exec.Cmd, out *os.File) {
+	t.Helper()
+	pollUntil(t, 60*time.Second, 10*time.Millisecond, func(_ time.Time) bool {
+		b, _ := os.ReadFile(out.Name())
+		return raceWaitStarted.Match(b)
+	}, func(fuse time.Duration) {
+		cmd.Process.Kill()
+		b, _ := os.ReadFile(out.Name())
+		t.Fatalf("no start marker for the race-lock wait in %s:\n%s", fuse, b)
+	})
 }
 
 // plainLockStart starts the gate in dir against base: under ctx, with a
@@ -3360,9 +3383,10 @@ func TestYardTestWholePlainRunsSerialize(t *testing.T) {
 }
 
 // A plain run over go.mod, or over a file no row knows, tests every package,
-// and queues for it on the race lock as class 1: held here by the test, the
-// run waits with its ticket out, then runs when the lock is free, with the
-// same wait line and waited seconds a landing's wait prints.
+// and queues for it on the race lock as class 1: held here by the test until
+// the run says it waits, the run waits with its ticket out, then runs when
+// the lock is free, with the same wait line and waited seconds a landing's
+// wait prints.
 func TestYardTestWholePlainPathsQueue(t *testing.T) {
 	t.Parallel()
 	needTool(t, "perl")
@@ -3396,7 +3420,10 @@ func TestYardTestWholePlainPathsQueue(t *testing.T) {
 			dir := copyFixture(t, template)
 			c.change(t, dir)
 			gitT(t, dir, "add", "-A")
-			ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+			// The context is a fuse against a hang, sized to the load: the run
+			// is awaited as work, and the gate's own steps before it queues
+			// take as long as the machine makes them.
+			ctx, cancel := context.WithTimeout(context.Background(), testload.Scale(2*time.Minute))
 			defer cancel()
 			order := filepath.Join(t.TempDir(), "order")
 			release := filepath.Join(t.TempDir(), "release")
@@ -3410,7 +3437,9 @@ func TestYardTestWholePlainPathsQueue(t *testing.T) {
 			if calls, _ := os.ReadFile(filepath.Join(fake, "calls")); strings.Contains(string(calls), "test ./...") {
 				t.Errorf("the run's leg started while the lock is held")
 			}
-			holdTicketAge(time.Now())
+			// Let go of the lock only once the run says it waits, however long
+			// the machine takes it to try.
+			plainLockWaitStarted(t, cmd, out)
 			if err := syscall.Flock(int(held.Fd()), syscall.LOCK_UN); err != nil {
 				t.Fatal(err)
 			}
