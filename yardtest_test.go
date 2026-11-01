@@ -437,7 +437,11 @@ func TestYardTestSaysItsBase(t *testing.T) {
 	t.Parallel()
 	needTool(t, "go")
 	script, rows := yardTestRows(t)
-	dir := t.TempDir()
+	// One template fixture, built and committed once: each case copies it
+	// and runs against its own copy, so the cases run in parallel, as
+	// TestYardTestSelects' rows do. The short sha is the template's, which
+	// every copy shares.
+	template := t.TempDir()
 	// A plain run reads the table's packages before it prints its first line,
 	// as a landing does, and a row whose package is gone stops it there: the
 	// module has the table's packages, and go has some to list.
@@ -453,11 +457,11 @@ func TestYardTestSaysItsBase(t *testing.T) {
 	files["emb/p.go"] = "package emb\n\nimport _ \"embed\"\n\n//go:embed a.txt\nvar A string\n"
 	files["emb/a.txt"] = "a\n"
 	files["top/p.go"] = "package top\n\nimport _ \"m.test/m/emb\"\n"
-	writeFiles(t, dir, files)
-	commitBase(t, dir)
-	short := gitT(t, dir, "rev-parse", "--short", "HEAD")
-	gitT(t, dir, "branch", "other")
-	run := func(env ...string) (string, int) {
+	writeFiles(t, template, files)
+	commitBase(t, template)
+	short := gitT(t, template, "rev-parse", "--short", "HEAD")
+	gitT(t, template, "branch", "other")
+	run := func(t *testing.T, dir string, env ...string) (string, int) {
 		t.Helper()
 		cmd := exec.Command("sh", "-c", script)
 		cmd.Dir = dir
@@ -481,7 +485,9 @@ func TestYardTestSaysItsBase(t *testing.T) {
 			"test: cannot compare with origin/main (the default, YARDR_BASE not being set): no such commit here, or none in common with HEAD", 2},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			out, code := run(c.env...)
+			t.Parallel()
+			dir := copyFixture(t, template)
+			out, code := run(t, dir, c.env...)
 			// A base that is there: the first line, whatever the module's
 			// packages then make of the table. One that is not: exit 2,
 			// after git's own complaint.
@@ -495,7 +501,9 @@ func TestYardTestSaysItsBase(t *testing.T) {
 	}
 	// CI's checkout: one commit, no origin/main. After git's own complaint.
 	t.Run("a landing with a base that is not there", func(t *testing.T) {
-		out, code := run("YARDR_LANDING=1")
+		t.Parallel()
+		dir := copyFixture(t, template)
+		out, code := run(t, dir, "YARDR_LANDING=1")
 		want := "test: YARDR_LANDING is set, and origin/main (the default, YARDR_BASE not being set) is no commit here, or has none in common with HEAD: the whole suite\n" +
 			"test: no comparable base: running the socket suites beside the first run\n"
 		if code != 0 || !strings.HasSuffix(out, want) {
@@ -503,6 +511,8 @@ func TestYardTestSaysItsBase(t *testing.T) {
 		}
 	})
 	t.Run("a base ahead of HEAD", func(t *testing.T) {
+		t.Parallel()
+		dir := copyFixture(t, template)
 		gitT(t, dir, "checkout", "-q", "other")
 		writeFile(t, dir, "alone/p.go", "package p\n\nvar Future int\n")
 		gitT(t, dir, "add", "-A")
@@ -514,7 +524,7 @@ func TestYardTestSaysItsBase(t *testing.T) {
 
 		// A landing with a base ahead of HEAD is the whole suite, as
 		// with no base at all.
-		out, code := run("YARDR_BASE="+ahead, "YARDR_LANDING=1")
+		out, code := run(t, dir, "YARDR_BASE="+ahead, "YARDR_LANDING=1")
 		first, _, _ := strings.Cut(out, "\n")
 		want := "test: YARDR_LANDING is set, and " + ahead + " (YARDR_BASE) is not an ancestor of HEAD: the whole suite"
 		if code != 0 || first != want {
@@ -524,7 +534,7 @@ func TestYardTestSaysItsBase(t *testing.T) {
 		// A plain run compares from the branch point and says so loudly.
 		// On a clean tree that selects nothing; with an uncommitted
 		// change, the change alone.
-		out, code = run("YARDR_BASE=" + ahead)
+		out, code = run(t, dir, "YARDR_BASE="+ahead)
 		want = warn +
 			"test: what changed since " + ahead + " (YARDR_BASE), from " + short + "\n" +
 			"test: no package changed since " + short + "; no tests to run\n"
@@ -533,7 +543,7 @@ func TestYardTestSaysItsBase(t *testing.T) {
 		}
 
 		writeFile(t, dir, "alone/p.go", "package p\n\nvar Touched int\n")
-		out, code = run("YARDR_BASE=" + ahead)
+		out, code = run(t, dir, "YARDR_BASE="+ahead)
 		const tested = "test: testing, without -race, what changed, what imports it and what reads it:"
 		want = warn +
 			"test: what changed since " + ahead + " (YARDR_BASE), from " + short + plainWhy + "\n" +
@@ -544,6 +554,8 @@ func TestYardTestSaysItsBase(t *testing.T) {
 		writeFile(t, dir, "alone/p.go", "package p\n")
 	})
 	t.Run("a base with no common history", func(t *testing.T) {
+		t.Parallel()
+		dir := copyFixture(t, template)
 		gitT(t, dir, "checkout", "-q", "--orphan", "lone")
 		t.Cleanup(func() {
 			gitT(t, dir, "checkout", "-q", "-f", "main")
@@ -555,7 +567,7 @@ func TestYardTestSaysItsBase(t *testing.T) {
 		lone := gitT(t, dir, "rev-parse", "HEAD")
 		gitT(t, dir, "checkout", "-q", "-f", "main")
 
-		out, code := run("YARDR_BASE=" + lone)
+		out, code := run(t, dir, "YARDR_BASE="+lone)
 		want := "test: cannot compare with " + lone + " (YARDR_BASE): no such commit here, or none in common with HEAD\n"
 		if code != 2 || !strings.Contains(out, want) {
 			t.Errorf("a base with no common history: exit %d, output %q, want exit 2 and %q", code, out, want)
@@ -569,6 +581,8 @@ func TestYardTestSaysItsBase(t *testing.T) {
 	// from, so the plan holds the whole branch and what main gained meanwhile,
 	// more than the reviewer's commits and never less.
 	t.Run("a base on the branch", func(t *testing.T) {
+		t.Parallel()
+		dir := copyFixture(t, template)
 		gitT(t, dir, "checkout", "-q", "-b", "feature")
 		t.Cleanup(func() {
 			gitT(t, dir, "checkout", "-q", "-f", "main")
@@ -582,7 +596,7 @@ func TestYardTestSaysItsBase(t *testing.T) {
 		gitT(t, dir, "add", "-A")
 		gitT(t, dir, "commit", "-q", "-m", "review fix")
 		const tested = "test: testing, without -race, what changed, what imports it and what reads it:"
-		out, code := run("YARDR_BASE=" + built)
+		out, code := run(t, dir, "YARDR_BASE="+built)
 		want := "test: what changed since " + built + " (YARDR_BASE), from " + gitT(t, dir, "rev-parse", "--short", built) + plainWhy + "\n" +
 			tested + " m.test/m/emb m.test/m/top\n"
 		if code != 0 || out != want {
@@ -598,7 +612,7 @@ func TestYardTestSaysItsBase(t *testing.T) {
 		if err := exec.Command("git", "-C", dir, "merge-base", "--is-ancestor", built, "HEAD").Run(); !errors.As(err, &exit) || exit.ExitCode() != 1 {
 			t.Fatalf("the commit tested before the rebase is an ancestor of HEAD after it: %v", err)
 		}
-		out, code = run("YARDR_BASE=" + built)
+		out, code = run(t, dir, "YARDR_BASE="+built)
 		want = "test: what changed since " + built + " (YARDR_BASE), from " + short + plainWhy + "\n" +
 			"test: docs/web.md changed: read by the tests of .\n" +
 			tested + " m.test/m m.test/m/alone m.test/m/emb m.test/m/top\n"
@@ -2284,6 +2298,9 @@ func TestYardTestKeepsTheFailingLinesOfAFlake(t *testing.T) {
 		}
 		return strings.TrimSuffix(string(out), "\n")
 	}
+	// The cases below share the probe, the stub and the tables, all
+	// read-only once built; each writes its own temp dir, so they run in
+	// parallel.
 	const sep, eol = " | ", `\n`
 	block := func(lines ...string) string { return strings.Join(lines, eol) }
 	// A report of seven lines, the fifth 300 characters long: six are kept,
@@ -2397,6 +2414,7 @@ func TestYardTestKeepsTheFailingLinesOfAFlake(t *testing.T) {
 		{"an empty log", "", nil},
 	} {
 		t.Run("keeps: "+c.name, func(t *testing.T) {
+			t.Parallel()
 			if got, want := run(t, c.in, "flakyfails"), strings.Join(c.want, sep); got != want {
 				t.Errorf("flakyfails printed:\n%s\nwant:\n%s", got, want)
 			}
@@ -2426,6 +2444,7 @@ func TestYardTestKeepsTheFailingLinesOfAFlake(t *testing.T) {
 			append(slices.Clone(failedALines), timeoutBLines...)},
 	} {
 		t.Run("human: "+c.name, func(t *testing.T) {
+			t.Parallel()
 			if got, want := run(t, c.in, "flakyfails", "--human"), strings.Join(c.want, "\n"); got != want {
 				t.Errorf("flakyfails --human printed:\n%s\nwant:\n%s", got, want)
 			}
@@ -2474,6 +2493,7 @@ func TestYardTestKeepsTheFailingLinesOfAFlake(t *testing.T) {
 		{"an empty log", "", nil},
 	} {
 		t.Run("stuck: "+c.name, func(t *testing.T) {
+			t.Parallel()
 			if got, want := run(t, c.in, "flakystuck"), strings.Join(c.want, "\n"); got != want {
 				t.Errorf("flakystuck printed:\n%s\nwant:\n%s", got, want)
 			}
@@ -2504,6 +2524,7 @@ func TestYardTestKeepsTheFailingLinesOfAFlake(t *testing.T) {
 		{"a name the log lacks", "TestZ", nil},
 	} {
 		t.Run("names: "+c.name, func(t *testing.T) {
+			t.Parallel()
 			var want []string
 			for _, i := range c.want {
 				want = append(want, logLines[i])
@@ -2532,6 +2553,7 @@ func TestYardTestKeepsTheFailingLinesOfAFlake(t *testing.T) {
 		{"nothing left once cleaned", []string{"YARDR_BEAD= ;|\n"}, ""},
 	} {
 		t.Run("beads: "+c.name, func(t *testing.T) {
+			t.Parallel()
 			cmd := exec.Command("sh", probe, "flakybeads")
 			cmd.Env = append(slices.DeleteFunc(scriptEnv(), func(kv string) bool { return strings.HasPrefix(kv, "YARDR_BEAD=") }), c.env...)
 			var stderr strings.Builder
@@ -2602,6 +2624,7 @@ func TestYardTestKeepsTheFailingLinesOfAFlake(t *testing.T) {
 		{"no bead", "TestX", pkg, nil, ""},
 	} {
 		t.Run("opens: "+c.name, func(t *testing.T) {
+			t.Parallel()
 			cmd := exec.Command("sh", probe, "flakyopen", c.test, c.pkgs)
 			cmd.Stdin = strings.NewReader(listing(c.list))
 			var stderr strings.Builder
@@ -2659,6 +2682,7 @@ func TestYardTestKeepsTheFailingLinesOfAFlake(t *testing.T) {
 			calls: []string{"bead list", create}, warn: "test: warning: cannot file the repeat flake TestX: the yard is down\n"},
 	} {
 		t.Run("repeat: "+c.name, func(t *testing.T) {
+			t.Parallel()
 			fake := t.TempDir()
 			writeFile(t, fake, "flaky.log", flakyLog)
 			logf := filepath.Join(fake, "flaky.log")
@@ -2948,17 +2972,25 @@ func TestYardTestRaceLegWaitsForTheLock(t *testing.T) {
 	fake, tmp := fakeBins(t, map[string]string{
 		// The landing's socket step runs beside the race leg and holds no
 		// lock: this go ignores it, so the calls are the race leg's.
+		// Each go test waits for the test's release before it prints, so
+		// the leg cannot pass the observation window before the lock is
+		// checked; the bound caps the orphan where the run was killed
+		// first, as the plain-lock fake's does.
 		"go": `#!/bin/sh
 [ -z "$YARDR_TEST_RPC" ] || exit 0
 echo "${GOOS:+$GOOS }$*" >>"$FAKE/calls"
+waitrelease() {
+  n=0
+  while [ ! -e "$1" ] && [ "$n" -lt 120 ]; do sleep 0.1; n=$((n+1)); done
+}
 if [ "$1" = test ]; then
   case "$*" in
   *"-count=1"*)
+    waitrelease "$FAKE/release2"
     echo 'ok  yardr.dev/yardr/internal/dispatch 12.3s'
-    sleep 1
     ;;
   *)
-    sleep 1
+    waitrelease "$FAKE/release1"
     echo 'ok  yardr.dev/yardr/internal/dispatch 1m1.2s'
     ;;
   esac
@@ -3019,14 +3051,18 @@ fi
 	}
 	// The race leg starts once it has the lock. It keeps it through the
 	// package-budget rerun, so the test cannot take it during either run.
+	// Each go test waits for its release, so the leg is still in the run
+	// the check names when the check runs.
 	waitFor("test -race")
 	if err := syscall.Flock(int(held.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err == nil {
 		t.Errorf("took the lock while the race run holds it")
 	}
+	plainLockSettle(t, filepath.Join(fake, "release1"))
 	waitFor("test -race -count=1")
 	if err := syscall.Flock(int(held.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err == nil {
 		t.Errorf("took the lock while the package-budget rerun holds it")
 	}
+	plainLockSettle(t, filepath.Join(fake, "release2"))
 	<-done
 	if runErr != nil {
 		t.Fatalf("err %v, output:\n%s", runErr, out)
@@ -3219,7 +3255,12 @@ func TestYardTestWholePlainRunsSerialize(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testload.Scale(90*time.Second))
 	defer cancel()
 	dir1, base1, pkgs := plainLockFixture(t, script)
-	dir2, base2, _ := plainLockFixture(t, script)
+	// The second run's worktree is a copy of the first's: the same base
+	// and files in its own directory, as two builders' runs each have
+	// their own. Staging the fixture twice built the same repository
+	// twice.
+	dir2 := copyFixture(t, dir1)
+	base2 := base1
 	// Over half the suite's packages, changed in both worktrees: the same
 	// step, the same queue. Nothing imports anything, so the selection is
 	// the changed set alone.
@@ -3307,6 +3348,9 @@ func TestYardTestWholePlainPathsQueue(t *testing.T) {
 	needTool(t, "perl")
 	realGo := needTool(t, "go")
 	script := gateScript(t)
+	// One template fixture: each case copies it and changes its own copy,
+	// so the two do not stage the same repository twice.
+	template, base, _ := plainLockFixture(t, script)
 	for _, c := range []struct {
 		name   string
 		change func(t *testing.T, dir string)
@@ -3329,7 +3373,7 @@ func TestYardTestWholePlainPathsQueue(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			home, held := holdRaceLock(t)
-			dir, base, _ := plainLockFixture(t, script)
+			dir := copyFixture(t, template)
 			c.change(t, dir)
 			gitT(t, dir, "add", "-A")
 			ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
@@ -3474,6 +3518,7 @@ func TestYardTestWholePlainThreshold(t *testing.T) {
 			[]string{"m.test/m/a"}, true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			dir := t.TempDir()
 			var pkgs, run strings.Builder
 			for _, p := range c.pkgs {
@@ -4217,11 +4262,6 @@ func TestYardTestRaceLockServesWaitersInOrder(t *testing.T) {
 // it.
 func TestYardTestRaceLockTermDuringTicketCreationLeavesNoQueueFiles(t *testing.T) {
 	t.Parallel()
-	driver, home := raceLockDriver(t)
-	b, err := os.ReadFile(driver)
-	if err != nil {
-		t.Fatal(err)
-	}
 	for _, tc := range []struct {
 		name  string
 		point string
@@ -4230,6 +4270,14 @@ func TestYardTestRaceLockTermDuringTicketCreationLeavesNoQueueFiles(t *testing.T
 		{"after rename", "      return $name;\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			// Each probe locks under its own home: run beside each
+			// other, one would read the other's ticket as left behind.
+			driver, home := raceLockDriver(t)
+			b, err := os.ReadFile(driver)
+			if err != nil {
+				t.Fatal(err)
+			}
 			if strings.Count(string(b), tc.point) != 1 {
 				t.Fatalf("cannot find the %s point in %s: move the probe with the script", tc.name, yardTest)
 			}
@@ -4795,7 +4843,12 @@ fi
 	// loop already polls the effect (docs/testing.md R2).
 	deadline := 3 * time.Minute
 	if forceDeadline {
-		deadline = 2 * time.Second
+		// The barrier dance above already pinned the run blocked at the
+		// barrier; the deadline only sits it there before the kill below
+		// pins the timeout branch, so half a second stages the same state
+		// two seconds did. It stays a scaled fuse, not a timer: on a
+		// loaded machine it grows with the load.
+		deadline = 500 * time.Millisecond
 	}
 	reached := false
 	pollUntil(t, deadline, 10*time.Millisecond, func(_ time.Time) bool {
