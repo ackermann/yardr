@@ -134,6 +134,10 @@ func (s *fixtureSite) archive(target string, members map[string]string) {
 }
 
 // publish writes checksums.txt and latest.json from the archives as they are.
+// checksums.txt names install.sh after them, as a release's does and the site
+// copies unchanged, so the script under test looks its archive up among lines
+// that are not all archives'. The sum is of the tree's own install.sh; the
+// fixture serves no file for it, as the site has it at its root.
 func (s *fixtureSite) publish() {
 	s.t.Helper()
 	var sums, targets strings.Builder
@@ -147,6 +151,12 @@ func (s *fixtureSite) publish() {
 		fmt.Fprintf(&targets, "    %q: {\n      \"path\": \"/releases/%s/%s\",\n      \"size\": %d,\n      \"sha256\": %q\n    }",
 			target, installTag, installArchive(target), len(body), hex.EncodeToString(sum[:]))
 	}
+	installer, err := os.ReadFile("../../install.sh")
+	if err != nil {
+		s.t.Fatal(err)
+	}
+	installerSum := sha256.Sum256(installer)
+	fmt.Fprintf(&sums, "%s  install.sh\n", hex.EncodeToString(installerSum[:]))
 	s.write("releases/"+installTag+"/checksums.txt", sums.String())
 	s.write("releases/"+installTag+"/checksums.txt.minisig", "untrusted comment: fixture\nsignature\n")
 	s.write("releases/latest.json", fmt.Sprintf(`{

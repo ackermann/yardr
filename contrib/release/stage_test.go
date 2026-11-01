@@ -745,8 +745,10 @@ func TestStageHoldsWhenTheFlowOffersNoOutcome(t *testing.T) {
 	s.mustLack(got, "bead done")
 }
 
-// release serves verify's download: archives with a checksums.txt over
-// them, a signature beside it unless told otherwise.
+// release serves verify's download: files (archives, and an install.sh where
+// the test wants the checksums to name one) with a checksums.txt over them, a
+// signature beside it unless told otherwise. Corrupt changes each of the files
+// after the sums were made.
 func (s *stage) release(archives map[string]string, corrupt, minisig bool) {
 	s.t.Helper()
 	dir := s.t.TempDir()
@@ -778,7 +780,6 @@ func (s *stage) release(archives map[string]string, corrupt, minisig bool) {
 			}
 			fmt.Fprintln(f, "corrupted")
 			f.Close()
-			break
 		}
 	}
 	if minisig {
@@ -872,14 +873,31 @@ func TestStageVerifyFailsAMissingSignature(t *testing.T) {
 	s.mustContain(got, "checksums.txt.minisig is not on release v1.2.3")
 }
 
+// The installer is under the checksums as the archives are, so one changed
+// after they were made fails the check like an archive: each file is named.
 func TestStageVerifyQuestionsMismatchedArchives(t *testing.T) {
 	s := newStage(t)
-	s.release(map[string]string{"a.tar.gz": "a\n", "b.tar.gz": "b\n"}, true, true)
+	s.release(map[string]string{"a.tar.gz": "a\n", "b.tar.gz": "b\n", "install.sh": "#!/bin/sh\n"}, true, true)
 	s.show("yardr v1.2.3", "notes")
 	s.run("verify")
 	got := s.log()
 	s.mustContain(got, "--outcome question")
 	s.mustContain(got, "do not match its checksums.txt")
+	for _, name := range []string{"a.tar.gz", "b.tar.gz", "install.sh"} {
+		s.mustContain(got, name+": FAILED")
+	}
+}
+
+// Checksums that name the installer and nothing else name no archive.
+func TestStageVerifyQuestionsChecksumsThatNameNoArchive(t *testing.T) {
+	s := newStage(t)
+	s.release(map[string]string{"install.sh": "#!/bin/sh\n"}, false, true)
+	s.show("yardr v1.2.3", "notes")
+	s.run("verify")
+	got := s.log()
+	s.mustContain(got, "--outcome question")
+	s.mustContain(got, "names no archives")
+	s.mustLack(got, "gh attestation verify")
 }
 
 func TestStageVerifyQuestionsAnUnlistedFile(t *testing.T) {
@@ -902,13 +920,15 @@ func TestStageVerifyQuestionsAnUnlistedFile(t *testing.T) {
 	s.mustContain(got, "stowaway.tar.gz")
 }
 
-// install.sh rides beside the archives with no checksum, so verify holds it to
-// the tag it was cut from: the release has the tagged commit's own, byte for
-// byte, and has one where the tag does.
+// verify holds install.sh to the tag it was cut from: the release has the
+// tagged commit's own, byte for byte, and has one where the tag does. The
+// checksums name it, or, in a release made before they did, do not and pass
+// with a note saying so; either way it is no archive, so it is neither counted
+// with them nor asked of their attestations.
 func TestStageVerifyHoldsTheInstallerToTheTag(t *testing.T) {
 	const one, two = "#!/bin/sh\necho one\n", "#!/bin/sh\necho two\n"
 	const notTags = "is not tag v1.2.3's own"
-	for _, tc := range []struct {
+	cases := []struct {
 		name    string
 		release string // the install.sh on the release; "-" for none
 		tagged  string // the install.sh the tag holds; "-" for none
@@ -923,46 +943,70 @@ func TestStageVerifyHoldsTheInstallerToTheTag(t *testing.T) {
 		{"one, where the tag has none", one, "-", false, notTags},
 		{"one, with no depot to compare it in", one, one, true, "compared in no depot"},
 		{"none, with no depot to ask", "-", one, true, ""},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			s := newStage(t)
-			checkout, _ := s.repo()
-			if tc.tagged != "-" {
-				if err := os.WriteFile(filepath.Join(checkout, "install.sh"), []byte(tc.tagged), 0o755); err != nil {
-					t.Fatal(err)
+	}
+	for _, named := range []bool{false, true} {
+		for _, tc := range cases {
+			if named && tc.release == "-" {
+				continue // a release with no installer has none to name
+			}
+			name := tc.name
+			if named {
+				name += ", named in checksums.txt"
+			}
+			t.Run(name, func(t *testing.T) {
+				s := newStage(t)
+				checkout, _ := s.repo()
+				if tc.tagged != "-" {
+					if err := os.WriteFile(filepath.Join(checkout, "install.sh"), []byte(tc.tagged), 0o755); err != nil {
+						t.Fatal(err)
+					}
+					s.git(checkout, "add", "install.sh")
+					s.git(checkout, "commit", "-q", "-m", "installer")
 				}
-				s.git(checkout, "add", "install.sh")
-				s.git(checkout, "commit", "-q", "-m", "installer")
-			}
-			s.git(checkout, "tag", "v1.2.3")
-			s.release(map[string]string{"a.tar.gz": "a\n"}, false, true)
-			if tc.release != "-" {
-				if err := os.WriteFile(filepath.Join(s.releaseDir(), "install.sh"), []byte(tc.release), 0o644); err != nil {
-					t.Fatal(err)
+				s.git(checkout, "tag", "v1.2.3")
+				files := map[string]string{"a.tar.gz": "a\n"}
+				if named {
+					files["install.sh"] = tc.release
 				}
-			}
-			s.show("yardr v1.2.3", "notes")
-			var extra []string
-			if !tc.noDepot {
-				extra = append(extra, "YARDR_DEPOT_PATH="+checkout)
-			}
-			s.run("verify", extra...)
-			got := s.log()
-			if tc.want != "" {
-				s.mustContain(got, "yardr bead done yardr-rel1 --outcome question --note -")
-				s.mustContain(got, tc.want)
-				s.mustLack(got, "gh attestation verify")
-				return
-			}
-			s.mustContain(got, "yardr bead done yardr-rel1 --note -")
-			s.mustLack(got, "--outcome")
-			s.mustContain(got, "1 archives match checksums.txt")
-			if tc.release != "-" {
-				s.mustContain(got, "Its install.sh is tag v1.2.3's own.")
-			} else {
-				s.mustLack(got, "install.sh")
-			}
-		})
+				s.release(files, false, true)
+				// Beside the archives with no line, as a release made before the
+				// checksums named the installer has it.
+				if tc.release != "-" && !named {
+					if err := os.WriteFile(filepath.Join(s.releaseDir(), "install.sh"), []byte(tc.release), 0o644); err != nil {
+						t.Fatal(err)
+					}
+				}
+				s.show("yardr v1.2.3", "notes")
+				var extra []string
+				if !tc.noDepot {
+					extra = append(extra, "YARDR_DEPOT_PATH="+checkout)
+				}
+				s.run("verify", extra...)
+				got := s.log()
+				if tc.want != "" {
+					s.mustContain(got, "yardr bead done yardr-rel1 --outcome question --note -")
+					s.mustContain(got, tc.want)
+					s.mustLack(got, "gh attestation verify")
+					return
+				}
+				s.mustContain(got, "yardr bead done yardr-rel1 --note -")
+				s.mustLack(got, "--outcome")
+				// The installer is no archive: not in the count, and not among the
+				// attestations asked for, which are the one archive's.
+				s.mustContain(got, "1 archives match checksums.txt")
+				if n := strings.Count(got, "attestation verify"); n != 1 {
+					t.Errorf("attestation verify ran %d times; want once, for the archive", n)
+				}
+				switch {
+				case tc.release == "-":
+					s.mustLack(got, "install.sh")
+				case named:
+					s.mustContain(got, "Its install.sh matches its line in checksums.txt and is tag v1.2.3's own.")
+				default:
+					s.mustContain(got, "Its install.sh is tag v1.2.3's own, but checksums.txt has no line for it.")
+				}
+			})
+		}
 	}
 }
 

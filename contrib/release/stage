@@ -36,8 +36,10 @@
 #     publish; a missing or bad signature reports failed with what minisign
 #     said, so sign is asked again, and archives that do not match, an
 #     attestation that does not verify, or a check that could not run,
-#     report question, to decide. An install.sh on the release is no archive
-#     and in no checksum, so it is held to the tag instead: it must be the
+#     report question, to decide. An install.sh on the release is no archive:
+#     it is not counted with them and has no attestation. The checksums name
+#     it (a release made before they did has no line for it, and passes with
+#     a note saying so), and it is held to the tag besides: it must be the
 #     tagged commit's own file, byte for byte, and a release without one
 #     is questioned where the tag has one.
 #   publish: releases the draft, files the yardr.dev sync bead and advances
@@ -379,10 +381,14 @@ verify() {
     fail failed "the signature on release $v is bad" "$minisign_out"
   # shellcheck disable=SC2086 # $sum is a list
   (cd "$tmp" && $sum -c checksums.txt >check.log 2>&1) ||
-    fail question "the archives of release $v do not match its checksums.txt; it is remade by hand (the release and the tag deleted, the bead back to build)" "$(cat "$tmp/check.log")"
+    fail question "the files of release $v do not match its checksums.txt; it is remade by hand (the release and the tag deleted, the bead back to build)" "$(cat "$tmp/check.log")"
   names=$(sed -n 's/^[0-9a-fA-F][0-9a-fA-F]*  *[* ]\{0,1\}\(.*\)$/\1/p' "$tmp/checksums.txt")
-  n=$(printf '%s\n' "$names" | grep -c .) || n=0
-  [ "$n" -gt 0 ] || fail question "release $v's checksums.txt names no files; it is remade by hand (the release and the tag deleted, the bead back to build)"
+  # The installer is no archive: where the checksums name it, the check above
+  # has matched its bytes, and the tag, below, says which bytes they should be.
+  # So it is neither counted nor attested with the archives.
+  archives=$(printf '%s\n' "$names" | grep -v -x -F install.sh)
+  n=$(printf '%s\n' "$archives" | grep -c .) || n=0
+  [ "$n" -gt 0 ] || fail question "release $v's checksums.txt names no archives; it is remade by hand (the release and the tag deleted, the bead back to build)"
   # And nothing rides along that the checksums do not cover.
   extra=""
   for f in "$tmp"/*; do
@@ -390,21 +396,26 @@ verify() {
     b=${f##*/}
     case $b in
     checksums.txt | checksums.txt.minisig | download.log | check.log) continue ;;
-    install.sh) continue ;; # held to the tag below
+    install.sh) continue ;; # held to the tag below, whether a line names it or not
     esac
     printf '%s\n' "$names" | grep -q -x -F "$b" || extra="$extra $b"
   done
   [ -z "$extra" ] ||
     fail question "release $v holds files its checksums.txt does not name ($extra); it is remade by hand (the release and the tag deleted, the bead back to build)"
-  # The installer is the one file that rides beside the archives with no
-  # checksum (the site's sync refuses any other name in checksums.txt), so
-  # what vouches for it is the tag: the release holds the tagged commit's own
-  # install.sh, and holds it when the tag has one.
+  # No attestation reaches the installer, so besides its line in the signed
+  # checksums what vouches for it is the tag: the release holds the tagged
+  # commit's own install.sh, and holds it when the tag has one. A release made
+  # before the checksums named it has the file and no line: it passes, with a
+  # note, as it did.
   installer_note=""
   if [ -f "$tmp/install.sh" ]; then
     { tagged_installer >"$tmp/tagged-install.sh" && cmp -s "$tmp/tagged-install.sh" "$tmp/install.sh"; } ||
       fail question "release $v holds an install.sh that is not tag $v's own (compared in ${REPO:-no depot}); it is remade by hand (the release and the tag deleted, the bead back to build)"
-    installer_note=" Its install.sh is tag $v's own."
+    if printf '%s\n' "$names" | grep -q -x -F install.sh; then
+      installer_note=" Its install.sh matches its line in checksums.txt and is tag $v's own."
+    else
+      installer_note=" Its install.sh is tag $v's own, but checksums.txt has no line for it."
+    fi
   elif tagged_installer >/dev/null; then
     fail question "tag $v has an install.sh and release $v holds none; it is remade by hand (the release and the tag deleted, the bead back to build)"
   fi
@@ -415,10 +426,11 @@ verify() {
     echo "== $BEAD: Actions is off on $GHREPO; skipping attestations"
     done_with publish "verify: the signature on $v is good ($minisign_out), its $n archives match checksums.txt (no attestation: built on this machine).$installer_note"
   fi
-  # Each file's attestation says CI's release workflow built it; without
-  # one the files are not the workflow's, however well they checksum.
-  # shellcheck disable=SC2086 # $names is a newline-separated list
-  for b in $names; do
+  # Each archive's attestation says CI's release workflow built it; without
+  # one the files are not the workflow's, however well they checksum. The
+  # workflow attests the archives alone, so the installer is not asked.
+  # shellcheck disable=SC2086 # $archives is a newline-separated list
+  for b in $archives; do
     attest_out=$(gh attestation verify "$tmp/$b" --repo "$GHREPO" \
       --signer-workflow "$GHREPO/.github/workflows/release.yml" \
       --source-ref "refs/tags/$v" 2>&1) ||

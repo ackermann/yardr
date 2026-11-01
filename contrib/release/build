@@ -1,11 +1,13 @@
 #!/bin/sh
 # Builds yardr's release archives: one yardr_<version>_<os>_<arch>.tar.gz per
 # target, each holding the binary, the server-yard script, the README, LICENSE
-# and NOTICE, and a checksums.txt (sha256) over them. The tree's install.sh is
-# copied beside them: a file of the release, in no archive (footplate refuses
-# an archive member it does not know, and the site's sync lists the members)
-# and in no line of checksums.txt (the site's sync refuses any other name
-# there). Whoever uploads the release uploads what is in the out-dir.
+# and NOTICE, and a checksums.txt (sha256) over them and over the tree's
+# install.sh, which is copied beside them: a file of the release, in no archive
+# (footplate refuses an archive member it does not know, and the site's sync
+# lists the members) but in a line of checksums.txt, so that the signature on
+# it covers the installer too, and the site's sync, which takes an install.sh
+# only against that line, accepts it. Whoever uploads the release uploads what
+# is in the out-dir.
 #
 #   contrib/release/build <version> [out-dir]      (out-dir defaults to dist)
 #
@@ -274,8 +276,14 @@ for target in $targets; do
   archives="$archives $archive"
 done
 
+# The installer is summed with the archives, so it is copied first: its line
+# is of the file that is uploaded, and the signature below covers it. Here,
+# after every build that can fail, so that a failed build leaves no installer
+# behind. The sum is taken in the out-dir so that each name in it is bare, as
+# the site's sync reads them.
+cp install.sh "$out/install.sh"
 # shellcheck disable=SC2086 # $archives and $sum are lists
-(cd "$out" && $sum $archives >checksums.txt)
+(cd "$out" && $sum $archives install.sh >checksums.txt)
 # A signature an earlier build left in the out-dir is of other checksums.
 rm -f "$out/checksums.txt.minisig"
 signature=""
@@ -285,16 +293,14 @@ if [ -n "$minisign_key" ]; then
   # asked about.
   if ! (cd "$out" && minisign -S -s "$minisign_key" -m checksums.txt); then
     # Checksums that were meant to be signed are not left looking like a
-    # finished release.
-    rm -f "$out/checksums.txt" "$out/checksums.txt.minisig"
+    # finished release, nor the installer they name.
+    rm -f "$out/checksums.txt" "$out/checksums.txt.minisig" "$out/install.sh"
     echo "contrib/release/build: minisign did not sign checksums.txt with $minisign_key" >&2
     exit 1
   fi
   signature=checksums.txt.minisig
   echo "checksums.txt: signed with minisign"
 fi
-# Last, so that a build that fails above leaves no installer behind.
-cp install.sh "$out/install.sh"
 echo "wrote to $out:"
 # shellcheck disable=SC2086
 (cd "$out" && ls -l $archives checksums.txt $signature install.sh)

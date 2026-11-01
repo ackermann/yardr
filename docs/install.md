@@ -70,9 +70,9 @@ Each release has four archives, `yardr_<version>_<os>_<arch>.tar.gz` for
 darwin/arm64, darwin/amd64, linux/amd64 and linux/arm64. An archive holds
 `yardr`, `server-yard` (the script of [On a server](#on-a-server-no-desktop)),
 the README, and the licence (FSL-1.1-ALv2) as `LICENSE` and `NOTICE`.
-`checksums.txt`, with the sha256 of each archive, and `install.sh` are files of
-the release beside the archives, not inside them: download `checksums.txt` with
-the archive.
+`checksums.txt`, with the sha256 of each archive and of `install.sh`, and
+`install.sh` itself are files of the release beside the archives, not inside
+them: download `checksums.txt` with the archive.
 
 Releases are public at yardr.dev: `https://yardr.dev/releases/<tag>/`
 holds the four archives, `checksums.txt` and its signature. The current tag
@@ -95,6 +95,10 @@ tar -xzf "yardr_${version}_$target.tar.gz" yardr
 mkdir -p ~/.local/bin && mv yardr ~/.local/bin/     # any directory on your PATH
 yardr --version            # the release's tag and revision; yardr version prints the same
 ```
+
+`--ignore-missing` leaves out the lines of the files you did not download: the
+other three archives, and `install.sh`. A copy of `install.sh` downloaded beside
+`checksums.txt` is checked by the same command, against its own line.
 
 A new account has no `~/.local/bin` until the `mkdir`, and Debian's
 `~/.profile` puts it on the PATH of the login shells that start after it
@@ -680,9 +684,10 @@ will stand on the GitHub release. The yardmaster shapes the bead in
 - `verify` downloads the draft, checks the signature against the release
   key, the archives against the checksums, and each archive's
   build-provenance attestation from the release workflow for this tag
-  (`gh attestation verify`). `install.sh` is in no checksum, so it is held to
-  the tag instead: the draft holds the tagged commit's own file, byte for byte,
-  or the bead waits in `decide`. A bad signature asks `sign` again.
+  (`gh attestation verify`). `install.sh` is no archive and has no
+  attestation: the checksums name it, and it is held to the tag besides, so
+  the draft holds the tagged commit's own file, byte for byte, or the bead
+  waits in `decide`. A bad signature asks `sign` again.
 - `publish` releases the draft, files the yardr.dev sync bead and advances
   it to `new`; the release bead is `published`.
 
@@ -698,8 +703,9 @@ group and the routes are the yard's, and the yardmaster adds them once
 cross-compiles without cgo, stamps the version, and runs the binary for the
 machine it is on to check the stamp. It copies the tree's `install.sh` beside
 them: a file of the release in no archive (footplate refuses an archive member
-it does not know) and in no line of `checksums.txt` (the site's sync refuses
-any other name there). It refuses a tree with uncommitted or untracked files.
+it does not know) but with a line in `checksums.txt`, so that the signature
+covers the installer too (the site's sync takes an `install.sh` only against
+that line). It refuses a tree with uncommitted or untracked files.
 The darwin binaries it builds are not signed, and it says so, unless it is told
 to sign them ([below](#signed-darwin-binaries)). The same holds for
 `checksums.txt` ([Signed checksums](#signed-checksums)). With
@@ -802,7 +808,7 @@ The setup is done once per Mac, and needs the Xcode command line tools
 
 The files of a signed build replace the ones the workflow attached to the
 draft, all of them together, as `checksums.txt` is of this build's
-archives:
+archives and installer:
 
 ```sh
 gh release upload v1.2.3 dist/*.tar.gz dist/checksums.txt dist/install.sh --clobber
@@ -819,10 +825,11 @@ verify; `verify` checks them next, and questions the bead.
 With `YARDR_RELEASE_MINISIGN_KEY` set to the path of a
 [minisign](https://jedisct1.github.io/minisign/) secret key, the script
 signs `checksums.txt` with it and writes `checksums.txt.minisig` beside it.
-The signature covers the checksums, and the checksums cover each archive, so
-one file vouches for the whole release: who has the public key can tell that
-the archives are the ones the key's holder built. It is what a program
-that fetches yardr by itself verifies, with the public key in its source.
+The signature covers the checksums, and the checksums cover each archive and
+`install.sh`, so one file vouches for the whole release: who has the public
+key can tell that the archives and the installer are the ones the key's holder
+built. It is what a program that fetches yardr by itself verifies, with the
+public key in its source.
 
 ```sh
 YARDR_RELEASE_MINISIGN_KEY=~/.minisign/yardr-release.key \

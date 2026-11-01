@@ -179,7 +179,10 @@ func newReleaseSite(t *testing.T, s *releaseSite) *releaseSite {
 	target := runtime.GOOS + "_" + runtime.GOARCH
 	name := "yardr_" + strings.TrimPrefix(s.version, "v") + "_" + target + ".tar.gz"
 	sum := sha256.Sum256(s.archive)
-	checksums := []byte(fmt.Sprintf("%s  %s\n", hex.EncodeToString(sum[:]), name))
+	// The release's checksums.txt also names its install.sh, which is no
+	// archive: the upgrade looks its archive up among lines of other files.
+	installer := sha256.Sum256([]byte("#!/bin/sh\n"))
+	checksums := []byte(fmt.Sprintf("%s  %s\n%s  install.sh\n", hex.EncodeToString(sum[:]), name, hex.EncodeToString(installer[:])))
 	signer := s.key
 	if s.signWith != nil {
 		signer = *s.signWith

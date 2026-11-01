@@ -89,9 +89,11 @@ func TestBuildStampsTheVersionAndPacksTheArchive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// A line for the archive, then one for the installer: each a sha256 and a
+	// bare name, as the site's sync reads them.
 	fields := strings.Fields(string(sums))
-	if len(fields) != 2 || len(fields[0]) != 64 || fields[1] != archive {
-		t.Fatalf("checksums.txt = %q; want one sha256 line for %s", sums, archive)
+	if len(fields) != 4 || len(fields[0]) != 64 || fields[1] != archive || len(fields[2]) != 64 || fields[3] != "install.sh" {
+		t.Fatalf("checksums.txt = %q; want a sha256 line for %s and one for install.sh", sums, archive)
 	}
 	check := exec.Command("shasum", "-a", "256", "-c", "checksums.txt")
 	if _, err := exec.LookPath("sha256sum"); err == nil {
@@ -103,9 +105,10 @@ func TestBuildStampsTheVersionAndPacksTheArchive(t *testing.T) {
 	}
 
 	// The installer is a file of the release beside the archive: not in it
-	// (members holds the archive to its five), and in no line of checksums.txt
-	// (one line, above), which the site's sync would refuse. The tree's own
-	// file, so that the release stage can hold it to the tag's.
+	// (members holds the archive to its five), but in a line of checksums.txt
+	// (the second above, which check has matched to this file), so that the
+	// signature on the checksums covers it. The tree's own file, so that the
+	// release stage can hold it to the tag's.
 	tree, err := os.ReadFile("../../install.sh")
 	if err != nil {
 		t.Fatal(err)
@@ -504,6 +507,10 @@ func TestBuildSignsTheChecksumsWithTheMinisignKey(t *testing.T) {
 	b, err := os.ReadFile(sums)
 	if err != nil {
 		t.Fatal(err)
+	}
+	// What was signed names the installer, so the signature covers it.
+	if !bytes.HasSuffix(b, []byte("  install.sh\n")) {
+		t.Errorf("the signed checksums.txt has no line for install.sh:\n%s", b)
 	}
 	// One digit of the archive's sha256 is another.
 	changed := byte('0')

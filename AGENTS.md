@@ -13,8 +13,10 @@ worked); user docs live in `docs/` and are not repeated here.
 - `install.sh`: the one way yardr is installed and the only definition of
   where it goes (`~/.local/bin`), from a release or with `--from-source`;
   POSIX sh, tested in `contrib/release`. A release carries it beside the
-  archives, never inside them: footplate and the site's sync refuse an
-  archive member, and a name in `checksums.txt`, they do not know.
+  archives, never inside them (footplate and the site's sync refuse an
+  archive member they do not know), and names it in `checksums.txt` with
+  the archives, so that the signature on the checksums covers it and the
+  site's sync, which takes it only against that line, accepts it.
 - `internal/`: all Go code, one package per area (below). Nothing outside
   `internal/` imports it except `main` and the tests.
 - `docs/`: user and design docs, including `docs/api.md` (the socket API
