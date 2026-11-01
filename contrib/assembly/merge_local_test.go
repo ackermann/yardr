@@ -507,7 +507,12 @@ func (y *yard) exec(script, group, id string) {
 	if err != nil {
 		y.t.Fatal(err)
 	}
-	within := testload.Scale(60 * time.Second)
+	// A script is waited on as a process is (dispatch's WaitFuse is the same two
+	// minutes): the fuse is against a hang, and a green run spends none of it.
+	// Every assembly and PR script is run through here, and where everything is
+	// slow one that is still working outlasts a minute, so a shorter fuse
+	// measures the load and not the script (yardr-f2np).
+	within := testload.Scale(2 * time.Minute)
 	for deadline := time.Now().Add(within); ; time.Sleep(20 * time.Millisecond) {
 		if alive, _ := e.Alive(ctx, h); !alive {
 			break
