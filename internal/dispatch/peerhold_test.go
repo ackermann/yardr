@@ -190,9 +190,11 @@ func TestPeerHoldOnePerPeer(t *testing.T) {
 	clock := newClock()
 	a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
 	link(t, a, b, false, true)
-	askedAt := a.asked.Load()
+	holdsAt := a.holds.Load()
 	first := b.ask(t, context.Background(), "a", clock, 20*time.Second)
-	until(t, "a hears b's first question", func() bool { return a.asked.Load() > askedAt })
+	// The second question has to find the first one's hold, which a request
+	// at the listener does not say is there (see deadlineCounter).
+	until(t, "a holds b's first question", func() bool { return a.holds.Load() > holdsAt })
 	ctx, kill := context.WithCancel(context.Background())
 	defer kill()
 	second := b.ask(t, ctx, "a", clock, 20*time.Second)
@@ -204,8 +206,9 @@ func TestPeerHoldOnePerPeer(t *testing.T) {
 		t.Fatalf("the question that was given up was answered: %+v", got.page)
 	}
 	// a's next question is held fresh and answered when something is queued
-	// for it.
-	askedAt = a.asked.Load()
+	// for it. The ping is the answer whether it is queued before the question
+	// is held or after, so hearing the question is wait enough here.
+	askedAt := a.asked.Load()
 	third := b.ask(t, context.Background(), "a", clock, 20*time.Second)
 	until(t, "a hears b's next question", func() bool { return a.asked.Load() > askedAt })
 	id := a.send(t, "b")
@@ -221,9 +224,12 @@ func TestPeerPullWithoutWaitEndsPriorHold(t *testing.T) {
 	clock := newClock()
 	a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
 	link(t, a, b, false, true)
-	askedAt := a.asked.Load()
+	holdsAt := a.holds.Load()
 	first := b.ask(t, context.Background(), "a", clock, 20*time.Second)
-	until(t, "a hears b's question", func() bool { return a.asked.Load() > askedAt })
+	// The question without wait ends what is held when it comes, so the first
+	// one's hold has to be there: a request at the listener does not say it is
+	// (see deadlineCounter).
+	until(t, "a holds b's question", func() bool { return a.holds.Load() > holdsAt })
 	second := b.ask(t, context.Background(), "a", clock, 0)
 	if got := endedByNext(t, first); len(got.page.Messages) != 0 {
 		t.Fatalf("the held question ended with %+v, want an empty page", got.page)

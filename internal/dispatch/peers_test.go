@@ -36,7 +36,30 @@ type peerYard struct {
 	down   atomic.Bool
 	capped atomic.Bool
 	asked  atomic.Int64 // requests that reached the listener
+	holds  atomic.Int64 // pulls the receiver has begun to hold (see deadlineCounter)
 }
+
+// deadlineCounter wraps the writer a receiver is handed and counts the read
+// deadlines it moves into n. The receiver moves one only for a pull it holds
+// open, right after it registers the hold, so the count says the hold exists.
+// asked does not: the listener counts a request before the receiver has
+// verified it, and the first pull of a peer pays a write to its record in
+// between. A question that comes in that time finds no hold to end and ends
+// nothing. Were the receiver to stop bounding a held pull's read, the count
+// would stay where it is and a test that waits on it would fail at its fuse.
+type deadlineCounter struct {
+	http.ResponseWriter
+	n *atomic.Int64
+}
+
+func (w deadlineCounter) SetReadDeadline(t time.Time) error {
+	w.n.Add(1)
+	return http.NewResponseController(w.ResponseWriter).SetReadDeadline(t)
+}
+
+// Unwrap lets the receiver's other controls on the connection, the write
+// deadline among them, reach it through the counter.
+func (w deadlineCounter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
 // peerSendDisallowedHook changes a link after the dispatcher's peer
 // snapshot but before its delivery-time allowance check.
@@ -78,7 +101,7 @@ func newPeerYard(t *testing.T, name string, clock *peerClock) *peerYard {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		inner.ServeHTTP(w, r)
+		inner.ServeHTTP(deadlineCounter{ResponseWriter: w, n: &y.holds}, r)
 	}))
 	t.Cleanup(y.srv.Close)
 	y.d = &dispatch.Dispatcher{Store: api, Runners: map[string]dispatch.Runner{store.PeerRunner: &runner.Peer{Store: api}}, PeerKey: keyFile}
