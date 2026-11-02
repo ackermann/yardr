@@ -9,7 +9,8 @@ yard dials out, so a laptop on any network, with no open port and no tunnel of
 its own, is reachable for webhooks and for its devices' calls. What the edge
 hands over of a delivery is the sender's raw body and headers, and the yard
 verifies every delivery itself, with secrets only it holds. Today the edge
-carries webhooks and devices' calls.
+carries webhooks, the calls of peers and devices, and the web view
+([below](#the-web-view-of-a-connected-yard)).
 
 ```sh
 yardr edge connect https://my.yardr.dev   # fetch the edge's key, show it, enrol by a code
@@ -212,6 +213,7 @@ checks the gateway's JWT and acts as the mapped yard user.
 | peer URL | `https://my.yardr.dev/peers/<account>/<yard>` | the same |
 | how the edge reaches it | TCP to its container or droplet | the link the yard opened |
 | footplate | Kratos session plus device token, pairing by code | the same, through the link |
+| web view | `https://my.yardr.dev/?yard=<name>`, signed in as the account that owns the yard | the same, through the socket the view keeps to the edge ([below](#the-web-view-of-a-connected-yard)) |
 | secrets given from a device | every secret, from the operator's devices, the account a setup types among them | the code of a harness login |
 | who runs it, upgrades, backs up | the service | the person |
 | invite list | yes, for the trial | no: any verified account connects its own yard, and gets no hosted yard |
@@ -247,6 +249,62 @@ cookie nor the parameter. A device's calls still pick their yard with
 The cost is that a cookie is the browser's and not a tab's: two tabs on
 two yards of one account share it, and the last `?yard=` visit decides
 for both. A subdomain per yard is the later answer and stays left out.
+
+## The web view of a connected yard
+
+A connected yard's web view opens in a browser at
+`https://my.yardr.dev/?yard=<name>`, once the browser is signed in as the
+account that owns the yard. `<name>` is the yard's name at the edge, which
+`yardr edge status` shows after the handle. The view stays on loopback. It
+keeps the second socket to the edge
+([Connecting a yard](#connecting-a-yard)), and the edge carries the browser's
+requests and event streams down it. The view is the owner's alone, and the
+edge refuses a member of the yard.
+
+The yard needs two things for that:
+
+- **The `edge` setting.** `yardr edge connect` sets it.
+- **A running view that answers to `my.yardr.dev`.** A request that comes
+  down the link carries the edge's host as its `Host`, and a view on loopback
+  answers `421` to a name it was not given. `yardr web install --host
+  my.yardr.dev` starts the view now and at every login. `yardr web start` and
+  `yardr web serve` take the same flag
+  ([Behind a proxy](web.md#behind-a-proxy)). The view still listens on
+  loopback only. While no view runs, the yard is away for the browser, and
+  the edge answers `503` with `X-Edge-Refusal: away`.
+
+The `web_jwt_*` settings are the operator's to set by hand
+([Behind an auth gateway](web.md#behind-an-auth-gateway)). While
+`web_jwt_issuer` is unset, JWT mode is off. The view checks no token, and the
+edge's session and owner check is the only gate.
+
+With the edge as the view's gateway, the edge mints a token for each request,
+good for a minute, and sends it in `X-Edge-JWT`. The view verifies it and
+acts as the yard user its email maps to. The operator turns that on with
+these settings:
+
+```sh
+yardr settings set web_jwt_issuer http://router:8080/
+yardr settings set web_jwt_audience yardr-web
+yardr settings set web_jwt_jwks https://my.yardr.dev/jwks.json
+yardr settings set web_jwt_header X-Edge-JWT
+yardr settings set web_jwt_users ada@example.com=ada
+yardr web install --host my.yardr.dev
+```
+
+`ada@example.com` is the email of the account that owns the yard, and `ada`
+is the yard user it acts as. The issuer is the `iss` the edge writes in its
+tokens. It is a name, not an address the yard calls. The keys come from
+`web_jwt_jwks`. `web_jwt_header` defaults to `Cf-Access-Jwt-Assertion`, so a
+view that keeps it finds no token from the edge and answers `401`.
+
+With `web_jwt_issuer` set, the view's own address asks every request but
+`/health` for that token. A process on the machine, such as a script or a
+dashboard's server-side fetch, holds none. Start the view with `--local-read
+<addr>` and it opens a loopback listener beside its own that answers its
+read-only JSON with no token
+([A reader on this machine](web.md#a-reader-on-this-machine---local-read)).
+A browser on the machine opens the view at the edge, like any other.
 
 ## While the yard is away: the queue
 
