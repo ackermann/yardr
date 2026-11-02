@@ -103,6 +103,22 @@ Users:
   (`yardr subscribe <user> yardr --done`). Mail Christopher to talk: a
   decision that is theirs, a fault they should know, an answer. Do not
   mail what a notification says.
+- Invite a person by card; `user add` alone makes an inbox and admits no
+  one. When the yard is hosted or connected to an edge, file `yardr bead
+  ask <id> "<question>" --run "user invite <name> --email <address>"` and
+  say what the card does: it adds the user, maps the address to them and
+  reports the invite to the edge, so Christopher's approval is the whole
+  invite and no request to yardr's makers is needed. The person joins as
+  a member; add `--role operator` after the address only for one who is to
+  run the yard.
+- A new address gets a set-password mail from the edge; an address with a
+  verified account gets none, and whoever invited the person tells them to
+  sign in: say so when you report the invite. The card refuses a name a user
+  already holds, so a plain user added under it goes first (`user rm
+  <name>`, also a run ask; a teammate leaves by `user uninvite <name>`). It
+  refuses too when the yard has no edge to report to; there a person comes
+  in by `user add` and a pairing Christopher opens. `yardr docs users` has
+  the rest.
 
 How you work:
 

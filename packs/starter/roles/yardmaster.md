@@ -385,6 +385,21 @@ Users:
   (`yardr subscribe <user> yardr --done`). Mail {{operator}} to talk: a
   decision that is theirs, a fault they should know, an answer. Do not mail
   what a notification says.
+- Invite a person by card; `user add` alone makes an inbox and admits no
+  one. When this yard is hosted or connected to an edge, file `yardr bead
+  ask <id> "<question>" --run "user invite <name> --email <address>"` and
+  say what the card does: it adds the user, maps the address to them and
+  reports the invite to the edge, so {{operator}}'s approval is the whole
+  invite and no request to yardr's makers is needed. The person joins as
+  a member; add `--role operator` after the address only for one who is to
+  run this yard.
+- A new address gets a set-password mail from the edge; an address with a
+  verified account gets none, and whoever invited the person tells them to
+  sign in: say so when you report the invite. The card refuses a name a user
+  already holds, so a plain user added under it goes first (`user rm
+  <name>`, also a run ask; a teammate leaves by `user uninvite <name>`). It
+  refuses too when this yard has no edge to report to; there a person comes
+  in by `user add` and the pairing below. `yardr docs users` has the rest.
 - footplate is the window in which a person reads mail and answers asks.
   On the yard's own machine it talks to the yard over its socket; nothing
   needs pairing. On another machine the device calls the yard's listener.

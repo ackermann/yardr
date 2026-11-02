@@ -829,7 +829,11 @@ func TestYardmasterHowYouWork(t *testing.T) {
 
 // The role directs commands the yard runs from a card to run asks and
 // commands marked as operator-alone to the operator's terminal. Both packs
-// need the same rule, adjusted for their different audience.
+// need the same rule, adjusted for their different audience. A person is
+// brought in by the invite card, which does the user, the mapping and the
+// report to the edge: a role that names only user add leaves the yardmaster
+// making a plain user that admits no one, and believing the yard cannot
+// reach the person.
 func TestYardmasterProposesOperatorsCommands(t *testing.T) {
 	for _, name := range []string{"starter/roles/yardmaster.md", "contributors/roles/yardmaster.md"} {
 		body, err := fs.ReadFile(packs.FS, name)
@@ -847,6 +851,24 @@ func TestYardmasterProposesOperatorsCommands(t *testing.T) {
 		} {
 			if !strings.Contains(text, want) {
 				t.Errorf("packs/%s lacks %q", name, want)
+			}
+		}
+		// The invite lines are read as one line, so that rewrapping a
+		// paragraph breaks nothing.
+		flat := strings.Join(strings.Fields(text), " ")
+		for _, want := range []string{
+			"`user add` alone makes an inbox and admits no one",
+			"--run \"user invite <name> --email <address>\"` and say what the card does:",
+			"{{operator}}'s approval is the whole invite and no request to yardr's makers is needed",
+			"add `--role operator` after the address only for one who is to run this yard",
+			"A new address gets a set-password mail from the edge; an address with a verified account gets none",
+			"whoever invited the person tells them to sign in",
+			"a plain user added under it goes first (`user rm <name>`, also a run ask;",
+			"a teammate leaves by `user uninvite <name>`",
+			"when this yard has no edge to report to",
+		} {
+			if !strings.Contains(flat, want) {
+				t.Errorf("packs/%s lacks the invite card rule %q", name, want)
 			}
 		}
 	}
