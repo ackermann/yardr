@@ -1078,9 +1078,12 @@ git:                                  # what git uses to reach the source's repo
   compile, a template naming a group the expression has not, a fold that is
   not `lower`, an `identity` with no `fold`, a `link.pull` pattern with
   another group count than `link.issue`, a pull template naming a group
-  it has not, a `link.repos` that does not compile. A pack brings
-  neither key: `yardr pack check` refuses a declaration with a `thread` or
-  `link` key, as it refuses `limits`.
+  it has not, a `link.repos` that does not compile. A pack for a depot
+  brings neither key: `yardr pack check` refuses a declaration with a
+  `thread` or `link` key there. A pack of kind `source` may bring both,
+  with the commands' files
+  ([packs.md](packs.md#an-integration-pack-kind-source)); `limits` is
+  refused in every pack.
 
 #### What the service sends in
 
