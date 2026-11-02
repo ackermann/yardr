@@ -22,21 +22,31 @@
     <h3 class="label">flow {{.Name}}{{if .Type}} · {{.Type}} beads{{end}} · {{.Source}}</h3>
     <ol class="column">
       {{- range .Stages}}
+      {{- /* A stage holding no bead is folded to its head line, a closed
+             details whose body is the cards: the section stays in the page,
+             so the stream puts an arriving card in it as in any other, and
+             the stylesheet shows the stage open from then on (and folds it
+             again when the card leaves). */}}
+      {{- if .Beads}}
       <li class="stage{{if .Terminal}} terminal{{end}}">
         <h4>{{.Stage}}</h4>
-        <p class="label stage-who">
-          {{- if .Group}}{{.Group}}{{range .Else}}, else {{.}}{{end}}{{if .Human}} · by hand{{range $i, $m := .Members}}{{if $i}},{{else}}:{{end}} {{$m}}{{end}}{{end}}
-          {{- else if not .Terminal}}no route: waits for a person{{end}}
-          {{- if .Terminal}}{{if .Group}} · {{end}}closes the bead{{end}}
-          {{- if .StageFile}} · stage file{{end -}}
-        </p>
-        <div class="cards" id="{{.Section}}" sse-swap="{{.Section}}" hx-swap="afterbegin settle:0ms">
-          {{- range .Beads}}{{template "card" .}}{{end}}
-        </div>
+        <p class="label stage-who">{{template "stagewho" .}}</p>
+        {{template "stagecards" .}}
         {{- /* The count is the stylesheet's: it counts the cards as they
                come and go, so it never needs a message of its own. */}}
         <span class="count num" aria-hidden="true"></span>
       </li>
+      {{- else}}
+      <li class="stage quiet{{if .Terminal}} terminal{{end}}">
+        <details>
+          <summary><h4>{{.Stage}}</h4> <span class="label stage-who">{{template "stagewho" .}}</span></summary>
+          {{template "stagecards" .}}
+        </details>
+        {{- /* The count stands after the details, not in its summary: a
+               counter only reaches what follows the cards it counts. */}}
+        <span class="count num" aria-hidden="true"></span>
+      </li>
+      {{- end}}
       {{- end}}
     </ol>
   </section>
@@ -56,3 +66,15 @@
 </div>
 {{- end}}
 {{end}}
+{{- /* Who works a stage: its group and the rest of its route, by hand with
+       the people who may move a bead on, the stage file. */}}
+{{define "stagewho"}}
+{{- if .Group}}{{.Group}}{{range .Else}}, else {{.}}{{end}}{{if .Human}} · by hand{{range $i, $m := .Members}}{{if $i}},{{else}}:{{end}} {{$m}}{{end}}{{end}}
+{{- else if not .Terminal}}no route: waits for a person{{end}}
+{{- if .Terminal}}{{if .Group}} · {{end}}closes the bead{{end}}
+{{- if .StageFile}} · stage file{{end -}}
+{{end}}
+{{- /* The element the stream puts a stage's cards in, named after the stage. */}}
+{{define "stagecards"}}<div class="cards" id="{{.Section}}" sse-swap="{{.Section}}" hx-swap="afterbegin settle:0ms">
+  {{- range .Beads}}{{template "card" .}}{{end}}
+</div>{{end}}

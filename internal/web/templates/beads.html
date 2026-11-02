@@ -4,21 +4,24 @@
 {{- /* The list reads itself again whenever something happens in the yard:
        the shell's stream carries each event's seq and nothing else. */}}
 <div id="beads" hx-get="{{.Self}}" hx-trigger="sse:message" hx-select="#beads > *" hx-swap="innerHTML ignoreTitle:true">
+  {{- /* Each choice is a chip with the number of beads its own link lists:
+         a depot's under the stage kept, a stage's under the depot kept,
+         each row's all under the other filter alone. */}}
   {{- if or .Depots .Stages}}
-  <nav class="item filters" aria-label="Filters">
+  <nav class="item chips" aria-label="Filters">
     {{- if .Depots}}
     <p><span class="label">depot</span>
-      <a href="{{.Link "" .Stage}}"{{if not .Depot}} aria-current="true"{{end}}>all</a>
+      <a href="{{.Link "" .Stage}}"{{if not .Depot}} aria-current="true"{{end}}>all · <span class="num">{{.AnyDepot}}</span></a>
       {{- range .Depots}}
-      <a href="{{$d.Link . $d.Stage}}"{{if eq . $d.Depot}} aria-current="true"{{end}}>{{.}}</a>
+      <a href="{{$d.Link . $d.Stage}}"{{if eq . $d.Depot}} aria-current="true"{{end}}>{{.}} · <span class="num">{{index $d.DepotCounts .}}</span></a>
       {{- end}}
     </p>
     {{- end}}
     {{- if .Stages}}
     <p><span class="label">stage</span>
-      <a href="{{.Link .Depot ""}}"{{if not .Stage}} aria-current="true"{{end}}>all</a>
+      <a href="{{.Link .Depot ""}}"{{if not .Stage}} aria-current="true"{{end}}>all · <span class="num">{{.AnyStage}}</span></a>
       {{- range .Stages}}
-      <a href="{{$d.Link $d.Depot .}}"{{if eq . $d.Stage}} aria-current="true"{{end}}>{{.}}</a>
+      <a href="{{$d.Link $d.Depot .}}"{{if eq . $d.Stage}} aria-current="true"{{end}}>{{.}} · <span class="num">{{index $d.StageCounts .}}</span></a>
       {{- end}}
     </p>
     {{- end}}

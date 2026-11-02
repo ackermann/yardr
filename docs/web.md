@@ -748,7 +748,7 @@ origin; the test allows those and only those ([One bead](#one-bead)).
 | `/events` | the yard's events as they happen, as server-sent events ([The stream](#the-stream)) | `?format=json` |
 | `/line` | what waits for a person, and the line in numbers ([The right column](#the-right-column)) | `Line` |
 | `/line?home=1` | the home mode: the line panel alone, what home's aside shows and re-reads ([The right column](#the-right-column)) | `Line` |
-| `/flows` | per depot, the flows that govern it: each stage a section with its group and the open beads in it as cards, which move as the beads do ([Flows](#flows)) | `Flows` |
+| `/flows` | per depot, the flows that govern it: each stage a section with its group and the open beads in it as cards, which move as the beads do, and a stage with none folded to its head line ([Flows](#flows)) | `Flows` |
 | `/flows?panel=1` | the yard panel: every depot's flows drawn as track, with the open beads standing on them as blocks ([Flows](#flows)) | `Flows` |
 | `/beads` | the open beads, the newest change first ([Beads](#beads)) | `Beads` |
 | `/beads?depot=<depot>&stage=<stage>` | the same, of one depot, in one stage, or both | `Beads` |
@@ -1376,6 +1376,17 @@ A flow is one column: its stages in the flow's order, each a section with
 - `stage file` when the stage has one,
 - the open beads in it as cards, the newest change first, and their count.
 
+A stage that holds no bead is folded to its head line: its name, who works
+it and its count (0), under a closed `<details>` that a tap or a key opens.
+The fold keeps the stage's section in the page, so a card the stream
+brings lands in it as in any other. A closed details leaves its body out of
+the stylesheet's count, so while a folded stage holds a card the stylesheet
+shows it as it shows a stage with beads (head, count and cards), and folds
+it again when the card leaves; a browser that cannot say so for a closed
+details (one without `::details-content`) keeps the stage folded, with the
+card inside, until it is opened. A page read again shows the stage as it
+stands: folded while it holds no bead, open while it does.
+
 A terminal stage is there too, to show where the flow ends; it holds a bead
 only when one was reopened. Under a depot's flows, `off the flow` holds the
 open beads in no stage of them: a bead that pins a flow of its own
@@ -1499,8 +1510,13 @@ and `--late` for the late ring), so the palette changes in one edit.
 ## Beads
 
 `/beads` lists the open beads, the newest change first. `?depot=` keeps one
-depot's, `?stage=` one stage's; the page offers both as links, each keeping
-the other. A depot or stage nobody has gives an empty list, not an error.
+depot's, `?stage=` one stage's; the page offers both as chips, links each
+keeping the other, in a row that wraps, with the number of beads the link
+lists beside its name (`yardr · 12`). The current one is filled, the rest
+are quiet, and each is at least 36 px high. A depot's number is under the
+stage kept, a stage's under the depot kept, and a row's `all` counts under
+the other filter alone, so a bead of no depot is in the one and in none of
+the others. A depot or stage nobody has gives an empty list, not an error.
 A filter with nothing to choose is left out.
 `?all=1` lists the closed beads too, every one, as `yardr bead list --all`
 (`"all": true` in the JSON); the filters keep it.
@@ -1516,6 +1532,10 @@ A filter with nothing to choose is left out.
              "train": "yardr-e3rg", "working": true}],
   "depots": ["yardr"],
   "stages": ["backlog", "new", "review"],
+  "depot_counts": {"yardr": 1},
+  "stage_counts": {"backlog": 3, "new": 1, "review": 2},
+  "any_depot": 1,
+  "any_stage": 6,
   "head": 1301
 }
 ```
@@ -1533,6 +1553,14 @@ card.
 `depots` and `stages` are what the filters can be set to: the yard's depots,
 and the stages that hold a listed bead (of `depot`, when it is set). Journals
 and memories are not work and not listed, as in `yardr bead list`.
+
+The numbers on the chips are beside them. `depot_counts` and `stage_counts`
+say, per name of `depots` and of `stages`, how many beads the page lists
+once that name is chosen with the other filter kept: a depot's under
+`stage`, a stage's under `depot` (a depot with no bead has its 0).
+`any_depot` and `any_stage` are the same for each row's `all`, which clears
+that filter alone; not `all`, which is the closed beads' flag above. Each is
+the length of the `beads` the link it belongs to lists.
 
 The page is live by reading itself again: its stream is the shell's, with
 `format=seq`, and it asks for its own URL at each event, one request at a
@@ -2255,7 +2283,8 @@ Rules the stylesheet holds to, and a test checks the second:
   line, ending in an ellipsis.
 - Corners are square everywhere (`border-radius: 0`). Circles are a
   status dot (`.dot`, with `.working`, `.running` or `.held`) and the
-  rail's chip, tiles and pills, which keep footplate's rounded corners.
+  rail's chip, tiles and pills, which keep footplate's rounded corners;
+  the Beads filters' chips are pills too.
 - Words come from the yard: line, landed, held, waits for you.
 
 Classes a page builds from: `.item` (one entry of the centre feed, with a
@@ -2268,10 +2297,10 @@ of it, with `.entry-head`, `.entry-what`, `.entry-title`, `.entry-note`),
 `.parked`), `.card` (one bead in a list, the `card`
 template, with `.card-head`, `.card-title`, and `.arrived` for one the
 stream brought), `.cards` (a list of them), `.column` and `.stage` (a flow
-and one stage of it), `.peers` (the crew to talk to), `.talk-head` (the conversation's head), `.letter` (one mail
+and one stage of it, with `.quiet` for one folded to its head line), `.peers` (the crew to talk to), `.talk-head` (the conversation's head), `.letter` (one mail
 of the talk page, with `.head`, `.day`, `.differs` and `.own` for how it reads, and
 `.day-break`, `.at`, `.who` and `.body` inside), `.error` (why a mail was not sent),
-`.filters`, `.facts` (name and value rows), `.routes` (one row per route, as `/routes` shows them on a wide window), `.text`
+`.filters` (a row of links, as a config page's way back), `.chips` (the Beads page's depot and stage rows, each a label over a wrapping run of pill links with their counts), `.facts` (name and value rows), `.routes` (one row per route, as `/routes` shows them on a wide window), `.text`
 (what someone wrote, lines kept), `.note`, `.outcomes`, `.bead` (a bead's
 id), `.state` (a status dot and its word),
 `.num`, `.faint`, `.held`, `.landed`, `.dot`, `.diagram` (one drawing of

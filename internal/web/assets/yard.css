@@ -318,6 +318,27 @@ ul, ol { list-style: none; }
 .stage .cards { margin-top: 8px; }
 .stage .card { counter-increment: cards; }
 .stage.terminal h4 { color: var(--landed); }
+/* A stage holding no bead is folded to one line, its name and who under a
+   closed details whose body is the cards, with the count at the right as in
+   any stage (the count rides over the line's reserved end, and lets a tap
+   through). The summary's padding and the margin that takes it back make
+   the whole row the target. */
+.stage.quiet details { grid-column: 1 / -1; grid-row: 1; }
+.stage.quiet summary { padding-right: 3ch; }
+.stage.quiet .count { pointer-events: none; }
+.stage.quiet:not(:has(.card)) summary { margin: -10px 0 -12px; padding-block: 10px 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.stage.quiet:not(:has(.card)) summary > * { display: inline; }
+.stage.quiet:not(:has(.card)) .stage-who { margin-left: 10px; }
+.stage.quiet:not(:has(.card)) summary:hover h4 { color: var(--accent-hover); }
+/* A closed details leaves its body out of rendering, and so out of the
+   counter: a card the stream puts in a folded stage would sit unseen under
+   a count of 0. Where the browser lets the stylesheet say so, the body shows
+   while it holds a card, under the head as any stage has it, and the stage
+   folds again when the card leaves. */
+@supports selector(details::details-content) {
+  .stage.quiet:has(.card) details::details-content { content-visibility: visible; }
+  .stage.quiet:has(.card) summary { list-style: none; }
+}
 /* Shown only while a bead stands off its flow. */
 .off:not(:has(.card)) { display: none; }
 .off .cards { margin-top: 8px; }
@@ -368,6 +389,17 @@ ul, ol { list-style: none; }
 .filters .label { display: inline-block; min-width: 56px; }
 .filters a { margin-right: 10px; color: var(--dim); overflow-wrap: anywhere; }
 .filters a[aria-current] { color: var(--accent); }
+/* The Beads page's choices: each row a label over a wrapping run of chips.
+   A chip is a link at least 36 px high holding the choice and the number of
+   beads it lists; the current one is filled with the pill's rust, which
+   carries white text, and the rest stay quiet. (.chip is the rail's yard
+   chip, one element; these are a row's links.) */
+.chips p { display: flex; flex-wrap: wrap; gap: 6px; }
+.chips p + p { margin-top: 12px; }
+.chips .label { flex: 1 0 100%; }
+.chips a { min-width: 0; max-width: 100%; min-height: 36px; padding: 7px 14px; color: var(--dim); border: 1px solid var(--hairline-strong); border-radius: 999px; overflow-wrap: anywhere; }
+.chips a:hover { border-color: var(--accent-hover); }
+.chips a[aria-current] { background: var(--pill); border-color: var(--pill); color: #fff; }
 
 /* A bead's own page. */
 .facts div { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 10px; padding: 2px 0; }

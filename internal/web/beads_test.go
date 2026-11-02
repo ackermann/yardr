@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -172,7 +174,9 @@ func TestFlowsReadError(t *testing.T) {
 	if depot := got.Depots[0]; depot.Error == "" || len(depot.Flows) != 0 || len(depot.Elsewhere) != 4 {
 		t.Errorf("depot line: %+v", depot)
 	}
-	if r := f.get("/flows"); r.status != 200 || !strings.Contains(r.body, `id="off/loose"`) {
+	// The depot's error stays on the page beside its beads, folded stages or none.
+	if r := f.get("/flows"); r.status != 200 || !strings.Contains(r.body, `id="off/loose"`) ||
+		!strings.Contains(r.body, `<p class="held">repository is unavailable</p>`) {
 		t.Errorf("the page: status %d", r.status)
 	}
 }
@@ -201,6 +205,20 @@ func (f *fixture) sections() map[string]string {
 }
 
 func squashLines(s string) string { return strings.ReplaceAll(s, "\n", " ") }
+
+// foldedRE finds the stages /flows folds to their head line.
+var foldedRE = regexp.MustCompile(`<li class="stage quiet[^"]*"><details><summary><h4>([^<]*)</h4>`)
+
+// folded are the stages /flows stands folded, in the page's order: a stage
+// folds while it holds no bead.
+func (f *fixture) folded() []string {
+	f.t.Helper()
+	var out []string
+	for _, m := range foldedRE.FindAllStringSubmatch(squash(f.get("/flows").body), -1) {
+		out = append(out, m[1])
+	}
+	return out
+}
 
 // The page: one section per stage, named so the stream can put a card in
 // it, each bead a card that links to its page; and the stream it listens
@@ -233,6 +251,32 @@ func TestFlowsHTML(t *testing.T) {
 		if !strings.Contains(r.body, want) {
 			t.Errorf("the page lacks %s", want)
 		}
+	}
+	// A stage with no bead is folded to its head line: a closed details whose
+	// body is the section the stream fills, the count after it. A stage with
+	// a bead has the head and cards it always had, in no details.
+	page := squash(r.body)
+	for _, want := range []string{
+		`<li class="stage quiet terminal"><details><summary><h4>merged</h4><span class="label stage-who">closes the bead</span></summary>` +
+			`<div class="cards" id="at/line//merged" sse-swap="at/line//merged" hx-swap="afterbegin settle:0ms"></div></details>` +
+			`<span class="count num" aria-hidden="true"></span></li>`,
+		`<li class="stage"><h4>new</h4><p class="label stage-who">no route: waits for a person</p>` +
+			`<div class="cards" id="at/line//new" sse-swap="at/line//new" hx-swap="afterbegin settle:0ms"><article class="card"`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("the page lacks %s", want)
+		}
+	}
+	if got, want := f.folded(), []string{"review", "merged", "fixed"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("folded stages %v, want %v", got, want)
+	}
+	// The stylesheet shows a folded stage while a card is in it: a closed
+	// details leaves its body, and the count, out. What the pixels do is the
+	// bead's screenshots.
+	css, err := os.ReadFile("assets/yard.css")
+	must(t, err)
+	if !strings.Contains(string(css), ".stage.quiet:has(.card) details::details-content { content-visibility: visible; }") {
+		t.Error("the stylesheet does not show a folded stage that holds a card")
 	}
 	got := f.sections()
 	want := map[string]string{
@@ -298,6 +342,12 @@ func TestFlowsStream(t *testing.T) {
 	page := f.sections()
 	var flows web.Flows
 	f.getJSON("/flows", &flows)
+	// The stage the first move fills is folded on the page the stream is
+	// open on, and its section is inside the fold: the card lands there.
+	if !strings.Contains(squash(f.get("/flows").body), `<li class="stage quiet"><details><summary><h4>review</h4>`) ||
+		!reflect.DeepEqual(f.folded(), []string{"review", "merged", "fixed"}) {
+		t.Fatalf("review is not folded: %v", f.folded())
+	}
 	s := f.stream(t, fmt.Sprintf("/events?after=%d&format=card", flows.Head))
 	// step runs one change and applies the frames it sends to the page.
 	step := func(change func(), frames int) frame {
@@ -322,6 +372,11 @@ func TestFlowsStream(t *testing.T) {
 	}, 1)
 	if page[card] != "at/line//review" || !strings.Contains(put(fr), `<article class="card arrived" id="`+card+`"`) {
 		t.Errorf("the move to review: section %q, frame %s", page[card], put(fr))
+	}
+	// A reload folds the stages as the open page's stylesheet does: review
+	// holds the card and stands open, new has given it up and folds.
+	if got, want := f.folded(), []string{"new", "merged", "fixed"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("after the move to review, folded stages %v, want %v", got, want)
 	}
 	// A hold changes the card where it is: nothing arrives.
 	fr = step(func() {
@@ -373,6 +428,10 @@ func TestFlowsStream(t *testing.T) {
 	}, 1)
 	if page[card] != "at/line//merged" {
 		t.Errorf("the reopened bead is in %q", page[card])
+	}
+	// merged holds it again, so it stands open; the stages left empty fold.
+	if got, want := f.folded(), []string{"new", "review", "fixed"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("after the reopening, folded stages %v, want %v", got, want)
 	}
 	s.quiet(t)
 }
@@ -431,6 +490,14 @@ func TestBeadsJSON(t *testing.T) {
 		!reflect.DeepEqual(got.Stages, []string{"backlog", "inbox", "new", "triage"}) {
 		t.Errorf("head %d (want %d), depots %v, stages %v", got.Head, head, got.Depots, got.Stages)
 	}
+	// What each choice lists, beside the names: every depot has its count,
+	// a depot with no bead its zero.
+	if want := (map[string]int{"line": 4, "loose": 1}); !reflect.DeepEqual(got.DepotCounts, want) || got.AnyDepot != 5 {
+		t.Errorf("depot counts %v, any %d, want %v and 5", got.DepotCounts, got.AnyDepot, want)
+	}
+	if want := (map[string]int{"backlog": 2, "inbox": 1, "new": 1, "triage": 1}); !reflect.DeepEqual(got.StageCounts, want) || got.AnyStage != 5 {
+		t.Errorf("stage counts %v, any %d, want %v and 5", got.StageCounts, got.AnyStage, want)
+	}
 	for target, want := range map[string][]string{
 		"/beads?depot=line":               {"two", "five", "three", "one"},
 		"/beads?stage=backlog":            {"two", "one"},
@@ -445,19 +512,61 @@ func TestBeadsJSON(t *testing.T) {
 			t.Errorf("%s: %v, want %v", target, titles(cards(got.Beads)), want)
 		}
 	}
-	// The stages a depot's filter offers are the depot's.
+	// The stages a depot's filter offers are the depot's. (Read afresh:
+	// decoding into the page above would keep its counts' keys.)
+	got = web.Beads{}
 	f.getJSON("/beads?depot=loose&stage=inbox", &got)
 	if got.Depot != "loose" || got.Stage != "inbox" || !reflect.DeepEqual(got.Stages, []string{"inbox"}) {
 		t.Errorf("filtered: %+v", got)
 	}
+	// A depot's count is under the stage kept, a stage's under the depot kept.
+	if want := (map[string]int{"line": 0, "loose": 1}); !reflect.DeepEqual(got.DepotCounts, want) || got.AnyDepot != 1 ||
+		!reflect.DeepEqual(got.StageCounts, map[string]int{"inbox": 1}) || got.AnyStage != 1 {
+		t.Errorf("filtered counts: depots %v any %d, stages %v any %d", got.DepotCounts, got.AnyDepot, got.StageCounts, got.AnyStage)
+	}
 }
 
-// The page: the cards, the filters as links that keep each other, and the
-// request it repeats when the stream says something happened.
+// chip is one choice of the filters of /beads as the page shows it: the link
+// it follows, the number beside its name, and whether it is the current one.
+type chip struct {
+	label, href string
+	count       int
+	current     bool
+}
+
+var (
+	filterRowRE = regexp.MustCompile(`<p><span class="label">(depot|stage)</span>(.*?)</p>`)
+	chipRE      = regexp.MustCompile(`<a href="([^"]+)"( aria-current="true")?>([^<]*?) · <span class="num">(\d+)</span></a>`)
+)
+
+// filterChips reads the filters of a /beads page as a browser lays them out:
+// the chips of each row, "depot" and "stage", in the order they stand. A
+// link of the row that is no chip with its count is lost to it, so the
+// rows a test compares fail when a count is dropped. The links carry the
+// ampersand of a query as the markup does, which a browser reads back.
+func filterChips(t *testing.T, body string) map[string][]chip {
+	t.Helper()
+	rows := map[string][]chip{}
+	for _, row := range filterRowRE.FindAllStringSubmatch(squash(body), -1) {
+		for _, c := range chipRE.FindAllStringSubmatch(row[2], -1) {
+			n, err := strconv.Atoi(c[4])
+			must(t, err)
+			rows[row[1]] = append(rows[row[1]], chip{label: c[3], href: strings.ReplaceAll(c[1], "&amp;", "&"), count: n, current: c[2] != ""})
+		}
+	}
+	return rows
+}
+
+// The page: the cards, the filters as chips that keep each other, each with
+// the number of beads its link lists, and the request it repeats when the
+// stream says something happened.
 func TestBeadsHTML(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
 	f.populate()
+	// A bead of no depot is in the list and in no depot's chip.
+	_, err := f.st.CreateBead(context.Background(), store.NewBead{Title: "seven", Stage: "inbox"}, "me")
+	must(t, err)
 	head, err := f.st.Head(context.Background())
 	must(t, err)
 	r := f.get("/beads?depot=line&stage=new")
@@ -468,11 +577,6 @@ func TestBeadsHTML(t *testing.T) {
 	for _, want := range []string{
 		fmt.Sprintf(`<div class="shell" hx-ext="sse" sse-connect="/events?after=%d&amp;format=seq">`, head),
 		`<div id="beads" hx-get="/beads?depot=line&amp;stage=new" hx-trigger="sse:message" hx-select="#beads > *" hx-swap="innerHTML ignoreTitle:true">`,
-		`<a href="/beads?stage=new">all</a>`,
-		`<a href="/beads?depot=line&amp;stage=new" aria-current="true">line</a>`,
-		`<a href="/beads?depot=loose&amp;stage=new">loose</a>`,
-		`<a href="/beads?depot=line">all</a>`,
-		`<a href="/beads?depot=line&amp;stage=backlog">backlog</a>`,
 		`<a class="bead" href="/beads/` + three.ID + `">`,
 		`line · new · task`,
 		`<a href="/beads" aria-current="page">`,
@@ -489,6 +593,60 @@ func TestBeadsHTML(t *testing.T) {
 	// Only /flows moves cards one by one: here they listen to nothing.
 	if strings.Contains(r.body, `sse-swap="bead/`) {
 		t.Error("a card of the list listens to the stream")
+	}
+
+	// The chips of the known list, by the filters of the page: the links are
+	// the ones Link builds (the closed beads' flag kept), a depot counts under
+	// the stage kept, a stage under the depot kept, and each row's all under
+	// the other filter alone, so it counts the bead of no depot that no depot
+	// does. Where the stage kept lists nothing, no stage is the current one.
+	type rows struct{ depot, stage []chip }
+	targets := []struct {
+		target string
+		want   rows
+	}{
+		{"/beads", rows{
+			depot: []chip{{"all", "/beads", 6, true}, {"line", "/beads?depot=line", 4, false}, {"loose", "/beads?depot=loose", 1, false}},
+			stage: []chip{{"all", "/beads", 6, true}, {"backlog", "/beads?stage=backlog", 2, false}, {"inbox", "/beads?stage=inbox", 2, false},
+				{"new", "/beads?stage=new", 1, false}, {"triage", "/beads?stage=triage", 1, false}},
+		}},
+		{"/beads?depot=line&stage=new", rows{
+			depot: []chip{{"all", "/beads?stage=new", 1, false}, {"line", "/beads?depot=line&stage=new", 1, true}, {"loose", "/beads?depot=loose&stage=new", 0, false}},
+			stage: []chip{{"all", "/beads?depot=line", 4, false}, {"backlog", "/beads?depot=line&stage=backlog", 2, false},
+				{"new", "/beads?depot=line&stage=new", 1, true}, {"triage", "/beads?depot=line&stage=triage", 1, false}},
+		}},
+		{"/beads?depot=loose&stage=new", rows{
+			depot: []chip{{"all", "/beads?stage=new", 1, false}, {"line", "/beads?depot=line&stage=new", 1, false}, {"loose", "/beads?depot=loose&stage=new", 0, true}},
+			stage: []chip{{"all", "/beads?depot=loose", 1, false}, {"inbox", "/beads?depot=loose&stage=inbox", 1, false}},
+		}},
+		{"/beads?all=1&depot=line", rows{
+			depot: []chip{{"all", "/beads?all=1", 7, false}, {"line", "/beads?all=1&depot=line", 5, true}, {"loose", "/beads?all=1&depot=loose", 1, false}},
+			stage: []chip{{"all", "/beads?all=1&depot=line", 5, true}, {"backlog", "/beads?all=1&depot=line&stage=backlog", 2, false},
+				{"new", "/beads?all=1&depot=line&stage=new", 2, false}, {"triage", "/beads?all=1&depot=line&stage=triage", 1, false}},
+		}},
+	}
+	opens := map[string]int{}
+	for _, tc := range targets {
+		got := filterChips(t, f.get(tc.target).body)
+		if !reflect.DeepEqual(got["depot"], tc.want.depot) || !reflect.DeepEqual(got["stage"], tc.want.stage) {
+			t.Errorf("%s: chips\n depot %+v\n stage %+v\nwant\n depot %+v\n stage %+v", tc.target, got["depot"], got["stage"], tc.want.depot, tc.want.stage)
+		}
+		for _, c := range append(slices.Clone(tc.want.depot), tc.want.stage...) {
+			opens[c.href] = c.count
+		}
+	}
+	// Whatever the chip says is what its link lists.
+	for href, count := range opens {
+		var listed web.Beads
+		f.getJSON(href, &listed)
+		if len(listed.Beads) != count {
+			t.Errorf("%s lists %d beads, a chip counts %d", href, len(listed.Beads), count)
+		}
+	}
+	// The chips are this page's alone: a config page's way back is a
+	// .filters row too, and stays a plain link.
+	if !strings.Contains(r.body, `<nav class="item chips" aria-label="Filters">`) || strings.Contains(f.get("/depots").body, `class="item chips"`) {
+		t.Error("the chips' class is not the Beads page's alone")
 	}
 }
 

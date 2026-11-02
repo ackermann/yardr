@@ -745,7 +745,7 @@ func TestBeadsAll(t *testing.T) {
 	text := squash(f.get("/beads?all=1&depot=line").body)
 	for _, part := range []string{
 		`hx-get="/beads?all=1&amp;depot=line"`,
-		`<a href="/beads?all=1&amp;depot=line&amp;stage=new">new</a>`,
+		`<a href="/beads?all=1&amp;depot=line&amp;stage=new">new · <span class="num">2</span></a>`,
 		` · closed</span></p><p class="card-title">four</p>`,
 	} {
 		if !strings.Contains(text, part) {
