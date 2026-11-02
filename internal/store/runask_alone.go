@@ -121,6 +121,12 @@ var aloneList = []aloneCommand{{
 	words: []string{"crew", "add"},
 	parse: aloneArgs("yardr crew add <name> --set <key>=<value>", 0, -1),
 	check: func(ctx context.Context, w *wtx, argv []string, actor string) error {
+		// What the crew add row carries (kind, model, preset, dir and
+		// the role text beside argv) is no longer the operator's alone:
+		// the row proposes it. Everything else keeps the refusal below.
+		if _, err := parseCrewAdd(argv[2:]); err == nil {
+			return errNotRow
+		}
 		// Without a grant the definition is the asker's to type, if it
 		// is theirs to make at all; with one on a member that is there
 		// the grants are proposed apart, as crew set.

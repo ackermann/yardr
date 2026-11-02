@@ -30,6 +30,15 @@ func TestStoreTablesMatchCatalogue(t *testing.T) {
 				presets = append(presets, k)
 			}
 		}
+		if got, want := store.HarnessPresets[h.Kind], h.Flags.Permissions; len(got) != len(want) {
+			t.Errorf("store.HarnessPresets[%q] has %d presets, the file %d", h.Kind, len(got), len(want))
+		} else {
+			for i := range want {
+				if got[i].Label != want[i].Label || !slices.Equal(got[i].Args, want[i].Args) || got[i].Note != want[i].Note {
+					t.Errorf("store.HarnessPresets[%q][%d] = %+v, the file says %+v", h.Kind, i, got[i], want[i])
+				}
+			}
+		}
 	}
 	for kind := range store.HarnessLoginEnv {
 		if _, ok := store.HarnessLabels[kind]; !ok {

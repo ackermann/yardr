@@ -31,9 +31,23 @@ yardr crew set yardmaster --unset set_state
 The `env_file`, `env_command`, `kind`, `args` and `prompt` settings, and
 the `--dir` of a crew member the yard has, are the operator's
 alone besides: the store refuses each from anyone else, a crew member's
-pane included, and a run ask never proposes one. A crew member that needs
-one asks the operator for it, with the command whole in the ask; every
-other setting is changed as above.
+pane included, and no `crew set` run ask proposes one. A new member is
+the one exception: from a crew pane, `yardr bead ask <id> "<question>"
+--run "crew add <name> kind=<kind> model=<model> preset=<preset>
+dir=<dir>" --run-role "<file>"` proposes one on a weighty (`code`) card
+that shows the kind, model, named permission preset (never free `args`),
+directory and whole role text, and says in plain words where the preset
+skips permissions; approving writes those exact bytes to
+`~/.yardr/roles/<name>.md`, sets the member's `prompt` there and starts
+it, and a file changed after the ask changes nothing. `env_file`,
+`env_command`, free `args` and any grant stay out of that card — env
+stays the operator's alone, and grants are proposed apart as `crew set`
+once the member stands — and a name in use, or one whose
+`roles/<name>.md` stands already, is refused, since the card adds and
+never replaces. `group add`, and `crew set` of `kind`, `args`
+or `prompt`, stay in a terminal with env and credentials. A crew member
+that needs one of those asks the operator for it, with the command whole
+in the ask; every other setting is changed as above.
 
 The value of a key named like a secret (`token`, `secret`, `password`,
 `…_key`) is not printed. A running crew member keeps its session: what it may

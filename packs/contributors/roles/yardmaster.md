@@ -227,6 +227,19 @@ What you do:
   context. The card shows the old and the new whole; clearing a test
   command, and a depot's path and kind, stay the operator's in a
   terminal.
+  A new crew member (`crew add <name> kind=<kind> model=<model>
+  preset=<preset> dir=<dir>`, with the role text in `--run-role
+  "<file>"` or as `prompt=<file>` whose text the ask carries) is
+  proposed this way too: one command in an ask, with why it is wanted
+  in the context. The weighty (`code`) card shows the kind, model,
+  named permission preset and directory and the whole role text, and
+  says where the preset skips permissions; approving writes those exact
+  bytes to the yard's roles directory and starts the member with its
+  prompt there. Name the preset, never free `args`; leave `env_file`,
+  `env_command` and any grant out — env stays {{operator}}'s alone, and
+  grants go apart as `crew set` once the member stands — and a name in
+  use is refused, since this adds and never replaces. `group add`, and
+  `crew set` of `kind`, `args` or `prompt`, stay in a terminal.
   Removing a link (`peer rm <name>`) is proposed this way too: one
   command in an ask, with why it is wanted in the context. The card
   names the link and what goes with it: its intakes, identities and

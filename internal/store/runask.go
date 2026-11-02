@@ -45,6 +45,10 @@ const (
 	// shows the command whole, so past this it is the operator's to
 	// type in a terminal.
 	MaxRunDepotTest = 4096
+	// MaxRunCrewRole is the most role text a crew add ask carries: a
+	// card shows it whole, so past this the member is added in a
+	// terminal. It fits a real role (porter.md, 55 lines) with room.
+	MaxRunCrewRole = 8192
 )
 
 // runContextLines is how many lines the context holds. A context line is
@@ -118,6 +122,14 @@ type AskRun struct {
 	// keeps it: askedRun throws a writer's Test away with its Does
 	// and Seen.
 	Test string `json:"test,omitempty"`
+	// Role is the role text a crew add row carries: the whole text the
+	// approval writes to the yard's roles directory as the new member's
+	// prompt, shown on the card in Does as the command's own words
+	// never show it (it goes beside argv, in the ask's --run-role, or
+	// read from the file prompt= names when the ask is written). No
+	// other row keeps it: askedRun throws a writer's Role away with
+	// its Does and Seen.
+	Role string `json:"role,omitempty"`
 }
 
 // AskFile is one command file a run ask that adds a source carries: the
@@ -552,6 +564,16 @@ var runList = []runCommand{{
 	stale: (*wtx).userUninviteStale,
 	run:   runUserUninvite,
 }, {
+	words:       []string{"crew", "add"},
+	use:         "yardr crew add <name> kind=<kind> model=<model> preset=<preset> dir=<dir>",
+	description: "Add a new crew member without replacing one",
+	parse:       parseCrewAdd,
+	checkRun:    checkCrewAdd,
+	cardRun:     (*wtx).crewAddCard,
+	stale:       (*wtx).crewAddStale,
+	weigh:       crewAddWeight,
+	runRun:      runCrewAdd,
+}, {
 	words:       []string{"crew", "set"},
 	use:         "yardr crew set <name> open_threads=<sources> | set_state=<sources> | peers=<peers>",
 	description: "Change some settings of a crew member and keep the rest",
@@ -717,7 +739,7 @@ func (w *wtx) askedRun(ctx context.Context, run AskRun, to, actor string) (*AskR
 	// The command in the yard's own form, with what the writer carried
 	// beside it: the carried bytes are the row's to keep or throw away,
 	// as Does and Seen are.
-	sent := AskRun{Argv: argv, Carried: run.Carried, Test: run.Test}
+	sent := AskRun{Argv: argv, Carried: run.Carried, Test: run.Test, Role: run.Role}
 	check := c.check
 	if c.checkRun != nil {
 		check = func(ctx context.Context, w *wtx, _ []string, actor string) error {
@@ -1049,65 +1071,4 @@ func (w *wtx) approveAsk(ctx context.Context, id string, seq uint64, actor strin
 		return nil, err
 	}
 	return &AskApproved{Bead: row.ID, Ask: seq, Asker: r.Note.Author, Argv: argv, Does: was.Does, Result: result}, nil
-}
-
-// finishPhasedRun is the last write of a phased approval
-// (approveHookRegister, approveSourceCheck): it records the approval's
-// answer, as approveAsk does, holding that the ask is still open. The
-// command ran between the writes, so a taken-back or answered ask here
-// refuses the recording, not the run.
-func (w *wtx) finishPhasedRun(ctx context.Context, id string, seq uint64, actor, asker string, argv, does []string, result string) (*AskApproved, error) {
-	who, err := paneAuthor(w.Tx, callerOf(ctx), actor)
-	if err != nil {
-		return nil, err
-	}
-	actor = who
-	row, err := w.loadBead(id)
-	if err != nil {
-		return nil, err
-	}
-	notes, err := beadNotes(w.Tx, row.UUID)
-	if err != nil {
-		return nil, err
-	}
-	var ask *ResolvedAsk
-	resolved := ResolveAsks(notes, now())
-	for i := range resolved {
-		if resolved[i].Note.Seq == seq {
-			ask = &resolved[i]
-			break
-		}
-	}
-	switch {
-	case ask == nil:
-		return nil, fmt.Errorf("bead %s has no ask %d", row.ID, seq)
-	case ask.AskErr != nil:
-		return nil, ask.AskErr
-	case ask.State == AskDeclined:
-		return nil, fmt.Errorf("ask %d was declined: %s", seq, declinedLine(*ask.Current))
-	case ask.State == AskTakenBack:
-		return nil, fmt.Errorf("ask %d is asked no more: %s", seq, takenBackLine(*ask.Current))
-	case ask.State == AskAnswered:
-		return nil, fmt.Errorf("ask %d was approved already, by %s: a command runs once for one ask", seq, ask.Current.Note.Author)
-	}
-	text, err := json.Marshal(Answer{Ask: seq, Ran: &AskRan{Argv: argv, Result: result}})
-	if err != nil {
-		return nil, err
-	}
-	if _, err := w.addWitnessed(row, string(text), actor, ask.Ask.Weight); err != nil {
-		return nil, err
-	}
-	return &AskApproved{Bead: row.ID, Ask: seq, Asker: asker, Argv: argv, Does: does, Result: result}, nil
-}
-
-func sameMap(a, b map[string]string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for k, v := range a {
-		if w, ok := b[k]; !ok || w != v {
-			return false
-		}
-	}
-	return true
 }

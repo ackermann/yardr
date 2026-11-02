@@ -418,6 +418,7 @@ or decline it. The command is one of a fixed list:
 | `user rm <name>` | a user removed: their subscriptions, devices and telling outside the yard go, and the group that carries their own login with its routes, every route for their beads and the yardmaster's conversation with them; the mail stays in the log, and so does their login folder | only the operator, with `user add`, which starts them fresh |
 | `user invite <name> --email <address> [--role operator]` | a teammate invited by email: a user added (a member, or an operator with `--role operator`, which the card names), the address mapped to them in `web_jwt_users`, and the invite reported to the edge; carried out by the server after approval, and no such command is typed at a terminal | only the operator, with `user uninvite` |
 | `user uninvite <name>` | a teammate removed: the removal reported to the edge first, then the user, their devices and the mapping go; a plain user is removed with `user rm` instead | only the operator, with `user invite`, which invites them afresh |
+| `crew add <name> kind=<kind> model=<model> preset=<preset> dir=<dir>` | a new crew member on a kind the yard knows, with its model, the kind's named permission preset and a directory under the yard's home or a depot; the role text goes beside the ask, in `--run-role "<file>"` or as `prompt=<file>` whose text the ask carries, the card shows it whole (weighty, `code`; a preset that skips permissions says so), and approving writes those exact bytes to `roles/<name>.md` and starts the member with its prompt there; `env_file`, `env_command`, free `args` and any grant stay out, and a name in use is refused | only the operator, with `crew rm <name>` |
 | `crew set <name> open_threads=<sources> \| set_state=<sources> \| peers=<peers>` | what a crew member may newly do outside the yard | anyone where grants were given, only the operator where they were taken, with the grants that stood, which the card names |
 | `crew identity <name> --source <source> [--id <id>] [--key <key>]` | who the crew member is in the source: mentions and assignments of the id or key there are then addressed to it | only the operator, with the identity that stood, which the card names, or `--rm` where none did |
 | `user identity <user> --source <source> [--id <id>] [--key <key>]` | who the user is in the source: threads opened there for them are then assigned to the id or key, and where the source hears by identity a delivery from it is heard as theirs | that user or the operator, with the identity that stood, which the card names, or `--rm` where none did |
@@ -446,8 +447,10 @@ replacement and its `--map` and `--as`, a source's `env_file`,
 peer's identity back (`peer identity --rm`), a user's `notify` and `env_file`,
 `group add` that changes a runner to or from `exec`, or sets `cmd=`, `dir=`,
 `env_file=`, `kind=`, `args=`, `prompt=` or `worktrees=`, `group set` with one
-of those (or `--unset` of one), a crew member's `env_file`, `env_command`,
-`kind`, `args` and `prompt`, a test command on a depot
+of those (or `--unset` of one), a crew member's `env_file` and
+`env_command`, `crew set` of `kind`, `args` or `prompt`, and a crew
+`add` that names `env_file`, `env_command`, free `args` or any grant
+(grants are proposed apart as `crew set` once the member stands), a test command on a depot
 the yard has not, the
 `operator` setting and the settings of where the yard reads and serves from,
 and every other command. A crew member's own `source add` for a name the

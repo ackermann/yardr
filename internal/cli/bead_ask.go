@@ -5,13 +5,11 @@ import (
 	"io"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
 	"yardr.dev/yardr/internal/agents"
-	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -21,7 +19,7 @@ func (a *app) newBeadAskCmd() *cobra.Command {
 	var askRecommend int
 	var askNew bool
 	var askBead store.NewBead
-	var askSecret, askForUser, askForCrew, askAs, askRun, askRunTest, askSecretLogin, askSecretHook, askHookSource string
+	var askSecret, askForUser, askForCrew, askAs, askRun, askRunTest, askRunRole, askSecretLogin, askSecretHook, askHookSource string
 	var askSetup string
 	var askDepotPush, askDepotPushOff string
 	var askCrew, askGroup []string
@@ -274,6 +272,15 @@ one of the list the yard runs from a card:
       a teammate goes: the removal is reported to the edge first, then
       the user, their devices and the mapping go; a plain user, whom no
       mapping names, is removed with user rm instead
+  crew add <name> kind=<kind> model=<model> preset=<preset> dir=<dir>
+      a new crew member on the kind the yard knows, with its model, the
+      kind's named permission preset (never free args) and a directory
+      under the yard's home or a depot; its role text goes beside --run,
+      in --run-role "<file>" or as prompt=<file> whose text the ask
+      carries, the card shows it whole (weighty, code), and approving
+      writes those exact bytes to roles/<name>.md and starts the member
+      with its prompt there; env, free args and any grant stay out, and
+      a name in use is refused, since this adds and never replaces
   crew set <name> open_threads=<sources> | set_state=<sources> | peers=<peers>
       a crew member may open threads or set the status of threads in the
       sources, or mail crew members of the peers
@@ -595,6 +602,8 @@ what the person asked does, and this is the asker's own.`,
 				return fmt.Errorf("--run proposes a command and --secret-hook asks for a value: one of the two; ask for the hook's secret and the hook as two asks, the secret first")
 			case c.Flags().Changed("run-test") && (!c.Flags().Changed("run") || !depotTestCommand(askRun)):
 				return fmt.Errorf("--run-test is the command a --run \"depot test <depot>\" ask proposes: it goes with that command")
+			case c.Flags().Changed("run-role") && (!c.Flags().Changed("run") || !crewAddCommand(askRun)):
+				return fmt.Errorf("--run-role is the role file a --run \"crew add <name> ...\" ask carries: it goes with that command")
 			}
 			return nil
 		},
@@ -701,6 +710,17 @@ what the person asked does, and this is the asker's own.`,
 						return fmt.Errorf("--run \"depot test <depot>\" carries its command beside the ask, in --run-test \"<command>\"")
 					}
 					q.Run.Test = askRunTest
+				}
+				// Crew add carries its role text from --run-role, or
+				// from the file prompt= names: read once here, beside
+				// the ask, so the store holds the bytes the card shows
+				// and a file changed after the ask changes nothing.
+				if crewAddCommand(askRun) {
+					role, err := crewAddRole(askRun, askRunRole, c.Flags().Changed("run-role"))
+					if err != nil {
+						return err
+					}
+					q.Run.Role = role
 				}
 			}
 			var seq uint64
@@ -876,6 +896,7 @@ what the person asked does, and this is the asker's own.`,
 	ask.Flags().StringVar(&askAs, "as", "", "with --secret: ask for this user's own credential in the source (the names a call made as them reads), kept in the user's env_file; with --secret-login: the login is this user's own, and theirs to give")
 	ask.Flags().StringVar(&askRun, "run", "", "propose this yardr command for the operator to approve, as it is typed: one the yard runs from a card (yardr bead ask --help)")
 	ask.Flags().StringVar(&askRunTest, "run-test", "", "with --run \"depot test <depot>\": the test command the ask proposes, carried beside the command since --run quotes nothing")
+	ask.Flags().StringVar(&askRunRole, "run-role", "", "with --run \"crew add <name> ...\": the file whose role text the ask carries beside the command, shown whole on the card")
 	ask.Flags().StringVar(&askSetup, "setup", "", "set up this embedded pack of kind source as one decision: the apply, the account and the grants, with --crew/--group naming who the grants are for")
 	ask.Flags().StringVar(&askDepotPush, "depot-push", "", "turn this depot's push to its origin on as one decision for the operator to approve: YARDR_PUSH=origin in <depot>-assembly's cmd and the pack's helper in the depot's git config, carried out by the server")
 	ask.Flags().StringVar(&askDepotPushOff, "depot-push-off", "", "turn this depot's push off as one decision for the operator to approve: the exact reverse of --depot-push for the depot")
@@ -1269,150 +1290,3 @@ func (a *app) giveSecret(c *cobra.Command, st store.API, id string, seq uint64) 
 // who gave which names, never a value. Where the card lists candidates,
 // --account <source> takes one instead (approveSetupAccount); where a drift
 // card names missing names, only those are read.
-func (a *app) approveSetup(c *cobra.Command, st store.API, id string, seq uint64, n int) error {
-	notes, err := st.Notes(c.Context(), id)
-	if err != nil {
-		return err
-	}
-	var setup *store.AskSetup
-	found := false
-	for _, r := range store.ResolveAsks(notes, time.Now()) {
-		if r.Note.Seq != seq {
-			continue
-		}
-		found = true
-		if r.AskErr != nil {
-			return r.AskErr
-		}
-		setup = r.Ask.Setup
-	}
-	switch {
-	case !found:
-		return fmt.Errorf("bead %s has no ask %d", id, seq)
-	case setup == nil:
-		return fmt.Errorf("--secret gives the secret and takes nothing else: the value is typed at a terminal")
-	}
-	// The sources the pack brings are not in the yard yet: read what the
-	// account is typed against from the carried texts the yard stored.
-	var d *source.Declaration
-	for _, carried := range setup.Carried {
-		parsed, err := source.Parse("pack source "+carried.Name, []byte(carried.Text))
-		if err != nil {
-			return fmt.Errorf("%s", store.OneLine(err.Error()))
-		}
-		if parsed.Credential != nil {
-			d = parsed
-			break
-		}
-	}
-	if d == nil || d.Credential == nil {
-		return fmt.Errorf("ask %d sets up a pack with no credentialed source: nothing typed settles it", seq)
-	}
-	names := setup.Account
-	if len(setup.Missing) > 0 {
-		names = setup.Missing
-	}
-	// A setup takes the account, so its card is weighty: the gate comes
-	// before a value is typed, as a secret's does.
-	weighed, err := a.gate(c, st, id, seq, "approve", fmt.Sprintf("%d --secret", n))
-	if err != nil {
-		return err
-	}
-	values, err := readKeys(d, names, c.InOrStdin(), typedUnseen(c.InOrStdin(), c.ErrOrStderr()), "")
-	if err != nil {
-		return err
-	}
-	done, err := st.ApproveSetup(c.Context(), id, seq, n, values, "", a.who(), weighed)
-	if err != nil {
-		return secretErr(err)
-	}
-	return a.out(c.OutOrStdout(), done, func(w io.Writer) {
-		fmt.Fprintf(w, "ask %d, asked by %s: setup of pack %s, preset %s to %s\n", done.Ask, done.Asker, done.Pack, done.Preset, setup.Grantees())
-		fmt.Fprintf(w, "%s gave %s\n", a.who(), strings.Join(done.Given, " and "))
-		fmt.Fprintf(w, "%s approved it: %s\n", a.who(), done.Result)
-	})
-}
-
-// approveSetupAccount is yardr bead answer <id> <ask> <n> --account
-// <source> on a setup ask: it approves the setup with the preset pick,
-// taking the named candidate's account file instead of typing a value.
-// What it prints is the preset picked and who took which source.
-func (a *app) approveSetupAccount(c *cobra.Command, st store.API, id string, seq uint64, n int, account string) error {
-	notes, err := st.Notes(c.Context(), id)
-	if err != nil {
-		return err
-	}
-	var setup *store.AskSetup
-	found := false
-	for _, r := range store.ResolveAsks(notes, time.Now()) {
-		if r.Note.Seq != seq {
-			continue
-		}
-		found = true
-		if r.AskErr != nil {
-			return r.AskErr
-		}
-		setup = r.Ask.Setup
-	}
-	switch {
-	case !found:
-		return fmt.Errorf("bead %s has no ask %d", id, seq)
-	case setup == nil:
-		return fmt.Errorf("--account takes a candidate of a setup ask: yardr bead answer %s %d <n> --account <source>", id, seq)
-	}
-	weighed, err := a.gate(c, st, id, seq, "approve", fmt.Sprintf("%d --account %s", n, account))
-	if err != nil {
-		return err
-	}
-	done, err := st.ApproveSetup(c.Context(), id, seq, n, nil, account, a.who(), weighed)
-	if err != nil {
-		return secretErr(err)
-	}
-	return a.out(c.OutOrStdout(), done, func(w io.Writer) {
-		fmt.Fprintf(w, "ask %d, asked by %s: setup of pack %s, preset %s to %s\n", done.Ask, done.Asker, done.Pack, done.Preset, setup.Grantees())
-		fmt.Fprintf(w, "%s took %s\n", a.who(), done.Account)
-		fmt.Fprintf(w, "%s approved it: %s\n", a.who(), done.Result)
-	})
-}
-
-// approveSetupKeep is yardr bead answer <id> <ask> <n> on a drift card
-// whose file holds every account name: it approves the setup with the
-// preset pick, keeping the standing account. What it prints is the preset
-// picked and who kept it.
-func (a *app) approveSetupKeep(c *cobra.Command, st store.API, id string, seq uint64, n int) error {
-	notes, err := st.Notes(c.Context(), id)
-	if err != nil {
-		return err
-	}
-	var setup *store.AskSetup
-	found := false
-	for _, r := range store.ResolveAsks(notes, time.Now()) {
-		if r.Note.Seq != seq {
-			continue
-		}
-		found = true
-		if r.AskErr != nil {
-			return r.AskErr
-		}
-		setup = r.Ask.Setup
-	}
-	switch {
-	case !found:
-		return fmt.Errorf("bead %s has no ask %d", id, seq)
-	case setup == nil:
-		return fmt.Errorf("ask %d sets up no pack", seq)
-	}
-	weighed, err := a.gate(c, st, id, seq, "approve", strconv.Itoa(n))
-	if err != nil {
-		return err
-	}
-	done, err := st.ApproveSetup(c.Context(), id, seq, n, nil, "", a.who(), weighed)
-	if err != nil {
-		return secretErr(err)
-	}
-	return a.out(c.OutOrStdout(), done, func(w io.Writer) {
-		fmt.Fprintf(w, "ask %d, asked by %s: setup of pack %s, preset %s to %s\n", done.Ask, done.Asker, done.Pack, done.Preset, setup.Grantees())
-		fmt.Fprintf(w, "%s kept the standing account\n", a.who())
-		fmt.Fprintf(w, "%s approved it: %s\n", a.who(), done.Result)
-	})
-}

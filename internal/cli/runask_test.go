@@ -814,6 +814,9 @@ func TestRunListIsTheCLIs(t *testing.T) {
 		"yardr user rm <name>":                                                              {"user rm ada"},
 		"yardr user invite <name> --email <address> [--role operator]":                      {"user invite eve --email eve@example.net"},
 		"yardr user uninvite <name>":                                                        {"user uninvite eve"},
+		"yardr crew add <name> kind=<kind> model=<model> preset=<preset> dir=<dir>": {
+			"crew add porter kind=claude model=opus preset=auto",
+		},
 		"yardr crew set <name> open_threads=<sources> | set_state=<sources> | peers=<peers>": {
 			"crew set yardmaster peers=airy",
 		},
@@ -1053,6 +1056,54 @@ func TestRunListIsTheCLIs(t *testing.T) {
 					}
 				} else if d.Base != "origin/other" || d.Test != "make test" || d.Path != "/srv/web" {
 					t.Fatalf("%s: the depot holds %+v", use, d)
+				}
+				continue
+			}
+			if use == "yardr crew add <name> kind=<kind> model=<model> preset=<preset> dir=<dir>" {
+				ctx := context.Background()
+				// A crew add's typed form names free args and a prompt
+				// file where the card names a preset and carries the
+				// role text, so there is no typed Argv to run word for
+				// word: the row is held to its card, its approval, and
+				// the member and role file the approval left.
+				const role = "You are the porter.\n\nCarry the bags carefully.\n"
+				runAsk := &store.AskRun{Argv: []string{command}, Role: role}
+				seq, err := approved.st.AddAsk(ctx, ab.ID, store.Ask{Question: "Run it?", To: "jo", Context: []string{"why"},
+					Run: runAsk}, "yardmaster")
+				if err != nil {
+					t.Fatalf("%s: %v", use, err)
+				}
+				notes, err := approved.st.Notes(ctx, ab.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var description string
+				for _, asked := range store.ResolveAsks(notes, time.Now()) {
+					if asked.Note.Seq == seq && asked.Ask.Run != nil {
+						description = asked.Ask.Run.Description
+					}
+				}
+				if want := "Add a new crew member without replacing one"; description != want {
+					t.Errorf("%s card description %q, want %q", use, description, want)
+				}
+				done, err := approved.st.ApproveAsk(ctx, ab.ID, seq, "jo", true, nil)
+				if err != nil || !strings.Contains(done.Result, "crew member porter added") {
+					t.Fatalf("%s approval = %+v, %v", use, done, err)
+				}
+				m, err := approved.st.GetCrew(ctx, "porter")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if m.Config["kind"] != "claude" || m.Config["model"] != "opus" || m.Config["prompt"] != filepath.Join(m.Dir, "roles", "porter.md") ||
+					fmt.Sprint(m.Config["args"]) != "[--permission-mode auto]" {
+					t.Fatalf("%s: the member holds %+v", use, m)
+				}
+				got, err := os.ReadFile(filepath.Join(m.Dir, "roles", "porter.md"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if string(got) != role {
+					t.Fatalf("%s: role file = %q, want the carried bytes", use, got)
 				}
 				continue
 			}

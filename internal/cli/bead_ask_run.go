@@ -12,10 +12,104 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"unicode/utf8"
 
 	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 )
+
+// crewAddCommand reports whether command is a --run "crew add <name> ..."
+// ask: those words, with or without the leading yardr. The store parses
+// it; this only says the ask carries a role file beside it.
+func crewAddCommand(command string) bool {
+	words := strings.Fields(command)
+	if len(words) > 0 && words[0] == "yardr" {
+		words = words[1:]
+	}
+	return len(words) >= 3 && words[0] == "crew" && words[1] == "add"
+}
+
+// crewAddRole reads what a --run "crew add ..." ask carries: the role
+// file --run-role names, or the file prompt= names in the command,
+// once, so the store holds the bytes the card shows. It answers "" for
+// any other command, and for a crew add that names neither, which the
+// store then refuses for carrying no role text. A file that cannot be
+// read is refused here, and nothing is stored.
+func crewAddRole(command, runRole string, runRoleSet bool) (string, error) {
+	if strings.ContainsRune(command, ',') {
+		return "", nil
+	}
+	for _, r := range command {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune(" \t._/=-@:", r) {
+			continue
+		}
+		return "", nil
+	}
+	if !crewAddCommand(command) {
+		return "", nil
+	}
+	file := runRole
+	if !runRoleSet {
+		file = crewPromptFile(command)
+		if file == "" {
+			return "", nil
+		}
+	}
+	if file == "" {
+		return "", fmt.Errorf("--run-role needs a role file: the file whose text the crew add ask carries")
+	}
+	data, err := readCrewRoleFile(file)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+// crewPromptFile is the file prompt= names in a crew add command, as
+// typed: a bare prompt=<file>, or the terminal's --set prompt=<file>.
+// "" where the command names none.
+func crewPromptFile(command string) string {
+	words := strings.Fields(command)
+	if len(words) > 0 && words[0] == "yardr" {
+		words = words[1:]
+	}
+	for i := 0; i < len(words); i++ {
+		word := words[i]
+		if word == "--set" && i+1 < len(words) {
+			i++
+			word = words[i]
+		} else if v, ok := strings.CutPrefix(word, "--set="); ok {
+			word = v
+		}
+		if v, ok := strings.CutPrefix(word, "prompt="); ok {
+			return v
+		}
+	}
+	return ""
+}
+
+func readCrewRoleFile(file string) ([]byte, error) {
+	f, err := os.OpenFile(file, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %s", store.OneLine(file), store.OneLine(err.Error()))
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("%s: %s", store.OneLine(file), store.OneLine(err.Error()))
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s: the role is not a regular file", store.OneLine(file))
+	}
+	data, err := io.ReadAll(io.LimitReader(f, int64(store.MaxRunCrewRole)+1))
+	if err != nil {
+		return nil, fmt.Errorf("%s: %s", store.OneLine(file), store.OneLine(err.Error()))
+	}
+	if len(data) <= store.MaxRunCrewRole && !utf8.Valid(data) {
+		return nil, fmt.Errorf("the role in %s is not valid UTF-8 text: a card carries text only", store.OneLine(file))
+	}
+	return data, nil
+}
 
 // depotTestCommand reports whether command is a --run "depot test <depot>"
 // ask: exactly those three words, with or without the leading yardr. The

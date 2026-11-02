@@ -733,6 +733,14 @@ func crewGrantWeight(w *wtx, run AskRun) ([]AskWeight, error) {
 	return []AskWeight{weighs(WeightTrust, fmt.Sprintf("crew member %s may mail crew members of %s", c.name, andList(peers)))}, nil
 }
 
+// crewAddWeight weighs a crew add: a new agent the yard will run, on
+// the role the card shows. It is always code, so its approval passes
+// the weighty gate as another code card's does.
+func crewAddWeight(w *wtx, run AskRun) ([]AskWeight, error) {
+	name, kind, _, _, _ := crewAddOf(run.Argv)
+	return []AskWeight{weighs(WeightCode, fmt.Sprintf("a new crew member %s on %s with the role the card shows, which the yard will run", name, kind))}, nil
+}
+
 // userIdentityWeight weighs a user identity: what the id or key says in
 // the source then counts as the user's.
 func userIdentityWeight(w *wtx, run AskRun) ([]AskWeight, error) {
