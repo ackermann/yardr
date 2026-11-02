@@ -1013,31 +1013,6 @@ func (r *initResult) printNext(w io.Writer) {
 		"the same steps yourself as a short run of forms:\n\n  %s chat\n  %s setup\n", r.Yardmaster, yardr, yardr)
 }
 
-// harnessOptions are the kinds herdr starts, each marked with whether its
-// executable is on PATH, and the default: the first installed one.
-func harnessOptions() ([]huh.Option[string], string) {
-	var opts []huh.Option[string]
-	def := ""
-	for _, k := range agents.Kinds() {
-		label := k
-		if p, ok := agents.Lookup(k); ok {
-			label = p.Label
-		}
-		state := "not on PATH"
-		if installed(k) {
-			state = "installed"
-			if def == "" {
-				def = k
-			}
-		}
-		opts = append(opts, huh.NewOption(fmt.Sprintf("%-12s %s", label, state), k))
-	}
-	if def == "" {
-		def = agents.Kinds()[0]
-	}
-	return opts, def
-}
-
 // onboardForm asks for the harness, the yardmaster's name, its directory and
 // its model, your name and how agents should work with you, and whether to
 // start the yard. Each answer starts at its default, so accepting every page

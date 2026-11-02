@@ -485,7 +485,7 @@ func TestHarnessLoginWithoutARecipe(t *testing.T) {
 func TestHarnessLoginRecipeShown(t *testing.T) {
 	home := newHomeDir(t)
 	requireNonInteractive(t)
-	fakeTools(t, map[string]string{"claude": "echo 2.1.288\n", "kimi": "echo 1.0\n"})
+	fakeTools(t, map[string]string{"claude": "echo '2.1.288 (Claude Code)'\n", "kimi": "echo 1.0\n"})
 	stub(t, &loginShell, func() string { return "" })
 	m := machineOf(t)
 	if claude, kimi := m["claude"], m["kimi"]; !claude.Found || !claude.HarnessLogin || !kimi.Found || kimi.HarnessLogin {

@@ -63,6 +63,12 @@ flags:
   model: --model
   unattended: [--permission-mode, auto]
   version: [--version]
+  # Any executable can be called claude; this is what the real one says. Run
+  # on 2 Nov 2026, Claude Code 2.1.310: `claude --version` printed
+  #   2.1.310 (Claude Code)
+  # A program that answers the flag with no "Claude Code" in it is another
+  # program (docs/doctor.md, "A program that answers as another").
+  version_contains: Claude Code
   one_shot: [-p]
   permissions:
     - label: auto

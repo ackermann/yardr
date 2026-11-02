@@ -2,7 +2,9 @@
 # Stand-in for a harness (claude): it answers its version flag, and a
 # one-shot call (-p, what `yardr doctor --try` and the start's own check
 # run) with ok. With HERDR_FAKE_STATE/logged-out present the one-shot call
-# fails as a harness without its login does.
+# fails as a harness without its login does. Its version says who it is, as
+# Claude Code's does, since a program called claude that does not is no
+# harness to yardr (harnesses/claude.yaml, version_contains).
 set -eu
 : "${HERDR_FAKE_STATE:?HERDR_FAKE_STATE is not set}"
 case "${1:-}" in
@@ -14,6 +16,6 @@ case "${1:-}" in
   echo ok
   ;;
 *)
-  echo "claude-fake 1.0.0"
+  echo "1.0.0 (Claude Code)"
   ;;
 esac

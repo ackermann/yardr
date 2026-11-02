@@ -750,6 +750,13 @@ type docLine struct{ tag, name, text string }
 // line is a need as the report prints it, without what a real call to it
 // came to (see lines).
 func (n need) line() docLine {
+	// A program that answered its version flag as another is not found, as
+	// far as the yard goes, and it is on PATH: the lines below for a program
+	// that is missing would say that it is not there and where to look.
+	// Its line says what it is instead (notHarnessLine).
+	if n.notHarness() {
+		return n.notHarnessLine()
+	}
 	if !n.Found && n.LoginPath != "" {
 		// Installed, and not where this shell looks: nothing is to get.
 		return docLine{tagFault, n.Program, fmt.Sprintf("not on PATH: %s. Found at %s by your login shell, which this shell's PATH does not have: "+
@@ -788,14 +795,7 @@ func (n need) line() docLine {
 		bad = tagNote
 	}
 	head := fmt.Sprintf("%s, %s: ", n.Path, n.For)
-	// What yardr itself knows of the kind, beside what the machine has.
-	file := "; no harness file (yardr harness list)"
-	if n.HarnessFile != 0 {
-		file = fmt.Sprintf("; harness file v%d", n.HarnessFile)
-	}
-	if len(n.HarnessAlways) > 0 {
-		file += "; always flags: " + strings.Join(n.HarnessAlways, " ")
-	}
+	file := n.fileNote()
 	flag := "its version flag"
 	switch v := n.Version; {
 	case v == nil || v.State == versionNotChecked:

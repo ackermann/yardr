@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -74,9 +75,15 @@ var herdrFetch = &store.Fetch{
 type need struct {
 	Program string `json:"program"`
 	// For is what the yard needs it for; for a harness, who runs on it.
-	For   string `json:"for"`
-	Found bool   `json:"found"`
-	Path  string `json:"path,omitempty"`
+	For string `json:"for"`
+	// Found is whether the program is on PATH and, for a harness, is the
+	// harness: one that answered its version flag as another program is not
+	// found (see aside), so that a program which reads nothing but this
+	// (footplate's setup does) takes it for a harness that is not there.
+	Found bool `json:"found"`
+	// Path is where it was found; for a harness that is not found because it
+	// answered as another program, where that program is.
+	Path string `json:"path,omitempty"`
 	// Get is where to get it, when it is not found.
 	Get string `json:"get,omitempty"`
 	// Fetch is how a program that fetches gets it, when it is not found, on
@@ -173,15 +180,18 @@ const (
 	versionAnswers    = "answers"
 	versionFails      = "fails"
 	versionHangs      = "hangs"
+	versionNotHarness = "not_harness"
 	versionNotChecked = "not_checked"
 )
 
 // versionCheck is what running a harness's version flag came to. On PATH is
-// not "works": a binary can be there and never start (see probe).
+// not "works": a binary can be there and never start (see probe), and it can
+// start and be another program than the one its name says.
 type versionCheck struct {
-	State string `json:"state"` // answers fails hangs not_checked
+	State string `json:"state"` // answers fails hangs not_harness not_checked
 	// Output is the first line it printed: the version when it answers,
-	// what it said (or the error) when it fails.
+	// what it said (or the error) when it fails, what it said in place of
+	// the harness's name when it is not the harness.
 	Output string `json:"output,omitempty"`
 }
 
@@ -208,6 +218,16 @@ func basicNeeds() []need {
 // harnessNeed is the harness of kind, found or not, not yet asked for its
 // version.
 func harnessNeed(kind, what string) need {
+	n := missingHarness(kind, what)
+	if p, err := lookPath(n.Program); err == nil {
+		n.Found, n.Path, n.Get, n.Fetch = true, p, "", nil
+	}
+	return n
+}
+
+// missingHarness is the harness of kind as it is when there is none: with
+// where to get it, and how a program that fetches does.
+func missingHarness(kind, what string) need {
 	n := need{Program: store.Executable(kind), For: what, Harness: kind, Get: agents.InstallHint(kind)}
 	if h, ok := agents.Lookup(kind); ok {
 		n.HarnessFile = h.Version
@@ -218,10 +238,27 @@ func harnessNeed(kind, what string) need {
 		n.Offers = h.Offers
 		n.Fetch = fetchFor(h.Fetch)
 	}
-	if p, err := lookPath(n.Program); err == nil {
-		n.Found, n.Path, n.Get, n.Fetch = true, p, "", nil
-	}
 	return n
+}
+
+// fileNote ends the line of a harness that was found: what yardr itself
+// knows of the kind, beside what the machine has.
+func (n need) fileNote() string {
+	file := "; no harness file (yardr harness list)"
+	if n.HarnessFile != 0 {
+		file = fmt.Sprintf("; harness file v%d", n.HarnessFile)
+	}
+	if len(n.HarnessAlways) > 0 {
+		file += "; always flags: " + strings.Join(n.HarnessAlways, " ")
+	}
+	return file
+}
+
+// onPath reports whether a program named as kind's harness is on PATH. That
+// is all it says: whether the program is the harness is what probe asks.
+func onPath(kind string) bool {
+	_, err := lookPath(store.Executable(kind))
+	return err == nil
 }
 
 // fetchFor is f for this machine and this user: nil off a Mac, where
@@ -235,12 +272,6 @@ func fetchFor(f *store.Fetch) *store.Download {
 	return f.For(goos, goarch, home)
 }
 
-// installed reports whether kind's harness is on PATH.
-func installed(kind string) bool {
-	_, err := lookPath(store.Executable(kind))
-	return err == nil
-}
-
 // forNewYard is what a harness is needed for on a home with no yard yet.
 const forNewYard = "a harness a yard can be created on"
 
@@ -251,7 +282,9 @@ const forNewYard = "a harness a yard can be created on"
 // on, or one line saying that none is. What is not on PATH is looked for
 // with the user's login shell, once. With try, each harness that answers its
 // one-shot form is given one real call (see try), regardless of how its
-// version flag came to.
+// version flag came to. A program that answers as another than the harness
+// it is named for is on PATH and no harness: it is reported and not found,
+// and with no other harness it does not satisfy a yard that is to be created.
 func machineNeeds(ctx context.Context, uses []harnessUse, try bool) []need {
 	out := basicNeeds()
 	first := len(out)
@@ -260,52 +293,16 @@ func machineNeeds(ctx context.Context, uses []harnessUse, try bool) []need {
 	}
 	if len(uses) == 0 {
 		for _, k := range agents.Kinds() {
-			if installed(k) {
+			if onPath(k) {
 				n := harnessNeed(k, forNewYard)
 				n.Optional = true
 				out = append(out, n)
 			}
 		}
 	}
-	// One run of the login shell for everything missing. With no harness at
-	// all, for those a yard is offered: one of them in a directory this
-	// shell's PATH lacks is what the person has to hear of.
-	none := len(uses) == 0 && len(out) == first
-	var missing []string
-	for _, n := range out {
-		if !n.Found {
-			missing = append(missing, n.Program)
-		}
-	}
-	if none {
-		for _, k := range presetKinds() {
-			missing = append(missing, store.Executable(k))
-		}
-	}
-	finds := loginShellFinds(ctx, missing)
-	for i := range out {
-		out[i].LoginPath = finds[out[i].Program]
-	}
-	if none {
-		for _, k := range presetKinds() {
-			if p := finds[store.Executable(k)]; p != "" {
-				n := harnessNeed(k, forNewYard)
-				n.Optional, n.LoginPath = true, p
-				out = append(out, n)
-			}
-		}
-		if len(out) == first {
-			n := need{Program: "a harness", For: "the agent yardr starts: a yard is created on one",
-				Get: "install one of the agents herdr starts (" + strings.Join(presetKinds(), ", ") + ", ...)"}
-			for _, k := range presetKinds() {
-				if h := harnessNeed(k, forNewYard); h.Fetch != nil {
-					n.AnyOf = append(n.AnyOf, h)
-				}
-			}
-			out = append(out, n)
-		}
-	}
-	// Side by side: a harness that hangs costs the whole timeout.
+	// What is found is asked before anything is said of what is missing,
+	// since a program found can turn out to be no harness. Side by side: a
+	// harness that hangs costs the whole timeout.
 	var wg sync.WaitGroup
 	for i := range out {
 		n := &out[i]
@@ -326,7 +323,14 @@ func machineNeeds(ctx context.Context, uses []harnessUse, try bool) []need {
 				defer wg.Done()
 				v := probe(ctx, n.Harness, n.Path)
 				n.Version = &v
-				if try {
+				switch {
+				case v.State == versionNotHarness:
+					n.aside()
+					// Not a call to the harness, whatever it would answer.
+					if try {
+						n.Try = &tryCheck{State: tryNotTried, Output: "it is not " + or(n.Label, n.Harness)}
+					}
+				case try:
 					t := tryHarnessCall(ctx, n.Harness, n.Path, nil)
 					n.Try = &t
 				}
@@ -334,6 +338,48 @@ func machineNeeds(ctx context.Context, uses []harnessUse, try bool) []need {
 		}
 	}
 	wg.Wait()
+	// One run of the login shell for everything missing. With no harness at
+	// all, for those a yard is offered: one of them in a directory this
+	// shell's PATH lacks is what the person has to hear of. A program that
+	// answered as another is on PATH, which is what the report says of it,
+	// not a find for the login shell.
+	none := len(uses) == 0 && !slices.ContainsFunc(out[first:], func(n need) bool { return n.Found })
+	var missing []string
+	for _, n := range out {
+		if !n.Found && !n.notHarness() {
+			missing = append(missing, n.Program)
+		}
+	}
+	if none {
+		for _, k := range presetKinds() {
+			missing = append(missing, store.Executable(k))
+		}
+	}
+	finds := loginShellFinds(ctx, missing)
+	for i := range out {
+		if !out[i].notHarness() {
+			out[i].LoginPath = finds[out[i].Program]
+		}
+	}
+	if none {
+		for _, k := range presetKinds() {
+			if p := finds[store.Executable(k)]; p != "" && !slices.ContainsFunc(out, func(n need) bool { return n.Harness == k }) {
+				n := harnessNeed(k, forNewYard)
+				n.Optional, n.LoginPath = true, p
+				out = append(out, n)
+			}
+		}
+		if !slices.ContainsFunc(out[first:], func(n need) bool { return n.Found || n.LoginPath != "" }) {
+			n := need{Program: "a harness", For: "the agent yardr starts: a yard is created on one",
+				Get: "install one of the agents herdr starts (" + strings.Join(presetKinds(), ", ") + ", ...)"}
+			for _, k := range presetKinds() {
+				if h := missingHarness(k, forNewYard); h.Fetch != nil {
+					n.AnyOf = append(n.AnyOf, h)
+				}
+			}
+			out = append(out, n)
+		}
+	}
 	return out
 }
 
@@ -600,10 +646,16 @@ var goarch = runtime.GOARCH
 // probe runs the harness's version flag at path and says how it ended: it
 // answers, fails, or hangs. A program on PATH can be one that never starts:
 // on macOS a quarantined binary waits on a Gatekeeper dialog nobody sees,
-// and a session started on it sits dead. This runs a program but changes
-// nothing. A kind yardr knows no version flag for is not run at all. A
-// variable, as tryHarnessCall is: a test of what doctor says past the
-// versions answers them at once instead of starting a program per harness.
+// and a session started on it sits dead. It can also start and be another
+// program: any executable can be called claude. Where the kind's file says
+// what the output must contain (agents.VersionContains), one that answers
+// without it is not the harness. All of what it printed is searched, since a
+// banner or a warning may come before the version; a program that fails or
+// hangs says nothing of who it is, and stays failing or hanging. This runs a
+// program but changes nothing. A kind yardr knows no version flag for is not
+// run at all. A variable, as tryHarnessCall is: a test of what doctor says
+// past the versions answers them at once instead of starting a program per
+// harness.
 var probe = func(ctx context.Context, kind, path string) versionCheck {
 	args := agents.VersionArgs(kind)
 	if args == nil {
@@ -627,6 +679,9 @@ var probe = func(ctx context.Context, kind, path string) versionCheck {
 			line = fmt.Sprintf("%v: %s", err, line)
 		}
 		return versionCheck{State: versionFails, Output: line}
+	}
+	if want := agents.VersionContains(kind); want != "" && !strings.Contains(string(out), want) {
+		return versionCheck{State: versionNotHarness, Output: line}
 	}
 	return versionCheck{State: versionAnswers, Output: line}
 }

@@ -163,18 +163,20 @@ can be created on; they are then never a fault.
 | `note herdr <path>: on PATH; whether its server is running could not be asked: <what herdr said>` | herdr answered with something else, or not in 5 seconds: not known to be down, so no fault |
 | `FAULT <program> not on PATH: <what it is needed for>. Get it: <where>` | missing. For git and herdr the same words the onboarding uses before its first page. For a harness, `<where>` is its install command where yardr knows one (claude, codex, kiro, opencode), else a pointer to the agent's own documentation |
 | ``FAULT <program> not on PATH: <what it is needed for>. Found at <path> by your login shell, which this shell's PATH does not have: add <dir> to PATH here, or for the daemon's service run `yardr daemon install` from a login shell`` | missing here and installed: your login shell finds it. A shell without a terminal (ssh with a command, a service) reads no profile, so it lacks what `~/.profile` adds, `~/.local/bin` for one. The daemon's service gets the PATH of the shell that installs it ([configuration.md](configuration.md#login-services)) |
-| `FAULT a harness not on PATH: …` | a home with no yard, and no agent herdr starts is installed. When the login shell finds claude, codex, grok, kimi, kiro, opencode, pi or muse, the line above is printed for each it finds instead |
+| `FAULT a harness not on PATH: …` | a home with no yard, and no agent herdr starts is installed: a program that [answers as another](#a-program-that-answers-as-another) does not count as one. When the login shell finds claude, codex, grok, kimi, kiro, opencode, pi or muse, the line above is printed for each it finds instead |
 | `ok <harness> <path>, the harness of <who>: answers its version flag (<its first line>)` | found, and it runs |
 | `FAULT <harness> <path>, the harness of <who>: on PATH, but its version flag fails: <error and its first line>` | found, and it does not run |
+| `FAULT <harness> <path>, the harness of <who>: on PATH, but it is not <label>: its version flag printed "<its first line>", which does not say "<text>". herdr starts the first <program> on PATH, which is this one, so a <label> installed behind it never runs: take this one off PATH, or put <label>'s directory before <its directory>. Get it: <where>` | found, and it runs and answers, and it is another program: any executable can be called claude. [Below](#a-program-that-answers-as-another). It is not found as far as the yard goes |
 | `FAULT <harness> <path>, the harness of <who>: on PATH, but it did not answer its version flag within 20s` | found, and it hangs. On macOS the line goes on: `On macOS that can be a quarantined binary waiting on a Gatekeeper dialog nobody sees: run <harness> once in a terminal and answer it` |
 | `ok <harness> <path>, the harness of <who>: not checked, yardr knows no version flag for <kind>` | found, and not run: the flag is known for claude, codex, grok, kimi, kiro, opencode, pi and muse |
-| `note <harness> …` | the two failing lines above, for a harness nothing runs on yet (a home with no yard) |
+| `note <harness> …` | the three failing lines above (it fails, it hangs, it is not the harness), for a harness nothing runs on yet (a home with no yard) |
 | `…; harness file v<n>` or `…; no harness file (yardr harness list)` | the end of every line of a harness that was found: the version of the file yardr reads the kind from (`yardr harness show <kind>`, [groups.md](groups.md#what-yardr-knows-of-a-kind)), or that it has none and knows no marks, error lines or flags of the kind |
 | `note harness on PATH is not "works": no harness was asked for an answer. yardr doctor --try makes one real call to each (it costs a model call per harness)` | without `--try`, when a harness was found. Not printed on a yard whose server is not running, where `--try` is refused |
 | `ok <harness> tried: one real call answered (<the last line of its answer>)` | `--try`: the harness ended with status 0 |
 | `FAULT <harness> tried: one real call failed: <error>: <the last three lines it printed>` | `--try`: it ended with another status. The lines are the end of what it printed, stdout and stderr as they came, joined with ` / `: where a harness says that a login is needed or which flag it does not know |
 | `FAULT <harness> tried: one real call did not end within 45s; it printed: <the last three lines>` | `--try`: it hung, at a question or a login screen as a rule |
 | `note <harness> not tried: yardr knows no one-shot call for <kind>` | `--try`: a kind not in the table above |
+| `note <harness> not tried: it is not <label>` | `--try`: the program answered its version flag as another ([below](#a-program-that-answers-as-another)), and a call to it would be a call to something else |
 | `note <harness> tried: …` | the two failing lines, for a harness nothing runs on yet (a home with no yard) |
 
 Each of the three herdr lines ends with the herdr session that was asked and
@@ -185,6 +187,43 @@ it was run in, which need not be the daemon's
 ([configuration.md](configuration.md#settings)). For a session the setting
 names that is not running, the fault names it and says `herdr session
 attach <name>` in place of `herdr`.
+
+#### A program that answers as another
+
+A program on PATH under a harness's name is not always the harness: any
+executable can be called `claude`. For a kind whose
+[file](groups.md#what-yardr-knows-of-a-kind) says what its version flag must
+print (`flags.version_contains`: Claude Code's is `Claude Code`, Codex's
+`codex-cli`), doctor searches everything the flag printed for that text,
+since a banner or a warning may come before the version. A program that ends
+the flag with status 0 and does not say it is not the harness:
+
+- its line is the `is not <label>` line above, with the program's path and the
+  first line it printed, and the report counts it as missing: a fault where
+  the yard runs on that kind, a note where nothing does yet;
+- on a home with no yard it does not count as a harness a yard can be created
+  on, so with no other harness doctor reports `a harness not on PATH` as well,
+  and the onboarding's harness list says `the claude on PATH is not Claude Code`
+  in place of `installed` and does not choose it for you;
+- in `--json` it is `found: false`, with `path` the program that answered,
+  `version` holding `not_harness` and what it printed, and `get` and `fetch`
+  as for a harness that is not there: the real one is what the machine lacks;
+- `--try` makes no call to it.
+
+herdr starts an agent by the kind's name on PATH, so the first program of
+that name is the one that runs. A real Claude Code installed behind it, such as
+the one fetched into `~/.local/bin` when that is the last directory on PATH,
+never starts while the other is first; the line says so, and the way out is to
+take the other program off PATH or to put the real one's directory before it.
+The PATH is the one doctor runs in: herdr's server has the one it was started
+with, which doctor does not see.
+
+Only a program that answers is told by this: one whose flag fails or hangs
+says nothing of who it is, and stays a failing or a hanging harness. A kind
+whose file has no such text (those whose output nobody has checked, or that
+print a bare number) takes any program that answers, as before. Whether the
+version is new enough is not asked, nor is the PATH of a terminal other than
+the one doctor runs in.
 
 ### The yard
 
@@ -367,7 +406,7 @@ For a home other than the default, every command doctor prints is `yardr
 | field | |
 |---|---|
 | `home`, `yard` | the home; whether a yard is set up in it |
-| `machine` | the programs: `program`, `for`, `found`, `path`, `get` (when missing), `login_shell_path` (where the login shell finds one that is missing), `fetch` (on a Mac, for one that is missing and that yardr knows a way for: [below](#a-program-fetched-on-a-mac)), `any_of` (on the item `a harness`, on a Mac: the harnesses that can be fetched, each an item with its `fetch`), `harness` (the kind, for a harness), `label` (the harness's name as people write it, for a harness), `provider` (who makes it, for a harness; absent when the file names none), `harness_file` (the version of yardr's file for the kind; absent when it has none), `harness_login` (true for a kind whose login a program can lead: [below](#a-harnesss-login-led-by-a-program); absent for a kind that is logged in in a terminal), `offers` (the models the kind's file suggests: each a `model` id, a `label`, and what it is `recommended` for; absent when the file names none), `optional` (a harness nothing runs on yet), `version` with `state` (`answers`, `fails`, `hangs`, `not_checked`) and `output`; for herdr, `server` with `state` (`running`, `not_running`, `unknown`) and `output` (what herdr said); under `--try`, for a harness, `try` with `state` (`ok`, `fails`, `hangs`, `not_tried`) and `output` (the answer's last line, what it printed, or why it was not tried) |
+| `machine` | the programs: `program`, `for`, `found` (on PATH and, for a harness whose file says what its version flag must print, that harness: a program that answers it as another is not found, [above](#a-program-that-answers-as-another)), `path` (where it is found; where the program is that answered as another), `get` (when missing, and for the program that answered as another), `login_shell_path` (where the login shell finds one that is missing), `fetch` (on a Mac, for one that is missing and that yardr knows a way for: [below](#a-program-fetched-on-a-mac)), `any_of` (on the item `a harness`, on a Mac: the harnesses that can be fetched, each an item with its `fetch`), `harness` (the kind, for a harness), `label` (the harness's name as people write it, for a harness), `provider` (who makes it, for a harness; absent when the file names none), `harness_file` (the version of yardr's file for the kind; absent when it has none), `harness_login` (true for a kind whose login a program can lead: [below](#a-harnesss-login-led-by-a-program); absent for a kind that is logged in in a terminal), `offers` (the models the kind's file suggests: each a `model` id, a `label`, and what it is `recommended` for; absent when the file names none), `optional` (a harness nothing runs on yet), `version` with `state` (`answers`, `fails`, `hangs`, `not_harness`, `not_checked`) and `output` (the first line it printed; for `not_harness`, what it printed in place of the harness's name); for herdr, `server` with `state` (`running`, `not_running`, `unknown`) and `output` (what herdr said); under `--try`, for a harness, `try` with `state` (`ok`, `fails`, `hangs`, `not_tried`) and `output` (the answer's last line, what it printed, or why it was not tried) |
 | `tried` | whether `--try` was given |
 | `state` | `server` (`running`, `not_running`, `unreachable`), `server_error`, `daemon`, `daemon_lost_at` (the daemon's last pass where a `daemon_lost` event stands with no start after it; absent otherwise), `yardmaster` (`name`, `crew`, `enabled`, `running`, `state`, `agent`, `failures`, `reason`), `crew`, `failing`, `login` (the crew at their login screen, each with `name`, `kind` and `line`; absent when there is none), `held`, `cycles` (each a list of ids in blocking order, the first repeated at the end; absent when there is none), `mail` (`user`, `unread`, `from`; only when who runs it is a user), `parties` (the `names` notes), `copied_on` (the `crew` notes on a copied `--on`), `config` (the `config` notes; absent when there is none), `codex_trust` (the `codex` notes; absent when there is none), `kimi_hooks` (the `kimi` notes; absent when there is none), `stale_packs` (the `packs` notes; absent when there is none), `stray_memory` (the `crew` notes on a harness's own memory; absent when there is none); absent with no yard |
 | `steps` | each `key`, `title`, `done`, `detail`, `next` (the command) when not done, and `depot` (the depot the command names) once the yard has one |

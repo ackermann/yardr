@@ -50,7 +50,7 @@ func TestDoctorNamesTheHerdrSession(t *testing.T) {
 		a.actor = "me"
 		return a
 	}
-	tools := fakeTools(t, map[string]string{"git": toolAnswers, "herdr": herdrBySocket, "claude": toolAnswers})
+	tools := fakeTools(t, map[string]string{"git": toolAnswers, "herdr": herdrBySocket, "claude": claudeAnswers})
 	if _, err := run(t, a().rootCmd(), "init", "--harness", "claude"); err != nil {
 		t.Fatal(err)
 	}

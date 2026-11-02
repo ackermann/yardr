@@ -251,7 +251,7 @@ func TestHarnessListAndShow(t *testing.T) {
 // file names none carries none.
 func TestDoctorOffers(t *testing.T) {
 	requireNonInteractive(t)
-	fakeTools(t, map[string]string{"claude": "echo 2.1.288\n", "codex": "echo 0.160.1\n", "kimi": "echo 2.1.1\n", "grok": "echo 1\n", "pi": "echo 1\n", "muse": "echo 1.4.9\n", "kiro-cli": "echo 2.32.0\n"})
+	fakeTools(t, map[string]string{"claude": "echo '2.1.288 (Claude Code)'\n", "codex": "echo codex-cli 0.160.1\n", "kimi": "echo 2.1.1\n", "grok": "echo 1\n", "pi": "echo 1\n", "muse": "echo 1.4.9\n", "kiro-cli": "echo 2.32.0\n"})
 	stub(t, &loginShell, func() string { return "" })
 	m := machineOf(t)
 	if got := m["claude"].Offers; len(got) != 3 || got[0] != (store.Offer{Model: "opus", Label: "Opus 5.5", Recommended: "yardmaster"}) {
@@ -287,7 +287,7 @@ func TestDoctorOffers(t *testing.T) {
 // herdr carry neither.
 func TestDoctorHarnessLabels(t *testing.T) {
 	requireNonInteractive(t)
-	fakeTools(t, map[string]string{"claude": "echo 2.1.288\n", "codex": "echo 0.160.1\n", "kimi": "echo 2.1.1\n", "grok": "echo 1\n", "opencode": "echo 1\n", "pi": "echo 1\n", "muse": "echo 1.4.9\n", "kiro-cli": "echo 2.32.0\n"})
+	fakeTools(t, map[string]string{"claude": "echo '2.1.288 (Claude Code)'\n", "codex": "echo codex-cli 0.160.1\n", "kimi": "echo 2.1.1\n", "grok": "echo 1\n", "opencode": "echo 1\n", "pi": "echo 1\n", "muse": "echo 1.4.9\n", "kiro-cli": "echo 2.32.0\n"})
 	stub(t, &loginShell, func() string { return "" })
 	m := machineOf(t)
 	want := map[string][2]string{

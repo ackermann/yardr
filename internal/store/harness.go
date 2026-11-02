@@ -164,6 +164,13 @@ type Flags struct {
 	// none is not asked: some agents open their interface on an unknown
 	// flag instead of failing.
 	Version []string `yaml:"version" json:"version,omitempty"`
+	// VersionContains is what that output must contain for the program to be
+	// this harness: the name it prints beside its version ("Claude Code").
+	// Any executable can be called claude, and one that answers the flag with
+	// something else is another program, which doctor says and which does not
+	// count as the harness. "" for a kind whose output nobody has checked or
+	// that prints a bare number: any program that answers is taken as it is.
+	VersionContains string `yaml:"version_contains" json:"version_contains,omitempty"`
 	// OneShot comes before a prompt the harness answers and exits on,
 	// without a terminal.
 	OneShot []string `yaml:"one_shot" json:"one_shot,omitempty"`
@@ -798,6 +805,9 @@ func (h *Harness) Check() error {
 	}
 	if h.Flags.Model != "" && !strings.HasPrefix(h.Flags.Model, "-") {
 		return fmt.Errorf("flags.model: %q is not a flag", h.Flags.Model)
+	}
+	if h.Flags.VersionContains != "" && len(h.Flags.Version) == 0 {
+		return fmt.Errorf("flags.version_contains: without flags.version there is no version output to read it from")
 	}
 	if m := h.Model; m != nil {
 		switch {

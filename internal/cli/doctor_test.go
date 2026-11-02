@@ -30,6 +30,12 @@ const (
 	toolAnswers = "#!/bin/sh\necho \"tool 1.2.3\"\n"
 	toolFails   = "#!/bin/sh\necho \"broken install\" >&2\nexit 3\n"
 	toolHangs   = "#!/bin/sh\nsleep 30\n"
+	// claudeAnswers and codexAnswers are toolAnswers for the two kinds whose
+	// file says what the flag must print (version_contains): what the real
+	// programs print. A claude or codex that prints toolAnswers' line is
+	// another program, which is what the tests of that use it for.
+	claudeAnswers = "#!/bin/sh\necho \"2.1.310 (Claude Code)\"\n"
+	codexAnswers  = "#!/bin/sh\necho \"codex-cli 0.160.1\"\n"
 )
 
 // fakeToolsTimeout is the time a fake tool gets for its version flag.
@@ -118,7 +124,7 @@ func wantText(t *testing.T, out string, lines ...string) {
 func TestDoctorEmptyHome(t *testing.T) {
 	home := newHomeDir(t)
 	requireNonInteractive(t)
-	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers, "claude": toolAnswers, "grok": toolFails})
+	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers, "claude": claudeAnswers, "grok": toolFails})
 	// A run of its own each time, in an environment naming the home.
 	newApp := func() *app {
 		a := testApp(t, nil, home)
@@ -131,7 +137,7 @@ func TestDoctorEmptyHome(t *testing.T) {
 		t.Fatalf("exit %d:\n%s", code, out)
 	}
 	wantText(t, out, "no yard in "+home+" yet", hereAt(home, "yardr init --harness <kind>"), "Nothing was created.",
-		"ok     git ", "ok     herdr ", "a harness a yard can be created on: answers its version flag (tool 1.2.3)",
+		"ok     git ", "ok     herdr ", "a harness a yard can be created on: answers its version flag (2.1.310 (Claude Code))",
 		// A harness nothing runs on yet that does not work is said, and is no fault.
 		"note   grok ", "its version flag fails: exit status 3: broken install",
 		"todo   a depot: ", "todo   a first merged bead: ", "Nothing the yard needs is missing.")
@@ -166,6 +172,43 @@ func TestDoctorEmptyHome(t *testing.T) {
 	}
 	if _, err := os.Stat(home); err == nil {
 		t.Fatal("doctor --json created the home directory")
+	}
+
+	// A claude that is another program is no harness to create a yard on:
+	// it is said, as a note since nothing runs on it yet, and it does not
+	// answer for the harness the yard lacks, which is a fault of its own. A
+	// window reads the same of it: not found, and what it printed.
+	dir := fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers, "claude": toolAnswers})
+	out, code = executeOut(newApp(), "doctor")
+	if code != 1 {
+		t.Fatalf("a claude that is another program: exit %d:\n%s", code, out)
+	}
+	wantText(t, out, "note   claude ", filepath.Join(dir, "claude")+", a harness a yard can be created on: on PATH, but it is not Claude Code: "+
+		`its version flag printed "tool 1.2.3", which does not say "Claude Code". herdr starts the first claude on PATH, which is this one, `+
+		"so a Claude Code installed behind it never runs: take this one off PATH, or put Claude Code's directory before "+dir+". Get it: ",
+		"FAULT  a harness ", "1 fault: ")
+	if strings.Contains(out, "answers its version flag") {
+		t.Errorf("a program that is not Claude Code answers for it:\n%s", out)
+	}
+	rep, err = doctorJSONOn(t, newApp())
+	if !errors.Is(err, errCheckFailed) || len(rep.Faults) != 1 || !strings.HasPrefix(rep.Faults[0], "a harness: ") {
+		t.Fatalf("json: %v %+v", err, rep)
+	}
+	var claude, noHarness *need
+	for i, n := range rep.Machine {
+		switch n.Program {
+		case "claude":
+			claude = &rep.Machine[i]
+		case "a harness":
+			noHarness = &rep.Machine[i]
+		}
+	}
+	if claude == nil || claude.Found || claude.Path != filepath.Join(dir, "claude") || claude.Get == "" || claude.Harness != "claude" ||
+		claude.Version == nil || *claude.Version != (versionCheck{State: versionNotHarness, Output: "tool 1.2.3"}) {
+		t.Errorf("claude, a program that is not Claude Code: %+v", claude)
+	}
+	if noHarness == nil || noHarness.Found {
+		t.Errorf("the harness a yard lacks: %+v", noHarness)
 	}
 }
 
@@ -691,7 +734,7 @@ func TestDoctorMissingDependency(t *testing.T) {
 func TestFakeToolsVersionTimeout(t *testing.T) {
 	before := versionTimeout
 	t.Run("with fake tools", func(t *testing.T) {
-		fakeTools(t, map[string]string{"claude": toolAnswers})
+		fakeTools(t, map[string]string{"claude": claudeAnswers})
 		if versionTimeout != fakeToolsTimeout || versionTimeout <= before {
 			t.Errorf("versionTimeout = %s with fake tools, %s without", versionTimeout, before)
 		}
@@ -704,7 +747,7 @@ func TestFakeToolsVersionTimeout(t *testing.T) {
 // On PATH is not "works": a harness that is found is run with its version
 // flag and answers, fails or hangs; a kind with no known flag is not run.
 func TestDoctorVersionCheck(t *testing.T) {
-	dir := fakeTools(t, map[string]string{"claude": toolAnswers, "codex": toolFails, "kimi": toolHangs, "cursor-agent": toolHangs})
+	dir := fakeTools(t, map[string]string{"claude": claudeAnswers, "codex": toolFails, "kimi": toolHangs, "cursor-agent": toolHangs})
 	ctx := context.Background()
 	check := func(kind string, want versionCheck) {
 		t.Helper()
@@ -713,10 +756,33 @@ func TestDoctorVersionCheck(t *testing.T) {
 		}
 	}
 	// These are not about the timeout, and run under the long one fakeTools
-	// set.
-	check("claude", versionCheck{versionAnswers, "tool 1.2.3"})
+	// set. Claude Code's line is what the real program prints: it is the
+	// harness, and a false refusal of it would stop a yard from being made.
+	check("claude", versionCheck{versionAnswers, "2.1.310 (Claude Code)"})
 	check("codex", versionCheck{versionFails, "exit status 3: broken install"})
 	check("cursor", versionCheck{versionNotChecked, ""}) // would hang, were it run
+
+	// Who it is: a kind whose file says what the flag prints (claude and
+	// codex) has a program of its name taken for the harness only if the
+	// output says it, anywhere in it; any program can be called claude.
+	// Only a program that answers is told by it: one that fails says nothing
+	// of who it is, and a kind with no such text takes any answer.
+	as := func(kind, body string, want versionCheck) {
+		t.Helper()
+		scripttest.Write(t, filepath.Join(dir, store.Executable(kind)), body)
+		check(kind, want)
+	}
+	as("claude", toolAnswers, versionCheck{versionNotHarness, "tool 1.2.3"})
+	as("claude", "#!/bin/sh\nexit 0\n", versionCheck{versionNotHarness, ""})
+	as("claude", "#!/bin/sh\necho 'a banner'\necho '2.1.310 (Claude Code)'\n", versionCheck{versionAnswers, "a banner"})
+	as("claude", "#!/bin/sh\necho '2.1.310 (Claude Code)' >&2\n", versionCheck{versionAnswers, "2.1.310 (Claude Code)"})
+	as("claude", "#!/bin/sh\necho '2.1.310 (claude code)'\n", versionCheck{versionNotHarness, "2.1.310 (claude code)"})
+	as("claude", "#!/bin/sh\necho 'usage: claude [options]' >&2\nexit 2\n", versionCheck{versionFails, "exit status 2: usage: claude [options]"})
+	as("codex", codexAnswers, versionCheck{versionAnswers, "codex-cli 0.160.1"})
+	as("codex", toolAnswers, versionCheck{versionNotHarness, "tool 1.2.3"})
+	as("kimi", toolAnswers, versionCheck{versionAnswers, "tool 1.2.3"})
+	scripttest.Write(t, filepath.Join(dir, "claude"), claudeAnswers)
+	scripttest.Write(t, filepath.Join(dir, "kimi"), toolHangs)
 	// A path that cannot be run fails, and says why.
 	if got := probe(ctx, "claude", filepath.Join(dir, "gone")); got.State != versionFails || !strings.Contains(got.Output, "no such file") {
 		t.Errorf("missing executable: %+v", got)
@@ -747,12 +813,13 @@ func TestDoctorVersionCheck(t *testing.T) {
 		a.actor = "me"
 		return a
 	}
-	tools := map[string]string{"git": toolAnswers, "herdr": toolAnswers, "kimi": toolAnswers, "codex": toolFails, "cursor-agent": toolHangs}
+	tools := map[string]string{"git": toolAnswers, "herdr": toolAnswers, "kimi": toolAnswers, "codex": toolFails, "cursor-agent": toolHangs,
+		"claude": toolAnswers} // a claude that is another program
 	fakeTools(t, tools) // and the long timeout again
 	if _, err := run(t, a().rootCmd(), "init", "--harness", "kimi", "--operator", "me"); err != nil {
 		t.Fatal(err)
 	}
-	for name, kind := range map[string]string{"b": "codex", "c": "cursor"} {
+	for name, kind := range map[string]string{"b": "codex", "c": "cursor", "d": "claude"} {
 		if err := st.PutGroup(ctx, store.Group{Name: name, Runner: "herdr", Config: map[string]any{"kind": kind}}, "me"); err != nil {
 			t.Fatal(err)
 		}
@@ -765,6 +832,10 @@ func TestDoctorVersionCheck(t *testing.T) {
 	wantText(t, out, "ok     kimi ", "the harness of the yard's default, crew member yardmaster: answers its version flag (tool 1.2.3)",
 		"FAULT  codex ", "on PATH, but its version flag fails: exit status 3: broken install",
 		"ok     cursor-agent ", "not checked, yardr knows no version flag for cursor",
+		// A program that answers as another is no harness the yard can run
+		// on, and a fault where a group does: it is said which program it is
+		// and what it printed.
+		"FAULT  claude ", `the harness of group d: on PATH, but it is not Claude Code: its version flag printed "tool 1.2.3", which does not say "Claude Code". `,
 		// Beside each: the file yardr reads the kind from, or that it has none.
 		"answers its version flag (tool 1.2.3); harness file v1", "broken install; harness file v1; always flags: --no-daemon --config=check_for_update_on_startup=false",
 		"no version flag for cursor; no harness file (yardr harness list)")
@@ -786,12 +857,18 @@ func TestDoctorVersionCheck(t *testing.T) {
 		}
 		return out
 	}
-	if s := states(); s["kimi"] != versionAnswers || s["codex"] != versionFails || s["cursor"] != versionNotChecked {
+	if s := states(); s["kimi"] != versionAnswers || s["codex"] != versionFails || s["cursor"] != versionNotChecked || s["claude"] != versionNotHarness {
 		t.Fatalf("states = %v", s)
 	}
 	for _, n := range func() []need { rep, _ := doctorJSON(t, st); return rep.Machine }() {
 		if n.Harness == "codex" && !strings.Contains(n.line().text, "always flags: --no-daemon --config=check_for_update_on_startup=false") {
 			t.Fatalf("doctor omitted Codex's always flags: %+v", n.line())
+		}
+		// What a window reads of a program that is not the harness: not
+		// found, though it is on PATH, with where it is, what it printed and
+		// where the real one is to be had.
+		if n.Harness == "claude" && (n.Found || n.Path == "" || n.Get == "" || n.Version.Output != "tool 1.2.3") {
+			t.Fatalf("claude, a program that is not Claude Code: %+v", n)
 		}
 	}
 
@@ -808,6 +885,56 @@ func TestDoctorVersionCheck(t *testing.T) {
 		"waiting on a Gatekeeper dialog nobody sees: run kimi once in a terminal and answer it")
 	if s := states(); s["kimi"] != versionHangs {
 		t.Fatalf("states = %v", s)
+	}
+}
+
+// herdr starts a harness by its name on PATH, so the first program of that
+// name is the one that runs, whatever is installed behind it: a claude that
+// is another program would shadow a Claude Code fetched into ~/.local/bin if
+// that directory comes after its own. Doctor goes by PATH as it is (no
+// lookPath here is a stand-in's): with the other program first it names that
+// one and finds no harness, and says what keeps the real one from running;
+// with the real one first it is the harness.
+func TestDoctorFirstOnPath(t *testing.T) {
+	home := newHomeDir(t)
+	requireNonInteractive(t)
+	stub(t, &loginShell, func() string { return "" })
+	other, fetched := t.TempDir(), t.TempDir()
+	scripttest.Write(t, filepath.Join(other, "claude"), toolAnswers)
+	scripttest.Write(t, filepath.Join(fetched, "claude"), claudeAnswers)
+	machine := func(path string) map[string]need {
+		t.Helper()
+		t.Setenv("PATH", path)
+		a := testApp(t, nil, home)
+		a.actor = "me"
+		rep, _ := doctorJSONOn(t, a)
+		out := map[string]need{}
+		for _, n := range rep.Machine {
+			out[n.Program] = n
+		}
+		return out
+	}
+
+	m := machine(other + string(os.PathListSeparator) + fetched)
+	claude := m["claude"]
+	if claude.Found || claude.Path != filepath.Join(other, "claude") || claude.Version == nil || claude.Version.State != versionNotHarness {
+		t.Errorf("the other claude first: %+v", claude)
+	}
+	if _, none := m["a harness"]; !none {
+		t.Errorf("a claude that is another program, with the real one behind it, is a harness the yard has: %v", m)
+	}
+	if l := claude.line(); l.tag != tagNote || !strings.Contains(l.text, "herdr starts the first claude on PATH, which is this one, so a Claude Code installed behind it never runs: "+
+		"take this one off PATH, or put Claude Code's directory before "+other) {
+		t.Errorf("its line: %+v", l)
+	}
+
+	m = machine(fetched + string(os.PathListSeparator) + other)
+	claude = m["claude"]
+	if !claude.Found || claude.Path != filepath.Join(fetched, "claude") || claude.Version == nil || *claude.Version != (versionCheck{State: versionAnswers, Output: "2.1.310 (Claude Code)"}) {
+		t.Errorf("the real claude first: %+v", claude)
+	}
+	if _, none := m["a harness"]; none {
+		t.Errorf("the real claude first, and the yard lacks a harness: %v", m)
 	}
 }
 
@@ -1238,7 +1365,7 @@ func TestDoctorLeavesAStoppedServerStopped(t *testing.T) {
 		return a
 	}
 	cfg := &config.Config{Home: home}
-	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers, "claude": toolAnswers, "grok": toolFails})
+	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers, "claude": claudeAnswers, "grok": toolFails})
 	// The store of a yard, which nobody serves, and its daemon.
 	holdDaemon(t, home)
 	if err := os.WriteFile(cfg.DBPath(), nil, 0o600); err != nil {
@@ -1360,7 +1487,7 @@ func TestDoctorHerdrServer(t *testing.T) {
 		a.actor = "me"
 		return a
 	}
-	dir := fakeTools(t, map[string]string{"git": toolAnswers, "herdr": herdrNoServer, "claude": toolAnswers})
+	dir := fakeTools(t, map[string]string{"git": toolAnswers, "herdr": herdrNoServer, "claude": claudeAnswers})
 	if _, err := run(t, a().rootCmd(), "init", "--harness", "claude"); err != nil {
 		t.Fatal(err)
 	}
@@ -1399,12 +1526,12 @@ func TestDoctorHerdrServer(t *testing.T) {
 	}
 }
 
-// tryTool is a stand-in harness: it answers its version flag, and on its
-// one-shot form writes its arguments, how many files its directory holds
-// and whether stdin is at its end to the file called, as one line, and its
-// directory as a second, then does what real says.
-func tryTool(called, real string) string {
-	return "#!/bin/sh\n[ \"$1\" = --version ] && { echo 'tool 1.2.3'; exit 0; }\n" +
+// tryTool is a stand-in harness: it answers its version flag with the line
+// given, and on its one-shot form writes its arguments, how many files its
+// directory holds and whether stdin is at its end to the file called, as one
+// line, and its directory as a second, then does what real says.
+func tryTool(called, version, real string) string {
+	return "#!/bin/sh\n[ \"$1\" = --version ] && { echo '" + version + "'; exit 0; }\n" +
 		"read line || stdin=closed\necho \"args: $*; files: $(ls -A | wc -l | tr -d ' '); stdin: $stdin\ndir: $(pwd -P)\" >>" + called + "\n" + real + "\n"
 }
 
@@ -1425,11 +1552,11 @@ func TestDoctorTry(t *testing.T) {
 	ctx := context.Background()
 	called := filepath.Join(t.TempDir(), "called")
 	tools := map[string]string{"git": toolAnswers, "herdr": toolAnswers,
-		"claude": tryTool(called, "echo 'some banner'; echo ok"),
-		"codex": tryTool(called, "echo 'model: gpt' >&2\necho 'ERROR: refresh token was already used' >&2\n"+
+		"claude": tryTool(called, "2.1.310 (Claude Code)", "echo 'some banner'; echo ok"),
+		"codex": tryTool(called, "codex-cli 0.160.1", "echo 'model: gpt' >&2\necho 'ERROR: refresh token was already used' >&2\n"+
 			"echo 'Please log out and sign in again.' >&2\nexit 1"),
-		"kimi":         tryTool(called, "echo ok"),
-		"cursor-agent": tryTool(called, "echo ok"),
+		"kimi":         tryTool(called, "tool 1.2.3", "echo ok"),
+		"cursor-agent": tryTool(called, "tool 1.2.3", "echo ok"),
 		"pi":           toolFails}
 	fakeTools(t, tools)
 	if _, err := run(t, a().rootCmd(), "init", "--harness", "claude", "--operator", "me"); err != nil {
@@ -1531,12 +1658,38 @@ func TestDoctorTry(t *testing.T) {
 		t.Errorf("faults = %v", rep.Faults)
 	}
 
+	// A program that answers its version flag as another is not the harness,
+	// and a call to it would be a call to something else: it is not made,
+	// and the report says so beside its line.
+	tools["codex"] = tryTool(called, "tool 1.2.3", "exit 1")
+	fakeTools(t, tools)
+	codexCalls := func() int {
+		b, _ := os.ReadFile(called)
+		return strings.Count(string(b), "args: exec ")
+	}
+	was := codexCalls()
+	out, err = run(t, a().rootCmd(), "doctor", "--try")
+	if !errors.Is(err, errCheckFailed) {
+		t.Fatalf("err = %v\n%s", err, out)
+	}
+	wantText(t, out, "FAULT  codex ", "on PATH, but it is not Codex: its version flag printed \"tool 1.2.3\", which does not say \"codex-cli\".",
+		"note   codex       not tried: it is not Codex")
+	if n := codexCalls(); n != was {
+		t.Errorf("a program that is not Codex was called: %d calls, was %d", n, was)
+	}
+	rep, _ = doctorJSON(t, st, "--try")
+	for _, n := range rep.Machine {
+		if n.Harness == "codex" && (n.Found || n.Try == nil || *n.Try != (tryCheck{State: tryNotTried, Output: "it is not Codex"})) {
+			t.Errorf("codex, a program that is not Codex, under --try: %+v", n)
+		}
+	}
+
 	// Then a call that hangs, with a timeout it is quick to run out of.
 	// Only kimi is looked at: in so short a time the others may hang too.
 	// Its output is not asserted because a slow start can time out before
 	// the script prints anything. The hanging script sleeps 30 s, so any
 	// short timeout names the hang; 300 ms keeps this test quick.
-	tools["kimi"] = tryTool(called, "echo 'thinking'; sleep 30")
+	tools["kimi"] = tryTool(called, "tool 1.2.3", "echo 'thinking'; sleep 30")
 	fakeTools(t, tools)
 	stub(t, &tryTimeout, 300*time.Millisecond)
 	out, err = run(t, a().rootCmd(), "doctor", "--try")

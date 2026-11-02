@@ -3,7 +3,8 @@
 // draws Claude Code's prompt box, which is what herdr's claude manifest reads
 // as an idle agent, so a session reaches `running`, and it appends what it
 // was started with and every line it is sent to agents.log beside its bin
-// directory. Started with -p it answers "ok" and exits, or fails, started
+// directory. Started with --version it prints Claude Code's version line and
+// exits; with -p it answers "ok" and exits, or fails; started
 // with auth login it plays Claude Code's login command, and with a
 // file login-needed it waits at a login screen first, and with a file answer
 // it says that file's text to every prompt it takes, and with a file busy it
@@ -47,6 +48,16 @@ func main() {
 		}
 	}
 	logf("start exe=%s cwd=%s args=%q %s", exe, cwd, os.Args[1:], strings.Join(env, " "))
+
+	// Its version flag (claude --version, what yardr doctor runs): the line
+	// Claude Code prints, for yardr takes a program called claude that does
+	// not say so for another program (harnesses/claude.yaml,
+	// version_contains). No screen is drawn, as for a one-shot call.
+	if len(os.Args) > 1 && os.Args[1] == "--version" {
+		fmt.Println("2.1.310 (Claude Code)")
+		logf("exit")
+		return
+	}
 
 	// A one-shot call (claude -p <prompt>, what yardr doctor --try makes):
 	// one word and out. With a file print-fails beside agents.log it fails

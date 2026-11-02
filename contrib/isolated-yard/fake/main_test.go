@@ -417,4 +417,11 @@ func TestAuthLogin(t *testing.T) {
 	if out, err := exec.Command(exe, "-p", "x").Output(); err != nil || string(out) != "ok\n" {
 		t.Errorf("the one-shot call after the login: %v, %q", err, out)
 	}
+	// Its version flag says who it is, as Claude Code's does: yardr takes a
+	// program called claude that does not for another program, and doctor
+	// then finds no harness in a yard made on this stand-in. It draws no
+	// screen, so it ends at once with its stdin as it is.
+	if out, err := exec.Command(exe, "--version").Output(); err != nil || string(out) != "2.1.310 (Claude Code)\n" {
+		t.Errorf("the version flag: %v, %q", err, out)
+	}
 }

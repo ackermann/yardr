@@ -77,6 +77,20 @@ func TestDoctorFetchOnMac(t *testing.T) {
 	if f := machineOf(t)["herdr"].Fetch; f == nil || !strings.HasSuffix(f.URL, "/herdr-macos-x86_64") {
 		t.Errorf("herdr on an Intel Mac: %+v", f)
 	}
+
+	// A claude on PATH that is another program is as missing as none, and a
+	// program that fetches is told how to get the real one all the same;
+	// the line that says no harness is installed still lists it among those
+	// that can be fetched.
+	fakeTools(t, map[string]string{"claude": toolAnswers})
+	m = machineOf(t)
+	if c := m["claude"]; c.Found || c.Path == "" || c.Version == nil || c.Version.State != versionNotHarness ||
+		c.Get != agents.InstallHint("claude") || c.Fetch == nil || c.Fetch.Path != "/Users/pat/.local/bin/claude" {
+		t.Errorf("a claude that is another program: %+v", c)
+	}
+	if none := m["a harness"]; len(none.AnyOf) != 2 || none.AnyOf[0].Harness != "claude" || none.AnyOf[0].Fetch == nil || none.AnyOf[0].Found {
+		t.Errorf("a harness: %+v", none)
+	}
 }
 
 // Off a Mac nothing is fetched: every missing program keeps its hint to
@@ -98,7 +112,7 @@ func TestDoctorNoFetchOnLinux(t *testing.T) {
 
 // What is installed needs no fetch, on a Mac as anywhere.
 func TestDoctorNoFetchOfWhatIsFound(t *testing.T) {
-	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers, "claude": toolAnswers})
+	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers, "claude": claudeAnswers})
 	stub(t, &herdrServer, func(context.Context, string) serverCheck { return serverCheck{State: herdrUp} })
 	stub(t, &goos, "darwin")
 	stub(t, &goarch, "arm64")

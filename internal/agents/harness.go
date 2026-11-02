@@ -264,6 +264,11 @@ func UnattendedHelp() string {
 // and exit; nil when none is known.
 func VersionArgs(kind string) []string { return byName[kind].Flags.Version }
 
+// VersionContains is what the output of kind's version flag must contain for
+// the program to be that harness (Flags.VersionContains); "" when the file
+// names none, and any program that answers the flag is taken for it.
+func VersionContains(kind string) string { return byName[kind].Flags.VersionContains }
+
 // harnessVersionTimeout bounds reading an installed harness's version; a
 // test shortens it. A harness answers in well under a second, but five
 // seconds ran out under load even on a stand-in that answers at once, so

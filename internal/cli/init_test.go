@@ -1239,6 +1239,34 @@ func TestHarnessOptions(t *testing.T) {
 	if _, def := harnessOptions(); def != "claude" {
 		t.Fatalf("nothing installed: default %s", def)
 	}
+	fakeTools(t, map[string]string{"claude": toolAnswers})
+	if _, def := harnessOptions(); def == "claude" {
+		t.Errorf("a claude that is another program is the default: %s", def)
+	}
+
+	// A claude that is another program is no harness to create a yard on:
+	// the list says what it is, and the default is the next kind that is
+	// installed. The real one is installed, and the first.
+	label := func(kind string) string {
+		t.Helper()
+		opts, _ := harnessOptions()
+		for _, o := range opts {
+			if o.Value == kind {
+				return o.Key
+			}
+		}
+		t.Fatalf("no option for %s", kind)
+		return ""
+	}
+	fakeTools(t, map[string]string{"claude": toolAnswers, "codex": codexAnswers})
+	if _, def := harnessOptions(); def != "codex" || !strings.HasSuffix(label("claude"), "the claude on PATH is not Claude Code") ||
+		!strings.HasSuffix(label("codex"), "installed") {
+		t.Errorf("a claude that is another program: default %s, claude %q, codex %q", def, label("claude"), label("codex"))
+	}
+	fakeTools(t, map[string]string{"claude": claudeAnswers, "codex": codexAnswers})
+	if _, def := harnessOptions(); def != "claude" || !strings.HasSuffix(label("claude"), "installed") {
+		t.Errorf("the real claude: default %s, claude %q", def, label("claude"))
+	}
 }
 
 // group add and crew add without --set kind take the default_kind.

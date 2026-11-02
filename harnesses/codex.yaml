@@ -58,6 +58,10 @@ flags:
   model: --model
   unattended: [--dangerously-bypass-approvals-and-sandbox]
   version: [--version]
+  # What the real one says, as for claude: run on 2 Nov 2026, codex-cli
+  # 0.160.1, `codex --version` printed
+  #   codex-cli 0.160.1
+  version_contains: codex-cli
   # codex exec refuses to run outside a git repository without
   # --skip-git-repo-check.
   one_shot: [exec, --skip-git-repo-check]

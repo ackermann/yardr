@@ -190,9 +190,13 @@ missing, with where to get it:
 - **herdr**, on PATH and with its server running: it runs the agents' panes
   ([herdr's server](#herdrs-server));
 - **a harness**: an agent herdr starts (claude, codex, opencode, …), on PATH
-  and answering its version flag. That is not yet a harness that works:
-  `yardr doctor --try` makes one real call to it, which costs a model call
-  and says when it is logged out ([doctor.md](doctor.md#--try-one-real-call-to-each-harness)).
+  and answering its version flag. For Claude Code and Codex the answer has to
+  say who it is: a program called `claude` that prints something else is not
+  Claude Code, and doctor does not count it
+  ([doctor.md](doctor.md#a-program-that-answers-as-another)). That is not yet a
+  harness that works: `yardr doctor --try` makes one real call to it, which
+  costs a model call and says when it is logged out
+  ([doctor.md](doctor.md#--try-one-real-call-to-each-harness)).
 
 A program doctor reports as not on PATH can be installed all the same: over
 ssh with a command, and in a service, the shell reads no profile and lacks

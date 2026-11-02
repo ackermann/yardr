@@ -46,6 +46,19 @@ func TestHarnessFiles(t *testing.T) {
 			t.Errorf("%s lists its models and has no file", kind)
 		}
 	}
+	// Who each kind's program says it is, where its output was run and can be
+	// cited (version_contains); the others take any program that answers.
+	// Each is what the real program printed, the line it was read from.
+	wantContains := map[string]string{"claude": "Claude Code", "codex": "codex-cli"}
+	printed := map[string]string{"claude": "2.1.310 (Claude Code)", "codex": "codex-cli 0.160.1"}
+	for _, h := range Harnesses {
+		if got := VersionContains(h.Kind); got != wantContains[h.Kind] {
+			t.Errorf("%s: version_contains %q, want %q", h.Kind, got, wantContains[h.Kind])
+		}
+		if line, ok := printed[h.Kind]; ok && !strings.Contains(line, VersionContains(h.Kind)) {
+			t.Errorf("%s: the real output %q does not say %q", h.Kind, line, VersionContains(h.Kind))
+		}
+	}
 }
 
 // A kind with no file is the unknown kind: no marks, no error lines, no
@@ -57,7 +70,7 @@ func TestKindWithNoFile(t *testing.T) {
 			h.Flags.Unattended != nil || h.Flags.Always != nil || h.Flags.Permissions != nil {
 			t.Errorf("%q: %v, %+v; want nothing known", kind, ok, h)
 		}
-		if UnattendedArgs(kind) != nil || VersionArgs(kind) != nil || OneShotArgs(kind, "x") != nil || TrustEnv(kind, false) != nil {
+		if UnattendedArgs(kind) != nil || VersionArgs(kind) != nil || VersionContains(kind) != "" || OneShotArgs(kind, "x") != nil || TrustEnv(kind, false) != nil {
 			t.Errorf("%q has flags", kind)
 		}
 		if ms, err := Models(h, t.Context()); ms != nil || err != nil {
@@ -657,6 +670,7 @@ func TestLoadRefuses(t *testing.T) {
 		"model, no field":                     {"claude.yaml", "version: 1\nlabel: x\nmodel: {home: .x, glob: '{session}.jsonl'}\n", "home and field are needed"},
 		"a nameless preset":                   {"claude.yaml", "version: 1\nlabel: x\nflags: {permissions: [{args: [--yes]}]}\n", "without label or args"},
 		"model flag is not a flag":            {"claude.yaml", "version: 1\nlabel: x\nflags: {model: model}\n", "is not a flag"},
+		"version text, no version flag":       {"claude.yaml", "version: 1\nlabel: x\nflags: {version_contains: Claude Code}\n", "flags.version_contains: without flags.version"},
 		"two recommended":                     {"claude.yaml", "version: 1\nlabel: x\noffers: [{model: a, label: A, recommended: yardmaster}, {model: b, label: B, recommended: yardmaster}]\n", "offers: 2 recommended, want exactly one"},
 		"none recommended":                    {"claude.yaml", "version: 1\nlabel: x\noffers: [{model: a, label: A}, {model: b, label: B}]\n", "offers: 0 recommended, want exactly one"},
 		"an offer without a model":            {"claude.yaml", "version: 1\nlabel: x\noffers: [{label: A, recommended: yardmaster}, {model: b, label: B}]\n", "offers: one without a model id"},

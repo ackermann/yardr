@@ -100,6 +100,7 @@ func harnessKnown(h store.Harness) []string {
 	add(len(h.Flags.Always) > 0, "flags always passed")
 	add(len(h.Flags.Permissions) > 0, "permission presets")
 	add(len(h.Flags.Version) > 0, "version flag")
+	add(h.Flags.VersionContains != "", "the name its version prints")
 	add(len(h.Flags.OneShot) > 0, "one-shot call")
 	add(h.Install != "", "where to get it")
 	add(h.Fetch != nil, "a fetch for a Mac")
@@ -259,6 +260,9 @@ func printHarness(w io.Writer, h store.Harness, has bool) {
 		fmt.Fprintf(w, "  always:     %s\n", args(h.Flags.Always))
 	}
 	fmt.Fprintf(w, "  version:    %s\n", args(h.Flags.Version))
+	if h.Flags.VersionContains != "" {
+		fmt.Fprintf(w, "  says:       %q in what the version flag prints, or the program is not this harness\n", h.Flags.VersionContains)
+	}
 	if len(h.Flags.OneShot) > 0 {
 		fmt.Fprintf(w, "  one shot:   %s <prompt>\n", args(h.Flags.OneShot))
 	} else {
