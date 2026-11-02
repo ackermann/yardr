@@ -98,7 +98,7 @@ var longRunnings = []*longRunning{
 	{Name: svcDaemon, What: "daemon", Flags: []string{"interval", "max-attempts"},
 		Log: (*config.Config).DaemonLog, Lock: (*config.Config).DaemonLock, Env: daemonEnv, Warn: (*app).daemonWarnings,
 		Without: "The sessions it started carry on in herdr;\nnothing is dispatched until a daemon runs: %[1]s init --start, or %[1]s daemon in a pane of its own."},
-	{Name: svcWeb, What: "web view", Run: []string{"serve"}, Flags: []string{"addr", "host", "as", "pages-addr", "pages-host"}, Addr: "addr", Setting: store.WebAddrSetting, EnvAddr: func(c *config.Config) string { return c.WebAddr },
+	{Name: svcWeb, What: "web view", Run: []string{"serve"}, Flags: []string{"addr", "host", "as", "pages-addr", "pages-host", "local-read"}, Addr: "addr", Setting: store.WebAddrSetting, EnvAddr: func(c *config.Config) string { return c.WebAddr },
 		Log: (*config.Config).WebLog, Records: (*config.Config).WebViews, Env: server.ServerEnv, Check: webLoopback, FromSetting: (*app).pagesFlagsFromSetting},
 	{Name: svcBDP, What: "BDP server", Run: []string{"serve"}, Flags: []string{"addr", "scope", "host"}, Addr: "addr", Setting: store.BDPAddrSetting, EnvAddr: func(c *config.Config) string { return c.BDPAddr },
 		Log: (*config.Config).BDPLog, Records: (*config.Config).BDPServers, Env: server.ServerEnv, Check: bdpLoopback},
@@ -147,6 +147,13 @@ func webLoopback(flags *pflag.FlagSet) error {
 	}
 	if v := flags.Lookup("pages-host").Value.String(); v != "" {
 		if _, err := store.CheckWebHost("--pages-host", v); err != nil {
+			return err
+		}
+	}
+	// The local-read listener is on loopback under every flag, and a start
+	// that would not open it is refused here, not left to a log.
+	if f := flags.Lookup("local-read"); f.Changed {
+		if err := web.CheckLocalReadAddr(f.Value.String()); err != nil {
 			return err
 		}
 	}

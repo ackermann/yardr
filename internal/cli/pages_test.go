@@ -35,19 +35,44 @@ func TestPagesFlagsDefault(t *testing.T) {
 	}
 }
 
-// web serve refuses a sandbox address off loopback before it touches the
-// yard, naming the flag that gave it.
-func TestWebServeRefusesPagesAddr(t *testing.T) {
+// web serve refuses a sandbox address, and a local-read address, off
+// loopback before it touches the yard, naming the flag that gave it.
+// --unsafe lets the sandbox origin's address go off loopback with the view's,
+// and never the local-read listener's, which has no token: its refusal does
+// not offer --unsafe.
+func TestWebServeRefusesPagesAndLocalReadAddr(t *testing.T) {
 	t.Parallel()
 	env := testEnv(t, t.TempDir())
-	for _, addr := range []string{":8789", "0.0.0.0:8789", "192.168.1.10:8789"} {
+	for _, c := range []struct {
+		args []string
+		flag string
+		// want is what the refusal says besides the flag.
+		want string
+	}{
+		{[]string{"--pages-addr", ":8789"}, "--pages-addr", "refused"},
+		{[]string{"--pages-addr", "0.0.0.0:8789"}, "--pages-addr", "refused"},
+		{[]string{"--pages-addr", "192.168.1.10:8789"}, "--pages-addr", "refused"},
+		{[]string{"--local-read", ":8793"}, "--local-read", "an address with no host listens on every interface"},
+		{[]string{"--local-read", "0.0.0.0:8793"}, "--local-read", "0.0.0.0 is not a loopback address"},
+		{[]string{"--local-read", "192.168.1.10:8793"}, "--local-read", "192.168.1.10 is not a loopback address"},
+		{[]string{"--local-read", "yard.example.net:8793"}, "--local-read", "yard.example.net is not a loopback address"},
+		{[]string{"--unsafe", "--local-read", ":8793"}, "--local-read", "whatever --unsafe says of the view"},
+		{[]string{"--unsafe", "--local-read", "0.0.0.0:8793"}, "--local-read", "whatever --unsafe says of the view"},
+		{[]string{"--unsafe", "--local-read", "192.168.1.10:8793"}, "--local-read", "whatever --unsafe says of the view"},
+		{[]string{"--unsafe", "--addr", "0.0.0.0:8791", "--local-read", "0.0.0.0:8793"}, "--local-read", "refused"},
+		{[]string{"--local-read", "127.0.0.1"}, "--local-read", "missing port"},
+		{[]string{"--local-read", ""}, "--local-read", "missing port"},
+	} {
 		a := &app{env: env}
-		_, err := run(t, a.webCmd(), "serve", "--pages-addr", addr)
-		if err == nil || !strings.Contains(err.Error(), "--pages-addr") || !strings.Contains(err.Error(), "refused") {
-			t.Errorf("--pages-addr %s: %v, want a refusal that names the flag", addr, err)
+		_, err := run(t, a.webCmd(), append([]string{"serve"}, c.args...)...)
+		if err == nil || !strings.Contains(err.Error(), c.flag) || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%v: %v, want a refusal that names %s and says %q", c.args, err, c.flag, c.want)
+		}
+		if err != nil && c.flag == "--local-read" && strings.Contains(err.Error(), "unless --unsafe is given") {
+			t.Errorf("%v: the refusal offers --unsafe, which the local-read listener never has: %v", c.args, err)
 		}
 		if a.st != nil {
-			t.Errorf("--pages-addr %s: the store was opened", addr)
+			t.Errorf("%v: the store was opened", c.args)
 		}
 	}
 }
@@ -98,10 +123,13 @@ func TestWebServeClosesViewIfPagesAddrIsInUse(t *testing.T) {
 	_ = view.Close()
 }
 
-// A start and an install hand the sandbox origin's flags on when they
-// are given, and check what the yard's settings and the environment
-// resolve them to: a start with neither hands on only the view's
-// address, and the serve it starts resolves the sandbox itself.
+// A start and an install hand the sandbox origin's flags and --local-read
+// on when they are given, and check what the yard's settings and the
+// environment resolve them to: a start with neither hands on only the
+// view's address, and the serve it starts resolves the sandbox itself. The
+// local-read flag has no setting and no environment: without it the service
+// has no local-read listener to keep, and with it the install writes it
+// into the service, so a login restart opens it again.
 func TestStartAndInstallTakeThePagesFlags(t *testing.T) {
 	// The setting variables are blank in the process already (TestMain).
 	home := newHomeDir(t)
@@ -137,6 +165,8 @@ func TestStartAndInstallTakeThePagesFlags(t *testing.T) {
 		[]string{"web", "serve", "--addr", "127.0.0.1:8791", "--pages-addr", "127.0.0.1:9001", "--pages-host", "pages.example.net"})
 	starts([]string{"--pages-host", "pages.example.net"},
 		[]string{"web", "serve", "--addr", "127.0.0.1:8791", "--pages-host", "pages.example.net"})
+	starts([]string{"--local-read", "127.0.0.1:8793"},
+		[]string{"web", "serve", "--addr", "127.0.0.1:8791", "--local-read", "127.0.0.1:8793"})
 
 	if _, err := run(t, a().rootCmd(), "web", "install", "--pages-addr", "127.0.0.1:9001", "--pages-host", "pages.example.net"); err != nil {
 		t.Fatal(err)
@@ -147,8 +177,42 @@ func TestStartAndInstallTakeThePagesFlags(t *testing.T) {
 	}
 	wantText(t, string(body), "<string>--pages-addr</string>\n\t\t<string>127.0.0.1:9001</string>",
 		"<string>--pages-host</string>\n\t\t<string>pages.example.net</string>")
+	if strings.Contains(string(body), "--local-read") {
+		t.Errorf("an install without --local-read wrote it into the service:\n%s", body)
+	}
 	if _, err := run(t, a().rootCmd(), "web", "uninstall"); err != nil {
 		t.Fatal(err)
+	}
+	// With the flag the service keeps it across a login restart.
+	if _, err := run(t, a().rootCmd(), "web", "install", "--local-read", "127.0.0.1:8793"); err != nil {
+		t.Fatal(err)
+	}
+	if body, err = os.ReadFile(filepath.Join(dir, "dev.yardr.web."+homeID(home)+".plist")); err != nil {
+		t.Fatal(err)
+	}
+	wantText(t, string(body), "<string>--local-read</string>\n\t\t<string>127.0.0.1:8793</string>")
+	if _, err := run(t, a().rootCmd(), "web", "uninstall"); err != nil {
+		t.Fatal(err)
+	}
+	// Loopback under every flag: a start or an install that would open it
+	// elsewhere is refused before anything runs, and nothing is written.
+	for _, verb := range []string{"start", "install"} {
+		for addr, want := range map[string]string{
+			"0.0.0.0:8793": "loopback", "192.168.1.5:8793": "loopback", ":8793": "loopback",
+			"yard.example.net:8793": "loopback", "": "missing port",
+		} {
+			started = nil
+			_, err := run(t, a().rootCmd(), "web", verb, "--local-read", addr)
+			if err == nil || !strings.Contains(err.Error(), "--local-read") || !strings.Contains(err.Error(), want) {
+				t.Errorf("web %s --local-read %q = %v, want a refusal that names the flag and says %q", verb, addr, err, want)
+			}
+			if len(started) != 0 {
+				t.Errorf("web %s --local-read %q started %q", verb, addr, started)
+			}
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "dev.yardr.web."+homeID(home)+".plist")); !os.IsNotExist(err) {
+		t.Errorf("a refused install left a service file behind: %v", err)
 	}
 
 	// The yard's settings resolve in the serve a start starts: a start

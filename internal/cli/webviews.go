@@ -27,7 +27,12 @@ type webView struct {
 	// listener gave it, "" for a view from before the origin was
 	// recorded. A start with --pages-addr port 0 prints it.
 	PagesAddr string `json:"pages_addr,omitempty"`
-	PID       int    `json:"pid"`
+	// LocalReadAddr is the address of its local-read listener, as that
+	// listener gave it, "" for a view that opened none. It is the address
+	// of a reader's door (docs/web.md, "Behind an auth gateway"), no address
+	// for a browser, so it has no URL here.
+	LocalReadAddr string `json:"local_read_addr,omitempty"`
+	PID           int    `json:"pid"`
 	// Unsafe is whether it was started with --unsafe.
 	Unsafe bool `json:"unsafe"`
 	// As is the user it acts as (--as, YARDR_WEB_AS or web_as), "" when it
@@ -62,14 +67,17 @@ type webView struct {
 func webViewsDir(cfg *config.Config) string { return cfg.WebViews() }
 
 // announceWeb records this process as a web view of the home listening on
-// addr with its sandbox origin on pagesAddr, acting as the user as ("" for
-// none) or verifying the tokens of jwtFrom in JWT mode ("" for none), until
-// clear is called. A view that acts keeps its token in the record (token, ""
-// for none): the record is a file of mode 0600 in the home's own directory
-// of them, which is where the operator, and yardr web open for them, find
-// it.
-func announceWeb(cfg *config.Config, addr, pagesAddr string, unsafe bool, as, jwtFrom, token string) (clear func(), err error) {
+// addr with its sandbox origin on pagesAddr and its local-read listener on
+// localReadAddr ("" for none), acting as the user as ("" for none) or
+// verifying the tokens of jwtFrom in JWT mode ("" for none), until clear is
+// called. A view that acts keeps its token in the record (token, "" for
+// none): the record is a file of mode 0600 in the home's own directory of
+// them, which is where the operator, and yardr web open for them, find it.
+func announceWeb(cfg *config.Config, addr, pagesAddr, localReadAddr string, unsafe bool, as, jwtFrom, token string) (clear func(), err error) {
 	fields := map[string]any{"addr": addr, "pages_addr": pagesAddr, "unsafe": unsafe, "as": as, "jwt_from": jwtFrom}
+	if localReadAddr != "" {
+		fields["local_read_addr"] = localReadAddr
+	}
 	if token != "" {
 		fields["token"] = token
 	}
@@ -111,7 +119,8 @@ func webPagesAddr(cfg *config.Config, pid int) string {
 }
 
 // reach is the view in words: who can open it, and whom it acts as — or, in
-// JWT mode, whose tokens it verifies.
+// JWT mode, whose tokens it verifies — and where its local-read listener
+// answers, a door with no token that anyone on this machine can read by.
 func (v webView) reach() string {
 	reach := "this machine only"
 	if v.Open {
@@ -124,6 +133,9 @@ func (v webView) reach() string {
 		reach += ", jwt from " + v.JWTFrom
 	} else if v.As != "" {
 		reach += ", acts as " + v.As
+	}
+	if v.LocalReadAddr != "" {
+		reach += ", local read at " + v.LocalReadAddr
 	}
 	return reach
 }

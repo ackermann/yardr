@@ -262,7 +262,9 @@ signed, expired, of another issuer or for another audience, is 401; a valid
 token whose email maps to no user is 403, and so is a valid token for a
 user the yard removed, with no restart between the removal and the
 refusal. The sandbox origin takes the same token on every request, so a
-note's bytes have no tokenless path.
+note's bytes have no tokenless path. A reader on the yard's own machine,
+which holds no token, reads through the local-read listener instead
+([below](#a-reader-on-this-machine---local-read)).
 
 Each request then acts as its own user: the talk page holds the visitor's
 conversation and sends mail as them, an ask answers where it is addressed
@@ -291,6 +293,65 @@ A token without the claim is never fresh, so a gateway that signs none
 leaves every session not fresh; and a claim that cannot be read is served
 like none, since reading it refuses nothing. A strong card's approval is
 what reads it ([One bead](#one-bead)).
+
+#### A reader on this machine: `--local-read`
+
+In JWT mode the view's own address asks every request but `/health` for the
+gateway's token, and a process on the yard's machine that reads the view's
+JSON (a dashboard's server-side fetch, a script) holds none. `--local-read
+<addr>` gives it a way in that is not the gateway's: a second listener
+beside the view's own that answers the view's read-only JSON and its stream
+with no token. No token is minted, stored or sent. The trust is the
+machine's, as the view's own local reading was before JWT mode: the view
+has no login, and who may read the yard from this machine is the machine's
+business. The gateway path is untouched: the view's own address answers 401
+to a request with no token, as ever.
+
+```sh
+yardr web install --local-read 127.0.0.1:8793
+curl -s http://127.0.0.1:8793/beads                        # JSON, with no token
+curl -sN 'http://127.0.0.1:8793/events?format=json&after=0'  # the events anyone is told, then live
+curl -s http://127.0.0.1:8791/beads                        # 401: the view's own address still asks
+```
+
+- **None unless asked for.** `yardr web serve`, `yardr web start` and
+  `yardr web install` take the flag, with an address. There is no default,
+  no variable and no setting, and no port derived from the view's: without
+  the flag the view opens nothing beside its own and the sandbox origin's.
+  `yardr web install` writes it into the service's file, so the listener
+  comes back at every login ([Keeping it running](#keeping-it-running)). It
+  works on a view that is not in JWT mode too, and on one that acts: it asks
+  no cookie either, and its reader acts as no one.
+- **Loopback under every flag.** `--unsafe` and `--host` widen the view,
+  never this: an address off loopback (`0.0.0.0:8793`, a LAN address, a
+  name that is not this machine's, one with no host) is refused before
+  anything starts, `--unsafe` or not, and `yardr web start` and `yardr web
+  install` refuse it as they refuse the view's. Do not point a proxy or a
+  tunnel at it: it asks for no token, so a gateway in front of it would
+  admit its visitors to the yard's lists with no token to check.
+- **What it serves.** GET and HEAD for `/depots`, `/flows`, `/groups`,
+  `/routes`, `/crew`, `/beads` (and `/beads?all=1`), `/beads/<id>`,
+  `/sessions` and `/deps`, and the stream `/events?format=json`
+  ([The stream](#the-stream)). Each is answered as JSON whatever the
+  request's `Accept` says, since this listener serves no page; they are the
+  answers a visitor with no user gets from the view ([Pages](#pages)). Its
+  reader acts as no one: it is told what the yard tells anyone, and the
+  mail that the stream tells a mail's parties alone it does not carry.
+  The stream streams JSON only: the other `format`s are 400.
+- **What it refuses.** Any method but GET and HEAD is 405, with `Allow: GET,
+  HEAD`, on every path. Every other path is 404, in JSON: the pages and the
+  talk page with its forms, blobs, assets, pairing and the sign-in returns,
+  `/limits`, `/previews`, `/peers`, `/telemetry`, `/health` and the rest. A
+  `Host` header that names no host of this machine's is 421, with the same
+  rules as on the view ([Loopback only](#loopback-only)).
+- **If its port is taken** the view still serves, and its log warns that the
+  local reader is unavailable (`the local reader is unavailable: ...`).
+- **Where to find it.** The serve log names it
+  (`local_read=http://127.0.0.1:8793/`), the view's record has it as
+  `local_read_addr` (`yardr status --json | jq -r '.web.views[].local_read_addr'`),
+  and `yardr status` and `yardr doctor` add `local read at 127.0.0.1:8793`
+  to the view's line ([Where it runs](#where-it-runs)). It is a reader's
+  door and no address for a browser: the view's URL is the one to open.
 
 ### `--unsafe`: every interface
 
@@ -563,6 +624,15 @@ the service starts goes by `YARDR_WEB_PAGES_ADDR` and
 `YARDR_WEB_PAGES_HOST` from its install environment, else the yard's
 `web_pages_addr` and `web_pages_host` settings, read at every start.
 
+Both take `--local-read` as `yardr web serve` does
+([A reader on this machine](#a-reader-on-this-machine---local-read)):
+an address on loopback for the listener that answers the view's read-only
+JSON with no token. `yardr web install` writes it into the service's
+file, so the listener is opened again at every login; it has no setting
+and no variable, so a start or an install without the flag has none.
+`yardr web start` and `yardr web install` refuse an address off loopback
+before anything is started or written.
+
 `yardr web start` starts `yardr web serve` detached, logging to
 `<home>/web.log`, waits until it listens and prints its address, its pid and
 how to stop it. It refuses an address something listens on already. A view
@@ -606,6 +676,7 @@ whom it acts as.
 
 ```
 web view   http://127.0.0.1:8791/     pid 4801  build abcdef123456  this machine only, acts as mckean
+           http://127.0.0.1:8792/     pid 4872  build abcdef123456  this machine only, local read at 127.0.0.1:8793
            http://192.168.1.20:9000/  pid 4950  build abcdef123456  open to the network (--unsafe), no login
            service that starts at login: not installed (yardr web install)
 ```
@@ -631,7 +702,8 @@ a `note` for a view that is open to the network.
   them while the server is stopped too, and starts none.
 - While it serves, a view keeps a record in `<home>/webviews/` (its
   address, its pid, `--unsafe` or not, the user it acts as, when it started,
-  the build it runs and, for a view that acts, its token) and holds a lock
+  the build it runs, the address of its sandbox origin and of its local-read
+  listener where it has one, and, for a view that acts, its token) and holds a lock
   on it. The record is a file of mode 0600: `yardr status` and `yardr doctor`
   print the rest of it and never the token
   ([The token and the cookie](#the-token-and-the-cookie)). It removes the

@@ -18,7 +18,8 @@ import (
 
 // pagesFixture serves a yard's view and its sandbox origin side by side,
 // both reading the blobs where the yard keeps them, as production does:
-// the store's home is the view's.
+// the store's home is the view's. The local-read listener (localread_test.go)
+// stands beside them, as it does on a view started with --local-read.
 type pagesFixture struct {
 	t       *testing.T
 	st      store.API
@@ -26,6 +27,7 @@ type pagesFixture struct {
 	home    string
 	view    *httptest.Server
 	sandbox *httptest.Server
+	local   *httptest.Server
 }
 
 func newPagesFixture(t *testing.T) *pagesFixture {
@@ -58,7 +60,8 @@ func newPagesJWTFixture(t *testing.T, jwks *jwksStub, users map[string]string) *
 	return servePagesFixture(t, st, srv, dir)
 }
 
-// servePagesFixture serves srv's view and its sandbox origin side by side.
+// servePagesFixture serves srv's view and its sandbox origin side by side,
+// and its local-read listener beside them.
 func servePagesFixture(t *testing.T, st store.API, srv *web.Server, dir string) *pagesFixture {
 	t.Helper()
 	f := &pagesFixture{t: t, st: st, srv: srv, home: dir}
@@ -66,6 +69,8 @@ func servePagesFixture(t *testing.T, st store.API, srv *web.Server, dir string) 
 	t.Cleanup(func() { shut(f.view) })
 	f.sandbox = httptest.NewServer(srv.PagesHandler())
 	t.Cleanup(func() { shut(f.sandbox) })
+	f.local = httptest.NewServer(srv.LocalReadHandler())
+	t.Cleanup(func() { shut(f.local) })
 	return f
 }
 
@@ -99,6 +104,11 @@ func (f *pagesFixture) get(target string, headers ...string) resp {
 func (f *pagesFixture) getPages(target string, headers ...string) resp {
 	f.t.Helper()
 	return f.do(f.sandbox, http.MethodGet, target, headers...)
+}
+
+func (f *pagesFixture) getLocal(target string, headers ...string) resp {
+	f.t.Helper()
+	return f.do(f.local, http.MethodGet, target, headers...)
 }
 
 // getJSON reads target on the view as JSON into v and returns the answer.

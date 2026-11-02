@@ -32,6 +32,7 @@ func (a *app) webCmd() *cobra.Command {
 	var hosts []string
 	var as string
 	var pagesAddr, pagesHost string
+	var localRead string
 	serve := &cobra.Command{
 		Use:   "serve",
 		Short: "Serve a view of the yard over HTTP",
@@ -89,6 +90,17 @@ which the proxy forwards beside the view's; --pages-host names a second
 name for it instead, which the proxy routes to the origin and run links
 use (docs/web.md, "Behind a proxy").
 
+--local-read opens a third listener, for a reader on this machine that
+holds no gateway token (a dashboard's server-side fetch, a script). It
+answers the view's read-only JSON (the lists, a bead) and the /events
+stream to GET and HEAD with no token, though the view's own address asks
+every request for one in JWT mode, and it serves nothing else: no page, form
+or blob. It listens on the address given, on loopback under every flag
+(--unsafe too), and there is none without the flag. A reader there acts as
+no one, and the trust is the machine's: do not point a proxy at it. If its
+port is taken the view serves on and warns that the local reader is
+unavailable (docs/web.md, "Behind an auth gateway").
+
 The view acts as --as when it is given, else as YARDR_WEB_AS when set in
 the command's environment, else as the yard's web_as setting (yardr
 settings set web_as <user>), and reads only with none of them. Whoever it
@@ -134,6 +146,7 @@ this machine. Both answers carry Retry-After.`,
   yardr web serve --unsafe                 # http://<this machine's IP>:8791/
   yardr web serve --unsafe --addr 192.168.178.90:9000   # that interface only
   yardr web serve --unsafe --host yard.example.net      # http://yard.example.net:8791/ too
+  yardr web serve --local-read 127.0.0.1:8793           # beside the view: its read-only JSON and stream, for a reader on this machine
   curl -H 'Accept: application/json' localhost:8791/
   curl -N 'localhost:8791/events?format=json&after=0'   # every event, then live`,
 		Args: cobra.NoArgs,
@@ -149,6 +162,12 @@ this machine. Both answers carry Retry-After.`,
 			}
 			if c.Flags().Changed("pages-host") {
 				if _, err := store.CheckWebHost("--pages-host", pagesHost); err != nil {
+					return err
+				}
+			}
+			// Loopback whatever --unsafe says: it has no token to guard it.
+			if c.Flags().Changed("local-read") {
+				if err := web.CheckLocalReadAddr(localRead); err != nil {
 					return err
 				}
 			}
@@ -255,6 +274,14 @@ this machine. Both answers carry Retry-After.`,
 				return err
 			}
 			defer pln.Close()
+			// The local reader is the view's to offer, not its to lose:
+			// without its port the view serves on (localReadListener).
+			lln := localReadListener(log, localRead)
+			localReadAddr := ""
+			if lln != nil {
+				defer lln.Close()
+				localReadAddr = lln.Addr().String()
+			}
 			srv.SetPagesAddr(pln.Addr().String())
 			srv.SetPagesHost(pagesHost)
 			if unsafe {
@@ -272,16 +299,24 @@ this machine. Both answers carry Retry-After.`,
 				BaseContext: func(net.Listener) context.Context { return ctx }}
 			ps := &http.Server{Handler: srv.PagesHandler(), ReadHeaderTimeout: 10 * time.Second,
 				BaseContext: func(net.Listener) context.Context { return ctx }}
+			var ls *http.Server
+			if lln != nil {
+				ls = &http.Server{Handler: srv.LocalReadHandler(), ReadHeaderTimeout: 10 * time.Second,
+					BaseContext: func(net.Listener) context.Context { return ctx }}
+			}
 			go func() {
 				<-ctx.Done()
 				sctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
 				_ = hs.Shutdown(sctx)
 				_ = ps.Shutdown(sctx)
+				if ls != nil {
+					_ = ls.Shutdown(sctx)
+				}
 			}()
 			// For yardr status and yardr doctor, which name the views that
 			// run. A view that cannot say so still serves.
-			if clear, err := announceWeb(a.cfg, ln.Addr().String(), pln.Addr().String(), unsafe, as, jwtCfg.Issuer, token); err != nil {
+			if clear, err := announceWeb(a.cfg, ln.Addr().String(), pln.Addr().String(), localReadAddr, unsafe, as, jwtCfg.Issuer, token); err != nil {
 				if token != "" {
 					return fmt.Errorf("could not record the acting web view's token: %w", err)
 				}
@@ -291,6 +326,11 @@ this machine. Both answers carry Retry-After.`,
 			}
 			at := []any{"url", "http://" + ln.Addr().String() + "/",
 				"pages", "http://" + pln.Addr().String() + "/"}
+			// Where a local reader finds it: this line and the view's record
+			// are all that name it, and it is no address for a browser.
+			if localReadAddr != "" {
+				at = append(at, "local_read", "http://"+localReadAddr+"/")
+			}
 			if as != "" {
 				at = append(at, "acts_as", as)
 			} else if jwtCfg.Issuer != "" {
@@ -320,11 +360,18 @@ this machine. Both answers carry Retry-After.`,
 			}
 			stopEdge := server.KeepEdge(ctx, a.cfg, st, "web", srv, log)
 			defer stopEdge()
-			serveErr := make(chan error, 2)
+			servers := 2
+			if ls != nil {
+				servers++
+			}
+			serveErr := make(chan error, servers)
 			go func() { serveErr <- hs.Serve(ln) }()
 			go func() { serveErr <- ps.Serve(pln) }()
+			if ls != nil {
+				go func() { serveErr <- ls.Serve(lln) }()
+			}
 			var first error
-			for i := 0; i < 2; i++ {
+			for i := 0; i < servers; i++ {
 				if err := <-serveErr; err != nil && !errors.Is(err, http.ErrServerClosed) && first == nil {
 					first = err
 					// The view serves nothing half up: one that
@@ -344,6 +391,7 @@ this machine. Both answers carry Retry-After.`,
 	serve.Flags().StringVar(&as, "as", "", "act as this user of the yard: talk, asks, moves (default: YARDR_WEB_AS, else web_as)")
 	serve.Flags().StringVar(&pagesAddr, "pages-addr", webPagesLocalAddr, "listen address of the sandbox origin, on loopback (default: YARDR_WEB_PAGES_ADDR, else web_pages_addr, else "+webPagesLocalAddr+", or a free port beside a view on one); every interface on that port with --unsafe")
 	serve.Flags().StringVar(&pagesHost, "pages-host", "", "public name of the sandbox origin behind a proxy of yours, for run links (default: YARDR_WEB_PAGES_HOST, else web_pages_host)")
+	serve.Flags().StringVar(&localRead, "local-read", "", "listen address of a listener on loopback, whatever --unsafe says, that answers the view's read-only JSON and stream to this machine with no gateway token (default: none)")
 	cmd.AddCommand(serve)
 	cmd.AddCommand(a.webOpenCmd())
 	v := a.longRunningCmds(cmd, serve, kindOf(svcWeb))
@@ -367,10 +415,12 @@ the view acts as that user, and refuses to start when no user of the yard
 has the name; without --as it acts as YARDR_WEB_AS, else the yard's web_as
 setting, and reads only with neither (docs/web.md, "Acting as a user"). A
 view that acts keeps its token in its record, not in the log: yardr web open
-opens the view with it.`
+opens the view with it. --local-read is handed on too, and opens the
+local-read listener on loopback (docs/web.md, "Behind an auth gateway").`
 	v.start.Example = `  yardr web start                          # http://127.0.0.1:8791/
   yardr web start --host yard.example.net  # the same, for a proxy that forwards that name
-  yardr web start --as mckean              # acts as mckean: talk, asks, moves`
+  yardr web start --as mckean              # acts as mckean: talk, asks, moves
+  yardr web start --local-read 127.0.0.1:8793   # and a read-only door for a reader on this machine`
 	v.stop.Long = `Tell every web view that runs on this yard to stop, however it was started
 (yardr web serve in a terminal, yardr web start, or the service that starts
 when you log in), and wait
@@ -393,7 +443,9 @@ is written into the service too: the view acts as that user. Without --as
 the view acts as YARDR_WEB_AS from the install environment when set, else
 the yard's web_as setting, which it reads at every start. A view that acts
 makes a token at every start and keeps it in its record, not in the log:
-yardr web open opens the view with it. To reach the
+yardr web open opens the view with it. --local-read is written into the
+service as well, so the local-read listener comes back at every login
+(docs/web.md, "Behind an auth gateway"). To reach the
 view from another machine, forward the port over ssh or put a proxy of
 yours in front of it (docs/web.md, "Behind a proxy").
 
@@ -402,6 +454,7 @@ yours in front of it (docs/web.md, "Behind a proxy").
   yardr web install --addr 127.0.0.1:9000
   yardr web install --host yard.example.net   # for a proxy that forwards that name
   yardr web install --host yard.tailnet-name.ts.net --as mckean
+  yardr web install --local-read 127.0.0.1:8793   # and a read-only door for a reader on this machine
   yardr web uninstall`
 	return cmd
 }
@@ -481,6 +534,23 @@ func (a *app) pagesFlagsFromSetting(ctx context.Context, cfg *config.Config, fla
 		}
 	}
 	return nil
+}
+
+// localReadListener opens the local-read listener on addr. It is nil where
+// addr is "" (no flag, no listener) and where it cannot be opened: the view
+// serves on without it and says so, since a taken port must not take the view
+// with it. Loopback is held again here, whatever --unsafe says of the view's
+// own address: nothing guards this one but the machine.
+func localReadListener(log *slog.Logger, addr string) net.Listener {
+	if addr == "" {
+		return nil
+	}
+	ln, err := web.ListenLocalRead(addr)
+	if err != nil {
+		log.Warn("the local reader is unavailable: the view serves on without its local-read listener", "addr", addr, "err", err)
+		return nil
+	}
+	return ln
 }
 
 // freePagesAddr is where the sandbox origin listens when nothing gave it

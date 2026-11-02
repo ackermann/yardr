@@ -299,7 +299,7 @@ func TestWebOpen(t *testing.T) {
 	// view starts a view that runs, in the sense of its record, for the test.
 	view := func(addr, as, token string) {
 		t.Helper()
-		clear, err := announceWeb(cfg, addr, "", false, as, "", token)
+		clear, err := announceWeb(cfg, addr, "", "", false, as, "", token)
 		if err != nil {
 			t.Fatal(err)
 		}

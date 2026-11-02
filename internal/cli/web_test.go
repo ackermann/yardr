@@ -8,7 +8,10 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"io"
+	"log/slog"
 	"math/big"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -576,6 +579,7 @@ func TestWebServeJWTModeServes(t *testing.T) {
 	}
 	serves()
 	serves("--as=")
+	webServeLocalRead(t)
 }
 
 // jwtTestJWKS serves a key set of one generated RSA key, for tests of serve
@@ -668,6 +672,156 @@ func TestStatusAndDoctorSayJWTFrom(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("web serve did not stop")
 	}
+}
+
+// The local-read case opens a listener beside the view for a reader on this
+// machine that holds no gateway token: with web_jwt_issuer set it answers
+// the view's read-only JSON with no credential, where the view's own address
+// is 401, and it is a reader's door and no more. It is on loopback under
+// --unsafe too. The view's record names it, and yardr status says so; a view
+// started without the flag has none, and a port that is taken leaves the view
+// serving.
+func webServeLocalRead(t *testing.T) {
+	// YARDR_WEB_AS is blank in the process already (TestMain).
+	home, st, a := statusYard(t, "abcdef123456")
+	ctx := context.Background()
+	for k, v := range map[string]string{
+		store.WebJWTIssuerSetting:   "https://team.example.net",
+		store.WebJWTAudienceSetting: "aud-tag",
+		store.WebJWTJWKSSetting:     jwtTestJWKS(t),
+		store.WebJWTUsersSetting:    "jo@example.net=Jo",
+	} {
+		if err := st.SetSetting(ctx, k, v, "Jo"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	taken, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer taken.Close()
+	cfg := &config.Config{Home: home}
+	ask := func(method, addr, path string) (int, string) {
+		t.Helper()
+		req, err := http.NewRequest(method, "http://"+addr+path, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Accept", "application/json")
+		r, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer r.Body.Close()
+		body, _ := io.ReadAll(r.Body)
+		return r.StatusCode, string(body)
+	}
+	for _, c := range []struct {
+		name string
+		args []string
+		// local is whether the record names a local-read address.
+		local bool
+	}{
+		{"no flag", nil, false},
+		{"the flag", []string{"--local-read", "127.0.0.1:0"}, true},
+		{"the flag under --unsafe", []string{"--unsafe", "--addr", "127.0.0.1:0", "--local-read", "127.0.0.1:0"}, true},
+		{"a port that is taken", []string{"--local-read", taken.Addr().String()}, false},
+	} {
+		cmd := (&app{st: st, cfg: cfg, actor: "me"}).rootCmd()
+		cmd.SetArgs(append([]string{"web", "serve", "--addr", "127.0.0.1:0", "--pages-addr", "127.0.0.1:0"}, c.args...))
+		cmd.SilenceUsage, cmd.SilenceErrors = true, true
+		sctx, cancel := context.WithCancel(ctx)
+		done := make(chan error, 1)
+		go func() { done <- cmd.ExecuteContext(sctx) }()
+		var views []webView
+		for deadline := time.Now().Add(10 * time.Second); len(views) == 0; time.Sleep(10 * time.Millisecond) {
+			select {
+			case err := <-done:
+				t.Fatalf("%s: web serve ended: %v", c.name, err)
+			default:
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("%s: web serve recorded nothing", c.name)
+			}
+			views = webViews(cfg)
+		}
+		view := views[0]
+		// The view serves whatever came of the local reader, and in JWT mode
+		// asks its own readers for the gateway's token.
+		if status, _ := ask(http.MethodGet, view.Addr, "/depots"); status != http.StatusUnauthorized {
+			t.Errorf("%s: the view's /depots with no token: status %d, want 401", c.name, status)
+		}
+		if got := view.LocalReadAddr != ""; got != c.local {
+			t.Fatalf("%s: the record names local-read address %q, want one: %v", c.name, view.LocalReadAddr, c.local)
+		}
+		if c.local {
+			if !loopbackOnly(view.LocalReadAddr) || strings.HasSuffix(view.LocalReadAddr, ":0") {
+				t.Errorf("%s: local-read address %q, want a bound loopback address", c.name, view.LocalReadAddr)
+			}
+			if status, body := ask(http.MethodGet, view.LocalReadAddr, "/depots"); status != 200 || !json.Valid([]byte(body)) {
+				t.Errorf("%s: /depots on the local-read address: status %d, want 200 and JSON: %.200s", c.name, status, body)
+			}
+			if status, _ := ask(http.MethodGet, view.LocalReadAddr, "/"); status != http.StatusNotFound {
+				t.Errorf("%s: / on the local-read address: status %d, want 404", c.name, status)
+			}
+			if status, _ := ask(http.MethodPost, view.LocalReadAddr, "/talk"); status != http.StatusMethodNotAllowed {
+				t.Errorf("%s: POST /talk on the local-read address: status %d, want 405", c.name, status)
+			}
+			out, err := run(t, a().rootCmd(), "status")
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantText(t, out, "local read at "+view.LocalReadAddr)
+		} else if out, err := run(t, a().rootCmd(), "status"); err != nil || strings.Contains(out, "local read") {
+			t.Errorf("%s: status says there is a local-read listener (%v):\n%s", c.name, err, out)
+		}
+		cancel()
+		select {
+		case err := <-done:
+			if err != nil && !errors.Is(err, context.Canceled) {
+				t.Fatalf("%s: %v", c.name, err)
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatalf("%s: web serve did not stop", c.name)
+		}
+	}
+}
+
+// The local-read listener is opened only for an address, and a port that is
+// taken is a line in the log, not the view's end: the caller gets none and
+// the view serves on.
+func TestLocalReadListener(t *testing.T) {
+	t.Parallel()
+	var logged bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&logged, nil))
+	if ln := localReadListener(log, ""); ln != nil || logged.Len() != 0 {
+		t.Fatalf("no address: listener %v, log %q, want none and nothing said", ln, logged.String())
+	}
+	taken, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer taken.Close()
+	if ln := localReadListener(log, taken.Addr().String()); ln != nil {
+		ln.Close()
+		t.Fatalf("a taken port opened a listener on %s", ln.Addr())
+	}
+	for _, want := range []string{"the local reader is unavailable", "addr=" + taken.Addr().String(), "address already in use"} {
+		if !strings.Contains(logged.String(), want) {
+			t.Errorf("the warning lacks %q:\n%s", want, logged.String())
+		}
+	}
+	// Loopback is held here too, whatever the caller checked.
+	logged.Reset()
+	if ln := localReadListener(log, "0.0.0.0:0"); ln != nil || !strings.Contains(logged.String(), "refused") {
+		t.Errorf("an address off loopback: listener %v, log %q, want none and a refusal", ln, logged.String())
+	}
+	logged.Reset()
+	ln := localReadListener(log, "127.0.0.1:0")
+	if ln == nil {
+		t.Fatalf("a free loopback port opened no listener: %s", logged.String())
+	}
+	ln.Close()
 }
 
 func TestUnsafeWarning(t *testing.T) {

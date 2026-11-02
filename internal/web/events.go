@@ -261,7 +261,9 @@ func (s *Server) frame(ctx context.Context, e store.Event, format string) ([]byt
 	var b bytes.Buffer
 	viewer := s.acting(ctx)
 	operator := false
-	if s.jwt != nil {
+	// A request with no user has none to be removed: the local-read
+	// listener's readers are nobody's, in JWT mode too (LocalReadHandler).
+	if s.jwt != nil && viewer != "" {
 		var removed bool
 		operator, removed = s.jwtUserStatus(ctx, viewer)
 		if removed {

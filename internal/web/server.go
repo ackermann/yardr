@@ -99,6 +99,9 @@ type Server struct {
 	pagesMux  *http.ServeMux
 	pagesAddr string
 	pagesHost string
+	// localMux serves the local-read listener (LocalReadHandler): the
+	// view's read-only JSON routes and its stream, and nothing else.
+	localMux *http.ServeMux
 	// jwt verifies a gateway's token per request (UseJWT), nil when the
 	// view takes no JWT mode.
 	jwt *jwtVerifier
@@ -119,7 +122,7 @@ func NewServer(st store.API, home string, log *slog.Logger) (*Server, error) {
 		streamsBy: map[string]int{}, streamMax: streamMax, streamPerAddr: streamPerAddr,
 		limitsBy: map[string]*limitsEntry[ProviderLimits]{}, sourceLimitsBy: map[string]*limitsEntry[SourceLimits]{},
 		limitsEvery: defaultLimitsEvery, estimates: eta.EstimateManyViaStore,
-		pagesMux: http.NewServeMux(), pagesAddr: store.DefaultWebPagesAddr,
+		pagesMux: http.NewServeMux(), pagesAddr: store.DefaultWebPagesAddr, localMux: http.NewServeMux(),
 		freshPending: map[string]freshChallenge{}, freshStrong: map[string]freshAuth{}}
 	var err error
 	if s.assets, err = loadAssets(); err != nil {
@@ -130,6 +133,7 @@ func NewServer(st store.API, home string, log *slog.Logger) (*Server, error) {
 	}
 	s.routes()
 	s.pagesRoutes()
+	s.localReadRoutes()
 	return s, nil
 }
 
