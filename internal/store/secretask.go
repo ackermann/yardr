@@ -24,7 +24,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -197,8 +196,8 @@ func sourceHost(d *source.Declaration) string {
 	if d.Credential != nil && d.Credential.URL {
 		return d.Address()
 	}
-	if u, err := url.Parse(d.Base); err == nil && u.Host != "" {
-		return u.Scheme + "://" + u.Host
+	if host, ok := baseHost(d.Base); ok {
+		return host
 	}
 	return d.Base
 }

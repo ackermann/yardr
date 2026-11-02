@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -319,6 +320,159 @@ func TestSourceCallChosenBase(t *testing.T) {
 	}
 	if got := call(); got != `{"id":"app"}` {
 		t.Fatalf("with the base cleared: %s", got)
+	}
+}
+
+// crmHost is a stand-in for the customer system that answers /me, under
+// whatever path leads to it, with its own name to a request that carries
+// crmToken, and counts every request that reaches it: two of them tell which
+// host a call was sent to, and whether one was sent at all.
+func crmHost(t *testing.T, name string) (*httptest.Server, *atomic.Int32) {
+	t.Helper()
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		if r.Header.Get("Authorization") != "Bearer "+crmToken {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/me") {
+			fmt.Fprintf(w, `{"id":%q}`, name)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(srv.Close)
+	return srv, &hits
+}
+
+// A source's credential is sent to the host it was given for and to no
+// other. A declaration that replaces the source's with another base (what a
+// pack applied again brings back) holds every call of the source's own
+// credential: nothing reaches either host, the refusal is recorded, counts
+// as no call, and says no word of the credential. With the declaration
+// restored calls go on, with no giving again; the operator's own env_file
+// setting and a giving of the credential each pair it with where calls go
+// now; the same host under another path is no change of host.
+func TestSourceCallCredentialHeld(t *testing.T) {
+	t.Parallel()
+	_, s := storetest.NewOwned(t)
+	ctx := context.Background()
+	if err := s.SetSetting(ctx, store.OperatorSetting, "jo", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	given, givenHits := crmHost(t, "given")
+	placeholder, placeholderHits := crmHost(t, "placeholder")
+	declare := func(base string) {
+		t.Helper()
+		if _, err := s.PutSource(ctx, "crm.yaml", strings.Replace(crmCalls, "BASE", base, 1), "jo"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	declare(given.URL)
+	env := filepath.Join(t.TempDir(), "crm.env")
+	if err := os.WriteFile(env, []byte("CRM_TOKEN="+crmToken+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SetSource(ctx, "crm", store.SourceEnvFile, env, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	// An hour's one call: a refusal that was counted would leave the call
+	// after it none.
+	if _, err := s.SetSource(ctx, "crm", store.SourceCallsPerHour, "1", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	var said strings.Builder
+	call := func() (string, error) {
+		t.Helper()
+		res, err := s.CallSource(ctx, store.SourceCall{Source: "crm", Call: "ping", Actor: "jo"})
+		if err != nil {
+			said.WriteString(err.Error() + "\n")
+			return "", err
+		}
+		return string(res.Answer), nil
+	}
+	answers := func(host, when string) {
+		t.Helper()
+		if got, err := call(); err != nil || got != `{"id":"`+host+`"}` {
+			t.Fatalf("%s: answered %q, %v; want the answer of %s", when, got, err, host)
+		}
+	}
+	held := func(from, to, when string) {
+		t.Helper()
+		_, err := call()
+		for _, want := range []string{"its credential was given for " + from, "the source's calls go to " + to + " now", "yardr source key crm"} {
+			if err == nil || !strings.Contains(err.Error(), want) {
+				t.Fatalf("%s: err = %v; want it to say %q", when, err, want)
+			}
+		}
+	}
+	reached := func(atGiven, atPlaceholder int32, when string) {
+		t.Helper()
+		if g, p := givenHits.Load(), placeholderHits.Load(); g != atGiven || p != atPlaceholder {
+			t.Fatalf("%s: %d requests reached the host it was given for and %d the other; want %d and %d", when, g, p, atGiven, atPlaceholder)
+		}
+	}
+	pairedWith := func(host, when string) {
+		t.Helper()
+		if src, err := s.GetSource(ctx, "crm"); err != nil || src.KeyedHost != host {
+			t.Fatalf("%s: paired with %q, %v; want %q", when, src.KeyedHost, err, host)
+		}
+	}
+	pairedWith(given.URL, "an env_file set at the declared host")
+
+	declare(placeholder.URL)
+	held(given.URL, placeholder.URL, "another base declared")
+	reached(0, 0, "another base declared")
+	if _, last := lastCall(t, s); !strings.Contains(last, `"status":"credential_held"`) {
+		t.Fatalf("the refusal is recorded as %s", last)
+	}
+	pairedWith(given.URL, "another base declared")
+
+	declare(given.URL)
+	answers("given", "the declaration restored")
+	reached(1, 0, "the declaration restored")
+	if _, err := s.SetSource(ctx, "crm", store.SourceCallsPerHour, "", "jo"); err != nil {
+		t.Fatal(err)
+	}
+
+	declare(placeholder.URL)
+	held(given.URL, placeholder.URL, "another base declared again")
+	if _, err := s.SetSource(ctx, "crm", store.SourceEnvFile, env, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	pairedWith(placeholder.URL, "env_file set by the operator")
+	answers("placeholder", "env_file set by the operator")
+	reached(1, 1, "env_file set by the operator")
+
+	declare(given.URL)
+	held(placeholder.URL, given.URL, "the declaration restored over a new pairing")
+	reached(1, 1, "the declaration restored over a new pairing")
+	if _, err := s.KeySource(ctx, "crm", map[string]string{"CRM_TOKEN": crmToken}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	pairedWith(given.URL, "the credential given again")
+	answers("given", "the credential given again")
+	reached(2, 1, "the credential given again")
+
+	declare(given.URL + "/v2")
+	answers("given", "the same host under another path")
+	reached(3, 1, "the same host under another path")
+
+	src, err := s.GetSource(ctx, "crm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec, _ := json.Marshal(src)
+	evs, err := s.EventsSince(ctx, 0, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	log, _ := json.Marshal(evs)
+	for what, text := range map[string]string{"a refusal": said.String(), "the source's record": string(rec), "the events": string(log)} {
+		if strings.Contains(text, crmToken) {
+			t.Fatalf("%s has the credential in it: %s", what, text)
+		}
 	}
 }
 

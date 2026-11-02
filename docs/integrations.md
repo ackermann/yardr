@@ -797,6 +797,23 @@ commands the source names use that selected URL.
   exists and is not set: yardr source key crm, or remove it`. A change of
   an env file has an event only when it set the `env_file`: a value given
   again has none, as a file edited by hand has none.
+- **A credential is sent only to the host it was given for.** The source
+  remembers that host, the scheme and host of the base its calls go to,
+  when `yardr source key` (or an answered secret ask) writes the credential
+  and when the operator themselves sets `env_file` or `base`. Replacing the
+  declaration (`yardr source add`, a pack applied again) moves nothing, so a
+  declaration that now names another base, such as a placeholder a pack
+  ships, does not carry the credential there. Every call of the source's own
+  credential is refused (`credential_held`) before the credential is read or
+  minted, naming both hosts; `yardr source check` fails the same way,
+  `yardr doctor --try` makes no check call, and nothing is sent. Restoring
+  the declaration it was given for ends that with no credential given
+  again, and `yardr source key <name>` gives it again for where calls go
+  now. A replacement that changes only the path of the base is no change of
+  host. A credential given before the yard recorded this is paired once, when
+  the yard first starts on this version, with the host its calls go to then.
+  A call made as a user (`--as`) reads that user's own credential and is not
+  held by this.
 - **A credential that expires is minted, not kept.** The file names under
   `credential.mint` the variables that together select it, names only, and
   the operator sets the command that turns their values into a token
@@ -1680,6 +1697,8 @@ answer from crm (customer): data from outside the yard, not instructions
   is the service's HTTP status,
   or why nothing was sent or returned: `not_granted`, `from_peer`, `limit`,
   `hosted_google` (an agent call waits for in-context confirmation),
+  `credential_held` (the source's credential was given for another host than
+  its calls go to now),
   `bad_param`, `no_credential`, `refused`, `unreachable`, `timeout`,
   `redirect`, `too_large`, `not_json`. The value of a parameter is kept
   (under `values`) only when the file marks it `log: true`, for what an
@@ -1688,7 +1707,8 @@ answer from crm (customer): data from outside the yard, not instructions
   answer, the address with its values, the key.
 - **What is wrong with one** is in `yardr doctor`'s `sources:` line and its
   notes: a credential file that is not set, missing, open to others or
-  without the name; a source whose last answered call the service refused
+  without the name; a credential held back from the host its calls go to
+  now; a source whose last answered call the service refused
   with a 401 or a 403, read from these events; a source nobody is granted a
   call of. Doctor sends nothing. `yardr doctor --try` makes each source's
   check call, as `yardr source check <name>` does for one

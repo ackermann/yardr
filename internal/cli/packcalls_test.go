@@ -527,6 +527,37 @@ func TestDoctorSources(t *testing.T) {
 		t.Fatalf("doctor --try sent %d requests, want the check call alone", got)
 	}
 
+	// A declaration that names another base holds the credential back from
+	// it, as a pack applied again brings one back: doctor says no call can
+	// be made, --try sends nothing, and the declaration restored clears both.
+	crm, err := a.st.GetSource(ctx, "crm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	declared, err := crm.Declaration()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.st.PutSource(ctx, "crm.yaml", strings.Replace(crm.Text, declared.Base, "http://127.0.0.1:1/crm", 1), "me"); err != nil {
+		t.Fatal(err)
+	}
+	if p = part(false); !has(p, "source crm: no call of it can be made: its credential was given for ") ||
+		!has(p, "and the source's calls go to http://127.0.0.1:1 now") || !has(p, yardr+" source key crm, which pairs it with http://127.0.0.1:1") {
+		t.Fatalf("a credential given for another host: %+v", p)
+	}
+	if p = part(true); !has(p, "not tried: source crm holds its credential back from the host its calls go to now") {
+		t.Fatalf("--try with a credential given for another host: %+v", p)
+	}
+	if got := requests(); got != 1 {
+		t.Fatalf("doctor --try sent %d requests with another base declared, want none beyond the one before", got)
+	}
+	if _, err := a.st.PutSource(ctx, "crm.yaml", crm.Text, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if p = part(false); len(p.Notes) != 0 {
+		t.Fatalf("with the declaration restored: %+v", p)
+	}
+
 	// A credential the service no longer takes: the last call says so, from
 	// its event, and --try says it of the check call.
 	bad := envFile(t, "CRM_TOKEN=rotated-away\nCRM_UPDATE_TOKEN=rotated-away\n", 0o600)

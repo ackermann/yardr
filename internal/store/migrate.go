@@ -30,6 +30,14 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
+// schemaVersion 36 has a source remember the host its credential was given for
+// (Source.KeyedHost): a call is held while its declaration sends the credential
+// to another host, and migrateSourceKeyedHost pairs each source that already
+// has an env_file with the host its calls go to, so that no keyed source has to
+// be given its credential again. A build before it never opens the store:
+// checkSchema refuses a store newer than the build knows before any migration
+// or bucket write, so none rewrites a source without the pairing and sends its
+// credential to whatever host the declaration then names.
 // schemaVersion 35 has routes without a priority: they are ranked by a named
 // order of what they ask of a bead (migrateRoutePriority), and of two of one
 // scope and key from before the add refused them, the one that never won is
@@ -216,7 +224,7 @@ import (
 // Bump this whenever a build starts writing something every write must
 // keep up (an index, a field a read relies on): the stamp is what stops an
 // older build from appending to the store without it.
-const schemaVersion = 35
+const schemaVersion = 36
 
 var kSchema = []byte("schema")
 
@@ -374,6 +382,7 @@ func openMigrations(home string, moved, depotsMoved bool) []migration {
 		{version: 33, run: atVersion(migrateNotificationsTakebackHeld)},
 		{version: 34, run: atVersion(migrateNotificationsHeld)},
 		{version: 35, run: atVersion(migrateRoutePriority)},
+		{version: 36, run: atVersion(migrateSourceKeyedHost)},
 	}
 }
 

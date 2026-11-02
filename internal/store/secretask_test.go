@@ -444,7 +444,9 @@ func TestGiveSecret(t *testing.T) {
 	if b, _ := os.ReadFile(file); string(b) != "CRM_TOKEN="+value+"\n" {
 		t.Fatalf("the file holds %q", b)
 	}
-	if src, err := y.GetSource(y.ctx, "crm"); err != nil || src.EnvFile != file {
+	// The credential is given for the host the card said, the one the
+	// source's calls go to.
+	if src, err := y.GetSource(y.ctx, "crm"); err != nil || src.EnvFile != file || src.KeyedHost != "https://crm.example.com" {
 		t.Fatalf("the source = %+v, %v", src, err)
 	}
 	if n := sourceSetEvents(t, y.Store); n != 1 {

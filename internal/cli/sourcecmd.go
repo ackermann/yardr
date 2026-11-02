@@ -1100,7 +1100,11 @@ base is which of the declaration's region bases the source's calls go to,
 one of the names under its bases key. It is refused where the file declares
 none, and a name it has not is refused with the names it has: no free-text
 base is accepted, so the credential goes only to a host the file declares.
-base= with nothing after it is the declaration's own base again.`,
+base= with nothing after it is the declaration's own base again.
+
+Setting env_file or base is where a credential comes from and where it is
+sent, so it also pairs the credential with the host the source's calls go to
+afterwards (see yardr source key).`,
 		Example: `  umask 077
   IFS= read -rs v && printf 'CRM_TOKEN=%s\n' "$v" > ~/.yardr/sources/crm.env; unset v
   chmod 600 ~/.yardr/sources/crm.env
@@ -1221,6 +1225,13 @@ credential is set now, as yardr source show says it. Refused: a name the
 declaration does not have, an empty value, one with a line break in it or
 white space at either end. It is the operator's, and is refused from the
 pane of an agent, as yardr source set is.
+
+The credential is given for the host the source's calls go to now, and the
+yard remembers it: while the source's declaration sends to another host, as
+a replacement by a pack applied again can, its own calls and yardr source
+check are held back, naming both hosts, and nothing is sent. Restoring the
+declaration it was given for ends that; giving the credential again here
+pairs it with where the calls go then.
 
 With --as <user> it is that user's own credential in the source that is
 given, which a call made as them reads: the value goes into the user's
@@ -1555,6 +1566,15 @@ process for it. Nothing of the request is written anywhere.`,
 					fmt.Fprintf(w, "%s: its file names no check call (check: <a read call without parameters>), so nothing was sent%s\n", d.Name, saidAs)
 				}
 			default:
+				// The source's own credential is not sent to a host it was not
+				// given for: this call is made here and not by CallSource, so it
+				// asks the same question before anything is read or minted. A
+				// check as a user reads the user's own credential.
+				if checkAs == "" {
+					if held := src.CredentialHeld(d); held != "" {
+						return fmt.Errorf("source %s: %s", d.Name, held)
+					}
+				}
 				cred, mstate, err := readOf(c.Context())
 				if err != nil {
 					return fmt.Errorf("source %s: %w", d.Name, err)
@@ -2082,88 +2102,6 @@ func widened(was, now *source.Declaration, grants []store.SourceGrant) string {
 	}
 	return fmt.Sprintf("through their grant of %s, %s may now call: %s (yardr source revoke %s %s takes it back)",
 		store.GrantRead, strings.Join(who, ", "), strings.Join(calls, ", "), now.Name, store.GrantRead)
-}
-
-type sourceRemovalReferences struct {
-	subscriptions  int
-	participations int
-	unsubscribe    []string
-	unfollow       []string
-}
-
-// sourceRmReferences counts the records source rm leaves behind and prints
-// the command for removing each subscriber's subscriptions and each thread
-// participation. A single unsubscribe takes every subscription of that
-// source for one crew member, group or user. A name a crew member and a
-// manual group share takes two commands, one with each of --crew and
-// --group: the one without a flag would refuse, both having subscriptions.
-func sourceRmReferences(ctx context.Context, st store.API, source string) (sourceRemovalReferences, error) {
-	left := sourceRemovalReferences{
-		unsubscribe: []string{},
-		unfollow:    []string{},
-	}
-	subscribed := map[string]map[string]bool{}
-	unfollow := map[string]bool{}
-	addSubscriptions := func(name, kind string, subs []store.Subscription) {
-		for _, sub := range subs {
-			if sub.Source == source {
-				left.subscriptions++
-				if subscribed[name] == nil {
-					subscribed[name] = map[string]bool{}
-				}
-				subscribed[name][kind] = true
-			}
-		}
-	}
-
-	crew, err := st.Crew(ctx)
-	if err != nil {
-		return left, err
-	}
-	for _, member := range crew {
-		addSubscriptions(member.Name, "crew", member.Subscriptions)
-		threads, err := st.Threads(ctx, member.Name)
-		if err != nil {
-			return left, err
-		}
-		for _, participation := range threads {
-			if participation.Source == source {
-				left.participations++
-				unfollow["yardr thread unfollow "+shellQuote(member.Name)+" --source "+shellQuote(source)+" "+shellQuote(participation.Thread)] = true
-			}
-		}
-	}
-	groups, err := st.Groups(ctx)
-	if err != nil {
-		return left, err
-	}
-	for _, group := range groups {
-		addSubscriptions(group.Name, "group", group.Subscriptions)
-	}
-	users, err := st.Users(ctx)
-	if err != nil {
-		return left, err
-	}
-	for _, user := range users {
-		addSubscriptions(user.Name, "user", user.Subscriptions)
-	}
-	for name, kinds := range subscribed {
-		base := "yardr unsubscribe " + shellQuote(name) + " " + shellQuote(source)
-		switch {
-		case kinds["crew"] && kinds["group"]:
-			left.unsubscribe = append(left.unsubscribe, base+" --crew", base+" --group")
-		case kinds["user"] && kinds["group"]:
-			left.unsubscribe = append(left.unsubscribe, base, base+" --group")
-		default:
-			left.unsubscribe = append(left.unsubscribe, base)
-		}
-	}
-	for command := range unfollow {
-		left.unfollow = append(left.unfollow, command)
-	}
-	slices.Sort(left.unsubscribe)
-	slices.Sort(left.unfollow)
-	return left, nil
 }
 
 // printable is source text the CLI prints for the operator — a thread id,

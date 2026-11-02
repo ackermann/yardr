@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"slices"
 	"sort"
@@ -54,6 +55,15 @@ type Source struct {
 	// of every env_file (ReadEnvFile). Empty until the operator
 	// sets it; PutSource keeps what the source has.
 	EnvFile string `json:"env_file,omitempty"`
+	// KeyedHost is where the credential in EnvFile was given for: the host
+	// the source's calls went to (sourceHost, with the base setting in place)
+	// when KeySource wrote it, or when the operator set the env_file or the
+	// base. A call is held while the declaration sends to another host
+	// (CredentialHeld), so a replaced declaration that names a new base does
+	// not carry the credential there. Only those writes move it: PutSource
+	// keeps what the source has. It is the declaration's own address, never
+	// the credential. Empty for a source that has no env_file.
+	KeyedHost string `json:"keyed_host,omitempty"`
 	// EnvFileUnset is the file at the path KeySource writes to for a
 	// source without an env_file, when one stands there and none is set:
 	// what a giving left that was written and not recorded
@@ -138,6 +148,60 @@ func (s Source) CalledAt(d *source.Declaration) string {
 	return addr
 }
 
+// baseHost is the scheme and host of a base; ok is false for a base that
+// names no host, which only a declaration that makes no call has.
+func baseHost(base string) (host string, ok bool) {
+	if u, err := url.Parse(base); err == nil && u.Host != "" {
+		return u.Scheme + "://" + u.Host, true
+	}
+	return "", false
+}
+
+// pairCredential records where the credential in the source's env_file goes
+// from now on: the host its calls go to under d, with the base setting in
+// place. A source with no env_file holds no credential and is paired with
+// nothing. It is the one place the pairing is made, for KeySource and for
+// the operator's own env_file and base settings.
+func (s *Source) pairCredential(d *source.Declaration) {
+	s.KeyedHost = ""
+	if s.EnvFile != "" {
+		s.KeyedHost = sourceHost(d.WithBase(s.Base))
+	}
+}
+
+// CredentialHeld says why the source's own credential is not sent where its
+// calls go under d, and "" when it is. The credential was given for
+// KeyedHost, and a declaration that was replaced since may name another
+// base: the credential is then kept from it, since a placeholder a
+// declaration brings is not a host the operator gave it for. What is held is
+// the call itself, before the credential is read or minted, so nothing is
+// sent, and the words never hold the credential.
+//
+// It holds only where a stored credential would be read and sent to a
+// host: the source has an env_file, its declaration names a credential that
+// is not the address itself, and the selected base has a host. A call made
+// as a user reads the user's own credential and is not held here. Whoever
+// sends the source's own credential asks this first (CallSource, yardr
+// source check, yardr doctor --try).
+func (s Source) CredentialHeld(d *source.Declaration) string {
+	if s.EnvFile == "" || d.Credential == nil || d.Credential.URL {
+		return ""
+	}
+	d = d.WithBase(s.Base)
+	if _, ok := baseHost(d.Base); !ok {
+		return ""
+	}
+	host := sourceHost(d)
+	if s.KeyedHost == host {
+		return ""
+	}
+	key := fmt.Sprintf("yardr source key %s, which pairs it with %s", s.Name, host)
+	if s.KeyedHost == "" {
+		return fmt.Sprintf("the yard has no record of the host its credential was given for, and the source's calls go to %s, so it is not sent there. Give it again with %s", host, key)
+	}
+	return fmt.Sprintf("its credential was given for %s, and the source's calls go to %s now (the declaration or the base setting changed since), so it is not sent there. Restore the declaration it was given for, or give it again with %s", s.KeyedHost, host, key)
+}
+
 // PutSource adds the source text declares, under the name the text gives
 // it, or replaces the one of that name, which keeps its settings. file is
 // how an error names the text. A declaration that source.Parse refuses,
@@ -181,6 +245,9 @@ func (w *wtx) putSource(d *source.Declaration, text, actor string, by *approvedO
 		return nil, err
 	}
 	src.EnvFile, src.MintCommand, src.CallsPerHour, src.UpdatesPerHour, src.Base = was.EnvFile, was.MintCommand, was.CallsPerHour, was.UpdatesPerHour, was.Base
+	// The pairing stands through a replacement, whatever the new text says
+	// of its base: moving it is for whoever gives the credential again.
+	src.KeyedHost = was.KeyedHost
 	src.Ignored = was.Ignored
 	if d.Limits != nil {
 		if err := limitsKindsFree(w.Tx, d); err != nil {
@@ -372,6 +439,17 @@ func (w *wtx) setSource(ctx context.Context, name, key, value string, perHour in
 	case SourceBase:
 		src.Base = value
 	}
+	// Where a credential comes from and where it is sent are the operator's
+	// alone (sourceSetAsk), so their own setting of either pairs the
+	// credential with where the calls go afterwards. A declaration this
+	// build cannot read pairs it with nothing: no call of it is made either.
+	if key == SourceEnvFile || key == SourceBase {
+		if d, err := src.Declaration(); err == nil {
+			src.pairCredential(d)
+		} else {
+			src.KeyedHost = ""
+		}
+	}
 	if err := put(w.Tx, bSources, name, src); err != nil {
 		return nil, err
 	}
@@ -548,7 +626,8 @@ const SecretNoAnswer = "the yard did not answer. The value may be written. Give 
 // as SetSource sets it. It is how a value reaches a file without a person
 // writing the file by hand, and a value is kept nowhere else: not in the
 // store, not in an event, not in an error. A source with an env_file gets
-// no write to the store and no event, as a file edited by hand has none.
+// no event, as a file edited by hand has none, and a write to the store
+// only where the host its credential is given for changes (KeyedHost).
 //
 // The file and the store are two writes. See keySource for their order and
 // *KeyNotRecorded for what is left when the second fails.
@@ -752,13 +831,24 @@ func (w *wtx) keySource(ctx context.Context, home, name string, values map[strin
 		return err
 	}
 	file := src.EnvFile
-	if file == "" {
+	setFile := file == ""
+	if setFile {
 		// The server chooses the path: nothing a caller sends is one.
 		file = source.EnvFile(home, name)
 		src.EnvFile = file
+	}
+	// The credential is given for the host the source's calls go to now: a
+	// call is held while its declaration sends elsewhere (CredentialHeld).
+	// Put here, with the checks passed and the file not yet renamed, so that
+	// a giving that fails records nothing.
+	paired := src.KeyedHost
+	src.pairCredential(d)
+	if setFile || src.KeyedHost != paired {
 		if err := put(w.Tx, bSources, name, src); err != nil {
 			return err
 		}
+	}
+	if setFile {
 		if err := w.event("", "source_set", actor, map[string]any{"source": name, SourceEnvFile: file}); err != nil {
 			return err
 		}

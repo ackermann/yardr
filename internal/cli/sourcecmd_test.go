@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"yardr.dev/yardr/internal/scripttest"
@@ -457,6 +458,42 @@ func TestSourceCheck(t *testing.T) {
 	}
 	if _, err = run(t, a.sourceCmd(), "check", "crm"); err == nil || !strings.Contains(err.Error(), "source crm: env_file "+env) || hits != 3 {
 		t.Fatalf("with the env_file gone: %v (%d calls)", err, hits)
+	}
+
+	// The credential was given for this stand-in's host. A declaration that
+	// names another base, as a pack applied again brings back, holds the
+	// check: nothing is sent to either host, and the refusal says both and
+	// how to go on. With the declaration restored the check goes on, with no
+	// credential given again.
+	if err := os.WriteFile(env, []byte("CRM_TOKEN="+token+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var placeholderHits atomic.Int32
+	placeholder := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { placeholderHits.Add(1) }))
+	defer placeholder.Close()
+	moved := filepath.Join(t.TempDir(), "moved.yaml")
+	if err := os.WriteFile(moved, []byte(strings.Replace(checkedSource, "BASE", placeholder.URL, 1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, a.sourceCmd(), "add", moved); err != nil {
+		t.Fatal(err)
+	}
+	status, location = 200, ""
+	_, err = run(t, a.sourceCmd(), "check", "crm")
+	for _, want := range []string{"source crm: its credential was given for " + srv.URL, "the source's calls go to " + placeholder.URL + " now", "yardr source key crm"} {
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("with another base declared: %v; want it to say %q", err, want)
+		}
+	}
+	if hits != 3 || placeholderHits.Load() != 0 {
+		t.Fatalf("with another base declared: %d requests reached the host it was given for (was 3) and %d the other", hits, placeholderHits.Load())
+	}
+	said += err.Error()
+	if _, err := run(t, a.sourceCmd(), "add", file); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := run(t, a.sourceCmd(), "check", "crm"); err != nil || !strings.Contains(out, "crm: check call ping (GET /me): 200 in ") || hits != 4 || auth != "Bearer "+token {
+		t.Fatalf("with the declaration restored: %q %v (%d calls, Authorization %q)", out, err, hits, auth)
 	}
 
 	evs, err := st.EventsSince(context.Background(), 0, 100)

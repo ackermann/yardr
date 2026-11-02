@@ -65,16 +65,26 @@ func sourcesPart(ctx context.Context, cfg *config.Config, st store.API, try bool
 		if credErr == nil && sel.Inputs != nil && len(src.Mint) == 0 {
 			credErr = &source.NoMintCommand{Source: d.Name}
 		}
+		// A credential set up is still not sent to a host it was not given
+		// for, so no call of it is made and its check call is not tried.
+		held := ""
+		if credErr == nil {
+			held = src.CredentialHeld(d)
+		}
 		// A file nobody needs is not a note: with no grant or
 		// notification the server makes no call of the source, and a
 		// crew member holds the key its commands run with. Only its
 		// check call wants the source's own file then.
 		holder, _ := pack.KeyHolder(ctx, st, d)
 		quiet := credErr != nil && src.EnvFile == "" && !granted && !told && holder != ""
-		if credErr != nil {
+		if credErr != nil || held != "" {
 			if !quiet {
+				why := held
+				if credErr != nil {
+					why = credErr.Error()
+				}
 				// The error names the commands, as they are typed for the default home.
-				note := fmt.Sprintf("source %s: no call of it can be made: %v", d.Name, credErr)
+				note := fmt.Sprintf("source %s: no call of it can be made: %s", d.Name, why)
 				for _, c := range []string{"source key", "source set", "bead ask"} {
 					note = strings.ReplaceAll(note, "yardr "+c, yardr+" "+c)
 				}
@@ -92,6 +102,8 @@ func sourcesPart(ctx context.Context, cfg *config.Config, st store.API, try bool
 		case !try:
 		case credErr != nil:
 			part.Notes = append(part.Notes, fmt.Sprintf("not tried: source %s has no credential to make its check call with", d.Name))
+		case held != "":
+			part.Notes = append(part.Notes, fmt.Sprintf("not tried: source %s holds its credential back from the host its calls go to now", d.Name))
 		case d.Check == "":
 			part.Notes = append(part.Notes, fmt.Sprintf("not tried: the file of source %s names no check call (check: <a read call without parameters>)", d.Name))
 		default:
