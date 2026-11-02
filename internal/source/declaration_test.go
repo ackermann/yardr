@@ -562,31 +562,43 @@ func TestParseRefuses(t *testing.T) {
 }
 
 // An optional parameter is a whole value, which can be left out: not a
-// segment of a path, nor a part of a text.
+// segment of a path, nor a part of a text. One with a default is never left
+// out, since the default is sent, so it stands wherever a required one does.
 func TestParseRefusesAnOptionalParameterThatCannotBeLeftOut(t *testing.T) {
 	const file = `name: x
 base: https://x.example.com
 calls:
   get:
     kind: read
-    params: { id: { type: string, optional: true } }
+    params: { id: %s }
     request: { method: GET, path: "%s", query: { q: "%s" }, body: { v: "%s" } }
 `
-	for _, tc := range []struct{ path, query, body, want string }{
-		{"/a/{id}", "{id}", "{id}", "a path has no place for a value that is not given"},
-		{"/a", "id-{id}", "{id}", "it stands alone as a value"},
-		{"/a", "{id}", "id {id}", "it stands alone as a value"},
+	const (
+		optional  = `{ type: string, optional: true }`
+		defaulted = `{ type: string, default: "d" }`
+	)
+	// want is a part of the refusal; empty, that Parse reads the file.
+	for _, tc := range []struct{ param, path, query, body, want string }{
+		{optional, "/a/{id}", "{id}", "{id}", "a path has no place for a value that is not given"},
+		{optional, "/a", "id-{id}", "{id}", "it stands alone as a value"},
+		{optional, "/a", "{id}", "id {id}", "it stands alone as a value"},
+		{optional, "/a", "{id}", "{id}", ""},
+		// A row for each place, so that dropping the default from the rule
+		// of any one of them fails its row.
+		{defaulted, "/a/{id}", "{id}", "{id}", ""},
+		{defaulted, "/a", "id-{id}", "{id}", ""},
+		{defaulted, "/a", "{id}", "id {id}", ""},
+		// A zero or false default is still a default.
+		{`{ type: int, default: 0 }`, "/a/{id}", "id-{id}", "id {id}", ""},
+		{`{ type: bool, default: false }`, "/a/{id}", "id-{id}", "id {id}", ""},
 	} {
-		text := strings.Replace(file, "%s", tc.path, 1)
-		text = strings.Replace(text, "%s", tc.query, 1)
-		text = strings.Replace(text, "%s", tc.body, 1)
-		if _, err := Parse("x.yaml", []byte(text)); err == nil || !strings.Contains(err.Error(), tc.want) {
+		_, err := Parse("x.yaml", []byte(fmt.Sprintf(file, tc.param, tc.path, tc.query, tc.body)))
+		switch {
+		case tc.want == "" && err != nil:
+			t.Errorf("%+v: %v", tc, err)
+		case tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)):
 			t.Errorf("%+v: err = %v", tc, err)
 		}
-	}
-	text := strings.Replace(strings.Replace(strings.Replace(file, "%s", "/a", 1), "%s", "{id}", 1), "%s", "{id}", 1)
-	if _, err := Parse("x.yaml", []byte(text)); err != nil {
-		t.Fatalf("an optional parameter as a whole value: %v", err)
 	}
 }
 
@@ -709,6 +721,10 @@ calls:
 	}
 	if _, err := Parse("x.yaml", []byte(strings.Replace(file, "%s", "", 1))); err != nil {
 		t.Fatalf("a required parameter as the whole body: %v", err)
+	}
+	// A default is sent when the parameter is not given: the body is there.
+	if _, err := Parse("x.yaml", []byte(strings.Replace(file, "%s", `, default: "d"`, 1))); err != nil {
+		t.Fatalf("a parameter with a default as the whole body: %v", err)
 	}
 }
 

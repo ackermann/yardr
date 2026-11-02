@@ -1484,8 +1484,8 @@ func (r *reader) paramDefault(p Param, e entry) (json.RawMessage, bool) {
 func (r *reader) request(c *Call, e entry, credential, inPath, address bool) (hasBody bool) {
 	method, path := false, false
 	// marks checks the {name}s of a string that stands at where (a path,
-	// a query): each a parameter of the call and none optional, and the
-	// credential only in a path the file says takes it (in_path).
+	// a query): each a parameter of the call and none that may be absent,
+	// and the credential only in a path the file says takes it (in_path).
 	marks := func(n *yaml.Node, key, s, where string) bool {
 		ok := true
 		for _, m := range mark.FindAllStringSubmatch(s, -1) {
@@ -1507,9 +1507,9 @@ func (r *reader) request(c *Call, e entry, credential, inPath, address bool) (ha
 				r.errf(n, key, "%s is a file: it stands as a value of the body, which is sent as one upload, not in %s", m[0], where)
 			case p.Type == "secret-file":
 				r.errf(n, key, "%s is a secret-file: it stands as a value of the body, not in %s", m[0], where)
-			case p.Optional && where == "a path":
+			case p.Optional && len(p.Default) == 0 && where == "a path":
 				r.errf(n, key, "%s is optional, and a path has no place for a value that is not given", m[0])
-			case p.Optional && s != m[0]:
+			case p.Optional && len(p.Default) == 0 && s != m[0]:
 				r.errf(n, key, "%s is optional: it stands alone as a value, which is left out when it is not given", m[0])
 			default:
 				continue
@@ -1562,11 +1562,11 @@ func (r *reader) request(c *Call, e entry, credential, inPath, address bool) (ha
 			hasBody = true
 			r.checkFileMarks(c, f.v, f.path)
 			c.Request.Body = r.body(c, f.v, f.path, credential, address)
-			// Left out of a mapping or a list, an optional parameter that is
-			// not given leaves a body. As the whole body it leaves none to
-			// send, and what went instead was null.
+			// Left out of a mapping or a list, an optional parameter with no
+			// default that is not given leaves a body. As the whole body it
+			// leaves none to send, and what went instead was null.
 			if m := mark.FindStringSubmatch(f.v.Value); f.v.Kind == yaml.ScalarNode && m != nil && m[0] == f.v.Value {
-				if p, ok := c.param(m[1]); ok && p.Optional {
+				if p, ok := c.param(m[1]); ok && p.Optional && len(p.Default) == 0 {
 					r.errf(f.v, f.path, "%s is optional, and it is the whole body: not given, there is no body to leave it out of. Put it in a mapping ({ key: %q }), or make it required", m[0], m[0])
 				}
 			}
@@ -1725,7 +1725,7 @@ func (r *reader) body(c *Call, n *yaml.Node, key string, credential, address boo
 			case m[0] == CredentialMark:
 			case !declared:
 				r.errf(n, key, "%s is no parameter of the call %s", m[0], c.Name)
-			case p.Optional && n.Value != m[0]:
+			case p.Optional && len(p.Default) == 0 && n.Value != m[0]:
 				r.errf(n, key, "%s is optional: it stands alone as a value, which is left out when it is not given", m[0])
 			}
 		}

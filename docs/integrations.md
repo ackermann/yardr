@@ -900,6 +900,14 @@ commands the source names use that selected URL.
   with `default: false` is also optional: when a call leaves it out, yardr
   sends the default value. The YAML value has the parameter's type and is
   checked against its pattern, length or enum values when the file is read.
+  An optional parameter with no default is left out of the request when a
+  call does not give it, so it stands only as a whole value in the query or
+  in the body's mapping or list, where its key or item is left out with it:
+  not in a path, not inside a longer text, and not as the whole body. One
+  with a default is never left out, so it may stand anywhere a required one
+  may, a path included. With `kind: { type: enum, values: [pages, folders],
+  default: pages }`, the path `/v2/{kind}/{id}/children` is sent as
+  `/v2/pages/<id>/children` when a call names no kind.
 - **Who calls one**: `yardr source check`, `yardr doctor --try` (the same
   check call, of every source), a setup card (the typed account, before
   anything is stored), the daemon for a source a user

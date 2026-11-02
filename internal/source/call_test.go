@@ -217,7 +217,10 @@ calls:
 
 // A parameter is escaped by where it stands, a body's value has the
 // parameter's type, the credential goes in its header, and select keeps
-// the named keys of the answer.
+// the named keys of the answer. A parameter with a default is sent as the
+// default where the call leaves it out, in a path, a part of a query value
+// and a part of a body's text alike, and as its value where the call gives
+// one; a value outside its enum is refused before anything is sent.
 func TestDoFillsPathQueryBodyAndHeader(t *testing.T) {
 	const file = `name: crm
 base: https://crm.example.com/api
@@ -231,11 +234,12 @@ calls:
       open:  { type: bool, optional: true }
       enabled: { type: bool, default: false }
       plan:  { type: enum, values: [free, paid], optional: true }
+      kind:  { type: enum, values: [notes, tasks], default: notes }
     request:
       method: POST
-      path: "/customers/{id}/notes"
-      query: { "filter[plan]": "{plan}", per: "{limit}", fixed: v1 }
-      body: { limit: "{limit}", open: "{open}", enabled: "{enabled}", say: "for {id}", list: [ "{id}", 3 ] }
+      path: "/customers/{id}/{kind}"
+      query: { "filter[plan]": "{plan}", per: "{limit}", fixed: v1, scope: "kind:{kind}" }
+      body: { limit: "{limit}", open: "{open}", enabled: "{enabled}", say: "for {id} ({kind})", list: [ "{id}", 3 ] }
     answer: { select: [id, name] }
 `
 	s := newStandin(t, jsonAnswer(`[ {"id": 1, "name": "A", "secret": "s"}, {"id": 2, "name": "B", "plan": "paid"} ]`))
@@ -248,13 +252,13 @@ calls:
 		t.Fatalf("answer = %s", res.Answer)
 	}
 	got := s.got()[0]
-	if got.URI != "/api/customers/a%2Fb%20c%3F/notes?filter%5Bplan%5D=paid&fixed=v1&per=20" {
+	if got.URI != "/api/customers/a%2Fb%20c%3F/notes?filter%5Bplan%5D=paid&fixed=v1&per=20&scope=kind%3Anotes" {
 		t.Fatalf("address = %s", got.URI)
 	}
 	if got.Auth != "Bearer "+token {
 		t.Fatalf("Authorization = %q", got.Auth)
 	}
-	if string(got.Body) != `{"enabled":false,"limit":20,"list":["a/b c?",3],"say":"for a/b c?"}` {
+	if string(got.Body) != `{"enabled":false,"limit":20,"list":["a/b c?",3],"say":"for a/b c? (notes)"}` {
 		t.Fatalf("body = %s", got.Body)
 	}
 	if strings.Contains(string(got.Body), token) || strings.Contains(got.URI, token) {
@@ -263,8 +267,21 @@ calls:
 	if _, err := Do(context.Background(), d, "find", map[string]string{"id": "a", "limit": "20", "enabled": "true"}, token, noSecrets); err != nil {
 		t.Fatal(err)
 	}
-	if got := s.got()[1]; string(got.Body) != `{"enabled":true,"limit":20,"list":["a",3],"say":"for a"}` {
+	if got := s.got()[1]; string(got.Body) != `{"enabled":true,"limit":20,"list":["a",3],"say":"for a (notes)"}` {
 		t.Fatalf("explicit value overrides the default: body = %s", got.Body)
+	}
+	if _, err := Do(context.Background(), d, "find", map[string]string{"id": "a", "limit": "20", "kind": "tasks"}, token, noSecrets); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.got()[2]; got.URI != "/api/customers/a/tasks?fixed=v1&per=20&scope=kind%3Atasks" || !strings.Contains(string(got.Body), `"say":"for a (tasks)"`) {
+		t.Fatalf("a given enum replaces the default in the path, the query and the body: %s %s", got.URI, got.Body)
+	}
+	_, err = Do(context.Background(), d, "find", map[string]string{"id": "a", "limit": "20", "kind": "pages"}, token, noSecrets)
+	if reason(err) != BadParam || !strings.Contains(err.Error(), "parameter kind is one of notes, tasks") {
+		t.Fatalf("a value outside the enum: err = %v", err)
+	}
+	if n := len(s.got()); n != 3 {
+		t.Fatalf("a refused call was sent: %d requests", n)
 	}
 }
 

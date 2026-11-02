@@ -371,6 +371,12 @@ reads the secret from at call time, under the secret-file rule, and the
 secret stands as a leaf of the call's body alone, in no parameter, card
 or record.
 
+### API 3
+
+A call parameter with a default may stand anywhere a required parameter
+may, including a path, a part of a query value or the body's text. When the
+caller leaves it out, yardr sends the default.
+
 ## Left out
 
 These are not in the API, and each can join it by a rise of the number if a
