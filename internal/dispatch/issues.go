@@ -83,6 +83,7 @@ func (d *Dispatcher) issueMove(ctx context.Context, m store.IssueMove) {
 		skip(store.SkipFailed, fmt.Sprintf("yardr cannot move an issue in %s (it can in %s)", m.Source, strings.Join(hooks.Forwardable(allDeclarations(ctx, d.Store)...), ", ")), hooks.Forwarded{})
 		return
 	}
+	f = hooks.Hold(f, src)
 	// The store is asked before the source is: a crew member that may not set
 	// a status there has nothing sent in its name.
 	why, err := d.Store.IssueMoveAllowed(ctx, m.ID)

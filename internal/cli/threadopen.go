@@ -76,6 +76,7 @@ of the thread.`,
 			if !ok {
 				return fmt.Errorf("yardr cannot open threads in %s (it can in %s)%s", source, hooks.NamesOrNone(hooks.Openable(allDeclarations(ctx, st)...), ", "), packHint(ctx, st, source))
 			}
+			o = hooks.Hold(o, src)
 			if in = strings.TrimSpace(in); in == "" {
 				return fmt.Errorf("--in is required: the %s to open the thread in", o.Place())
 			}

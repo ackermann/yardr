@@ -14,6 +14,7 @@ import (
 	"yardr.dev/yardr/internal/hooks"
 	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/source"
+	"yardr.dev/yardr/internal/store"
 )
 
 // threadDecl is the adapter for the declared source text says: scripts,
@@ -727,6 +728,52 @@ func linearDeclared(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return string(raw)
+}
+
+// A source whose credential was given for another host than its declaration
+// sends to now runs none of its thread commands, whichever it is asked for:
+// each answers with the held words and starts nothing. Hold says so of an
+// adapter from the source's record, and of no other.
+func TestDeclaredHeldRunsNoThreadCommand(t *testing.T) {
+	dir := t.TempDir()
+	ad := threadDecl(t, acmeThread, acmeScripts(dir))
+	record := func(keyed string) *store.Source {
+		return &store.Source{Name: "acme", EnvFile: "/acme.env", KeyedHost: keyed}
+	}
+	if held := hooks.Hold(ad, record("https://acme.test")); held.Held != "" {
+		t.Fatalf("a credential given for the host the declaration sends to is held: %q", held.Held)
+	}
+	if held := hooks.Hold(ad, nil); held.Held != "" {
+		t.Fatalf("an adapter with no record is held: %q", held.Held)
+	}
+	var replier hooks.Replier = ad
+	if held, ok := hooks.Hold(replier, record("https://given.test")).(hooks.Declared); !ok || held.Held == "" {
+		t.Fatalf("a Replier built for a record that holds the credential is not held: %+v", held)
+	}
+	held := hooks.Hold(ad, record("https://given.test"))
+	ctx := context.Background()
+	env := hooks.Envelope{Source: "acme", Type: "issue", Thread: hooks.Thread{ID: "issue-1"}}
+	for name, call := range map[string]func() error{
+		"reply":  func() error { _, err := held.Reply(ctx, env, "", "answer", "k", "tok"); return err },
+		"posted": func() error { _, err := held.Posted(ctx, env, "k", "tok"); return err },
+		"read":   func() error { _, err := held.Thread(ctx, env, "tok"); return err },
+		"open":   func() error { _, err := held.Open(ctx, "ENG", "title", "body", "k", "", "tok"); return err },
+		"opened": func() error { _, err := held.Opened(ctx, "ENG", "k", "tok", time.Time{}); return err },
+		"state":  func() error { _, err := held.SetState(ctx, "issue-1", "started", "tok"); return err },
+	} {
+		err := call()
+		for _, want := range []string{"source acme: its credential was given for https://given.test", "the source's calls go to https://acme.test now", "yardr source key acme"} {
+			if err == nil || !strings.Contains(err.Error(), want) {
+				t.Fatalf("%s with the credential held: err = %v; want it to say %q", name, err, want)
+			}
+		}
+	}
+	if ran, _ := os.ReadDir(dir); len(ran) != 0 {
+		t.Fatalf("a thread command ran with the credential held: %v", ran)
+	}
+	if _, err := ad.Reply(ctx, env, "", "answer", "k", "tok"); err != nil {
+		t.Fatalf("the adapter that was not held: %v", err)
+	}
 }
 
 // A failing command's stderr reaches the user, and its stdout does not.

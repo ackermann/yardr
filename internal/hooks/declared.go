@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/source"
+	"yardr.dev/yardr/internal/store"
 )
 
 // AdapterFor is the adapter for source: the one built from d, the
@@ -156,6 +157,27 @@ type Declared struct {
 	// command that mints a short-lived token, as one line. A thread
 	// command is handed what it mints; "" when the operator set none.
 	MintCommand string
+	// Held is why the source's own credential is not sent where D's calls
+	// go (store.Source.CredentialHeld), "" when it is. No thread command is
+	// run while it is set: each is handed a credential beside the base it
+	// sends it to. The adapter reads no source record, so whoever builds it
+	// from one says so with Hold.
+	Held string
+}
+
+// Hold returns a, an adapter ReplierFor or one of its like built for the
+// declared source whose record is src, with its thread commands held while
+// that source's credential is held from the host its declaration sends to
+// (Source.CredentialHeld). Whoever has the record beside the adapter and runs
+// its commands says so with it. A builtin adapter runs none of a source's
+// commands and no record holds nothing: both come back as they were.
+func Hold[A any](a A, src *store.Source) A {
+	dec, ok := any(a).(Declared)
+	if !ok || src == nil || dec.D == nil {
+		return a
+	}
+	dec.Held = src.CredentialHeld(dec.D)
+	return any(dec).(A)
 }
 
 func (d Declared) Verify(r *http.Request, body, secret []byte, now time.Time) (string, error) {
@@ -568,6 +590,11 @@ func (d Declared) Normalize(h http.Header, body []byte) (*Envelope, error) {
 // cred is what the core was called with: the adapter looks nothing up
 // itself. read says in the caller's words what the answer lacks.
 func (d Declared) runThread(ctx context.Context, key string, argv []string, in map[string]any, cred string, read func(out []byte) error) error {
+	// Neither a mint is made nor the program started for a credential held
+	// from the host the command would send it to.
+	if d.Held != "" {
+		return fmt.Errorf("source %s: %s", d.D.Name, d.Held)
+	}
 	token, err := d.threadCredential(ctx, in, cred)
 	if err != nil {
 		return err

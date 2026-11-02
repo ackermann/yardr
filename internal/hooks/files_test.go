@@ -20,6 +20,11 @@ import (
 // handed is taken out of it first. The record is read by every device
 // (DeliveryFiles), so a command that prints its credential on failure must
 // not put it in the store, as a build command's stderr is redacted.
+//
+// A source declared at another host than its credential was given for
+// fetches nothing: the command is not run with it, and the delivery keeps
+// its references alone. The declaration restored, the fetch runs again, the
+// credential not given again.
 func TestFetchRedactsCredentialFromFailureReason(t *testing.T) {
 	r := newDepot(t)
 	ctx := context.Background()
@@ -39,10 +44,10 @@ thread:
 calls:
   ping: { kind: read, request: { method: GET, path: /me } }
 `
-	declDir := t.TempDir()
+	declDir, ran := t.TempDir(), filepath.Join(t.TempDir(), "getfile.ran")
 	for name, body := range map[string]string{
 		"normalize": "#!/bin/sh\ncat >/dev/null\nprintf '%s' '{\"type\":\"message\",\"text\":\"[photo]\",\"files\":[{\"id\":\"f-1\",\"name\":\"shed.png\",\"type\":\"photo\",\"size\":7}]}'\n",
-		"getfile":   "#!/bin/sh\ncat >/dev/null\necho \"get of $ACME_TOKEN failed\" >&2\nexit 1\n",
+		"getfile":   "#!/bin/sh\ncat >/dev/null\n: >> " + ran + "\necho \"get of $ACME_TOKEN failed\" >&2\nexit 1\n",
 	} {
 		if err := os.WriteFile(filepath.Join(declDir, name), []byte(body), 0o755); err != nil {
 			t.Fatal(err)
@@ -73,24 +78,51 @@ calls:
 	if _, err := r.st.SetSource(ctx, "acme", store.SourceEnvFile, env, "me"); err != nil {
 		t.Fatal(err)
 	}
-	req, err := http.NewRequest(http.MethodPost, r.srv.URL+"/hooks/acme", bytes.NewReader([]byte(`{}`)))
-	if err != nil {
+	// deliver posts a delivery (a body of its own, since a source's bodies are
+	// unique), waits for its files to be fetched and returns what was kept.
+	deliver := func(body string) []store.BlobRef {
+		t.Helper()
+		req, err := http.NewRequest(http.MethodPost, r.srv.URL+"/hooks/acme", bytes.NewReader([]byte(body)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("X-Acme-Secret", "acme-hook-secret")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		raw, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("answered %d %s", resp.StatusCode, raw)
+		}
+		r.rc.Wait()
+		got, err := r.st.DeliveryFiles(ctx, telegramSeq(t, string(raw)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+
+	// Declared at another host after it was keyed, the source fetches
+	// nothing: the command is not run, and the delivery keeps its references
+	// alone.
+	if _, err := r.st.PutSource(ctx, "acme.yaml", strings.Replace(text, "https://acme.test", "https://elsewhere.test", 1), "me"); err != nil {
 		t.Fatal(err)
 	}
-	req.Header.Set("X-Acme-Secret", "acme-hook-secret")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
+	if got := deliver(`{"n":1}`); len(got) != 0 {
+		t.Fatalf("a source with its credential held kept %+v of its files", got)
+	}
+	if _, err := os.Stat(ran); !os.IsNotExist(err) {
+		t.Fatalf("the fetch command was run with the credential held: %v", err)
+	}
+	if _, err := r.st.PutSource(ctx, "acme.yaml", text, "me"); err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
-	raw, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("answered %d %s", resp.StatusCode, raw)
-	}
-	r.rc.Wait()
-	got, err := r.st.DeliveryFiles(ctx, telegramSeq(t, string(raw)))
-	if err != nil {
-		t.Fatal(err)
+
+	got := deliver(`{"n":2}`)
+	if _, err := os.Stat(ran); err != nil {
+		t.Fatalf("the fetch command was not run with the declaration restored: %v", err)
 	}
 	if len(got) != 1 {
 		t.Fatalf("the delivery's files = %+v, want the one failure", got)

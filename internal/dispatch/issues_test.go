@@ -653,6 +653,45 @@ func TestIssueMoveUsesTheCrewCredential(t *testing.T) {
 	y.now = y.now.Add(time.Hour)
 	y.pass(t)
 	want(t, "the issue after the hook was removed", y.src.Status("linear", "YRD-1"), "In Progress")
+	t.Run("credential held from another host", func(t *testing.T) {
+		// A source declared at another host than its credential was given for
+		// moves nothing: the pack's thread.state is not run, so the credential
+		// reaches neither host, and the move waits with the held words as its
+		// reason. It is made once the declaration is restored, the credential
+		// not given again.
+		y := newIssueYard(t)
+		y.declareLinearPack(t, "")
+		ctx := context.Background()
+		if _, err := y.api.SetSource(ctx, "linear", store.SourceEnvFile, y.env, "me"); err != nil {
+			t.Fatal(err)
+		}
+		src, err := y.api.GetSource(ctx, "linear")
+		must(t, err)
+		var elsewhere atomic.Int64
+		other := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { elsewhere.Add(1) }))
+		t.Cleanup(other.Close)
+		declareAt := func(base string) {
+			t.Helper()
+			_, err := y.api.PutSource(ctx, "linear.yaml", strings.Replace(src.Text, y.base, base, 1), "me")
+			must(t, err)
+		}
+		declareAt(other.URL)
+		y.bead(t, "yard-a", issueA)
+		y.to(t, "yard-a", "new")
+		want(t, "requests to the host it was given for", y.asked.Load(), int64(0))
+		want(t, "requests to the other", elsewhere.Load(), int64(0))
+		ms := y.pending(t)
+		if len(ms) != 1 || ms[0].Attempts != 1 || !strings.Contains(ms[0].Error, "its credential was given for "+y.base) ||
+			!strings.Contains(ms[0].Error, "the source's calls go to "+other.URL+" now") || !strings.Contains(ms[0].Error, "yardr source key linear") {
+			t.Fatalf("moves %+v", ms)
+		}
+		declareAt(y.base)
+		y.now = y.now.Add(time.Minute)
+		y.pass(t)
+		want(t, "the issue", y.src.Status("linear", "YRD-1"), "In Progress")
+		want(t, "requests to the other host", elsewhere.Load(), int64(0))
+		want(t, "moves left", len(y.pending(t)), 0)
+	})
 }
 
 // A bead tracking a Linear and a GitHub issue, each with a hook and map:

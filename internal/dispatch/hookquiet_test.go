@@ -1,15 +1,18 @@
 package dispatch_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -219,10 +222,14 @@ func TestQuietChatHookProbesWebhook(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	text := strings.Replace(string(raw), "base: https://api.telegram.org", "base: "+srv.URL, 1)
-	if _, err := s.PutSource(ctx, "telegram.yaml", text, "me"); err != nil {
-		t.Fatal(err)
+	declare := func(base string) {
+		t.Helper()
+		text := strings.Replace(string(raw), "base: https://api.telegram.org", "base: "+base, 1)
+		if _, err := s.PutSource(ctx, "telegram.yaml", text, "me"); err != nil {
+			t.Fatal(err)
+		}
 	}
+	declare(srv.URL)
 	env := filepath.Join(t.TempDir(), "telegram.env")
 	must(t, os.WriteFile(env, []byte("TELEGRAM_BOT_TOKEN="+token+"\n"), 0o600))
 	if _, err := s.SetSource(ctx, "telegram", store.SourceEnvFile, env, "me"); err != nil {
@@ -246,7 +253,8 @@ func TestQuietChatHookProbesWebhook(t *testing.T) {
 		must(t, err)
 		return evs
 	}
-	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{}, PromptSettle: -1, PromptWait: -1}
+	var logged bytes.Buffer
+	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{}, PromptSettle: -1, PromptWait: -1, Log: slog.New(slog.NewTextHandler(&logged, nil))}
 	now := time.Now()
 	dispatch.SetClock(d, func() time.Time { return now })
 	pass := func() {
@@ -266,6 +274,34 @@ func TestQuietChatHookProbesWebhook(t *testing.T) {
 	if probed == 0 {
 		t.Fatal("the webhook was never probed")
 	}
+
+	// A declaration that sends to another host than the credential was given
+	// for: the probe is not tried, not even to judge a webhook that is broken,
+	// so the credential reaches neither host and no break is told over a
+	// probe that was not sent. The log says why. The declaration restored,
+	// the probe judges again, as the next step shows.
+	var elsewhere atomic.Int32
+	other := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { elsewhere.Add(1) }))
+	t.Cleanup(other.Close)
+	body = `{"ok":true,"result":{"url":"","pending_update_count":0}}`
+	declare(other.URL)
+	probes := probed
+	pass()
+	if probed != probes || elsewhere.Load() != 0 {
+		t.Fatalf("with the credential held the probe reached the host it was given for %d times and the other %d times, want none", probed-probes, elsewhere.Load())
+	}
+	if n := len(quiets()); n != 0 {
+		t.Fatalf("hook_quiet logged %d times for a probe that was not sent, want 0", n)
+	}
+	for _, want := range []string{"quiet hooks", "hook=telegram", "its credential was given for " + srv.URL, "the source's calls go to " + other.URL + " now"} {
+		if !strings.Contains(logged.String(), want) {
+			t.Fatalf("the log of a held probe lacks %q:\n%s", want, logged.String())
+		}
+	}
+	if strings.Contains(logged.String(), token) {
+		t.Fatalf("the log of a held probe has the credential in it:\n%s", logged.String())
+	}
+	declare(srv.URL)
 
 	// No webhook set at the source: told once, with why, and not again on
 	// the next pass.

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -63,6 +64,43 @@ notify: { call: message, address: { param: user, env: PHONE_USER }, title: title
 		t.Fatal(err)
 	}
 	return y
+}
+
+// declareAt replaces the declaration of source name with one that names base
+// where it named another, as a pack applied again can, and returns the base
+// it named: the host the credential was given for.
+func (y *askYard) declareAt(t *testing.T, name, base string) (was string) {
+	t.Helper()
+	src, err := y.GetSource(y.ctx, name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	was = mustBase(t, src)
+	if _, err := y.PutSource(y.ctx, name+".yaml", strings.ReplaceAll(src.Text, was, base), "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	return was
+}
+
+// otherHost is a stand-in at a host no credential was given for, which
+// counts what reaches it: a held credential is sent nowhere, so it stays 0.
+func otherHost(t *testing.T) (*httptest.Server, *atomic.Int32) {
+	t.Helper()
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hits.Add(1) }))
+	t.Cleanup(srv.Close)
+	return srv, &hits
+}
+
+// wantHeld fails the test unless err says the source's credential is held
+// from the host the declaration names now: both hosts and the way out.
+func wantHeld(t *testing.T, err error, source, from, to string) {
+	t.Helper()
+	for _, want := range []string{"its credential was given for " + from, "the source's calls go to " + to + " now", "yardr source key " + source} {
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("err = %v; want it to say %q", err, want)
+		}
+	}
 }
 
 func checkAsk(to, command string) Ask {
@@ -184,13 +222,35 @@ func TestSourceCheckApprovalSendsOnce(t *testing.T) {
 	var hits []checkHit
 	status := http.StatusOK
 	y := checkYard(t, &hits, &status)
+
+	// A declaration that names another host than the credential was given for
+	// holds the approval of a card drawn from it: the credential is sent to
+	// neither host, the approval says both and the way out, and the ask stays
+	// open. With the declaration restored the credential is not given again:
+	// a card drawn from it sends, once, below.
+	other, otherHits := otherHost(t)
+	given := y.declareAt(t, "phone", other.URL)
+	held := y.ask(t, checkAsk("mckean", "source check phone --user ada"), "yardmaster")
+	_, err := y.ApproveAsk(y.ctx, y.bead, held, "mckean", false, nil)
+	wantHeld(t, err, "phone", given, other.URL)
+	if !strings.Contains(err.Error(), "the test message was not sent") || !strings.Contains(err.Error(), "Approve again to retry") {
+		t.Fatalf("held approval = %v", err)
+	}
+	if len(hits) != 0 || otherHits.Load() != 0 {
+		t.Fatalf("the held approval sent %d requests to the host it was given for and %d to the other", len(hits), otherHits.Load())
+	}
+	if r := y.asked(t, held); r.State != AskOpen {
+		t.Fatalf("the ask is %s after a held send", r.State)
+	}
+	y.declareAt(t, "phone", given)
+
 	ask := y.ask(t, checkAsk("mckean", "source check phone --user ada"), "yardmaster")
 	done, err := y.ApproveAsk(y.ctx, y.bead, ask, "mckean", false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(hits) != 1 {
-		t.Fatalf("the approval sent %d messages", len(hits))
+	if len(hits) != 1 || otherHits.Load() != 0 {
+		t.Fatalf("the approval sent %d messages to the host it was given for and %d to the other", len(hits), otherHits.Load())
 	}
 	hit := hits[0]
 	if hit.method != "POST" || hit.path != "/messages.json" {
@@ -294,6 +354,11 @@ func TestSourceCheckUnreachedServiceSaysSo(t *testing.T) {
 		}
 	}
 	if _, err := y.PutSource(y.ctx, "phone.yaml", strings.Join(lines, "\n"), "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	// The operator gives the credential for that host: a declaration that
+	// moved it elsewhere on its own would be held, and nothing would be tried.
+	if _, err := y.SetSource(y.ctx, "phone", SourceEnvFile, src.EnvFile, "mckean"); err != nil {
 		t.Fatal(err)
 	}
 	ask := y.ask(t, checkAsk("mckean", "source check phone --user ada"), "yardmaster")

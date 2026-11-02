@@ -673,6 +673,47 @@ func TestHookRegisterPostHogRetryChecksFirst(t *testing.T) {
 			}
 		}
 	})
+	t.Run("a held credential is sent to no host", func(t *testing.T) {
+		fake := newFakePostHog(t)
+		y := posthogCheckYard(t, fake)
+		other, otherHits := otherHost(t)
+		given := y.declareAt(t, "posthog", other.URL)
+		hookAdd := func(hook string) uint64 {
+			return y.ask(t, Ask{Question: "Hook PostHog's new error issues up?", To: "mckean", Context: []string{"a", "b"}, Run: &AskRun{Argv: []string{"hook", "add", hook, "--source", "posthog"}}}, "yardmaster")
+		}
+		// The card is drawn from a declaration that sends elsewhere than the
+		// credential was given for. The first approval puts the hook in place
+		// and holds the register call; the second, for a hook that stands from
+		// its ask, holds the check that comes before the register call.
+		ask := hookAdd("posthog")
+		for i, call := range []string{"the register call destination was not made", "the check call destinations was not made"} {
+			_, err := y.ApproveAsk(y.ctx, y.bead, ask, "mckean", true, map[string]string{"project": "48291"})
+			wantHeld(t, err, "posthog", given, other.URL)
+			if err == nil || !strings.Contains(err.Error(), "hook posthog is in place") || !strings.Contains(err.Error(), call) || !strings.Contains(err.Error(), "Approve again to retry") {
+				t.Fatalf("approval %d with the credential held = %v; want it to say %q", i+1, err, call)
+			}
+			if seen := fake.seen(); seen.posts != 0 || seen.gets != 0 || otherHits.Load() != 0 {
+				t.Fatalf("approval %d reached the host it was given for with %d posts and %d gets, and the other host %d times", i+1, seen.posts, seen.gets, otherHits.Load())
+			}
+			if got := y.asked(t, ask); got.State != AskOpen {
+				t.Fatalf("the ask is %s after approval %d was held, want it open", got.State, i+1)
+			}
+		}
+		// The declaration restored, the credential is not given again. The
+		// held hook stands (only the operator replaces one), so the card is of
+		// another hook of the source.
+		y.declareAt(t, "posthog", given)
+		done, err := y.ApproveAsk(y.ctx, y.bead, hookAdd("posthog-again"), "mckean", true, map[string]string{"project": "48291"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(done.Result, "registered with POST /api/projects/{project}/hog_functions/") {
+			t.Errorf("approval with the declaration restored = %q", done.Result)
+		}
+		if seen := fake.seen(); seen.posts != 1 || otherHits.Load() != 0 {
+			t.Fatalf("the restored approval made %d posts and the other host heard %d times", seen.posts, otherHits.Load())
+		}
+	})
 	t.Run("a failing check registers nothing", func(t *testing.T) {
 		fake := newFakePostHog(t)
 		fake.setPostStatus(http.StatusBadRequest)

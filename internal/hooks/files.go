@@ -219,6 +219,12 @@ func (rc *Receiver) sourceCredential(ctx context.Context, d *source.Declaration)
 	if err != nil {
 		return "", err
 	}
+	// The fetch command is handed the credential beside the base it sends it
+	// to, so nothing is read, minted or run while that is a host the
+	// credential was not given for.
+	if held := src.CredentialHeld(d); held != "" {
+		return "", fmt.Errorf("source %s: %s", d.Name, held)
+	}
 	cred, _, err := d.ReadCredential(ctx, src.EnvFile, src.Mint, source.Read, store.ReadEnvFileEntries)
 	if err != nil {
 		return "", err

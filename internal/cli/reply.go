@@ -55,7 +55,7 @@ func hookEvent(ctx context.Context, st store.API, home, arg string) (uint64, hoo
 		return 0, env, nil, fmt.Errorf("event %d came from %s, which yardr cannot answer in (it can in %s)%s",
 			seq, or(env.Source, "an unknown source"), hooks.NamesOrNone(hooks.Repliable(allDeclarations(ctx, st)...), ", "), packHint(ctx, st, env.Source))
 	}
-	return seq, env, r, nil
+	return seq, env, hooks.Hold(r, src), nil
 }
 
 // hookEnvelope is the hook event seq as an envelope, whatever its source.
@@ -321,7 +321,7 @@ func hookFiler(ctx context.Context, st store.API, home string, seq uint64, sourc
 	if !ok {
 		return nil, fmt.Errorf("event %d came from %s, which takes no files", seq, source)
 	}
-	return f, nil
+	return hooks.Hold(f, src), nil
 }
 
 // postWithFiles posts the reply with refs as the files it carries. Each is at

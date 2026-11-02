@@ -89,13 +89,26 @@ func (d *Dispatcher) lookbackCI(ctx context.Context, h *store.Hook, source strin
 // lookbackCredential is the credential a look-back read runs with: the
 // hook's as crew member's, read as for a move, the token a minted one
 // mints with the pull request as the scope. Without a crew member to act
-// as, or a credential to read, the setup is named.
+// as, or a credential to read, the setup is named; so are the held words
+// (store.Source.CredentialHeld) while the source sends to a host it was not
+// given for.
 func (d *Dispatcher) lookbackCredential(ctx context.Context, h *store.Hook, decl *source.Declaration, scope string) (string, error) {
 	if h.As == "" {
 		return "", fmt.Errorf("hook %s acts as no crew member (--as): its pull requests are read with that crew member's credential", h.Name)
 	}
 	if decl.Credential == nil {
 		return "", fmt.Errorf("source %s declares no credential: its look-back commands are handed the variable credential.env names", decl.Name)
+	}
+	// The commands send what they are handed to the base they are told, so
+	// the credential is neither read nor minted, and no command is run, while
+	// the source's declaration sends to a host its credential was not given
+	// for.
+	src, err := d.Store.GetSource(ctx, h.Source)
+	if err != nil {
+		return "", err
+	}
+	if held := src.CredentialHeld(decl); held != "" {
+		return "", fmt.Errorf("source %s: %s", decl.Name, held)
 	}
 	cred, err := d.credential(ctx, h.As, h.Source, decl, hooks.Declared{D: decl})
 	if err != nil {
@@ -107,10 +120,6 @@ func (d *Dispatcher) lookbackCredential(ctx context.Context, h *store.Hook, decl
 	inputs, err := source.UnmintRef(cred, decl.Credential.Mint)
 	if err != nil || inputs == nil {
 		return cred, err
-	}
-	src, err := d.Store.GetSource(ctx, h.Source)
-	if err != nil {
-		return "", err
 	}
 	token, _, err := source.Mint(ctx, decl, src.Mint, inputs, scope)
 	if err != nil {

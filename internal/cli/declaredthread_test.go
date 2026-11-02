@@ -148,13 +148,63 @@ func stdinRuns(t *testing.T, dir, cmd string) int {
 	return strings.Count(string(raw), "\n")
 }
 
+// holdAcme gives acme's credential for the host it is declared at, then
+// declares it at another, as a pack applied again can: the credential is
+// held from the new host. It returns the call that declares acme as it was.
+func holdAcme(t *testing.T, st store.API) (restore func()) {
+	t.Helper()
+	ctx := context.Background()
+	env := filepath.Join(t.TempDir(), "acme.env")
+	if err := os.WriteFile(env, []byte("ACME_TOKEN=tok-1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.SetSource(ctx, "acme", store.SourceEnvFile, env, "me"); err != nil {
+		t.Fatal(err)
+	}
+	declare := func(text string) {
+		t.Helper()
+		if _, err := st.PutSource(ctx, "acme.yaml", text, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	declare(strings.Replace(acmeCLI, "base: https://acme.test", "base: https://elsewhere.test", 1))
+	return func() { declare(acmeCLI) }
+}
+
+// wantAcmeHeld fails the test unless err says acme's credential, given for
+// the host it is declared at, is held from the host it is declared at now,
+// and the command named ran no more than before times.
+func wantAcmeHeld(t *testing.T, err error, dir, command string, before int) {
+	t.Helper()
+	for _, want := range []string{"source acme: its credential was given for https://acme.test", "the source's calls go to https://elsewhere.test now", "yardr source key acme"} {
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("with the credential held: err = %v; want it to say %q", err, want)
+		}
+	}
+	if runs := stdinRuns(t, dir, command); runs != before {
+		t.Fatalf("%s ran %d times with the credential held, want %d", command, runs, before)
+	}
+}
+
 // yardr reply answers a declared source's delivery by running its thread
 // commands: thread.reply to post, thread.posted before a second attempt,
-// so an attempt whose answer was lost is posted once.
+// so an attempt whose answer was lost is posted once. A source declared at
+// another host than its credential was given for runs none of them.
 func TestReplyDeclaredSource(t *testing.T) {
-	a, _, seq, dir := declaredThreadYard(t)
+	a, st, seq, dir := declaredThreadYard(t)
 	t.Setenv("ACME_TOKEN", "tok-1")
 	a.env["YARDR_CREW"] = "yardmaster"
+
+	restore := holdAcme(t, st)
+	_, err := run(t, a.replyCmd(), seq, "answer")
+	wantAcmeHeld(t, err, dir, "reply", 0)
+	shed := filepath.Join(t.TempDir(), "shed.txt")
+	if err := os.WriteFile(shed, []byte("the shed, painted"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err = run(t, a.replyCmd(), seq, "answer", "--file", shed)
+	wantAcmeHeld(t, err, dir, "reply", 0)
+	restore()
 
 	out, err := run(t, a.replyCmd(), seq, "answer")
 	if err != nil {
@@ -294,6 +344,12 @@ func TestThreadOpenDeclaredSource(t *testing.T) {
 	if err != nil || !strings.Contains(out, "may open threads in acme\n") {
 		t.Fatalf("show: %q, %v", out, err)
 	}
+	// A source declared at another host than its credential was given for
+	// opens nothing.
+	restore := holdAcme(t, st)
+	_, err = run(t, a.threadOpenCmd(), "acme", "Made", "--in", "ENG", "--body", "words")
+	wantAcmeHeld(t, err, dir, "open", 0)
+	restore()
 	out, err = run(t, a.threadOpenCmd(), "acme", "Made", "--in", "ENG", "--body", "words")
 	if err != nil {
 		t.Fatal(err)
@@ -333,7 +389,7 @@ func TestThreadOpenDeclaredSource(t *testing.T) {
 // yardr thread state sets a declared source's thread's status by its
 // thread.state, with the grant naming the declared source.
 func TestThreadStateDeclaredSource(t *testing.T) {
-	a, _, seq, dir := declaredThreadYard(t)
+	a, st, seq, dir := declaredThreadYard(t)
 	t.Setenv("ACME_TOKEN", "tok-1")
 	a.env["YARDR_CREW"] = "yardmaster"
 
@@ -343,6 +399,12 @@ func TestThreadStateDeclaredSource(t *testing.T) {
 	if _, err := run(t, a.replyCmd(), seq, "answer"); err != nil {
 		t.Fatal(err)
 	}
+	// A source declared at another host than its credential was given for
+	// sets no status.
+	restore := holdAcme(t, st)
+	_, err := run(t, a.threadStateCmd(), seq, "started")
+	wantAcmeHeld(t, err, dir, "state", 0)
+	restore()
 	out, err := run(t, a.threadStateCmd(), seq, "started")
 	if err != nil {
 		t.Fatal(err)

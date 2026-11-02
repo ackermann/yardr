@@ -1228,10 +1228,10 @@ pane of an agent, as yardr source set is.
 
 The credential is given for the host the source's calls go to now, and the
 yard remembers it: while the source's declaration sends to another host, as
-a replacement by a pack applied again can, its own calls and yardr source
-check are held back, naming both hosts, and nothing is sent. Restoring the
-declaration it was given for ends that; giving the credential again here
-pairs it with where the calls go then.
+a replacement by a pack applied again can, its own calls, yardr source check
+and whatever else would send it there are held back, naming both hosts, and
+nothing is sent. Restoring the declaration it was given for ends that;
+giving the credential again here pairs it with where the calls go then.
 
 With --as <user> it is that user's own credential in the source that is
 given, which a call made as them reads: the value goes into the user's

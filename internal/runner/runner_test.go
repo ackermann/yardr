@@ -540,6 +540,46 @@ calls:
 	if got, err := os.ReadFile(mintCalls); err != nil || !strings.Contains(string(got), `"scope":"acme/webapp#7"`) {
 		t.Errorf("mint command got %q, %v; want the pull request scope", got, err)
 	}
+
+	// A declaration that names another host than the credential was given for
+	// runs no command with it, the mint included: the snapshot is unavailable
+	// and says both hosts and the way out. With the declaration restored the
+	// commands run again, the credential not given again.
+	ran := func() (n [3]int64) {
+		for i, f := range []string{prCalls, ciCalls, mintCalls} {
+			if info, err := os.Stat(f); err == nil {
+				n[i] = info.Size()
+			}
+		}
+		return n
+	}
+	declareAt := func(base string) {
+		t.Helper()
+		if _, err := st.PutSource(ctx, "forge.yaml", strings.Replace(decl, "base: https://forge.test\n", "base: "+base+"\n", 1), "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before := ran()
+	declareAt("https://other.forge.test")
+	if b, err = Brief(job, "a", "/wt/web-e", "", st); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"checks: unavailable (source forge: its credential was given for https://forge.test",
+		"the source's calls go to https://other.forge.test now", "yardr source key forge"} {
+		if !strings.Contains(b, want) {
+			t.Errorf("brief with the credential held lacks %q:\n%s", want, b)
+		}
+	}
+	if ran() != before {
+		t.Errorf("a command ran with the credential held: pr, ci and mint grew from %v to %v", before, ran())
+	}
+	declareAt("https://forge.test")
+	if b, err = Brief(job, "a", "/wt/web-e", "", st); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(b, "build: success") || strings.Contains(b, "unavailable") || ran() == before {
+		t.Errorf("brief with the declaration restored (commands ran: %v):\n%s", ran() != before, b)
+	}
 }
 
 // A relative prompt the depot does not have is read from the yard's home, so

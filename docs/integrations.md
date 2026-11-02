@@ -814,6 +814,21 @@ commands the source names use that selected URL.
   the yard first starts on this version, with the host its calls go to then.
   A call made as a user (`--as`) reads that user's own credential and is not
   held by this.
+
+  Everything else that sends the source's credential to its host asks the
+  same question first, and runs no command with the credential while it is
+  held. A message told through the source (`notify`) is not sent, and the
+  user is recorded as not set up to be told, in the same words. The probe of
+  a chat hook's webhook is not made, and logs the words: a hook is never
+  marked broken for a request that was not sent. An approved `hook add` that
+  registers the webhook, and an approved `yardr source check <name> --user`,
+  fail with the words and stay open, to approve again once the declaration is
+  restored. The pull request and CI reads of a brief and of the daemon give
+  the words in place of their answer. The thread commands (`yardr reply`,
+  `yardr thread open`, `yardr thread state`, a bead's issue moving) and the
+  fetch of a delivery's files are refused with them, and a move is tried again
+  after its wait. A source with no `env_file` has no stored credential, and
+  none of this holds it.
 - **A credential that expires is minted, not kept.** The file names under
   `credential.mint` the variables that together select it, names only, and
   the operator sets the command that turns their values into a token

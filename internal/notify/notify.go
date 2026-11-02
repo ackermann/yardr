@@ -240,6 +240,14 @@ func (p declared) send(ctx context.Context, home string, env map[string]string, 
 	// The telling goes to the source's chosen base, the call and the
 	// image command alike.
 	p.d = p.d.WithBase(p.src.Base)
+	// The source's own credential goes only to the host it was given for. A
+	// telling that would send it elsewhere is not tried, and the image command
+	// is not run with it: it is reached from here, after the credential is
+	// read. The caller records it as a source that is not set up, as it does
+	// for a credential that is not.
+	if held := p.src.CredentialHeld(p.d); held != "" {
+		return 0, notSetUp("source %s: %s", p.d.Name, held)
+	}
 	cred, _, err := p.d.ReadCredential(ctx, p.src.EnvFile, p.src.Mint, source.Update, store.ReadEnvFileEntries)
 	if err != nil {
 		return 0, notSetUp("source %s: %v", p.d.Name, err)

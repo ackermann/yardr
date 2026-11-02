@@ -158,6 +158,33 @@ func TestSendThroughADeclaredSource(t *testing.T) {
 	if sent, err = Send(ctx, st, "", "ada", Message{Text: "x"}); err != nil || sent.OK() || sent.Status != 500 {
 		t.Fatalf("a 500: %+v, %v", sent, err)
 	}
+
+	// A source declared at another host than its credential was given for
+	// tells nobody: the credential goes to neither host, and the refusal is a
+	// NotSetUp that names both and the way out. With the declaration
+	// restored it tells again, the credential not given again.
+	srv.status = 200
+	told := len(srv.got)
+	elsewhere := newStandIn(t)
+	if _, err = st.PutSource(ctx, "push.yaml", strings.Replace(push, "BASE", elsewhere.URL, 1), "ada"); err != nil {
+		t.Fatal(err)
+	}
+	_, err = Send(ctx, st, "", "ada", Message{Text: "x"})
+	var not *NotSetUp
+	for _, want := range []string{"its credential was given for " + srv.URL, "the source's calls go to " + elsewhere.URL + " now", "yardr source key push"} {
+		if !errors.As(err, &not) || !strings.Contains(err.Error(), want) {
+			t.Fatalf("a source declared at another host: err = %v, want a NotSetUp with %q", err, want)
+		}
+	}
+	if len(srv.got) != told || len(elsewhere.got) != 0 || strings.Contains(err.Error(), token) {
+		t.Fatalf("a source declared at another host: %d more requests to the host it was given for, %d to the other (%v)", len(srv.got)-told, len(elsewhere.got), err)
+	}
+	if _, err = st.PutSource(ctx, "push.yaml", strings.Replace(push, "BASE", srv.URL, 1), "ada"); err != nil {
+		t.Fatal(err)
+	}
+	if sent, err = Send(ctx, st, "", "ada", Message{Text: "x"}); err != nil || !sent.OK() || len(srv.got) != told+1 || len(elsewhere.got) != 0 {
+		t.Fatalf("the declaration restored: %+v, %v (%d requests to the host it was given for since, %d to the other)", sent, err, len(srv.got)-told, len(elsewhere.got))
+	}
 	t.Run("image command", testSendImage)
 }
 
@@ -280,6 +307,39 @@ func testSendImage(t *testing.T) {
 	}
 	if sent, err := Send(ctx, st, home, "ada", Message{Text: "x", Image: "/y/blobs/h"}); err != nil || sent.OK() || sent.Status != 500 {
 		t.Fatalf("a picture refused and a call that fails: %+v, %v", sent, err)
+	}
+
+	// A source declared at another host than its credential was given for
+	// runs no image command with it, and sends no words by the call either:
+	// the picture's command is handed the credential, and it would send it on.
+	// The declaration restored, the command runs again.
+	srv.status = 200
+	if err := os.WriteFile(script, []byte(show), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ran := func() int {
+		t.Helper()
+		raw, _ := os.ReadFile(filepath.Join(dir, "image.stdin"))
+		return strings.Count(string(raw), "\n")
+	}
+	before, told := ran(), len(srv.got)
+	elsewhere := newStandIn(t)
+	if _, err := st.PutSource(ctx, "push.yaml", strings.Replace(text, srv.URL, elsewhere.URL, 1), "ada"); err != nil {
+		t.Fatal(err)
+	}
+	_, err = Send(ctx, st, home, "ada", Message{Title: "t", Text: "x", Image: "/y/blobs/h"})
+	var not *NotSetUp
+	if !errors.As(err, &not) || !strings.Contains(err.Error(), "its credential was given for "+srv.URL) {
+		t.Fatalf("a picture through a source declared at another host: err = %v, want a NotSetUp", err)
+	}
+	if ran() != before || len(srv.got) != told || len(elsewhere.got) != 0 {
+		t.Fatalf("a picture through a source declared at another host: the command ran %d more times, %d requests to the host it was given for, %d to the other", ran()-before, len(srv.got)-told, len(elsewhere.got))
+	}
+	if _, err := st.PutSource(ctx, "push.yaml", text, "ada"); err != nil {
+		t.Fatal(err)
+	}
+	if sent, err := Send(ctx, st, home, "ada", Message{Title: "t", Text: "x", Image: "/y/blobs/h"}); err != nil || sent.Status != 215 || ran() != before+1 {
+		t.Fatalf("the declaration restored: %+v, %v (the command ran %d times since)", sent, err, ran()-before)
 	}
 }
 

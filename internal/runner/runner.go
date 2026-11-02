@@ -362,6 +362,12 @@ func declaredChecks(home string, decl *source.Declaration, src *store.Source, re
 		return "checks: unavailable (source " + decl.Name + " declares no ci command (events.ci))"
 	}
 	ctx := context.Background()
+	// The commands are handed the source's own credential beside the base they
+	// send it to, so none is run, nor is a mint made, while that is a host the
+	// credential was not given for.
+	if held := src.CredentialHeld(decl); held != "" {
+		return unavailable(fmt.Errorf("source %s: %s", decl.Name, held))
+	}
 	cred := ""
 	if decl.Credential != nil {
 		selected, err := decl.SelectCredential(src.EnvFile, source.Read, store.ReadEnvFileEntries)

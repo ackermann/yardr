@@ -890,7 +890,9 @@ the source what it holds of the webhook instead, once an hour: its check
 call, as `yardr source check` makes it. No webhook set there is broken, as
 is a delivery that failed since the hook last accepted one; either is
 quiet, whatever the silence, and anything else, or no usable answer, is
-not.
+not. A source whose credential is held back from the host its calls go to
+now is not asked at all, which is no answer: the daemon logs why, and
+never calls the hook quiet for a question it did not send.
 
 `yardr hook list` reads `quiet` in STATE for a quiet hook instead of
 `ok`, with how long nothing came and the gap, and `yardr doctor` notes it

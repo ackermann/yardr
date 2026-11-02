@@ -151,6 +151,13 @@ func (d *Dispatcher) webhookBroken(ctx context.Context, h store.Hook) (broken st
 	}
 	// The probe goes to the source's chosen base, as a call does.
 	decl = decl.WithBase(src.Base)
+	// The source's own credential goes only to the host it was given for. A
+	// probe that would send it elsewhere is not tried: that is no answer, as a
+	// credential that cannot be read is none, and so never a break.
+	if held := src.CredentialHeld(decl); held != "" {
+		d.Log.Warn("quiet hooks", "hook", h.Name, "err", held)
+		return "", false
+	}
 	cred, _, err := decl.ReadCredential(ctx, src.EnvFile, src.Mint, source.Read, store.ReadEnvFileEntries)
 	if err != nil {
 		d.Log.Warn("quiet hooks", "hook", h.Name, "err", err)

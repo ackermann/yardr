@@ -315,6 +315,12 @@ func (s *Store) approveSourceCheck(ctx context.Context, id string, seq uint64, a
 	// the declaration with the base setting in place of its own, so the
 	// credential, the mint and the request all go to one address.
 	job.d = job.d.WithBase(job.src.Base)
+	// The source's own credential goes only to the host it was given for. The
+	// approval fails, as it does for a credential that cannot be read, before
+	// that is read or minted, and the ask stays open.
+	if held := job.src.CredentialHeld(job.d); held != "" {
+		return nil, fmt.Errorf("telling %s through %s failed: the test message was not sent: %s. Approve again to retry", job.user, job.d.Name, held)
+	}
 	cred, _, err := job.d.ReadCredential(ctx, job.src.EnvFile, job.d.MintArgv(s.home, job.src.MintCommand), source.Update, ReadEnvFileEntries)
 	if err != nil {
 		return nil, fmt.Errorf("telling %s through %s failed: the test message was not sent: %v. Approve again to retry", job.user, job.d.Name, err)

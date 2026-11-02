@@ -470,6 +470,13 @@ func (s *Store) approveHookRegister(ctx context.Context, id string, seq uint64, 
 			return finish(fmt.Sprintf("hook %s saved: POST /hooks/%s (%s); %s at %s already lists a webhook for %s, so %s was not called again", job.name, job.name, job.d.Name, check.Request.Line(), job.d.Address(), job.publicURL, reg.Call))
 		}
 	}
+	// The source's own credential goes only to the host it was given for,
+	// whichever base the declaration names now. The approval fails, as it does
+	// for a credential that cannot be read, before that is read or minted: the
+	// hook stays in place and the ask stays open.
+	if held := job.src.CredentialHeld(job.d); held != "" {
+		return nil, fmt.Errorf("hook %s is in place, but registering it failed: the register call %s was not made: %s. Approve again to retry", job.name, reg.Call, held)
+	}
 	cred, _, err := job.d.ReadCredential(ctx, job.src.EnvFile, job.d.MintArgv(s.home, job.src.MintCommand), source.Update, ReadEnvFileEntries)
 	if err != nil {
 		return nil, fmt.Errorf("hook %s is in place, but registering it failed: the register call %s was not made: %v. Approve again to retry", job.name, reg.Call, err)
@@ -509,6 +516,9 @@ func (s *Store) checkHookRegister(ctx context.Context, job *hookRegisterJob) (bo
 	reg := job.d.Hook.Register
 	ex := reg.Existing
 	check, _ := job.d.Call(ex.Call)
+	if held := job.src.CredentialHeld(job.d); held != "" {
+		return false, check, fmt.Errorf("hook %s is in place, but the check whether its webhook stands failed: the check call %s was not made: %s. Approve again to retry", job.name, ex.Call, held)
+	}
 	cred, _, err := job.d.ReadCredential(ctx, job.src.EnvFile, job.d.MintArgv(s.home, job.src.MintCommand), source.Read, ReadEnvFileEntries)
 	if err != nil {
 		return false, check, fmt.Errorf("hook %s is in place, but the check whether its webhook stands failed: the check call %s was not made: %v. Approve again to retry", job.name, ex.Call, err)

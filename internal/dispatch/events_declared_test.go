@@ -160,11 +160,40 @@ func TestForgeCIMovesTrainThroughScriptedCI(t *testing.T) {
 	// Serial: it changes process environment, which parallel tests cannot share.
 	r := newGHDepot(t)
 	r.d.CI, r.d.PRHead = nil, nil
+	now := time.Now()
+	dispatch.SetClock(r.d, func() time.Time { return now })
 	_, ciCalls := liveForge(t, r,
 		"event=ci conclusion=success stage=in-pr -> done",
 		"event=ci conclusion=failure stage=in-pr -> changes")
 	liveTrain(t, r, "yard-t", "review")
 	r.enterInPR(t, "yard-t", fixtureSHA)
+
+	// The source's own credential is given for the base it is set to, and a
+	// declaration that sends that base elsewhere holds the read: the command
+	// is run with no credential, the train waits in in-pr with the held words
+	// as the reason, and the declaration restored reads it after the wait,
+	// the credential not given again.
+	ctx := context.Background()
+	env := filepath.Join(t.TempDir(), "forge.env")
+	must(t, os.WriteFile(env, []byte("FORGE_TOKEN=forge-source\n"), 0o600))
+	_, err := r.api.SetSource(ctx, "forge", store.SourceEnvFile, env, "me")
+	must(t, err)
+	src, err := r.api.GetSource(ctx, "forge")
+	must(t, err)
+	_, err = r.api.PutSource(ctx, "forge.yaml", strings.Replace(src.Text, "eu: https://eu.forge.test", "eu: https://elsewhere.forge.test", 1), "me")
+	must(t, err)
+	r.pass(t)
+	if st := r.stageOf(t, "yard-t"); st != "in-pr" {
+		t.Fatalf("yard-t in %s with its credential held, want in-pr", st)
+	}
+	if _, err := os.Stat(ciCalls); !os.IsNotExist(err) {
+		t.Fatalf("the ci command was run with the credential held: %v", err)
+	}
+	held := "ci error: CI on " + fixtureSHA + " is unknown: source forge: its credential was given for https://eu.forge.test, and the source's calls go to https://elsewhere.forge.test now"
+	wantRules(t, r.ciRules(t, "yard-t"), held)
+	_, err = r.api.PutSource(ctx, "forge.yaml", src.Text, "me")
+	must(t, err)
+	now = now.Add(31 * time.Second)
 	r.pass(t)
 	if st := r.stageOf(t, "yard-t"); st != "land" {
 		t.Fatalf("yard-t in %s with its CI green, want land", st)
@@ -178,7 +207,7 @@ func TestForgeCIMovesTrainThroughScriptedCI(t *testing.T) {
 	if n := r.lastNote(t, "yard-t"); n != "CI green on "+fixtureSHA+": build (the checks main requires)\n(forge ci completed)" {
 		t.Fatalf("note %q", n)
 	}
-	wantRules(t, r.ciRules(t, "yard-t"), "ci green: in-pr -> land")
+	wantRules(t, r.ciRules(t, "yard-t"), held, "ci green: in-pr -> land")
 }
 
 // CI of a source that lost its ci command is read through nothing else:
