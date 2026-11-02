@@ -1086,7 +1086,7 @@ that name, and each has the same verbs beside it, under `yardr daemon`,
 
 | verb | what it does |
 |---|---|
-| `start` | starts the command detached from the terminal, logging to `<home>/daemon.log`, `web.log`, `bdp.log` or `otel.log`, waits until it is up (it listens, or holds its file in the home) and prints its pid. It takes the flags of the command that a background one can use, and hands them on: `--interval` and `--max-attempts`; `--addr`, `--host` and `--local-read` (on loopback, for the web view); `--addr`, `--scope` and `--host` (on loopback, for the BDP server); `--endpoint`, `--traces-endpoint`, `--logs-endpoint`, `--header`, `--after` and `--include-text` |
+| `start` | starts the command detached from the terminal, logging to `<home>/daemon.log`, `web.log`, `bdp.log` or `otel.log`, waits until it is up (it listens, or holds its file in the home) and prints its pid. It takes the flags of the command that a background one can use, and hands them on: `--interval` and `--max-attempts`; `--addr`, `--host`, `--as`, `--pages-addr`, `--pages-host` and `--local-read` (on loopback, for the web view); `--addr`, `--scope` and `--host` (on loopback, for the BDP server); `--endpoint`, `--traces-endpoint`, `--logs-endpoint`, `--header`, `--after` and `--include-text` |
 | `stop` | signals every one of the kind that runs on the yard, however it was started, and waits (`--wait`, default 30s) until it has ended |
 | `status` | says which run, with pid and address, and whether the login service is installed and loaded |
 | `install`, `uninstall` | the login service ([below](#login-services)), with the same flags as `start` |
