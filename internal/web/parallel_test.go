@@ -50,8 +50,8 @@ func (f *parFacts) union(g parFacts) {
 // parAssigned is the package state an assignment target writes: a package
 // variable of this directory's packages, through a field, map entry or
 // pointer, or a variable of an imported package, dotted. locals distinguishes
-// a local that shadows a package variable with the same name. Anything
-// else writes no shared state.
+// a local that shadows a package variable or an import with the same name.
+// Anything else writes no shared state.
 func parAssigned(expr ast.Expr, imports map[string]bool, pkgVars map[string]bool, locals map[*ast.Ident]bool) string {
 	root := expr
 	var sel []string
@@ -77,7 +77,7 @@ found:
 	if !ok || id.Name == "_" {
 		return ""
 	}
-	if imports[id.Name] {
+	if imports[id.Name] && !locals[id] {
 		return id.Name + "." + strings.Join(sel, ".")
 	}
 	if pkgVars[id.Name] && !locals[id] {
@@ -510,7 +510,9 @@ func TestOnlyAllowedTestsStaySerial(t *testing.T) {
 
 // The rule's own check is checked: a parallel test reaching a stub
 // through a helper is caught with its path, an unlisted sequential test
-// is caught with what it reaches, and a stale allow entry is caught.
+// is caught with what it reaches, and a stale allow entry is caught. A
+// local named as a package variable or as an import is no write to either,
+// but the name is the package's again before the local is declared.
 func TestParCheckFindsViolations(t *testing.T) {
 	t.Parallel()
 	own, err := parLoad(map[string][]byte{
@@ -618,6 +620,21 @@ func TestParallelWriteAfterShadowScope(t *testing.T) {
 	state.n++
 }
 
+func TestParallelImportShadow(t *testing.T) {
+	t.Parallel()
+	page := func() (int, int) { return 1, 2 }
+	got, limits := page()
+	got, limits = page()
+	_, _ = got, limits
+}
+
+func TestParallelWriteBeforeImportShadow(t *testing.T) {
+	t.Parallel()
+	limits.Timeout = 1
+	limits := struct{ Timeout int }{}
+	_ = limits
+}
+
 func TestSerialOK(t *testing.T) { stubIt(t) }
 
 func TestParallelOK(t *testing.T) { t.Parallel() }
@@ -641,6 +658,7 @@ func TestSerialCycleUnlisted(t *testing.T) { first() }
 		"TestParallelUnsetenvBad calls t.Parallel but reaches the process environment (os.Unsetenv) in its own body",
 		"TestParallelVarInitializer calls t.Parallel but reaches package state (assign:state) in its own body",
 		"TestParallelWriteAfterShadowScope calls t.Parallel but reaches package state (assign:state) in its own body",
+		"TestParallelWriteBeforeImportShadow calls t.Parallel but reaches package state (assign:limits.Timeout) in its own body",
 		"TestParallelWriteBeforeShadow calls t.Parallel but reaches package state (assign:state) in its own body",
 		"TestSerialCycleUnlisted calls no t.Parallel and is not listed in allowSerial (reaches first): parallelise it, or list it with its seam",
 		"TestSerialUnlisted calls no t.Parallel and is not listed in allowSerial (reaches assign:seam, stubIt): parallelise it, or list it with its seam",

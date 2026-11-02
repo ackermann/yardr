@@ -153,12 +153,12 @@ func TestPeerHoldAnsweredWhenQueued(t *testing.T) {
 	}
 	queued := time.Now()
 	id := a.send(t, "b")
-	got := answered(t, ch, time.Second)
+	got := answered(t, ch, dispatch.WaitFuse)
 	if len(got.page.Messages) != 1 || got.page.Messages[0].ID != id {
 		t.Fatalf("the held question was answered with %+v, want the ping %s (%s after it was queued)", got.page, id, time.Since(queued))
 	}
 	// What waits already is handed over at once, wait or no wait.
-	if got := answered(t, b.ask(t, ctx, "a", clock, 20*time.Second), time.Second); len(got.page.Messages) != 1 {
+	if got := answered(t, b.ask(t, ctx, "a", clock, 20*time.Second), dispatch.WaitFuse); len(got.page.Messages) != 1 {
 		t.Fatalf("a question with something waiting was answered with %+v", got.page)
 	}
 }
@@ -248,12 +248,12 @@ func TestPeerHoldNotAsked(t *testing.T) {
 	a, b := newPeerYard(t, "a", clock), newPeerYard(t, "b", clock)
 	link(t, a, b, false, true)
 	ctx := context.Background()
-	if got := answered(t, b.ask(t, ctx, "a", clock, 0), time.Second); len(got.page.Messages) != 0 {
+	if got := answered(t, b.ask(t, ctx, "a", clock, 0), dispatch.WaitFuse); len(got.page.Messages) != 0 {
 		t.Fatalf("a question without wait: %+v", got.page)
 	}
 	_, err := a.api.SetPeerURL(ctx, "b", b.srv.URL, "jo")
 	must(t, err)
-	if got := answered(t, b.ask(t, ctx, "a", clock, 20*time.Second), time.Second); !got.page.Push {
+	if got := answered(t, b.ask(t, ctx, "a", clock, 20*time.Second), dispatch.WaitFuse); !got.page.Push {
 		t.Fatalf("a question of a peer a posts to: %+v", got.page)
 	}
 }

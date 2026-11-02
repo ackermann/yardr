@@ -51,10 +51,12 @@ calls:
 `
 
 // acmeCLIScripts are acme's thread commands: a few lines of sh that record
-// what they were handed in dir and answer from it.
+// what they were handed in dir and answer from it. A command that writes
+// records the base it was handed too, in <cmd>.base.
 func acmeCLIScripts(dir string) map[string]string {
 	run := func(cmd, answer string) string {
 		return "#!/bin/sh\n{ cat; echo; } >> " + dir + "/" + cmd + ".stdin\n" +
+			"printf '%s' \"$YARDR_SOURCE_BASE\" > " + dir + "/" + cmd + ".base\n" +
 			"touch " + dir + "/done." + cmd + "\nprintf '%s' '" + answer + "'\n"
 	}
 	seen := func(self, check, answer string) string {
@@ -458,6 +460,54 @@ func TestThreadStateDeclaredSource(t *testing.T) {
 	}
 	if out != "acme thread issue-1 was already Done; nothing set\n" {
 		t.Fatalf("not moved: %q", out)
+	}
+}
+
+// acmeRegionCLI is acmeCLI with a second base, as a source with regions
+// declares them: us is acme's own, eu another host.
+var acmeRegionCLI = strings.Replace(acmeCLI, "base: https://acme.test\n",
+	"base: https://acme.test\nbases:\n  us: https://acme.test\n  eu: https://eu.acme.test\n", 1)
+
+// yardr reply, thread open and thread state run a declared source's thread
+// commands against the base the source is set to (yardr source set acme
+// base=eu), as the daemon and the hook receiver do: the command is handed
+// that base as YARDR_SOURCE_BASE, not the declaration's own, so it sends the
+// credential to the host the hold on it was asked about.
+func TestThreadCommandsDeclaredSourceBase(t *testing.T) {
+	a, st, seq, dir := declaredThreadYard(t)
+	t.Setenv("ACME_TOKEN", "tok-1")
+	a.env["YARDR_CREW"] = "yardmaster"
+
+	if _, err := run(t, a.crewCmd(), "add", "yardmaster", "--replace", "--dir", t.TempDir(),
+		"--set", "open_threads=acme", "--set", "set_state=acme"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.PutSource(context.Background(), "acme.yaml", acmeRegionCLI, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, a.sourceCmd(), "set", "acme", "base=eu"); err != nil {
+		t.Fatal(err)
+	}
+	// The reply comes first: a crew member sets the status only of a thread
+	// it takes part in.
+	for _, c := range []struct {
+		ran string // the thread command the CLI command runs
+		do  func() (string, error)
+	}{
+		{"reply", func() (string, error) { return run(t, a.replyCmd(), seq, "answer") }},
+		{"open", func() (string, error) { return run(t, a.threadOpenCmd(), "acme", "Made", "--in", "ENG") }},
+		{"state", func() (string, error) { return run(t, a.threadStateCmd(), seq, "started") }},
+	} {
+		if _, err := c.do(); err != nil {
+			t.Fatalf("%s: %v", c.ran, err)
+		}
+		got, err := os.ReadFile(filepath.Join(dir, c.ran+".base"))
+		if err != nil {
+			t.Fatalf("%s: %v", c.ran, err)
+		}
+		if string(got) != "https://eu.acme.test" {
+			t.Errorf("thread.%s was handed the base %q, want the selected https://eu.acme.test", c.ran, got)
+		}
 	}
 }
 

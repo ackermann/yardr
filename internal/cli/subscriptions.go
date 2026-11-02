@@ -57,10 +57,10 @@ func packHint(ctx context.Context, st store.API, source string) string {
 	return "; yardr pack apply " + source + " brings it"
 }
 
-// declaredSource is the yard's declared source src, nil when the yard
-// declares none under that name.
 // declaredSource is the yard's declared source of that name and its record,
-// nil when the yard declares none.
+// nil when the yard declares none. The declaration carries the base the source
+// is set to, in place of its own, as the daemon's and the hook receiver's do,
+// so a thread command goes to the host the credential's hold was asked about.
 func declaredSource(ctx context.Context, st store.API, name string) (*source.Declaration, *store.Source, error) {
 	s, err := st.GetSource(ctx, name)
 	if errors.Is(err, store.ErrNotFound) {
@@ -73,7 +73,7 @@ func declaredSource(ctx context.Context, st store.API, name string) (*source.Dec
 	if err != nil {
 		return nil, nil, fmt.Errorf("source %s: its declaration is not read by this yardr: %w", name, err)
 	}
-	return d, s, nil
+	return d.WithBase(s.Base), s, nil
 }
 
 // mintOf is the source's mint_command setting, "" when the yard declares
