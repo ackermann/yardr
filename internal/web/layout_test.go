@@ -237,16 +237,32 @@ func TestRoutesCompactRows(t *testing.T) {
 	}
 }
 
-// On a phone the rail is a bottom bar of its four tiles and More: five
-// targets of about 78 px at 390 px, none cut, each 48 high. More opens
-// the open mode's column above the bar. The desktop rail shows the chip
-// and tiles with the column beside them, as before. What the pixels do
-// is the bead's screenshots.
+// moreRows is the rows of the bar's More list: the markup between the
+// list's tags, and whether the page has the list at all.
+func moreRows(body string) (string, bool) {
+	_, rows, ok := strings.Cut(body, `<div class="more">`)
+	if ok {
+		_, rows, ok = strings.Cut(rows, `<ul>`)
+	}
+	if ok {
+		rows, _, ok = strings.Cut(rows, `</ul>`)
+	}
+	return rows, ok
+}
+
+// On a phone the rail is a bottom bar of its three mode tiles and More:
+// four targets of about 97 px at 390 px, none cut, each 48 high. Settings
+// is no tile there but the last row of More's list, which opens the open
+// mode's column above the bar; on a Settings page that column is Settings'
+// own rows, and on a page with no column More holds the Settings row alone.
+// The desktop rail shows the chip and tiles with Settings at the foot and
+// the column beside them, as before. What the pixels do is the bead's
+// screenshots.
 func TestPhoneBarMore(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
 	body := f.get("/").body
-	// The bar's tiles in the rail's order, Decide open on home.
+	// The rail's tiles in its order, Decide open on home.
 	for _, want := range []string{
 		`<a class="tile" href="/talk" title="Crew" aria-label="Crew">`,
 		`<a class="tile open" href="/line" title="Decide" aria-label="Decide" aria-current="true">`,
@@ -257,39 +273,58 @@ func TestPhoneBarMore(t *testing.T) {
 			t.Errorf("the bar lacks %s", want)
 		}
 	}
-	// More stands last, after Settings, and holds the open mode's
-	// column, with the current page marked in both copies.
+	// The phone's bar is the three mode tiles and More: Settings stands
+	// alone in the foot, which the stylesheet hides there, and More stands
+	// last.
+	tiles := strings.Index(body, `<ul class="tiles">`)
+	foot := strings.Index(body, `<div class="foot">`)
 	more := strings.Index(body, `<div class="more">`)
-	if more < 0 {
-		t.Fatal("the bar has no More entry")
+	if tiles < 0 || foot < tiles || more < foot {
+		t.Fatalf("the rail is not its tiles, its foot and More in that order (at %d, %d, %d)", tiles, foot, more)
 	}
-	if settings := strings.Index(body, `href="/config" title="Settings"`); settings < 0 || settings > more {
-		t.Error("More does not stand after Settings")
+	if n := strings.Count(body[tiles:foot], `<a class="tile`); n != 3 || strings.Contains(body[tiles:foot], `href="/config"`) {
+		t.Errorf("the bar's tiles are not the three modes: %s", body[tiles:foot])
 	}
-	want := `<li><a href="/" aria-current="page">Home</a></li>` +
-		`<li><a href="/line">Line</a></li>` +
-		`<li><a href="/previews">Previews</a></li>`
-	if !strings.Contains(body[more:], want) {
-		t.Errorf("More does not hold Decide's column: %s", body[more:])
+	if n := strings.Count(body[foot:more], `<a class="tile`); n != 1 || !strings.Contains(body[foot:more], `href="/config" title="Settings"`) {
+		t.Errorf("the foot is not Settings alone: %s", body[foot:more])
+	}
+	// More holds the open mode's column, the current page marked, and ends
+	// in Settings, once. On a Settings page it holds Settings' own rows and
+	// no row more; where no mode is open (an error page) it holds the
+	// Settings row alone, so /config stays a tap away from every page.
+	settings := `<li><a href="/config">Settings</a></li>`
+	for _, c := range []struct{ path, rows string }{
+		{"/", `<li><a href="/" aria-current="page">Home</a></li>` +
+			`<li><a href="/line">Line</a></li>` +
+			`<li><a href="/previews">Previews</a></li>` + settings},
+		{"/crew", `<li><a href="/talk">Talk</a></li>` +
+			`<li><a href="/crew" aria-current="page">Crew</a></li>` +
+			`<li><a href="/sessions">Sessions</a></li>` + settings},
+		{"/beads", `<li><a href="/flows?panel=1">Yard</a></li>` +
+			`<li><a href="/flows">Flows</a></li>` +
+			`<li><a href="/beads" aria-current="page">Beads</a></li>` + settings},
+		{"/config", `<li><a href="/config" aria-current="page">Config</a></li>` +
+			`<li><a href="/depots">Depots</a></li>` +
+			`<li><a href="/groups">Groups</a></li>` +
+			`<li><a href="/routes">Routes</a></li>` +
+			`<li><a href="/deps">Deps</a></li>` +
+			`<li><a href="/limits">Limits</a></li>`},
+		{"/nowhere", settings},
+	} {
+		page := f.get(c.path).body
+		rows, ok := moreRows(page)
+		if !ok {
+			t.Errorf("%s: the bar has no More list", c.path)
+		} else if rows != c.rows {
+			t.Errorf("%s: More holds %s, want %s", c.path, rows, c.rows)
+		}
+		// More itself is never current: the open tile stands marked.
+		if strings.Contains(page, `<summary aria-current`) {
+			t.Errorf("%s: More stands marked current", c.path)
+		}
 	}
 	if n := strings.Count(body, `<a href="/" aria-current="page">`); n != 2 {
 		t.Errorf("/ marks %d copies of itself, want 2 (the column's and More's)", n)
-	}
-	// On another mode's page More holds that mode's column instead.
-	beads := f.get("/beads").body
-	more = strings.Index(beads, `<div class="more">`)
-	if more < 0 {
-		t.Fatal("/beads has no More entry")
-	}
-	want = `<li><a href="/flows?panel=1">Yard</a></li>` +
-		`<li><a href="/flows">Flows</a></li>` +
-		`<li><a href="/beads" aria-current="page">Beads</a></li>`
-	if !strings.Contains(beads[more:], want) {
-		t.Errorf("More does not hold Lines' column: %s", beads[more:])
-	}
-	// More itself is never current: the open tile stands marked.
-	if strings.Contains(body, `<summary aria-current`) || strings.Contains(beads, `<summary aria-current`) {
-		t.Error("More stands marked current")
 	}
 	if !strings.Contains(body, `<summary>More</summary>`) {
 		t.Error("More's summary is not plain")
@@ -306,7 +341,12 @@ func TestPhoneBarMore(t *testing.T) {
 	for _, want := range []string{
 		".rail-column { display: none; }",
 		".rail .chip { display: none; }",
-		".rail .tiles, .rail .foot { display: contents; }",
+		// The tiles' list items stand aside with the list, so each tile is
+		// a flex item of the bar and shares its width with More.
+		".rail .tiles, .rail .tiles li { display: contents; }",
+		// Settings is More's last row here: the foot that holds its tile
+		// leaves the bar, which is the three tiles and More.
+		".rail .foot { display: none; }",
 		".rail .tile { flex: 1 1 0; min-width: 0; min-height: 48px; justify-content: center; border-radius: 0; }",
 		".rail .more { display: block; flex: 1 1 0; min-width: 0; }",
 		".rail .more summary::-webkit-details-marker { display: none; }",
@@ -316,7 +356,11 @@ func TestPhoneBarMore(t *testing.T) {
 			t.Errorf("the phone rules lack %s", want)
 		}
 	}
-	// More's summary keeps the bar's 48-pixel target, five to the bar.
+	// The desktop keeps Settings at the rail's foot.
+	if foot := cssRule(t, ".rail .foot"); !strings.Contains(foot, "margin-top: auto;") || strings.Contains(foot, "display") {
+		t.Errorf(".rail .foot does not stand at the rail's foot on a wide window: %s", foot)
+	}
+	// More's summary keeps the bar's 48-pixel target, four to the bar.
 	summary := phone[strings.Index(phone, ".rail .more summary {"):]
 	summary = summary[:strings.Index(summary, "}")]
 	if !strings.Contains(summary, "min-height: 48px;") {

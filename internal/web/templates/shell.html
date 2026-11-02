@@ -31,12 +31,16 @@
       {{- range .Rail.Tiles}}{{if ne .Name "settings"}}<li>{{template "tile" .}}</li>{{end}}{{end}}
     </ul>
     <div class="foot">{{range .Rail.Tiles}}{{if eq .Name "settings"}}{{template "tile" .}}{{end}}{{end}}</div>
-    {{- /* The phone's bottom bar shows the rail's tiles alone; the open
-           mode's column opens under More, above the bar. The stylesheet
-           shows it below 700 px only. */}}
-    {{- with .Rail.Column}}
-    <div class="more"><details><summary>More</summary><ul>{{range .Rows}}<li><a href="{{.Path}}"{{if .Current}} aria-current="page"{{end}}>{{.Label}}</a></li>{{end}}</ul></details></div>
-    {{- end}}
+    {{- /* The phone's bottom bar is the three mode tiles and More; the
+           stylesheet hides the foot there. More opens the open mode's
+           column above the bar and ends in Settings, which the bar has
+           no tile for. A Settings page's column is Settings' own rows, so
+           it adds none; an error page has no column, so Settings is its
+           one row. The stylesheet shows More below 700 px only. */}}
+    <div class="more"><details><summary>More</summary><ul>
+      {{- with .Rail.Column}}{{range .Rows}}<li><a href="{{.Path}}"{{if .Current}} aria-current="page"{{end}}>{{.Label}}</a></li>{{end}}{{end}}
+      {{- range .Rail.Tiles}}{{if and (eq .Name "settings") (not .Open)}}<li><a href="{{.Path}}">{{.Label}}</a></li>{{end}}{{end -}}
+    </ul></details></div>
   </nav>
   {{- /* The open mode's column beside the rail, under its section head. */}}
   {{with .Rail.Column}}

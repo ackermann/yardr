@@ -137,7 +137,7 @@ ul, ol { list-style: none; }
 .rail-column li a:hover { color: var(--accent-hover); }
 .rail-column li a[aria-current="page"] { color: var(--ink); box-shadow: inset 2px 0 0 var(--accent); padding-left: 10px; }
 /* The phone's More entry shows below 700 px only, where the bottom bar
-   has no room for the open mode's column. */
+   has no room for the open mode's column or for Settings. */
 .rail .more { display: none; }
 
 .centre {
@@ -589,10 +589,11 @@ code { font: inherit; color: var(--dim); overflow-wrap: anywhere; }
 }
 
 /* A phone: the centre column alone, the rail a bar at the bottom in its
-   order — Crew, Decide, Lines, Settings, More — five targets of about
-   78 px at 390 px, none cut, each 48 high. The bar stays in view while
-   the page scrolls, as the rail does on a wide window, and the open
-   mode's column opens under More, above the bar. */
+   order — Crew, Decide, Lines, More — four targets of about 97 px at
+   390 px, none cut, each 48 high. Settings, the rail's foot on a wide
+   window, is the last row of More's list here. The bar stays in view
+   while the page scrolls, as the rail does on a wide window, and the
+   open mode's column opens under More, above the bar. */
 @media (max-width: 699px) {
   .shell { display: flex; flex-direction: column; }
   /* min-width: 0, as the grids' minmax(0, ...) above: what is wider than
@@ -617,12 +618,15 @@ code { font: inherit; color: var(--dim); overflow-wrap: anywhere; }
     overflow: visible;
   }
   .rail .chip { display: none; }
-  .rail .tiles, .rail .foot { display: contents; }
+  /* The list items stand aside with the list: else each tile would keep
+     its 52 px inside an item of its own, and More would take the rest. */
+  .rail .tiles, .rail .tiles li { display: contents; }
+  .rail .foot { display: none; }
   .rail .tile { flex: 1 1 0; min-width: 0; min-height: 48px; justify-content: center; border-radius: 0; }
   .rail .tile .glyph { width: 20px; height: 20px; }
   .rail .tile.open { background: none; box-shadow: inset 0 2px 0 var(--accent); }
   .rail .more { display: block; flex: 1 1 0; min-width: 0; }
-  /* The bar's fifth entry. Note for the next shot: chrome
+  /* The bar's fourth entry. Note for the next shot: chrome
      --screenshot drops a centred summary's text wherever the bar holds
      more than one entry, while every browser window and CDP shot keeps
      it — so the phone's shots come from agent-browser, not the shot

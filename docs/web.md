@@ -2197,7 +2197,7 @@ block.
 |---|---|
 | 1100px and wider | rail, column, a fluid centre, right beside home and the line |
 | 700px to 1099px | rail, column and centre, up to 600px and centred; the aside goes |
-| under 700px (a phone) | the centre column alone; the rail is a bar at the bottom — Crew, Decide, Lines, Settings, More — which stays in view while the page scrolls |
+| under 700px (a phone) | the centre column alone; the rail is a bar at the bottom — Crew, Decide, Lines, More — which stays in view while the page scrolls. More opens the open mode's column above the bar and ends in a Settings row; on a Settings page the column is Settings' own rows, which add none |
 
 The shell is `internal/web/templates/shell.html`; the aside is the
 `aside` template (`aside.html`), which `/line` renders in the centre too.
