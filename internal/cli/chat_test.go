@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"yardr.dev/yardr/internal/chat"
 	"yardr.dev/yardr/internal/store"
 )
@@ -27,10 +29,30 @@ func chatYard(t *testing.T) (st store.API, opened *[]string) {
 }
 
 // yardr chat opens on the yardmaster, or on the crew member named, for a user of
-// the yard; anyone else is told who adds users.
+// the yard; anyone else is told who adds users. The view it opens can answer
+// a question, and the command's help names the key that does.
 func TestChatCommand(t *testing.T) {
 	st, opened := chatYard(t)
+	var view *chat.Model
+	opens := runChat
+	runChat = func(ctx context.Context, s store.API, m *chat.Model, after uint64) error {
+		view = m
+		return opens(ctx, s, m, after)
+	}
 	mustAs(t, st, "jo", "chat")
+	// A view given no way to answer says a question is answered in a
+	// terminal; this one was given it, so it only finds nothing waiting.
+	view.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	view.Update(tea.KeyMsg{Type: tea.KeyCtrlR})
+	if got := view.View(); !strings.Contains(got, "nothing to answer: yardmaster asks you nothing that waits") {
+		t.Fatalf("%s does not answer in the view the command opens:\n%s", chat.AnswerKey, got)
+	}
+	help := mustAs(t, st, "jo", "chat", "--help")
+	for _, want := range []string{chat.AnswerKey + " answers", chat.SecretKey + " opens a field"} {
+		if !strings.Contains(help, want) {
+			t.Fatalf("yardr chat --help does not say %q:\n%s", want, help)
+		}
+	}
 	mustAs(t, st, "jo", "chat", "assembly")
 	if got := strings.Join(*opened, ","); got != "yardmaster,assembly" {
 		t.Fatalf("opened on %q", got)

@@ -71,7 +71,7 @@ func open(t *testing.T, st store.API, sel string, w, h int, opt ...func(*Options
 	state, err := Load(ctx, st, me)
 	must(t, err)
 	v := &view{t: t, st: st, last: state.Head}
-	o := Options{Me: me, Select: sel, Secrets: st, Focus: func(_ context.Context, agent string) error {
+	o := Options{Me: me, Select: sel, Secrets: st, Answers: st, Focus: func(_ context.Context, agent string) error {
 		v.focused = append(v.focused, agent)
 		return nil
 	}}

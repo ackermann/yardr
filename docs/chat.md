@@ -12,7 +12,8 @@ yardr chat yardmaster@north   # opens on one a linked yard exposes
 ```
 
 It shows the mail a [user](users.md) and a crew member have written each other,
-and what you type is mail: `yardr chat` adds no other channel. What it shows
+and what you type in the line is mail: the line adds no other channel, and a
+question is answered in a field of its own ([`ctrl+r`](#answering-a-question)). What it shows
 is what `yardr mail --with <crew member>` prints, and Enter does what
 `yardr mail <crew member> <text>` does. What the yard itself reports to you,
 your notifications, is in no conversation: it has a row of its own,
@@ -214,17 +215,22 @@ ask 412 · open · to mckean · asked by yardmaster · 2h ago
   1. Move them now - all 64 links point at the new source tonight (recommended: the test passed)
   2. After Friday - keep the old source until the release is out
   3. You decide - leave it to yardmaster
-  answer with: yardr bead answer yardr-n8ta 412 <n> [words]
+  ctrl+r answers it here · or in a terminal: yardr bead answer yardr-n8ta 412 <n> [words]
 ```
 
-Each card's last line is the command that answers it from a terminal.
+Each card's last line is the command that answers it from a terminal and,
+on a card the view answers itself, the key that does so before it.
 `yardr bead answer <id> <ask> <n> [words]` picks option n with words
 alongside; `--words` answers an ask with no options; `--later` puts it
 aside for 24 hours, or until the asker writes on the bead; `--decline
-"<words>"` refuses it (`yardr bead answer --help`). The view has no keys
-for them. It shows the questions where the asker is, and the terminal
-answers; the one it answers itself is [a secret](#typing-a-secret). A newer pick replaces the older one; nothing is deleted. The asker
-gets an inbox line for each answer, including the question and what happened.
+"<words>"` refuses it (`yardr bead answer --help`). The view answers a pick,
+words and the approval of a command itself, with
+[`ctrl+r`](#answering-a-question), and a secret with
+[`ctrl+o`](#typing-a-secret). Putting an ask aside and declining it have no
+key: they are flags of the command, no answers of a card. What you type in
+the line is mail, and answers no question, `1` included. A newer pick
+replaces the older one; nothing is deleted. The asker gets an inbox line for
+each answer, including the question and what happened.
 
 A card is **weighty** when approving it widens what reaches outside the
 yard, whose word or credential counts as a person's, or what runs inside
@@ -280,7 +286,8 @@ Without a terminal (standard input is not one) the command declines before
 it reads anything, and says to approve the card in footplate, or in
 a terminal on the yard's machine. A script cannot walk through the gate, and
 no flag does. A routine card has no gate. The field that
-[types a secret](#typing-a-secret) keeps it too.
+[types a secret](#typing-a-secret) keeps it too, and so does the field that
+[approves a command](#answering-a-question).
 
 Whoever asked takes an open question back when it is asked no more:
 `yardr bead ask --take-back <id> <ask> "<reason>"`. The operator may too,
@@ -657,6 +664,47 @@ the account given with its file and kept with a bare pick, missing
 names typed where the update newly needs them, and each preset marked
 held and new against what the grantee holds.
 
+#### Answering a question
+
+`ctrl+r` in a conversation that shows a question that waits (open, or put
+aside) puts a field in the place of the line, as `ctrl+o` does for a secret.
+A card the field answers ends in the key, before the terminal's command:
+
+```
+  ctrl+r answers it here · or in a terminal: yardr bead answer yardr-n8ta 412 <n> [words]
+```
+
+With one such question in the conversation the field goes to it; with several
+it first asks which, by the number the cards print (`answer which ask: 412,
+415`), and a number that is none of them leaves the field open and sends
+nothing. Then it takes what the card asks for, and `enter` gives it to the
+yard as `yardr bead answer` does:
+
+| The card | The field takes | It is |
+|---|---|---|
+| numbered options | the number of the option, and words after it if you like: `2 not before Friday`; a pick that is no number (`go ahead`) is not sent, since talk about a question stays in the conversation as mail | `yardr bead answer <id> <ask> 2 "not before Friday"` |
+| `words wanted` | the words | `yardr bead answer <id> <ask> --words "<text>"` |
+| a command to approve (`approve with:`) | the ask's number typed back, in the clear, with the card's `WEIGHTY` lines above it; another number closes the field and the yard is not called | `yardr bead answer <id> <ask> --approve` |
+
+A command is approved with its number typed back whether the card is weighty
+or not: there is nothing else to type, and the number is the deliberate act.
+The yard's answer shows above the line until the next key that does
+something: its line (`ada picked 2 on ask 412`, `ada approved ask 412, and
+the yard ran it: …`) or its refusal in its own words (`ask 412 has options
+1..3`), with the field closed. The card in the conversation then reads what
+the yard recorded. `esc` closes the field and sends nothing, and while it is
+open every key but `enter`, `esc`, `pgup`, `pgdn` and `ctrl+c` is the
+field's, as it is for a secret.
+
+A question stays in the terminal where the field has no place for its
+answer: `--later` and `--decline`; a secret, which is `ctrl+o`'s; a setup
+ask, whose pick takes the account typed with it; a depot-push approval; and
+a command whose card asks for values in the clear, approved with `--value`.
+A question already answered is not offered again: a newer pick is the
+terminal's. Where the conversation shows no question for it, `ctrl+r` says
+`nothing to answer: <name> asks you nothing that waits`, or where the ones it
+shows are of those kinds, where each is answered.
+
 #### Typing a secret
 
 `ctrl+o` in a conversation that shows a secret ask puts a field in the
@@ -707,8 +755,9 @@ yard did not answer. `ctrl+o` answers the oldest secret ask of the
 conversation that still waits for its value; where all were given, it gives
 the newest again, which replaces a mistyped key. Where the conversation
 shows no secret ask it says `nothing to give: <name> asks you for no
-secret`. It is the only key the view has for an ask: a pick, words, Later
-and Decline are the terminal's.
+secret`. It is the key for a secret ask; a pick, words and the approval of
+a command are [`ctrl+r`](#answering-a-question)'s, and Later and Decline are
+the terminal's.
 
 A question that is about no bead is asked with `yardr bead ask --new
 "<question>"`: it makes a bead titled with the question, under no flow
@@ -981,7 +1030,8 @@ as it was.
 | `pgup`, `pgdn` | scroll the conversation |
 | `ctrl+g` | to the selected crew member's pane; nothing on `yard`, and one of a linked yard or a user has none here |
 | `ctrl+o` | a field to [type a secret](#typing-a-secret) in, after the ask's number typed back, for a secret ask the conversation shows; says so where it shows none |
-| `esc` | in that field: leave it, and nothing is sent |
+| `ctrl+r` | a field to [answer a question](#answering-a-question) in: a pick with words, words, or a command's approval after the ask's number typed back; says so where the conversation shows no question for it |
+| `esc` | in either field: leave it, and nothing is sent |
 | `ctrl+c` | leave |
 
 A mail holds 4 KB. From three quarters of that the rule above the line

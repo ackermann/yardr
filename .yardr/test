@@ -1741,7 +1741,7 @@ sleepbudget() {
 # The root package's test counts the rows against the tree, so delete the
 # row with the file.
 filesizes='
-internal/chat/chat.go 1196 the chat TUI model, state and rendering
+internal/chat/chat.go 1070 the chat TUI model, state and rendering
 internal/cli/bead_ask.go 1292 the ask and answer commands with secret-giving and setup approval
 internal/cli/beads.go 1099 the bead show, list and history commands and their printing
 internal/cli/crew.go 2247 the crew, inbox, mail and memory commands

@@ -54,12 +54,18 @@ the line you type in says what yardr knows and shows the last lines of its
 pane. ctrl+g goes to the pane of the selected crew member when this runs in
 herdr, and names the herdr command anywhere else.
 
-A conversation shows the questions its crew member asks you; yardr bead
-answer answers them. A secret ask (yardr bead ask --secret) is answered here
-too: ctrl+o opens a field that first asks for the ask's number typed back (a
-secret ask is weighty), then shows a dot for each character, enter gives
-what you typed to the yard's server, which writes it to the file the
-source's credential is read from, and esc sends nothing.
+A conversation shows the questions its crew member asks you. ctrl+r answers
+one here: a field takes the number of the option you pick, with words if you
+like, or the words of a question that wants words, or the number of the ask
+typed back to approve a command the yard runs. Enter gives it to the yard as
+yardr bead answer does, and esc sends nothing. What you type in the line is
+mail and answers no question, a bare number included; putting a question
+aside (--later) or declining it stays with yardr bead answer. A secret ask
+(yardr bead ask --secret) is answered here too: ctrl+o opens a field that
+first asks for the ask's number typed back (a secret ask is weighty), then
+shows a dot for each character, enter gives what you typed to the yard's
+server, which writes it to the file the source's credential is read from,
+and esc sends nothing.
 
 It is for a user of the yard (yardr user list), and needs a terminal.
 Without one, yardr mail <crew member> <text> sends and yardr mail --with
@@ -127,7 +133,7 @@ func (a *app) chatOn(ctx context.Context, st store.API, me, first, expect string
 	}
 	m := chat.New(ctx, st, chat.Options{Me: me, Select: first, Yardr: "yardr", Home: a.mailHome(), Expect: expect,
 		InHerdr: a.getenv("HERDR_ENV") != "", Focus: focusAgent, Tail: paneTail, Refresh: paneRefresh,
-		Asks: func(ctx context.Context) ([]store.ResolvedAsk, error) { return chat.AsksFor(ctx, st, me) }, Secrets: st}, state)
+		Asks: func(ctx context.Context) ([]store.ResolvedAsk, error) { return chat.AsksFor(ctx, st, me) }, Secrets: st, Answers: st}, state)
 	return runChat(ctx, st, m, state.Head)
 }
 

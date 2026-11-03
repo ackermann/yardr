@@ -296,7 +296,8 @@ func (m *Model) lines(w int) []string {
 
 // questions are the selected party's asks addressed to the user, under its
 // mail: each a question with its options and its state, answered with
-// yardr bead answer, and a secret ask also here (secretCard). Nothing on
+// yardr bead answer, and also here: a secret ask (secretCard), a pick,
+// words or a run ask's approval (answerCard). Nothing on
 // the yard's row, and nothing from anyone else. The WEIGHTY lines of a
 // weighty card are drawn in the alarm's style, as the yard's own word that
 // approving it is more than routine; the rest of every card is plain.
@@ -326,7 +327,7 @@ func (m *Model) questions(w int) []string {
 		}
 		// An answer from another yard says whose word it is, as mail
 		// does; m.as is whom the links trust as a user of this yard.
-		for i, line := range m.secretCard(r, r.LinesMarked(m.as)) {
+		for i, line := range m.answerCard(r, m.secretCard(r, r.LinesMarked(m.as))) {
 			// A card line that wraps continues deeper than any line the
 			// yard prints (at 2, a command at 6), never at the pane's
 			// left edge nor under its own start: a writer who fills a
@@ -572,6 +573,8 @@ func (m *Model) View() string {
 		keys = gateKeys
 	case m.secret != nil:
 		keys = secretKeys
+	case m.answering != nil:
+		keys = m.answering.keys()
 	case m.yard:
 		keys = yardKeys
 	}
@@ -582,6 +585,8 @@ func (m *Model) View() string {
 			text = look.faint.Render("a weighty card: its number shows as you type it")
 		case m.secret != nil:
 			text = look.faint.Render("a secret: what you type is not shown")
+		case m.answering != nil:
+			text = look.faint.Render(m.answering.rule())
 		case !m.yard:
 			text = m.count()
 		}
@@ -591,6 +596,8 @@ func (m *Model) View() string {
 	case lay.input == 0:
 	case m.secret != nil:
 		out = append(out, m.secretView(w, lay.input))
+	case m.answering != nil:
+		out = append(out, m.answerView(w, lay.input))
 	default:
 		out = append(out, m.input.View())
 	}

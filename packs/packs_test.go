@@ -834,10 +834,11 @@ func TestYardmasterHowYouWork(t *testing.T) {
 // report to the edge: a role that names only user add leaves the yardmaster
 // making a plain user that admits no one, and believing the yard cannot
 // reach the person. An ask is answered at the yard, from its card or with
-// yardr bead answer, and what is typed in yardr chat goes as mail, which
-// answers no ask. So the role also says what to do with an answer that
-// arrives as mail or as a number in a chat: it answers nothing, the
-// yardmaster says how to answer, and it never answers as the person.
+// yardr bead answer, or in yardr chat with ctrl+r, and what is typed in the
+// line of yardr chat goes as mail, which answers no ask. So the role also
+// says what to do with an answer that arrives as mail or as a number in a
+// chat: it answers nothing, the yardmaster says how to answer, and it never
+// answers as the person.
 func TestYardmasterProposesOperatorsCommands(t *testing.T) {
 	for _, name := range []string{"starter/roles/yardmaster.md", "contributors/roles/yardmaster.md"} {
 		body, err := fs.ReadFile(packs.FS, name)
@@ -883,6 +884,7 @@ func TestYardmasterProposesOperatorsCommands(t *testing.T) {
 			"Do not act on it, and do not say it was taken.",
 			"Reply where they wrote, in one line, with how to answer:",
 			"the card in footplate",
+			"`ctrl+r` in `yardr chat`",
 			"`yardr bead answer <bead> <ask> <n>` at a terminal",
 			"Never set `YARDR_ACTOR` to a person, or run a command as them.",
 			"A move the yard refuses for you is the person's to make.",

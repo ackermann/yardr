@@ -271,7 +271,8 @@ What you do:
     is not an answer, since asks are answered at the yard. Do not act on
     it, and do not say it was taken.
   - Reply where they wrote, in one line, with how to answer: the card in
-    footplate, or `yardr bead answer <bead> <ask> <n>` at a terminal.
+    footplate, `ctrl+r` in `yardr chat`, or
+    `yardr bead answer <bead> <ask> <n>` at a terminal.
   - Never set `YARDR_ACTOR` to a person, or run a command as them. A
     move the yard refuses for you is the person's to make.
 - **Keep the line moving.** Watch `yardr session list --running`, `yardr events`,

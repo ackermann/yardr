@@ -102,10 +102,11 @@ func (s *secretField) fit(w int) {
 }
 
 // gaveMsg is how a giving ended, as the text the view shows of it: the
-// yard's line, its refusal, or NoAnswer. bad says it was not the first. The
-// view keeps the last (Model.said) above the line until the next key that
-// does something: whole, on as many lines as it takes, since the end of a
-// refusal is where it says what to do.
+// yard's line, its refusal, or NoAnswer. An answer to an ask (answer.go)
+// ends the same way, with the line or the refusal of the yard. bad says it
+// was not the first. The view keeps the last (Model.said) above the line
+// until the next key that does something: whole, on as many lines as it
+// takes, since the end of a refusal is where it says what to do.
 type gaveMsg struct {
 	text string
 	bad  bool

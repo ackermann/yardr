@@ -51,7 +51,9 @@ func askBead(t *testing.T, st store.API, author string) (string, uint64) {
 
 // A conversation shows its party's asks addressed to the user under its
 // mail, as numbered text with the recommendation marked and the state;
-// another party's conversation shows none of them.
+// another party's conversation shows none of them. The card's last line is
+// the key that answers it here before the terminal's command, and the
+// yard's own line where the view was given no way to answer.
 func TestConversationShowsAsks(t *testing.T) {
 	st := yard(t)
 	ctx := context.Background()
@@ -61,15 +63,23 @@ func TestConversationShowsAsks(t *testing.T) {
 	v := withAsks(t, st, "chief", 120, 40)
 	v.shows("questions from chief for you:", "Move the links now?",
 		"1. Move them now - all 64 links move tonight (recommended: the test passed)",
-		"3. You decide - leave it to chief",
-		"answer with: yardr bead answer "+id+" 1 <n> [words]")
-	v.hides(`"question"`)
+		"3. You decide - leave it to chief")
+	v.showsUnwrapped("ctrl+r answers it here · or in a terminal: yardr bead answer " + id + " 1 <n> [words]")
+	v.hides(`"question"`, "answer with:")
 	if seq != 1 {
 		t.Fatalf("ask seq = %d", seq)
 	}
 
 	v.key(tea.KeyTab)
 	v.hides("Move the links now?", "questions from")
+
+	v = open(t, st, "chief", 120, 40, func(o *Options) {
+		o.Answers = nil
+		o.Asks = func(ctx context.Context) ([]store.ResolvedAsk, error) { return AsksFor(ctx, st, me) }
+	})
+	v.do(v.m.loadAsks())
+	v.showsUnwrapped("answer with: yardr bead answer " + id + " 1 <n> [words]")
+	v.hides("ctrl+r")
 }
 
 // An answer, a put-aside and a decline arrive with the stream and read as
