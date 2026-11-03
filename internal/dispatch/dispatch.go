@@ -360,13 +360,11 @@ type Dispatcher struct {
 	// limitsAsked is provider -> what it last said of its limits, kept for
 	// limitsMemory. See harness_limits.go.
 	limitsAsked map[string]limitsAnswer
-	// limitsMu guards limitsAsked and limitsWants alone: the pass reads
-	// the cache through it and the background refresher stores into it,
-	// running its commands outside it (limits_refresh.go). limitsWants
-	// is the refresher's leased wants, and the rest its scheduler's
-	// state: limitsWake nudges it, limitsCancel stops it, limitsLoop
-	// says it runs, limitsRunOwned keeps it for Run's life, and
-	// limitsNotify is Run's poke, called as each answer lands.
+	// limitsMu guards limitsAsked and limitsWants and the refresher's scheduler
+	// state (limits_refresh.go): the pass reads through it, the refresher stores
+	// into it and runs commands outside it. limitsWants are the leased wants;
+	// the rest is the scheduler: limitsWake, limitsCancel, limitsLoop,
+	// limitsRunOwned, limitsNotify (Run's poke), and limitsIdleHook (the test seam).
 	limitsMu    sync.Mutex
 	limitsWants map[string]*limitWant
 	// limitsClock is the refresher's view of the dispatcher's clock,
@@ -381,6 +379,7 @@ type Dispatcher struct {
 	limitsLoopGen  int
 	limitsRunOwned bool
 	limitsNotify   func()
+	limitsIdleHook func()
 
 	// startMu guards the start workers' shared state alone (starts.go):
 	// the owned set a worker records its session in for reap, and the

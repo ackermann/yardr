@@ -200,6 +200,8 @@ func (d *Dispatcher) stopLimitsRefresher() {
 // answer has gone stale at the age its readers asked for, then sleep
 // until the next key comes due, a want wakes it, or a run lands.
 func (d *Dispatcher) limitsRefresherLoop(ctx context.Context, gen int) {
+	// The deferred clear is for the context's exit alone: the idle exit
+	// clears under the decision's lock below.
 	defer func() {
 		d.limitsMu.Lock()
 		if d.limitsLoopGen == gen {
@@ -211,7 +213,21 @@ func (d *Dispatcher) limitsRefresherLoop(ctx context.Context, gen int) {
 		d.startDueLimitRefreshes(ctx)
 		d.limitsMu.Lock()
 		idle := !d.limitsRunOwned && len(d.limitsWants) == 0
+		var hook func()
+		if idle {
+			hook = d.limitsIdleHook
+			if d.limitsLoopGen == gen {
+				// Leaving and clearing are one critical section: a want
+				// registered before the decision is seen above, and one
+				// after finds no loop and starts a new one, so none stands
+				// with no loop to run it.
+				d.limitsLoop, d.limitsCancel = false, nil
+			}
+		}
 		d.limitsMu.Unlock()
+		if hook != nil {
+			hook() // in the old exit gap, where the test registers its want
+		}
 		if idle || ctx.Err() != nil {
 			return
 		}

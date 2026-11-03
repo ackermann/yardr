@@ -173,7 +173,8 @@ func TestGroupStartsNoFurtherSessionWithAModelThatWaitsForItsReset(t *testing.T)
 	dispatch.WaitLimitsIdle(d)
 	dispatch.WaitLimitsIdle(d2)
 	if asks := p.asks(); len(asks) != 2 {
-		t.Fatalf("the provider was run %d times, want 2: the stop and the start of the other model; holding a group back asks nothing", len(asks))
+		t.Fatalf("the provider was run %d times, want 2: the stop and the start of the other model; holding a group back asks nothing (d wants=%v runs=%d, d2 wants=%v runs=%d)",
+			len(asks), dispatch.LimitsWanted(d), dispatch.LimitsRunsInFlight(d), dispatch.LimitsWanted(d2), dispatch.LimitsRunsInFlight(d2))
 	}
 
 	// The wake: the provider is asked the once the wake asks, the agent is
