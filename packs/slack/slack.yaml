@@ -3,13 +3,19 @@
 # answered in their threads. The design is
 # docs/design/2026-10-17-yardr-pcxd-slack.md; section 3.1 is this file.
 #
-# Checked against api.slack.com on 17 October 2026: the API is HTTPS JSON
-# at https://slack.com/api/<method> with the bot's token (xoxb-...) as
+# Checked against api.slack.com on 17 October 2026: the API is HTTPS at
+# https://slack.com/api/<method> with the bot's token (xoxb-...) as
 # Authorization: Bearer; auth.test answers the bot's own ids (user_id,
 # team_id, bot_id); chat.postMessage with channel, text and thread_ts
 # answers in a thread, answering the posted ts; conversations.replies
 # with channel and a parent ts lists the parent and its replies oldest
 # first, cursor-paginated with has_more and response_metadata.next_cursor.
+# A write method takes a JSON body (chat.postMessage here); a read method
+# takes its arguments form-encoded (conversations.replies), since Slack's
+# changelog of 1 October 2017 says read methods do not understand JSON
+# attributes, and conversations.replies sent a JSON body answered
+# invalid_arguments, although its page on docs.slack.dev lists JSON among
+# its content types (read 3 November 2026).
 # The yard subscribes to two bot events only, app_mention and message.im
 # (SETUP.md step 6), so a group direct message is heard on a mention
 # alone, by its app_mention, and message.mpim is never subscribed.

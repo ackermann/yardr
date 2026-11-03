@@ -18,14 +18,34 @@ arg() { jq -r --arg k "$1" '.[$k] // ""' <<<"$in"; }
 : "${SLACK_BOT_TOKEN:?SLACK_BOT_TOKEN is not set}"
 : "${YARDR_SOURCE_BASE:?YARDR_SOURCE_BASE is not set}"
 
-# call <method> <body as JSON>: the whole answer. The token goes to curl
+# api <method> <curl argument>...: the whole answer. The token goes to curl
 # as a config line on its stdin, written by the shell itself: an argument
 # can be read by every process on the machine while curl runs.
-call() {
+api() {
+  local method=$1
+  shift
   printf 'header = "Authorization: Bearer %s"\n' "$SLACK_BOT_TOKEN" \
-    | curl -sS --fail-with-body -K - "$YARDR_SOURCE_BASE/$1" \
-    -H 'Content-Type: application/json' \
-    -d "$2"
+    | curl -sS --fail-with-body -K - "$YARDR_SOURCE_BASE/$method" "$@"
+}
+
+# call <method> <body as JSON>: a write method, which Slack takes a JSON
+# body for.
+call() {
+  api "$1" -H 'Content-Type: application/json' -d "$2"
+}
+
+# callform <method> <name=value>...: a read method, whose arguments Slack
+# takes form-encoded. Slack's changelog of 1 October 2017 says a read
+# method does not understand them as JSON, and conversations.replies sent
+# a JSON body answered invalid_arguments, though its method page lists
+# JSON among its content types. curl encodes each value, so a cursor's =,
+# + and / reach Slack as they are.
+callform() {
+  local method=$1 pair
+  shift
+  local data=()
+  for pair in "$@"; do data+=(--data-urlencode "$pair"); done
+  api "$method" "${data[@]}"
 }
 
 # ok: whether the answer on stdin is a success; if not, Slack's reason on
@@ -66,7 +86,9 @@ posted) # {} always: without an idempotency key there is nothing to find
 read) # conversations.replies for the thread's parent, every page: each
   # answer holds at most 1000 messages, and the thread is the pages
   # joined oldest first. A message's parent is its thread's, its own ts
-  # where it is the thread's first.
+  # where it is the thread's first. The channel, the ts and, from the
+  # second page on, the cursor go form-encoded; the first page is asked
+  # without one.
   thread=$(arg thread)
   [ -n "$thread" ] || { echo "thread.read was handed no thread" >&2; exit 1; }
   channel=${thread%%:*}; ts=${thread#*:}
@@ -74,8 +96,7 @@ read) # conversations.replies for the thread's parent, every page: each
     || { echo "thread.read was handed no channel and thread: $thread" >&2; exit 1; }
   cursor=""; all='[]'
   while :; do
-    page=$(call conversations.replies "$(jq -n -c --arg c "$channel" --arg t "$ts" --arg cur "$cursor" \
-      '{channel: $c, ts: $t} + (if $cur != "" then {cursor: $cur} else {} end)')") || {
+    page=$(callform conversations.replies "channel=$channel" "ts=$ts" ${cursor:+"cursor=$cursor"}) || {
       code=$?
       err=$(jq -r '.error // empty' <<<"$page" 2>/dev/null)
       echo "conversations.replies for channel $channel failed${err:+: slack $err} (curl exit $code)" >&2

@@ -9,8 +9,10 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"mime"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -430,14 +432,26 @@ type slackThread struct {
 	ts, parent, user, text string
 }
 
-// Answering in the thread: thread.reply posts chat.postMessage to the
-// thread's channel with its thread_ts and answers the posted ts, for a
-// channel, a group-direct-message and a one-to-one direct-message thread
-// alike. thread.read follows conversations.replies across two pages —
-// the first answer's has_more with a next_cursor, the second completing
-// the thread — and maps the concatenated messages oldest first, for all
-// three kinds alike; a --to naming a message that stands only on the
-// second page is found there. Where Slack refuses the read the script
+// slackRead is one conversations.replies call as the stand-in received it:
+// its HTTP method, the media type of its body, its query string and the
+// form its body held.
+type slackRead struct {
+	method, mediaType, query string
+	form                     url.Values
+}
+
+// Answering in the thread: thread.reply posts chat.postMessage, as a JSON
+// body, to the thread's channel with its thread_ts and answers the posted
+// ts, for a channel, a group-direct-message and a one-to-one
+// direct-message thread alike. thread.read follows conversations.replies
+// across two pages — the first answer's has_more with a next_cursor, the
+// second completing the thread — and maps the concatenated messages oldest
+// first, for all three kinds alike; a --to naming a message that stands
+// only on the second page is found there. conversations.replies is a read
+// method, which takes its arguments form-encoded: the stand-in finds the
+// channel, the parent ts and the cursor in a form POST alone and answers
+// invalid_arguments to anything else, a JSON body included, as the service
+// did when the script sent one. Where Slack refuses the read the script
 // surfaces its reason, never an empty thread. Posted answers what there
 // is to find, nothing. The stand-in stands in for the service; nothing
 // here reaches it.
@@ -463,15 +477,28 @@ func TestSlackPackThread(t *testing.T) {
 			{"1729157020.000320", "1729156820.000120", "U012AB3CD", "it did"},
 		},
 	}
-	var posts, reads []map[string]any
+	var posts []map[string]any
+	var reads []slackRead
 	var auth string
+	// A cursor as Slack's are: base64, padded, and with characters a form
+	// must encode, so that one sent as it stands would arrive changed.
+	cursorOf := func(channel string) string { return "dGVhbTp+/" + channel + "==" }
+	mediaType := func(r *http.Request) string {
+		m, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
+		return m
+	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := io.ReadAll(r.Body)
-		var body map[string]any
-		_ = json.Unmarshal(raw, &body)
 		w.Header().Set("Content-Type", "application/json")
 		switch strings.TrimPrefix(r.URL.Path, "/") {
 		case "chat.postMessage":
+			// A reply is a write, which the script sends as the JSON body it
+			// builds with jq.
+			if m := mediaType(r); m != "application/json" {
+				t.Errorf("chat.postMessage was sent as %q, want application/json", m)
+			}
+			var body map[string]any
+			_ = json.Unmarshal(raw, &body)
 			auth = r.Header.Get("Authorization")
 			posts = append(posts, body)
 			if body["text"] == "refuse this" {
@@ -480,8 +507,13 @@ func TestSlackPackThread(t *testing.T) {
 			}
 			_, _ = io.WriteString(w, `{"ok":true,"ts":"1729157300.000900"}`)
 		case "conversations.replies":
-			reads = append(reads, body)
-			channel, _ := body["channel"].(string)
+			form, _ := url.ParseQuery(string(raw))
+			reads = append(reads, slackRead{r.Method, mediaType(r), r.URL.RawQuery, form})
+			channel := form.Get("channel")
+			if mediaType(r) != "application/x-www-form-urlencoded" || channel == "" || form.Get("ts") == "" {
+				_, _ = io.WriteString(w, `{"ok":false,"error":"invalid_arguments"}`)
+				return
+			}
 			switch channel {
 			case "C000NOPE":
 				_, _ = io.WriteString(w, `{"ok":false,"error":"not_in_channel"}`)
@@ -495,20 +527,24 @@ func TestSlackPackThread(t *testing.T) {
 				_, _ = io.WriteString(w, `{"ok":false,"error":"channel_not_found"}`)
 				return
 			}
+			if form.Get("ts") != msgs[0].ts {
+				_, _ = io.WriteString(w, `{"ok":false,"error":"thread_not_found"}`)
+				return
+			}
 			// Two pages: the parent and its first reply, then the rest.
 			// The first answer carries has_more with a next_cursor, the
 			// second completes the thread.
 			page := msgs[:2]
 			more := true
-			if cursor, _ := body["cursor"].(string); cursor != "" {
-				if cursor != "next-"+channel {
-					t.Errorf("conversations.replies was sent cursor %q, want %q", cursor, "next-"+channel)
+			if cursor := form.Get("cursor"); cursor != "" {
+				if cursor != cursorOf(channel) {
+					t.Errorf("conversations.replies was sent cursor %q, want %q", cursor, cursorOf(channel))
 				}
 				page, more = msgs[2:], false
 			}
 			out := map[string]any{"ok": true, "has_more": more, "messages": []map[string]any{}}
 			if more {
-				out["response_metadata"] = map[string]any{"next_cursor": "next-" + channel}
+				out["response_metadata"] = map[string]any{"next_cursor": cursorOf(channel)}
 			}
 			for _, m := range page {
 				msg := map[string]any{"type": "message", "user": m.user, "text": m.text, "ts": m.ts}
@@ -575,11 +611,19 @@ func TestSlackPackThread(t *testing.T) {
 		if len(got) != 2 {
 			t.Fatalf("%s: the thread was read in %d calls, want 2", channel, len(got))
 		}
-		if _, ok := got[0]["cursor"]; ok {
-			t.Errorf("%s: the first read was sent a cursor: %v", channel, got[0])
-		}
-		if got[1]["cursor"] != "next-"+channel {
-			t.Errorf("%s: the second read was sent %v", channel, got[1])
+		// Each read is a form-encoded POST with its arguments in the body
+		// alone and nothing else in it: the channel and the parent ts, and
+		// from the second read on the cursor, never one on the first.
+		parent := threads[channel][0].ts
+		for i, form := range []url.Values{
+			{"channel": {channel}, "ts": {parent}},
+			{"channel": {channel}, "ts": {parent}, "cursor": {cursorOf(channel)}},
+		} {
+			if g := got[i]; g.method != http.MethodPost || g.mediaType != "application/x-www-form-urlencoded" ||
+				g.query != "" || !reflect.DeepEqual(g.form, form) {
+				t.Errorf("%s: read %d was sent as %s %s with query %q and form %v, want a form-encoded POST of %v alone",
+					channel, i+1, g.method, g.mediaType, g.query, g.form, form)
+			}
 		}
 	}
 	// A --to naming a message that stands only on the second page is
