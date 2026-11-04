@@ -13,6 +13,7 @@ import (
 	"testing/fstest"
 
 	"yardr.dev/yardr/internal/pack"
+	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/packs"
@@ -24,7 +25,10 @@ import (
 // mint's environment is a short list (PATH, HOME, USER, LOGNAME, the base
 // and the proxy and CA variables of the process, of which a test binary has
 // none: internal/storetest drops them) and names no endpoint, so a stand-in
-// on PATH is how a test keeps it from Google.
+// on PATH is how a test keeps it from Google. Each is a scripttest stand-in
+// and not a new executable file: the mint starts them inside its 30 s
+// (source.MintTimeout), and the first start of a file that was not there
+// before is slow on macOS beside other suites.
 func standinGoogle(t *testing.T) {
 	t.Helper()
 	bin := t.TempDir()
@@ -41,9 +45,7 @@ cat >/dev/null
 printf '{"access_token":"ya29.standin","expires_in":3599}\n200'
 `,
 	} {
-		if err := os.WriteFile(filepath.Join(bin, name), []byte(text), 0o700); err != nil {
-			t.Fatal(err)
-		}
+		scripttest.Write(t, filepath.Join(bin, name), text)
 	}
 	// The tokens a process holds are keyed by the mint's program, which
 	// is under this test's own home: no other test's token is taken.
@@ -107,6 +109,10 @@ func TestCarryGoogleMailSetsItsMint(t *testing.T) {
 	if info, err := os.Stat(copyAt); err != nil || info.Mode().Perm() != source.CopyMode {
 		t.Fatalf("the copy stands at %v, %v", info, err)
 	}
+	// The copy, checked as the bytes and the mode the card showed, now runs as
+	// a stand-in with the same text: the carrying out made it a new executable
+	// file, whose first start would be spent inside the mint's 30 s.
+	scripttest.Relink(t, filepath.Dir(copyAt))
 	src, err := st.GetSource(ctx, "google-mail")
 	if err != nil {
 		t.Fatal(err)
