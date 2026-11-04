@@ -347,13 +347,23 @@ func TestUserApproveAskIsForTheOperatorsDeviceAlone(t *testing.T) {
 	// The operator's device calls as the operator and in the one form.
 	t.Run("as anyone else, and the array of yardr's own builds", func(t *testing.T) {
 		y := newRunYard(t)
-		for body, want := range map[string]string{
-			fmt.Sprintf(`{"bead":"yd-crm","ask":%d,"actor":"sam"}`, y.run): `this device calls as jo: \"actor\" is jo or left out`,
-			fmt.Sprintf(`["yd-crm", %d, "jo"]`, y.run):                     "takes them as a JSON object, by name",
-			fmt.Sprintf(`{"bead":"yd-crm","ask":%d,"run":"x"}`, y.run):     "ApproveAsk has none of that name (it takes bead, ask, actor, weighed, values)",
+		// A name the call does not have is refused in a sentence that does not
+		// say the name back, since a secret's value could sit where a name
+		// goes. footplate reads that sentence, the one message a client reads:
+		// it matches the whole of it, lead included, for each of the three
+		// calls, to make the call once more without weighed when a yard from
+		// before that argument refuses it. So these rows are the whole
+		// message, and the sentences stay byte-identical.
+		stray := fmt.Sprintf(`{"bead":"yd-crm","ask":%d,"run":"x"}`, y.run)
+		for _, c := range []struct{ method, body, want string }{
+			{"ApproveAsk", fmt.Sprintf(`{"bead":"yd-crm","ask":%d,"actor":"sam"}`, y.run), `this device calls as jo: \"actor\" is jo or left out`},
+			{"ApproveAsk", fmt.Sprintf(`["yd-crm", %d, "jo"]`, y.run), "takes them as a JSON object, by name"},
+			{"ApproveAsk", stray, `"message":"an argument: ApproveAsk has none of that name (it takes bead, ask, actor, weighed, values)"`},
+			{"ApproveSetup", stray, `"message":"an argument: ApproveSetup has none of that name (it takes bead, ask, option, values, account, actor, weighed)"`},
+			{"GiveSecret", stray, `"message":"an argument: GiveSecret has none of that name (it takes bead, ask, values, actor, weighed)"`},
 		} {
-			if w := y.approve(onTheMachine, y.jo, strings.NewReader(body)); !strings.Contains(w.Body.String(), want) {
-				t.Errorf("%s is answered %s, want %s", body, w.Body, want)
+			if w := y.post(c.method, onTheMachine, y.jo, strings.NewReader(c.body)); !strings.Contains(w.Body.String(), c.want) {
+				t.Errorf("%s %s is answered %s, want %s", c.method, c.body, w.Body, c.want)
 			}
 		}
 		y.nothingRan(t, "calls that are refused")

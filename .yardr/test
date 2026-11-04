@@ -1031,7 +1031,10 @@ flaky_sep=' | '
 # it follows. Whitespace-only lines, which go prints inside a multi-line
 # message, are skipped, and control characters other than a tab are dropped,
 # so that a terminal showing the log or a bead copied from it is not moved by
-# what a test printed.
+# what a test printed. A line over 200 characters keeps its first 120 and its
+# last 77 around three dots (clip), not its first 200: a message ends with what
+# happened more often than it starts with it, and a path in the middle took
+# the room and cut that off.
 # When no test failed by name, one block holds what the log says instead: a
 # timeout's panic line and its running tests, a fatal error's or panic's line
 # and the dump's head, else the first output lines (a TestMain that exits
@@ -1050,17 +1053,21 @@ flakyfails() {
       br = (human ? "\n" : "\\n")
       if (human) sep = "\n"
     }
+    function clip(s) {
+      if (length(s) <= 200) return s
+      return substr(s, 1, 120) "..." substr(s, length(s) - 76)
+    }
     function keep(b, s) {
       if (cnt[b] >= 6) return
       sub(/[ \t\r]+$/, "", s)
       match(s, /^ */)
-      s = substr(s, (RLENGTH < lvl[b] ? RLENGTH : lvl[b]) + 1, 200)
+      s = clip(substr(s, (RLENGTH < lvl[b] ? RLENGTH : lvl[b]) + 1))
       txt[b] = (cnt[b] ? txt[b] br : "") s
       cnt[b]++
     }
     function cap(s) {
       sub(/[ \t\r]+$/, "", s)
-      return substr(s, 1, 200)
+      return clip(s)
     }
     /^ +$/ { next }
     {

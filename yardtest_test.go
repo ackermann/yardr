@@ -1650,8 +1650,9 @@ func TestYardTestRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 // The rerun's output replaces the first run's, so the log line keeps what the
 // first run printed for each failed test, behind a separator: the test's
 // `--- FAIL:` line and the lines under it (a subtest has a block of its own,
-// its parent's holds it), at most 6 lines of 200 characters, joined by a
-// backslash and an n, and 20 blocks to a line. With no FAIL line, one block
+// its parent's holds it), at most 6 lines of 200 characters (a longer one as
+// its first 120 and its last 77 around three dots), joined by a backslash and
+// an n, and 20 blocks to a line. With no FAIL line, one block
 // keeps a timeout's panic line and running tests, a fatal error's or panic's
 // line and the dump's head, else the first output lines, and a timeout names
 // its running tests, a fatal error or panic its crashing test, in the head,
@@ -2270,13 +2271,14 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 // than it, so a subtest has a block of its own and its parent's holds it;
 // output between reports ends a block; a panic's line, which go prints
 // unindented after the FAIL line, joins the blocks it follows; a block keeps
-// 6 lines of 200 characters and a line 20 blocks; control characters are
-// dropped. With no FAIL line, one block keeps a timeout's panic line and
-// running tests, a fatal error's or panic's line and the dump's head, else
-// the first output lines; a timeout names its running tests, a fatal error
-// or panic its crashing test past the runtime's frames. The summary a failed
-// step prints (--human) shows the blocks as lines, and where a test failed
-// by name too, a timeout's block after them, which the log line leaves out.
+// 6 lines of 200 characters, a longer line as its head and its tail, and a
+// line 20 blocks; control characters are dropped. With no FAIL line, one
+// block keeps a timeout's panic line and running tests, a fatal error's or
+// panic's line and the dump's head, else the first output lines; a timeout
+// names its running tests, a fatal error or panic its crashing test past the
+// runtime's frames. The summary a failed step prints (--human) shows the
+// blocks as lines, and where a test failed by name too, a timeout's block
+// after them, which the log line leaves out.
 // Only the head of a log line, before the separator, names the tests that
 // flaked and the beads it tested. The bead that stands for a test is its
 // own, else its top-level test's, else any other subtest's of that one, in
@@ -2323,9 +2325,27 @@ func TestYardTestKeepsTheFailingLinesOfAFlake(t *testing.T) {
 	// parallel.
 	const sep, eol = " | ", `\n`
 	block := func(lines ...string) string { return strings.Join(lines, eol) }
+	// clipped is a line over 200 characters as the cap keeps it: its first 120
+	// characters and its last 77 around three dots, 200 in all.
+	clipped := func(s string) string { return s[:120] + "..." + s[len(s)-77:] }
 	// A report of seven lines, the fifth 300 characters long: six are kept,
-	// the fifth cut at 200, and the seventh is dropped.
+	// the fifth as its first 120 characters and its last 77 around three
+	// dots (200 in all), and the seventh is dropped.
 	long := "    a_test.go:5: " + strings.Repeat("x", 300)
+	// A line of exactly 200 characters, which the cap leaves as it is.
+	at200 := "    " + strings.Repeat("e", 196)
+	// A message with a long directory in the middle, as the test of a mint
+	// that did not answer printed it: the 200 characters went to the path,
+	// and the end, which says what happened, was cut.
+	mint := `    googlemint_test.go:133: the mint gave "" (""), source google-mail: mint_command ` +
+		"/var/folders/ab/" + strings.Repeat("c", 30) + "/T/TestCarryGoogleMailSetsItsMint123456789/002/sources/google-mail/google-mint" +
+		": no answer within 30s"
+	if len(mint) <= 200 {
+		t.Fatalf("the mint's line is %d characters long: it must be over the cap", len(mint))
+	}
+	// The same line at two depths: 200 characters in a child's block, where
+	// the indentation of its report comes off, and 204 in its parent's.
+	child := "p_test.go:21: " + strings.Repeat("m", 182)
 	// Twenty-five tests fail with a line each: twenty blocks are kept.
 	var manyIn, manyBlocks []string
 	for i := range 25 {
@@ -2377,7 +2397,28 @@ func TestYardTestKeepsTheFailingLinesOfAFlake(t *testing.T) {
 				block("--- FAIL: TestQ/mid/deep (0.00s)", "    q_test.go:24: deep went wrong"),
 			}},
 		{"6 lines of 200 characters", "--- FAIL: TestA (0.00s)\n    a_test.go:1: one\n    a_test.go:2: two\n    a_test.go:3: three\n    a_test.go:4: four\n" + long + "\n    a_test.go:6: six\nFAIL\n",
-			[]string{block("--- FAIL: TestA (0.00s)", "    a_test.go:1: one", "    a_test.go:2: two", "    a_test.go:3: three", "    a_test.go:4: four", long[:200])}},
+			[]string{block("--- FAIL: TestA (0.00s)", "    a_test.go:1: one", "    a_test.go:2: two", "    a_test.go:3: three", "    a_test.go:4: four", long[:120]+"..."+strings.Repeat("x", 77))}},
+		// A line over 200 characters keeps its head and its tail, and one at
+		// or under it is kept as it is, trailing spaces not counted.
+		{"a line of exactly 200 characters is kept whole", "--- FAIL: TestA (0.00s)\n" + at200 + "\nFAIL\n",
+			[]string{block("--- FAIL: TestA (0.00s)", at200)}},
+		{"trailing spaces do not count toward 200", "--- FAIL: TestA (0.00s)\n" + at200 + "     \nFAIL\n",
+			[]string{block("--- FAIL: TestA (0.00s)", at200)}},
+		// 4 + 116 + 4 + 77: the first 120 are the spaces and the h, the last
+		// 77 are the t, and the four characters between go.
+		{"a line of 201 characters keeps its head and its tail", "--- FAIL: TestA (0.00s)\n    " + strings.Repeat("h", 116) + "MIDL" + strings.Repeat("t", 77) + "\nFAIL\n",
+			[]string{block("--- FAIL: TestA (0.00s)", "    "+strings.Repeat("h", 116)+"..."+strings.Repeat("t", 77))}},
+		{"a long path in a message keeps what follows it", "--- FAIL: TestCarryGoogleMailSetsItsMint (30.18s)\n" + mint + "\nFAIL\n",
+			[]string{block("--- FAIL: TestCarryGoogleMailSetsItsMint (30.18s)",
+				mint[:120]+"..."+"etsItsMint123456789/002/sources/google-mail/google-mint: no answer within 30s")}},
+		// Each block shows its lines as the test would print them at the top
+		// level, so the indentation comes off before the cap: the child's
+		// line is whole, and the parent's, 4 characters longer, is cut.
+		{"a subtest's line is cut after its indentation comes off", "--- FAIL: TestP (0.01s)\n    --- FAIL: TestP/child (0.00s)\n        " + child + "\nFAIL\n",
+			[]string{
+				block("--- FAIL: TestP (0.01s)", "    --- FAIL: TestP/child (0.00s)", clipped("        "+child)),
+				block("--- FAIL: TestP/child (0.00s)", "    "+child),
+			}},
 		{"20 blocks", strings.Join(manyIn, "\n") + "\nFAIL\n", manyBlocks},
 		// go prints a test's panic after its FAIL line, unindented, then a
 		// stack: the panic's line joins every block open at that point.
@@ -2411,6 +2452,9 @@ func TestYardTestKeepsTheFailingLinesOfAFlake(t *testing.T) {
 			[]string{block("fatal error: concurrent map writes", "goroutine 8 [running]:", "internal/runtime/maps.fatal({0x1?, 0x0?})", "\t/go/src/runtime/panic.go:1195 +0x20", "m.test/a.TestA.func1()", "\ta_test.go:16 +0x60")}},
 		{"a panic in a code goroutine keeps its line and the dump head", "panic: boom from a code goroutine\n\ngoroutine 5 [running]:\nm.test/a.TestA.func1()\n\ta_test.go:11 +0x38\ncreated by m.test/a.TestA in goroutine 4\n\ta_test.go:9 +0x24\nFAIL\tm.test/a 0.1s\n",
 			[]string{block("panic: boom from a code goroutine", "goroutine 5 [running]:", "m.test/a.TestA.func1()", "\ta_test.go:11 +0x38", "created by m.test/a.TestA in goroutine 4", "\ta_test.go:9 +0x24")}},
+		// The lines kept with no FAIL line are cut as a block's are.
+		{"a fatal error's long line keeps its head and its tail", "fatal error: " + strings.Repeat("z", 300) + "\n\ngoroutine 8 [running]:\nFAIL\tm.test/a 0.1s\n",
+			[]string{block(clipped("fatal error: "+strings.Repeat("z", 300)), "goroutine 8 [running]:")}},
 		{"a TestMain that exits keeps its last lines", "about to die\nFAIL\tm.test/a 0.1s\nFAIL\n",
 			[]string{"about to die"}},
 		{"a silent TestMain keeps the exit status", "exit status 3\nFAIL\tm.test/a 0.1s\nFAIL\n",
@@ -2455,6 +2499,8 @@ func TestYardTestKeepsTheFailingLinesOfAFlake(t *testing.T) {
 		want []string // the lines of the summary
 	}{
 		{"a failure alone", failedA, failedALines},
+		{"a long line keeps its head and its tail", "--- FAIL: TestA (0.00s)\n    a_test.go:1: " + strings.Repeat("z", 300) + "\nFAIL\n",
+			[]string{"--- FAIL: TestA (0.00s)", clipped("    a_test.go:1: " + strings.Repeat("z", 300))}},
 		{"a timeout alone is shown once", timeoutB, timeoutBLines},
 		{"a failure and a timeout behind it", failedA + timeoutB, append(slices.Clone(failedALines), timeoutBLines...)},
 		{"a timeout and a failure behind it", timeoutB + failedA, append(slices.Clone(failedALines), timeoutBLines...)},

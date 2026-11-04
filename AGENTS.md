@@ -128,7 +128,8 @@ it lists every exported name with its comment, faster than grepping.
 - New command: a method on `*app` in `internal/cli/<area>.go` returning a
   `*cobra.Command`, registered in `root.go`'s `AddCommand`; interactive
   forms use `huh` (see `groupform.go`), output goes through `a.out` so
-  `--json` holds.
+  `--json` holds. A group (subcommands, no Run) gets its refusal of an
+  unknown subcommand from `rootCmd` (`refuseStray`): give it no `Args`.
 - New socket call: a method on `store.API` in `internal/store/api.go`,
   implemented on `*Store`; `go generate ./internal/rpc` rewrites the
   client, and the server exposes it as `POST /call/<Method>` by
@@ -219,7 +220,8 @@ it lists every exported name with its comment, faster than grepping.
   The rerun's output replaces the first run's, so the log line also keeps
   what the first run printed for each failed test, behind ` | `: its
   `--- FAIL:` line and the lines under it (6 lines of 200 characters at
-  most for a test, 20 tests at most, a literal `\n` between lines); a
+  most for a test, a longer line as its first 120 and last 77 around
+  `...`, 20 tests at most, a literal `\n` between lines); a
   failure with no `--- FAIL:` line keeps its timeout's panic line and
   running tests, its fatal error's or panic's line and the dump's head,
   else its first output lines, and a timeout names its running tests, a

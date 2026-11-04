@@ -279,6 +279,30 @@ func TestRunAskCard(t *testing.T) {
 	}
 }
 
+// The card of a depot-push ask ends in the approval it takes, as a run ask's
+// does. It has no options, so its last line once fell to the one for an ask
+// that wants words, and the yard refused the command its own card named: the
+// refusal is the yard's word on what the card should say, so the card is held
+// to the command the refusal gives.
+func TestDepotPushAskCardEndsInTheApproval(t *testing.T) {
+	t.Parallel()
+	y := depotPushYard(t)
+	seq := y.ask(t, depotPushAsk("web", false), "yardmaster")
+	approve := "yardr bead answer " + y.bead + " 1 --approve"
+	got := y.asked(t, seq).Lines()
+	if seq != 1 || got[len(got)-1] != "  approve with: "+approve {
+		t.Fatalf("ask %d: the card:\n%s\nwant it to end with %q", seq, strings.Join(got, "\n"), "  approve with: "+approve)
+	}
+	for _, ans := range []Answer{{Ask: seq, Option: 1}, {Ask: seq, Option: 1, Words: "yes"}, {Ask: seq, Words: "approved"}} {
+		if err := y.AddAnswer(y.ctx, y.bead, ans, "mckean"); err == nil || !strings.Contains(err.Error(), "ask 1 takes an approval, not words: "+approve) {
+			t.Errorf("%+v = %v, want the refusal in the card's command", ans, err)
+		}
+	}
+	if answers := answerNotes(t, y); len(answers) != 0 || y.asked(t, seq).State != AskOpen {
+		t.Fatalf("refused answers left %d notes and the ask %s", len(answers), y.asked(t, seq).State)
+	}
+}
+
 // ApproveAsk runs the command the ask holds as the operator, in the write
 // that records the approval: the link takes the new limit, the answer note
 // holds what ran and what it printed, the change's own event names the ask,

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/rpc"
@@ -182,6 +183,10 @@ func (a *app) rootCmd() *cobra.Command {
 		a.bdpCmd(), a.webCmd(), a.crewCmd(), a.userCmd(), a.inboxCmd(), a.mailCmd(), a.timerCmd(), a.chatCmd(), a.rememberCmd(), a.recallCmd(), a.hookCmd(), a.sourceCmd(), a.callCmd(), a.limitsCmd(), a.harnessCmd(),
 		a.peerCmd(), a.edgeCmd(), a.subscribeCmd(), a.unsubscribeCmd(), a.threadCmd(), a.replyCmd(), a.reactCmd(), a.reviewCmd(), a.storeCmd(), a.packCmd(), a.docsCmd(), a.previewCmd(),
 		a.initCmd(), a.settingsCmd(), a.doctorCmd(), a.statusCmd(), a.upgradeCmd(), a.upCmd(), a.downCmd(), a.uninstallCmd(), a.setupCmd(), a.otelCmd(), a.diskCmd(), a.versionCmd())
+	// Cobra adds its completion command, a group like the rest, only as it
+	// executes; added now, it is in the tree refuseStray walks.
+	root.InitDefaultCompletionCmd()
+	refuseStray(root)
 	if a.stdout != nil {
 		root.SetOut(a.stdout)
 	}
@@ -189,6 +194,35 @@ func (a *app) rootCmd() *cobra.Command {
 		root.SetErr(a.stderr)
 	}
 	return root
+}
+
+// refuseStray makes every command group under c refuse a subcommand it has
+// not. Cobra answers a group, a command with subcommands and no Run of its
+// own, with its help and a zero status whatever follows it, and reads Args
+// only for a command that runs, so yardr bead nots read as success. A group
+// is given a Run, which groupArgs keeps from ever being reached, so that
+// cobra reads its Args. The root, daemon and review run, and have Args of
+// their own; a leaf takes what it takes.
+func refuseStray(c *cobra.Command) {
+	for _, sub := range c.Commands() {
+		refuseStray(sub)
+	}
+	if c.HasSubCommands() && !c.Runnable() {
+		c.Args = groupArgs
+		c.RunE = func(c *cobra.Command, _ []string) error { return c.Help() }
+	}
+}
+
+// groupArgs is the Args of a command group. Bare, a group asks for its help
+// as --help does: cobra answers pflag.ErrHelp with the help and a zero
+// status, and it reads Args before the root's pre-run, so a bare group still
+// needs no yard and no actor, as before. Anything that follows is a
+// subcommand the group has not, refused as the root refuses one.
+func groupArgs(c *cobra.Command, args []string) error {
+	if len(args) == 0 {
+		return pflag.ErrHelp
+	}
+	return cobra.NoArgs(c, args)
 }
 
 // versionCmd prints which build this is. It touches neither the store nor

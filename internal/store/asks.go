@@ -1684,7 +1684,7 @@ func (r ResolvedAsk) lines(mark func(string) string) []string {
 		out = append(out, fmt.Sprintf("  answer with: yardr bead answer %s %d <n> --secret, or <n> --account <source>", r.Note.Bead, r.Note.Seq))
 	case r.Ask.Setup != nil:
 		out = append(out, fmt.Sprintf("  answer with: yardr bead answer %s %d <n> --secret", r.Note.Bead, r.Note.Seq))
-	case r.Ask.Run != nil:
+	case r.Ask.Run != nil || r.Ask.DepotPush != nil:
 		out = append(out, fmt.Sprintf("  approve with: yardr bead answer %s %d --approve", r.Note.Bead, r.Note.Seq))
 	case r.Ask.Secret != nil:
 		out = append(out, fmt.Sprintf("  answer with: yardr bead answer %s %d --secret", r.Note.Bead, r.Note.Seq))
