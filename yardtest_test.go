@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"yardr.dev/yardr/internal/testload"
 )
@@ -1650,7 +1651,7 @@ func TestYardTestRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 // The rerun's output replaces the first run's, so the log line keeps what the
 // first run printed for each failed test, behind a separator: the test's
 // `--- FAIL:` line and the lines under it (a subtest has a block of its own,
-// its parent's holds it), at most 6 lines of 200 characters (a longer one as
+// its parent's holds it), at most 6 lines of 200 bytes (a longer one as
 // its first 120 and its last 77 around three dots), joined by a backslash and
 // an n, and 20 blocks to a line. With no FAIL line, one block
 // keeps a timeout's panic line and running tests, a fatal error's or panic's
@@ -2259,6 +2260,22 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 	}
 }
 
+// utf8Locale names a locale of this machine that reads UTF-8, "" where it has
+// none under the usual names. A tool takes a multibyte character for one only
+// in such a locale: macOS's tr stops at an invalid sequence in one and passes
+// it in C. A case that has to meet that stop sets the locale, then, and does
+// not take the one the gate was started in, which on a CI runner may be C.
+func utf8Locale() string {
+	for _, name := range []string{"C.UTF-8", "en_US.UTF-8", "C.utf8", "en_US.utf8"} {
+		cmd := exec.Command("locale", "charmap")
+		cmd.Env = append(os.Environ(), "LC_ALL="+name)
+		if out, err := cmd.Output(); err == nil && strings.TrimSpace(string(out)) == "UTF-8" {
+			return name
+		}
+	}
+	return ""
+}
+
 // What the flaky log line keeps of the first run (flakyfails), the tests a
 // failure names without a FAIL line (flakystuck), which of its lines name a
 // test (flakylines), the beads it says it tested (flakybeads), which open
@@ -2271,8 +2288,9 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 // than it, so a subtest has a block of its own and its parent's holds it;
 // output between reports ends a block; a panic's line, which go prints
 // unindented after the FAIL line, joins the blocks it follows; a block keeps
-// 6 lines of 200 characters, a longer line as its head and its tail, and a
-// line 20 blocks; control characters are dropped. With no FAIL line, one
+// 6 lines of 200 bytes, a longer line as its head and its tail, neither cut
+// halving a multibyte character, and a line 20 blocks; control characters
+// are dropped. With no FAIL line, one
 // block keeps a timeout's panic line and running tests, a fatal error's or
 // panic's line and the dump's head, else the first output lines; a timeout
 // names its running tests, a fatal error or panic its crashing test past the
@@ -2303,6 +2321,13 @@ func TestYardTestKeepsTheFailingLinesOfAFlake(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "probe.sh", fns+"\n\"$@\"\n")
 	probe := filepath.Join(dir, "probe.sh")
+	// The functions run in a UTF-8 locale where the machine has one, whatever
+	// the gate was started in: the script pins the locale of its own tools, and
+	// only a tool that reads a multibyte character as one breaks on half of it.
+	loc := utf8Locale()
+	if loc == "" {
+		t.Log("no UTF-8 locale on this machine: the cases run in the gate's own")
+	}
 	// run calls one of the functions on a file, and returns what it printed
 	// less its last newline.
 	run := func(t *testing.T, in, fn string, args ...string) string {
@@ -2312,6 +2337,9 @@ func TestYardTestKeepsTheFailingLinesOfAFlake(t *testing.T) {
 			t.Fatal(err)
 		}
 		cmd := exec.Command("sh", append([]string{probe, fn}, append(args, file)...)...)
+		if loc != "" {
+			cmd.Env = append(os.Environ(), "LC_ALL="+loc)
+		}
 		var stderr strings.Builder
 		cmd.Stderr = &stderr
 		out, err := cmd.Output()
@@ -2342,6 +2370,16 @@ func TestYardTestKeepsTheFailingLinesOfAFlake(t *testing.T) {
 		": no answer within 30s"
 	if len(mint) <= 200 {
 		t.Fatalf("the mint's line is %d characters long: it must be over the cap", len(mint))
+	}
+	// The finder's probe: a message of 130 two-byte characters, 147 characters
+	// and 277 bytes, so that it is over the cap only because the cap counts
+	// bytes. Both cuts fall inside an é, byte 120 being the first of the 52nd
+	// and byte 201 the second of the 92nd: the head keeps 51 of them and the
+	// tail the last 38, and neither is halved.
+	accents := "    a_test.go:7: " + strings.Repeat("é", 130)
+	accentsClipped := "    a_test.go:7: " + strings.Repeat("é", 51) + "..." + strings.Repeat("é", 38)
+	if utf8.ValidString(clipped(accents)) {
+		t.Fatalf("the probe's line cut by bytes is %q: both its cuts must fall inside a character", clipped(accents))
 	}
 	// The same line at two depths: 200 characters in a child's block, where
 	// the indentation of its report comes off, and 204 in its parent's.
@@ -2419,6 +2457,15 @@ func TestYardTestKeepsTheFailingLinesOfAFlake(t *testing.T) {
 				block("--- FAIL: TestP (0.01s)", "    --- FAIL: TestP/child (0.00s)", clipped("        "+child)),
 				block("--- FAIL: TestP/child (0.00s)", "    "+child),
 			}},
+		// A cut backs off to the edge of the character it would halve (the
+		// loop after this table pins how far). The block behind the probe is
+		// in the record too, as it was not while tr stopped at the half of an é.
+		{"a long line of two-byte characters is cut between them", "--- FAIL: TestA (0.00s)\n" + accents + "\n--- FAIL: TestB (0.00s)\n    b_test.go:1: after\nFAIL\n",
+			[]string{block("--- FAIL: TestA (0.00s)", accentsClipped), block("--- FAIL: TestB (0.00s)", "    b_test.go:1: after")}},
+		// The cap is bytes: four spaces and 98 é are exactly 200 of them,
+		// however few characters that is.
+		{"a line of exactly 200 bytes of two-byte characters is kept whole", "--- FAIL: TestA (0.00s)\n    " + strings.Repeat("é", 98) + "\nFAIL\n",
+			[]string{block("--- FAIL: TestA (0.00s)", "    "+strings.Repeat("é", 98))}},
 		{"20 blocks", strings.Join(manyIn, "\n") + "\nFAIL\n", manyBlocks},
 		// go prints a test's panic after its FAIL line, unindented, then a
 		// stack: the panic's line joins every block open at that point.
@@ -2435,6 +2482,16 @@ func TestYardTestKeepsTheFailingLinesOfAFlake(t *testing.T) {
 		// delete: none is kept, the rest of the line is.
 		{"control characters", "--- FAIL: TestA (0.00s)\n    a_test.go:1: red \x1b[31mbold\x1b[0m bell\a cr\rmid del\x7f end\tstop\nFAIL\n",
 			[]string{block("--- FAIL: TestA (0.00s)", "    a_test.go:1: red [31mbold[0m bell crmid del end\tstop")}},
+		// The controls dropped are all below 0x80, which no multibyte
+		// character has a byte of, so the characters around them stay whole.
+		{"control characters beside multibyte ones", "--- FAIL: TestA (0.00s)\n    a_test.go:1: café \x1b[31m…\x1b[0m — bell\a del\x7f end\nFAIL\n",
+			[]string{block("--- FAIL: TestA (0.00s)", "    a_test.go:1: café [31m…[0m — bell del end")}},
+		// A byte that is no character, as a test that prints binary leaves in
+		// its message: in a UTF-8 locale macOS's tr stops at it and the rest of
+		// the record goes, whatever the cuts do, so the tr is told the C locale
+		// as well.
+		{"a stray byte that is no character does not end the record", "--- FAIL: TestA (0.00s)\n    a_test.go:2: bad \xc3 byte\n--- FAIL: TestB (0.00s)\n    b_test.go:1: after\nFAIL\n",
+			[]string{block("--- FAIL: TestA (0.00s)", "    a_test.go:2: bad \xc3 byte"), block("--- FAIL: TestB (0.00s)", "    b_test.go:1: after")}},
 		// A FAIL marker inside a message is the message's text, no report.
 		{"a marker inside a message", "--- FAIL: TestA (0.00s)\n    a_test.go:3: output was --- FAIL: TestInner (0.00s)\nFAIL\n",
 			[]string{block("--- FAIL: TestA (0.00s)", "    a_test.go:3: output was --- FAIL: TestInner (0.00s)")}},
@@ -2455,6 +2512,10 @@ func TestYardTestKeepsTheFailingLinesOfAFlake(t *testing.T) {
 		// The lines kept with no FAIL line are cut as a block's are.
 		{"a fatal error's long line keeps its head and its tail", "fatal error: " + strings.Repeat("z", 300) + "\n\ngoroutine 8 [running]:\nFAIL\tm.test/a 0.1s\n",
 			[]string{block(clipped("fatal error: "+strings.Repeat("z", 300)), "goroutine 8 [running]:")}},
+		// 13 + 260 bytes: byte 120 is the first of the 54th é and byte 197 the
+		// second of the 92nd.
+		{"a fatal error's long line of two-byte characters is cut between them", "fatal error: " + strings.Repeat("é", 130) + "\n\ngoroutine 8 [running]:\nFAIL\tm.test/a 0.1s\n",
+			[]string{block("fatal error: "+strings.Repeat("é", 53)+"..."+strings.Repeat("é", 38), "goroutine 8 [running]:")}},
 		{"a TestMain that exits keeps its last lines", "about to die\nFAIL\tm.test/a 0.1s\nFAIL\n",
 			[]string{"about to die"}},
 		{"a silent TestMain keeps the exit status", "exit status 3\nFAIL\tm.test/a 0.1s\nFAIL\n",
@@ -2485,6 +2546,45 @@ func TestYardTestKeepsTheFailingLinesOfAFlake(t *testing.T) {
 		})
 	}
 
+	// A four-byte character is the longest a cut can halve. A cut falls inside
+	// it after one, two or three of its bytes, which is how far the head backs
+	// up and the tail moves on; after none or all four it falls between
+	// characters and nothing moves, so the character goes with the middle or
+	// stays whole. It is put across the head's cut (n of its bytes among the
+	// first 120) and across the tail's (n of its bytes before the last 77), in
+	// a line of letters, so that each expected line is letters and the
+	// character where it survives. h120 is the first 120 bytes: the four
+	// spaces the report indents with, and 116 letters.
+	const glyph = "\U0001D11E"
+	h120 := "    " + strings.Repeat("h", 116)
+	for n := range len(glyph) + 1 {
+		wantHead := h120[:120-n]
+		if n == len(glyph) {
+			wantHead += glyph
+		}
+		wantTail := strings.Repeat("t", 73+n)
+		if n == 0 {
+			wantTail = glyph + wantTail
+		}
+		for _, c := range []struct{ name, in, want string }{
+			{"the head's cut", h120[:120-n] + glyph + strings.Repeat("m", 10) + strings.Repeat("t", 77), wantHead + "..." + strings.Repeat("t", 77)},
+			{"the tail's cut", h120 + strings.Repeat("m", 10) + glyph + strings.Repeat("t", 73+n), h120 + "..." + wantTail},
+		} {
+			// In a cut by bytes alone the character is halved after one to
+			// three of its bytes and whole after none or four: a row where it
+			// is not pins nothing.
+			if halved := 0 < n && n < len(glyph); utf8.ValidString(clipped(c.in)) == halved {
+				t.Fatalf("%s: a cut by bytes leaves %q: it must be half a character after 1 to 3 bytes and whole after 0 or 4", c.name, clipped(c.in))
+			}
+			t.Run(fmt.Sprintf("keeps: %s falls after %d of the 4 bytes of a character", c.name, n), func(t *testing.T) {
+				t.Parallel()
+				if got, want := run(t, "--- FAIL: TestA (0.00s)\n"+c.in+"\nFAIL\n", "flakyfails"), block("--- FAIL: TestA (0.00s)", c.want); got != want {
+					t.Errorf("flakyfails printed:\n%s\nwant:\n%s", got, want)
+				}
+			})
+		}
+	}
+
 	// The summary failed prints (--human) shows the same blocks as lines, and
 	// where a test failed by name and a package timed out too, the timeout's
 	// block after them, whichever the log has first: the panic line says that
@@ -2501,6 +2601,8 @@ func TestYardTestKeepsTheFailingLinesOfAFlake(t *testing.T) {
 		{"a failure alone", failedA, failedALines},
 		{"a long line keeps its head and its tail", "--- FAIL: TestA (0.00s)\n    a_test.go:1: " + strings.Repeat("z", 300) + "\nFAIL\n",
 			[]string{"--- FAIL: TestA (0.00s)", clipped("    a_test.go:1: " + strings.Repeat("z", 300))}},
+		{"a long line of two-byte characters is cut between them", "--- FAIL: TestA (0.00s)\n" + accents + "\nFAIL\n",
+			[]string{"--- FAIL: TestA (0.00s)", accentsClipped}},
 		{"a timeout alone is shown once", timeoutB, timeoutBLines},
 		{"a failure and a timeout behind it", failedA + timeoutB, append(slices.Clone(failedALines), timeoutBLines...)},
 		{"a timeout and a failure behind it", timeoutB + failedA, append(slices.Clone(failedALines), timeoutBLines...)},

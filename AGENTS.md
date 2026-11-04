@@ -219,9 +219,10 @@ it lists every exported name with its comment, faster than grepping.
   a package that fails twice fails as before.
   The rerun's output replaces the first run's, so the log line also keeps
   what the first run printed for each failed test, behind ` | `: its
-  `--- FAIL:` line and the lines under it (6 lines of 200 characters at
-  most for a test, a longer line as its first 120 and last 77 around
-  `...`, 20 tests at most, a literal `\n` between lines); a
+  `--- FAIL:` line and the lines under it (6 lines of 200 bytes at
+  most for a test, a longer line as its first 120 and last 77 bytes
+  around `...`, each cut moved off the middle of a multibyte character,
+  20 tests at most, a literal `\n` between lines); a
   failure with no `--- FAIL:` line keeps its timeout's panic line and
   running tests, its fatal error's or panic's line and the dump's head,
   else its first output lines, and a timeout names its running tests, a

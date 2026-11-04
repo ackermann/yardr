@@ -1020,7 +1020,7 @@ flaky_sep=' | '
 # that failed, for the flaky log: a block per `--- FAIL:` line, that line and
 # the lines under it, which go indents deeper than it (a subtest's report
 # stands inside its parent's, so a subtest has a block of its own and its
-# parent's holds it too). A block keeps at most 6 lines of 200 characters,
+# parent's holds it too). A block keeps at most 6 lines of 200 bytes,
 # its lines joined by a backslash and an n, and the log at most 20 blocks
 # (the quiet run caps its failing test names at 20 as well: a stalled box
 # fails tens of tests, and the line is copied into a bead), the blocks
@@ -1031,10 +1031,14 @@ flaky_sep=' | '
 # it follows. Whitespace-only lines, which go prints inside a multi-line
 # message, are skipped, and control characters other than a tab are dropped,
 # so that a terminal showing the log or a bead copied from it is not moved by
-# what a test printed. A line over 200 characters keeps its first 120 and its
+# what a test printed. A line over 200 bytes keeps its first 120 and its
 # last 77 around three dots (clip), not its first 200: a message ends with what
 # happened more often than it starts with it, and a path in the middle took
-# the room and cut that off.
+# the room and cut that off. The awk and the tr run in the C locale, so that
+# every awk counts and cuts bytes alike (a UTF-8 one counts characters), and
+# clip moves each cut to the edge of a character: half of one is no text, and
+# the tr of macOS, in a UTF-8 locale, stops at it and drops the rest of the
+# record.
 # When no test failed by name, one block holds what the log says instead: a
 # timeout's panic line and its running tests, a fatal error's or panic's line
 # and the dump's head, else the first output lines (a TestMain that exits
@@ -1048,14 +1052,23 @@ flaky_sep=' | '
 flakyfails() {
   human=0
   if [ "$1" = "--human" ]; then human=1; shift; fi
-  awk -v sep="$flaky_sep" -v human="$human" '
+  LC_ALL=C awk -v sep="$flaky_sep" -v human="$human" '
     BEGIN {
       br = (human ? "\n" : "\\n")
       if (human) sep = "\n"
     }
-    function clip(s) {
+    # A cut by bytes can land inside a UTF-8 character: the bytes after its
+    # first are 0x80-0xBF, and no character starts with one. So the head backs
+    # up while the byte after it is one, and the tail drops the ones it starts
+    # with, and both end at the edge of a character. A line of 200 bytes or
+    # less is whole.
+    function clip(s,    h, t) {
       if (length(s) <= 200) return s
-      return substr(s, 1, 120) "..." substr(s, length(s) - 76)
+      h = 120
+      while (h > 0 && substr(s, h + 1, 1) ~ /[\200-\277]/) h--
+      t = length(s) - 76
+      while (substr(s, t, 1) ~ /[\200-\277]/) t++
+      return substr(s, 1, h) "..." substr(s, t)
     }
     function keep(b, s) {
       if (cnt[b] >= 6) return
@@ -1140,7 +1153,7 @@ flakyfails() {
         print out
       }
     }
-  ' "$1" | tr -d '\001-\010\013-\037\177'
+  ' "$1" | LC_ALL=C tr -d '\001-\010\013-\037\177'
 }
 # flakystuck prints the tests a go test log ($1) names without a `--- FAIL:`
 # line, one a line: the running tests of a test timeout (go sorts them), else
