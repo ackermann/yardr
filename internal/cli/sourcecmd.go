@@ -270,10 +270,12 @@ check or notify either.
   name: aiquokka
   about: Usage limits of the subscriptions the agents' CLIs are logged in to.
   limits:
-    command: [/Users/me/go/bin/aiquokka, "{provider}", --json]
+    command: [aiquokka, "{provider}", --json]   # a file beside this one, below
     kinds:              # harness kind: the provider's own name for it
       claude: claude
       kimi: kimi
+
+yardr carries aiquokka's source: yardr source add aiquokka adds it with no file.
 
 With no kinds the source answers for itself instead: its command takes no
 {provider} and is asked by the source's name, for the windows it reports:
@@ -503,24 +505,29 @@ its grants, plain and as a user alike.`,
 	}
 
 	add := &cobra.Command{
-		Use:   "add <file>",
+		Use:   "add <file|name>",
 		Short: "Add the source a file declares, or replace the one of its name",
 		Long: `Reads the declaration and keeps it in the store under the name the file
 gives it. Everything wrong with the file is named at once, by line and key,
 and nothing is kept. A source of that name is replaced and keeps its
-env_file; what the new file changes of its calls is printed.`,
+env_file; what the new file changes of its calls is printed.
+
+Where no file of the name given stands, the name of a source yardr carries
+(` + strings.Join(source.KnownNames(), ", ") + `) adds that source, with the command files it names. The
+program they run is not carried: it is the operator's to install.`,
 		Example: `  yardr source add crm.yaml
   yardr source key crm
-  yardr source check crm`,
+  yardr source check crm
+  yardr source add aiquokka     # carried by yardr, no file needed`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			text, err := os.ReadFile(args[0])
+			file, err := readAddFile(args[0])
 			if err != nil {
 				return err
 			}
 			// Read here first, so a file that is refused is refused with
 			// its lines whoever asks, before the store is asked who may.
-			d, err := source.Parse(args[0], text)
+			d, err := source.Parse(args[0], file.text)
 			if err != nil {
 				return err
 			}
@@ -531,16 +538,8 @@ env_file; what the new file changes of its calls is printed.`,
 			// The files the declaration's commands name are the operator's
 			// to add, as the declaration is: they are looked at before the
 			// store is asked, and copied after it has answered.
-			declDir := ""
-			if d.HasCommandFiles() {
-				abs, err := filepath.Abs(args[0])
-				if err != nil {
-					return err
-				}
-				declDir = filepath.Dir(abs)
-				if err := d.CheckCommandFiles(declDir); err != nil {
-					return err
-				}
+			if err := file.check(d); err != nil {
+				return err
 			}
 			cfg, err := a.config()
 			if err != nil {
@@ -561,18 +560,18 @@ env_file; what the new file changes of its calls is printed.`,
 				before, _ = was.Declaration()
 			}
 			copies := d.HasCommandFiles() || (before != nil && before.HasCommandFiles())
-			saved, err := st.PutSource(c.Context(), args[0], string(text), a.who())
+			saved, err := st.PutSource(c.Context(), args[0], string(file.text), a.who())
 			if err != nil {
 				return err
 			}
 			if copies {
 				// CopyCommandFiles makes the directory anew, so the files of
 				// the declaration this one replaces are gone with it.
-				if err := d.CopyCommandFiles(declDir, cfg.Home); err != nil {
+				if err := file.copy(d, cfg.Home); err != nil {
 					return fmt.Errorf("source %s saved, but its commands' files were not copied: %w", d.Name, err)
 				}
 			}
-			changes := callChanges(before, d)
+			changes := append(file.notes(), callChanges(before, d)...)
 			grants, err := st.SourceGrants(c.Context(), d.Name)
 			if err != nil {
 				return err

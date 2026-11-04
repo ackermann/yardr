@@ -21,6 +21,7 @@ import (
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/server"
+	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 )
@@ -475,6 +476,9 @@ func TestDoctorSetUpYard(t *testing.T) {
 		"done   routes for new, review and approved: new to web/builders, review to web/reviewers, approved to web/mergers",
 		"done   a first bead: "+b.ID, "done   a first merged bead: "+b.ID+" (merged)",
 		"Tell us it landed: mail yardmaster@yardr.dev with \"landed\".",
+		// The subscriptions' limits are no step the setup waits for: not a
+		// todo, and not done until aiquokka's source is declared.
+		"note   the subscriptions' limits, from aiquokka (optional): no source named aiquokka is declared",
 		"Nothing the yard needs is missing.", "The setup is complete.")
 	if strings.Contains(out, "todo ") || strings.Contains(out, "FAULT") {
 		t.Errorf("a set-up yard lacks something:\n%s", out)
@@ -503,6 +507,59 @@ func TestDoctorSetUpYard(t *testing.T) {
 		t.Fatalf("err = %v\n%s", err, out)
 	}
 	wantText(t, out, "note   held        1 held, waiting for someone: "+held.ID, "note   yardmaster  yardmaster is stopped (disabled)")
+
+	// Declaring the source turns the optional step done.
+	text, _, _ := source.Known(source.Aiquokka)
+	if _, err := st.PutSource(ctx, "aiquokka.yaml", string(text), "me"); err != nil {
+		t.Fatal(err)
+	}
+	out, err = run(t, a().rootCmd(), "doctor")
+	if err != nil {
+		t.Fatalf("err = %v\n%s", err, out)
+	}
+	wantText(t, out, "done   the subscriptions' limits, from aiquokka (optional): source aiquokka", "The setup is complete.")
+}
+
+// Where aiquokka is on PATH and the yard declares no source of that name,
+// doctor proposes the one command that adds it, whatever other sources the
+// yard has; it says nothing where aiquokka is not found, or the source is
+// declared.
+func TestDoctorOffersAiquokka(t *testing.T) {
+	st := storetest.New(t)
+	ctx := context.Background()
+	cfg := &config.Config{Home: t.TempDir()}
+	offered := func() []string {
+		t.Helper()
+		part, err := sourcesPart(ctx, cfg, st, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return part.Notes
+	}
+	stubLookPath(t)
+	if got := offered(); len(got) != 0 {
+		t.Fatalf("with aiquokka off PATH: %q", got)
+	}
+	stubLookPath(t, "aiquokka")
+	want := "aiquokka is on PATH and no source named aiquokka is declared, so the yard does not read what the subscriptions of its agents still carry: " +
+		yardrAt(cfg.Home) + " source add aiquokka (docs/integrations.md)"
+	if got := offered(); len(got) != 1 || got[0] != want {
+		t.Fatalf("with aiquokka on PATH and no source: %q, want %q", got, want)
+	}
+	// A source of another name is no aiquokka.
+	if _, err := st.PutSource(ctx, "queue.yaml", "name: queue\nlimits:\n  command: [/opt/queue/limits]\n", "me"); err != nil {
+		t.Fatal(err)
+	}
+	if got := offered(); len(got) != 1 || got[0] != want {
+		t.Fatalf("with another source declared: %q, want %q", got, want)
+	}
+	text, _, _ := source.Known(source.Aiquokka)
+	if _, err := st.PutSource(ctx, "aiquokka.yaml", string(text), "me"); err != nil {
+		t.Fatal(err)
+	}
+	if got := offered(); len(got) != 0 {
+		t.Fatalf("with the source declared: %q", got)
+	}
 }
 
 // A script, people or another yard burns no subscription, so a user named
@@ -1278,7 +1335,7 @@ func TestSetupStepsDirDepot(t *testing.T) {
 	for _, s := range steps {
 		keys = append(keys, s.Key)
 	}
-	if !slices.Equal(keys, []string{stepDepot, stepDepotFiles, stepBuilders, stepReviewers, stepRoutes, stepFirstBead, stepMerged}) {
+	if !slices.Equal(keys, []string{stepDepot, stepDepotFiles, stepBuilders, stepReviewers, stepRoutes, stepLimits, stepFirstBead, stepMerged}) {
 		t.Fatalf("keys = %v", keys)
 	}
 	if n := nextStep(steps); n.Key != stepDepotFiles || n.Next != "yardr depot init docs" {
@@ -1289,18 +1346,18 @@ func TestSetupStepsDirDepot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !steps[1].Done || steps[4].Title != "routes for new and review" || steps[6].Title != "a first bead through to the flow's end" {
+	if !steps[1].Done || steps[4].Title != "routes for new and review" || steps[7].Title != "a first bead through to the flow's end" {
 		t.Fatalf("steps = %+v", steps)
 	}
 	// A dir depot's flow can finish, but no bead was landed.
-	steps[6].Done = true
+	steps[7].Done = true
 	var out strings.Builder
 	(&doctorReport{Steps: steps}).print(&out)
 	if strings.Contains(out.String(), "Tell us it landed") {
 		t.Fatalf("a dir depot landed nothing, yet doctor says to tell us it landed:\n%s", out.String())
 	}
 	// The steps of no yard are those of a yard with a repository to come.
-	if none := noSetup(); len(none) != 8 || none[4].Key != stepLanding || nextStep(none).Key != stepDepot {
+	if none := noSetup(); len(none) != 9 || none[4].Key != stepLanding || nextStep(none).Key != stepDepot {
 		t.Fatalf("no yard: %+v", none)
 	}
 }

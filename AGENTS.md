@@ -23,10 +23,8 @@ worked); user docs live in `docs/` and are not repeated here.
   contract), `docs/testing.md` (the test rules), `docs/design/`, `docs/flows/`;
   `docs/docs.go` beside them embeds the top-level pages in the binary (`yardr docs`).
 - `packs/`: packs shipped inside the binary (`packs/packs.go` embeds them);
-  per-service and per-depot-kind directories. Two are not embedded:
-  `template`, the skeleton a new source pack is copied from, and `aiquokka`,
-  which is no pack but the files of a limits source for `yardr source add`
-  (a pack may not bring a `limits` key).
+  per-service and per-depot-kind directories. One is not embedded:
+  `template`, the skeleton a new source pack is copied from.
 - `harnesses/`: one `<kind>.yaml` per agent harness kind, embedded and read
   by `internal/agents`.
 - `contrib/`: operator and developer tools, each with its own README
@@ -96,7 +94,9 @@ it lists every exported name with its comment, faster than grepping.
 - `server`: the `yardr server` process: owns the store, serves the socket,
   re-execs itself on upgrade.
 - `source`: declared sources: declarations, credentials, mints, calls; the
-  operator's provider logic lives in commands, not here.
+  operator's provider logic lives in commands, not here. `known/` holds the
+  sources yardr carries for `yardr source add <name>` (aiquokka's limits
+  source: no pack, since a pack may not bring a `limits` key).
 - `standin`: fake Linear/GitHub APIs and the edge for tests and tryouts,
   written from the services' docs and the design, not recorded.
 - `store`: the bbolt store and `API`, the interface everything uses

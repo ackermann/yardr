@@ -20,7 +20,9 @@ const sourceCallsRead = 500
 // has, and what keeps a call of one from being made or answered: the file
 // its credential is read from is missing, open to others or does not set
 // the name; the service refused the credential at the last call; nobody is
-// granted a call. It makes no call unless try: then the check call of each
+// granted a call. It also proposes aiquokka's source, as the command that
+// adds it, where aiquokka is on PATH and no source of that name is
+// declared. It makes no call unless try: then the check call of each
 // source that names one, as yardr source check makes it, with the
 // credential read into this process and nothing of it written anywhere.
 func sourcesPart(ctx context.Context, cfg *config.Config, st store.API, try bool) (optionalPart, error) {
@@ -28,8 +30,12 @@ func sourcesPart(ctx context.Context, cfg *config.Config, st store.API, try bool
 	part := optionalPart{Key: "sources", Title: "sources",
 		Detail: fmt.Sprintf("no service outside the yard is declared, so no agent calls one through the yard; %s source add <file> (%s source --help, docs/integrations.md)", yardr, yardr)}
 	srcs, err := st.Sources(ctx)
-	if err != nil || len(srcs) == 0 {
+	if err != nil {
 		return part, err
+	}
+	part.Notes = append(part.Notes, aiquokkaOffer(yardr, srcs)...)
+	if len(srcs) == 0 {
+		return part, nil
 	}
 	grants, err := st.SourceGrants(ctx, "")
 	if err != nil {
@@ -146,6 +152,22 @@ func sourcesPart(ctx context.Context, cfg *config.Config, st store.API, try bool
 	}
 	part.Configured, part.Detail = true, strings.Join(names, ", ")
 	return part, nil
+}
+
+// aiquokkaOffer is the note that proposes aiquokka's source, as the one
+// command that adds it: the program is on PATH as this command finds it and
+// the yard declares no source of that name. Where the program is not found
+// it says nothing, since the setup's limits step already names the gap. It
+// proposes and adds nothing: the source is the operator's to add.
+func aiquokkaOffer(yardr string, srcs []store.Source) []string {
+	if _, err := lookPath(source.Aiquokka); err != nil {
+		return nil
+	}
+	if slices.ContainsFunc(srcs, func(s store.Source) bool { return s.Name == source.Aiquokka }) {
+		return nil
+	}
+	return []string{fmt.Sprintf("%s is on PATH and no source named %s is declared, so the yard does not read what the subscriptions of its agents still carry: %s source add %s (docs/integrations.md)",
+		source.Aiquokka, source.Aiquokka, yardr, source.Aiquokka)}
 }
 
 // lastAnswers is, by source, the last source_call event whose call a

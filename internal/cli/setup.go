@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -22,6 +23,9 @@ type setupStep struct {
 	Next string `json:"next,omitempty"`
 	// Depot is the depot the step's command names, once the yard has one.
 	Depot string `json:"depot,omitempty"`
+	// Optional is a step the setup does not wait for: nextStep passes it
+	// over while it is not done, so it never holds the setup open.
+	Optional bool `json:"optional,omitempty"`
 }
 
 // The setup steps' keys, in their order.
@@ -32,15 +36,17 @@ const (
 	stepReviewers  = "reviewers"
 	stepLanding    = "landing"
 	stepRoutes     = "routes"
+	stepLimits     = "limits"
 	stepFirstBead  = "first_bead"
 	stepMerged     = "merged_bead"
 )
 
 // setupState is what the setup steps are read from.
 type setupState struct {
-	depots []store.Depot
-	routes []store.Route
-	beads  []store.Bead // closed ones too
+	depots  []store.Depot
+	routes  []store.Route
+	sources []store.Source
+	beads   []store.Bead // closed ones too
 	// flows are the flows on each depot's base (in a dir depot's directory), by
 	// depot; flowErr is why a depot's could not be read.
 	flows   map[string]int
@@ -63,6 +69,9 @@ func setupSteps(ctx context.Context, st store.API) ([]setupStep, error) {
 		return nil, err
 	}
 	if s.routes, err = st.Routes(ctx); err != nil {
+		return nil, err
+	}
+	if s.sources, err = st.Sources(ctx); err != nil {
 		return nil, err
 	}
 	if s.beads, err = st.ListBeads(ctx, store.BeadFilter{All: true}); err != nil {
@@ -97,10 +106,12 @@ func setupSteps(ctx context.Context, st store.API) ([]setupStep, error) {
 // noSetup are the steps of a home with no yard: none done.
 func noSetup() []setupStep { return setupState{}.steps() }
 
-// nextStep is the first step not done, nil when the setup is complete.
+// nextStep is the first step not done that the setup waits for, nil when the
+// setup is complete: an optional step (herdr's login service is listed
+// beside the steps for the same reason) is passed over until it is done.
 func nextStep(steps []setupStep) *setupStep {
 	for i := range steps {
-		if !steps[i].Done {
+		if !steps[i].Done && !steps[i].Optional {
 			return &steps[i]
 		}
 	}
@@ -152,7 +163,7 @@ func (s setupState) steps() []setupStep {
 		}
 		out = append(out, step)
 	}
-	out = append(out, s.routesStep(depot, lands), s.beadStep(depot), s.mergedStep(lands))
+	out = append(out, s.routesStep(depot, lands), s.limitsStep(), s.beadStep(depot), s.mergedStep(lands))
 	if len(s.depots) > 0 {
 		for i := range out {
 			out[i].Depot = or(out[i].Depot, depot)
@@ -282,6 +293,25 @@ func (s setupState) routesStep(depot string, lands bool) setupStep {
 	}
 	step.Detail = "no route for " + list(lack)
 	step.Next = s.packNext(depot)
+	return step
+}
+
+// limitsStep is done when a source named aiquokka is declared, which is how
+// the yard reads what its agents' subscriptions still carry
+// (docs/integrations.md). A yard runs without it, so the step is optional:
+// the setup does not wait for it. Whether aiquokka is on this machine is
+// not asked here, since the steps are read from the store alone; yardr
+// doctor says when it is.
+func (s setupState) limitsStep() setupStep {
+	step := setupStep{Key: stepLimits, Title: "the subscriptions' limits, from aiquokka (optional)", Optional: true}
+	for _, src := range s.sources {
+		if src.Name == source.Aiquokka {
+			step.Done, step.Detail = true, "source "+src.Name
+			return step
+		}
+	}
+	step.Detail = "no source named aiquokka is declared, so no route can gate on a subscription's use"
+	step.Next = "yardr source add aiquokka, once aiquokka is on PATH (installing it: yardr docs integrations)"
 	return step
 }
 

@@ -17,6 +17,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/yardkey"
 )
@@ -1617,6 +1618,41 @@ func TestBeadAskRunSourceAdd(t *testing.T) {
 	if src, err := y.st.GetSource(ctx, "phone"); err != nil || src.Text != moved || src.EnvFile != "/keys/phone.env" {
 		t.Fatalf("the source after the approval = %+v, %v", src, err)
 	}
+	// A name yardr carries a source under is proposed as a file is: the ask
+	// carries what yardr holds of it, its command file too, and the card
+	// shows that declaration and file whole.
+	out, err = y.as(t, "yardmaster", "ask", b.ID, "Add the aiquokka limits source?",
+		"--context", "Routes can then gate builders on token use.", "--run", "source add aiquokka")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "ask 7 on " + b.ID + " for jo: to approve, yardr source add aiquokka\n"; out != want {
+		t.Fatalf("bead ask --run source add of a name yardr carries printed %q, want %q", out, want)
+	}
+	shown, err = run(t, y.a.primeCmd(), "--bead", b.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"its limits command [aiquokka, {provider}, --json] says what the subscription of claude as claude, codex as codex, grok as grok, kimi as kimi, muse as muse still carries.",
+		"command file aiquokka: [aiquokka, {provider}, --json] (limits.command",
+	} {
+		if !strings.Contains(shown, want) {
+			t.Errorf("prime lacks %q:\n%s", want, shown)
+		}
+	}
+	out, err = y.as(t, "jo", "answer", b.ID, "7", "--approve")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "approved, to be carried out") {
+		t.Fatalf("the approval of aiquokka's source printed:\n%s", out)
+	}
+	carried, _, _ := source.Known(source.Aiquokka)
+	if src, err := y.st.GetSource(ctx, "aiquokka"); err != nil || src.Text != string(carried) {
+		t.Fatalf("the source the approval stored = %+v, %v; want the declaration yardr carries", src, err)
+	}
+
 	// Only the card gains the road: the crew member's own command is
 	// refused as it was.
 	y.a.actor = "yardmaster"

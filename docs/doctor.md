@@ -142,7 +142,7 @@ The first line names the home:
 | line | when |
 |---|---|
 | `yardr doctor: the yard in <home>` | a yard is set up there |
-| ``yardr doctor: no yard in <home> yet. Create one with `yardr init --harness <kind>`, or run yardr in a terminal for the onboarding. Nothing was created.`` | no yard: only the first part and the steps follow, every step `todo` |
+| ``yardr doctor: no yard in <home> yet. Create one with `yardr init --harness <kind>`, or run yardr in a terminal for the onboarding. Nothing was created.`` | no yard: only the first part and the steps follow, every step `todo` but the optional one, a `note` |
 
 Then up to four headed blocks. In the first two, a line is a tag (`ok`,
 `FAULT` or `note`), what it is about, and what was found.
@@ -277,7 +277,9 @@ or what is lacking. The steps are read from the store and nothing else (the
 store reads a depot's own flow from its base branch), by one function: the
 yardmaster's first run uses it through this command, and `yardr setup` takes
 the first step not done as a form ([setup.md](setup.md)), so whoever walks you
-through the setup can take over from anyone else.
+through the setup can take over from anyone else. A step marked optional is
+one the setup does not wait for: while it is not done its line is a `note`,
+never a `todo`, and it is passed over when the next step is named.
 
 | step (`key` in JSON) | done when |
 |---|---|
@@ -287,6 +289,7 @@ through the setup can take over from anyone else.
 | `a group that reviews` (`reviewers`) | the same for stage `review` |
 | `a group or person that lands approved beads` (`landing`) | the same for stage `approved`: an assembly or people who merge by hand, either counts once it is routed |
 | `routes for new, review and approved` (`routes`) | a route exists for each of the three stages |
+| `the subscriptions' limits, from aiquokka (optional)` (`limits`) | a source named `aiquokka` is declared, which is how the yard reads what its agents' subscriptions still carry ([integrations.md](integrations.md#say-what-a-subscription-still-carries)). Optional: the command named while it is not done is `yardr source add aiquokka`, once aiquokka is on PATH. Whether it is on PATH is not asked here, since the steps are read from the store alone: the `sources` line under Optional says when it is |
 | `a first bead` (`first_bead`) | a bead exists in a depot (a crew member's journal and memories do not count) |
 | `a first merged bead` (`merged_bead`) | a bead of a depot was closed by reaching its flow's terminal stage; one closed by hand does not count |
 
@@ -336,6 +339,7 @@ never a fault. Not printed on a home with no yard.
 | `note hooks: the link to the edge <url>, as <handle>/<yard>: down since <when>: <reason> (<what was seen>); the server dials again on its own` | the link is down: `closed` or `unreachable` mend when the edge is reached again, `unanswered pings` is a network that went away silently. `refused key` (the edge's challenge is not signed by the key this yard pinned) and `refused` (the edge does not take the yard's link) say `yardr edge disconnect` and connect again instead |
 | `note hooks: the link to the edge <url>, as <handle>/<yard>: the server has not said how its link is` | connected, and the running server has written no `edge.state`: a build from before the link, or a server that has not read the setting yet |
 | `not configured sources: no service outside the yard is declared, so no agent calls one through the yard; yardr source add <file> (yardr source --help, docs/integrations.md)` | no declared source ([integrations.md](integrations.md#a-declared-source)) |
+| `note sources: aiquokka is on PATH and no source named aiquokka is declared, so the yard does not read what the subscriptions of its agents still carry: yardr source add aiquokka (docs/integrations.md)` | `aiquokka` is found on the PATH of the command that runs doctor (the daemon's PATH is its own), and the yard declares no source of that name, with other sources or none. It proposes the command and adds nothing: the source is the operator's to add. No line where aiquokka is not found, or the source is declared |
 | `configured sources: <name> (<n> calls), …` | the declared sources, each with how many calls its file has. Nothing was sent to any: doctor read the file each one's credential is in, the grants, and how its last call ended, from the events |
 | `note sources: source <name>: no call of it can be made: <NAME> is not set up: yardr source key <name> gives <NAMES>, or yardr source set <name> env_file=<file> names a file the operator keeps themselves; an agent asks from its pane: yardr bead ask <bead> "<question>" --secret <name> --context "<where to get it>"` | the source's file names a credential and the operator has set no file it is read from |
 | `note sources: source <name>: no call of it can be made: <why>` | the file that is set cannot be used, read under the rule of every `env_file`: it is gone (`no such file or directory`), `is open to others (mode 0644); chmod 600 it`, or `does not set <NAME>`. Every `yardr call` of the source ends `no_credential` until it is set right |
@@ -411,8 +415,8 @@ For a home other than the default, every command doctor prints is `yardr
 | `machine` | the programs: `program`, `for`, `found` (on PATH and, for a harness whose file says what its version flag must print, that harness: a program that answers it as another is not found, [above](#a-program-that-answers-as-another)), `path` (where it is found; where the program is that answered as another), `get` (when missing, and for the program that answered as another), `login_shell_path` (where the login shell finds one that is missing), `fetch` (on a Mac, for one that is missing and that yardr knows a way for: [below](#a-program-fetched-on-a-mac)), `any_of` (on the item `a harness`, on a Mac: the harnesses that can be fetched, each an item with its `fetch`), `harness` (the kind, for a harness), `label` (the harness's name as people write it, for a harness), `provider` (who makes it, for a harness; absent when the file names none), `harness_file` (the version of yardr's file for the kind; absent when it has none), `harness_login` (true for a kind whose login a program can lead: [below](#a-harnesss-login-led-by-a-program); absent for a kind that is logged in in a terminal), `offers` (the models the kind's file suggests: each a `model` id, a `label`, and what it is `recommended` for; absent when the file names none), `optional` (a harness nothing runs on yet), `version` with `state` (`answers`, `fails`, `hangs`, `not_harness`, `not_checked`) and `output` (the first line it printed; for `not_harness`, what it printed in place of the harness's name); for herdr, `server` with `state` (`running`, `not_running`, `unknown`) and `output` (what herdr said); under `--try`, for a harness, `try` with `state` (`ok`, `fails`, `hangs`, `not_tried`) and `output` (the answer's last line, what it printed, or why it was not tried) |
 | `tried` | whether `--try` was given |
 | `state` | `server` (`running`, `not_running`, `unreachable`), `server_error`, `daemon`, `daemon_lost_at` (the daemon's last pass where a `daemon_lost` event stands with no start after it; absent otherwise), `yardmaster` (`name`, `crew`, `enabled`, `running`, `state`, `agent`, `failures`, `reason`), `crew`, `failing`, `login` (the crew at their login screen, each with `name`, `kind` and `line`; absent when there is none), `held`, `cycles` (each a list of ids in blocking order, the first repeated at the end; absent when there is none), `mail` (`user`, `unread`, `from`; only when who runs it is a user), `parties` (the `names` notes), `copied_on` (the `crew` notes on a copied `--on`), `config` (the `config` notes; absent when there is none), `codex_trust` (the `codex` notes; absent when there is none), `kimi_hooks` (the `kimi` notes; absent when there is none), `stale_packs` (the `packs` notes; absent when there is none), `stray_memory` (the `crew` notes on a harness's own memory; absent when there is none); absent with no yard |
-| `steps` | each `key`, `title`, `done`, `detail`, `next` (the command) when not done, and `depot` (the depot the command names) once the yard has one |
-| `next` | the first step not done; absent when all are |
+| `steps` | each `key`, `title`, `done`, `detail`, `next` (the command) when not done, `depot` (the depot the command names) once the yard has one, and `optional` (true on a step the setup does not wait for) |
+| `next` | the first step not done that the setup waits for; absent when all are |
 | `optional` | each `key` (`web`, `hooks`, `sources`, `peers`, `packs`, `limits`, `login_service`, `herdr_login_service`), `title`, `configured`, `detail`, `notes`; `skipped` (true on a part that was not looked at, whose `configured` then says nothing); on `web`, `views`: the views that run, as `yardr status --json` lists them |
 | `skipped` | the checks that were not made, on a yard whose server is not running: `yardmaster`, `crew`, `held`, `cycles`, `mail`, `names`, `config`, `codex`, `steps`, `hooks`, `sources`, `peers`, `packs`, `limits`. `state` then holds `server` and `daemon` and nothing that was read, and `steps` is empty. Absent otherwise |
 | `faults` | the `FAULT` lines, one string each; empty when the exit status is 0 |

@@ -63,6 +63,11 @@ the pages show them.
 | the depot's `.yardr` files on its base; a group that builds; a group that reviews; a group or person that lands approved beads; routes for new, review and approved | what the import asks (below) | `yardr depot init <depot>`, which takes the yard's default pack |
 | a first bead | its title and its goal | `yardr bead create "<title>" --depot <depot> -b "<goal>"`, then `yardr bead advance <id> --to new` |
 
+The subscriptions' limits (`yardr source add aiquokka`, once aiquokka is on
+PATH) are an optional step with no page: the setup does not wait for it, so
+no form stops at it, and it is listed as a `note` until the source is
+declared. [doctor.md](doctor.md#setup) says what it is done by.
+
 The last step, a first merged bead, has no page: it is the line's to do.
 There the forms end and say where the first bead is and how to watch it:
 `yardr session list`, `yardr bead show <id>`, `yardr watch`, and
@@ -257,7 +262,7 @@ operator's.
 |---|---|---|
 | 1 | `yardr doctor --json` | `yard`: `false` on a home with no yard, and nothing is created by asking. `machine`: each program with `found` (a harness that answers its version flag as another program is not found: [doctor.md](doctor.md#a-program-that-answers-as-another)) and, for a harness, `harness`, the kind to give `init` ([doctor.md](doctor.md#json)). Exit 1 while something the yard needs is missing |
 | 2 | `yardr init --harness <kind> [--operator <name>] [--yardmaster <name>] [--model <model>] [--style <style>] [--about "<line>"] --json` | `home`, `harness`, `yardmaster`, `operator`, `operator_style`, `operator_note`, and what a second run kept: `yardmaster_kept` and `settings_kept` (a list, empty on a new yard). Run again it makes nothing twice. A run that finished one cut short has `found` and `added` ([configuration.md](configuration.md#creating-a-yard-the-onboarding-and-yardr-init)). It needs no herdr server and starts nothing without `--start` |
-| 3 | `yardr setup --json`, here and after any step | `home`, `steps` (each `key`, `title`, `done`, `detail`, `next`) and `next`, the first step not done, with its `depot` once there is one. The keys, in order: `depot`, `depot_files`, `builders`, `reviewers`, `landing`, `routes`, `first_bead`, `merged_bead`. Exit 2 before step 2 |
+| 3 | `yardr setup --json`, here and after any step | `home`, `steps` (each `key`, `title`, `done`, `detail`, `next`, and `optional` on a step the setup does not wait for) and `next`, the first step not done that the setup waits for, with its `depot` once there is one. The keys, in order: `depot`, `depot_files`, `builders`, `reviewers`, `landing`, `routes`, `limits` (optional), `first_bead`, `merged_bead`. Exit 2 before step 2 |
 | 4 | `yardr depot add <depot> <path> --base <branch> --json`; for a directory that is no git checkout, without `--base` | `name`, `path`, `kind` (`git` or `dir`) and `base` (`""` for a dir depot). Run again it changes the depot to what it says, except that only the operator changes its path, base or test command |
 | 5 | `yardr depot init <depot> --yes --json` | exit 2 and `missing`, a list of flags, each `--<flag> <name>=<what is wanted>`: `--bind <group>=<kind>[:<model>]` wants a harness for a group of agents, `--members <group>=<users>` the users of a group of people, by comma, or nothing after the `=` for anyone |
 | 6 | the same with a flag for each entry of `missing`, the name kept: `yardr depot init <depot> --yes --bind builders=claude --bind reviewers=claude --members backlog= --members decisions=<operator> --json` | `result`, with `pack`, `depot` and how many objects were `created`, `changed` and `unchanged`; `plan` and `answers`, what it wrote and with which answers; `test`, the depot's test command where the repository says one ([above](#the-test-command)). Run again, `created` is 0. Still exit 2 with `missing`: ask for those too |

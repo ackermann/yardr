@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -1129,6 +1130,68 @@ func TestSourceCommandFiles(t *testing.T) {
 	}
 	if _, err := os.Stat(own); err != nil {
 		t.Fatalf("the operator's own program was removed: %v", err)
+	}
+}
+
+// The argument of source add is a file, and where no such file stands the
+// name of a source yardr carries: aiquokka is added from a directory with no
+// checkout, its command file copied into the yard and running the aiquokka on
+// PATH, while a file of that name there is the one added, as ever, and any
+// other name fails as it did.
+func TestSourceAddAKnownName(t *testing.T) {
+	home := t.TempDir()
+	st := storetest.New(t)
+	a := testApp(t, st, home)
+	a.actor = "jo"
+	ctx := context.Background()
+	t.Chdir(t.TempDir())
+
+	if _, err := run(t, a.sourceCmd(), "add", "nosuch"); err == nil || !strings.Contains(err.Error(), "open nosuch: no such file or directory") {
+		t.Fatalf("add of a name yardr carries nothing under: %v", err)
+	}
+	text, _, _ := source.Known(source.Aiquokka)
+	out, err := run(t, a.sourceCmd(), "add", "aiquokka")
+	for _, want := range []string{
+		"source aiquokka saved: no call, its limits command alone",
+		"limits: its command says what the subscription of claude, codex, grok, kimi, muse still carries",
+		"next: yardr source check aiquokka",
+		"the commands' files are under " + filepath.Join(home, "sources", "aiquokka") + ", each mode 0700: aiquokka",
+	} {
+		if err != nil || !strings.Contains(out, want) {
+			t.Fatalf("add printed no %q: %q %v", want, out, err)
+		}
+	}
+	if src, err := st.GetSource(ctx, "aiquokka"); err != nil || src.Text != string(text) {
+		t.Fatalf("the stored source = %+v, %v; want the declaration yardr carries", src, err)
+	}
+	// The copy runs the aiquokka that PATH gives it, with the arguments it was asked with.
+	copied := filepath.Join(home, "sources", "aiquokka", "aiquokka")
+	if fi, err := os.Stat(copied); err != nil || fi.Mode().Perm() != 0o700 {
+		t.Fatalf("the copy = %v, %v", fi, err)
+	}
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "aiquokka"), []byte("#!/bin/sh\necho \"stand-in $*\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(copied, "kimi", "--json")
+	cmd.Env = []string{"PATH=" + bin + ":/usr/bin:/bin"}
+	if got, err := cmd.Output(); err != nil || string(got) != "stand-in kimi --json\n" {
+		t.Fatalf("the copy answered %q, %v", got, err)
+	}
+
+	// A file there wins over the name, and the add says so.
+	if strings.Contains(out, "stands here") {
+		t.Fatalf("the add of the carried source says a file stands there:\n%s", out)
+	}
+	if err := os.WriteFile("aiquokka", []byte("name: mine\nlimits:\n  command: [/opt/mine/limits]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out, err = run(t, a.sourceCmd(), "add", "aiquokka"); err != nil || !strings.Contains(out, "source mine saved") ||
+		!strings.Contains(out, "the file aiquokka stands here, so it was added, not the source yardr carries under that name") {
+		t.Fatalf("add with a file by that name: %q %v", out, err)
+	}
+	if src, err := st.GetSource(ctx, "aiquokka"); err != nil || src.Text != string(text) {
+		t.Fatalf("the file by that name replaced the source yardr carries: %+v, %v", src, err)
 	}
 }
 

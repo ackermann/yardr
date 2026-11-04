@@ -133,12 +133,17 @@ func (a *app) agentSession() bool {
 	return a.yardrenv("SESSION") != "" || a.yardrenv("CREW") != ""
 }
 
-// printSteps prints the setup steps, each done or todo.
+// printSteps prints the setup steps, each done or todo. A step the setup
+// does not wait for (optional) is a note while it is not done, never a todo,
+// which is what holds the setup open.
 func printSteps(w io.Writer, steps []setupStep) {
 	for _, s := range steps {
 		tag := "todo"
-		if s.Done {
+		switch {
+		case s.Done:
 			tag = "done"
+		case s.Optional:
+			tag = tagNote
 		}
 		fmt.Fprintf(w, "  %-5s  %s: %s\n", tag, s.Title, s.Detail)
 	}

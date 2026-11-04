@@ -1045,32 +1045,27 @@ func TestDoctorLimitsPart(t *testing.T) {
 	}
 }
 
-// testdata/aiquokka.yaml is the file of the design (yardr-m71s), whole, and
-// docs/integrations.md gives it as the example: what a reader copies from
-// the page is what is added here.
+// The file yardr carries for aiquokka (source.Known) is the one
+// docs/integrations.md gives as the example, whole: what a reader copies
+// from the page is what yardr source add aiquokka adds.
 func TestAiquokkaFileOfTheDocs(t *testing.T) {
 	t.Parallel()
-	text, err := os.ReadFile("testdata/aiquokka.yaml")
-	if err != nil {
-		t.Fatal(err)
+	text, _, ok := source.Known(source.Aiquokka)
+	if !ok {
+		t.Fatal("yardr carries no source under the name aiquokka")
 	}
 	page, err := os.ReadFile("../../docs/integrations.md")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(page), "```yaml\n"+string(text)+"```\n") {
-		t.Fatalf("docs/integrations.md has no yaml block that is testdata/aiquokka.yaml:\n%s", text)
+		t.Fatalf("docs/integrations.md has no yaml block that is the file yardr carries for aiquokka:\n%s", text)
 	}
-	d, err := source.Parse("testdata/aiquokka.yaml", text)
+	d, err := source.Parse("aiquokka.yaml", text)
 	if err != nil || d.Limits == nil {
 		t.Fatalf("declaration = %+v, %v", d, err)
 	}
 	if argv, _ := d.Limits.Argv("kimi"); strings.Join(argv, " ") != "aiquokka kimi --json" {
 		t.Fatalf("the command for kimi = %q", argv)
-	}
-	a := &app{st: storetest.New(t), actor: "jo"}
-	out, err := run(t, a.sourceCmd(), "add", "testdata/aiquokka.yaml")
-	if err != nil || !strings.Contains(out, "the subscription of claude, codex, copilot, grok, kimi, kiro still carries") {
-		t.Fatalf("source add: %q %v", out, err)
 	}
 }

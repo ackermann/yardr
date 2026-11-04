@@ -1780,7 +1780,7 @@ internal/cli/ops.go 1829 the server, daemon, depot, group, route and session com
 internal/cli/pack.go 2172 pack loading, import planning and its question rounds
 internal/cli/peers.go 1567 the peer identity, intake and ping commands
 internal/cli/routereport.go 1513 the route report and its rendering
-internal/cli/sourcecmd.go 2148 the source command and its builtin checks
+internal/cli/sourcecmd.go 2147 the source command and its builtin checks
 internal/cli/subscriptions.go 1148 the identity, subscribe and thread commands
 internal/cli/updown.go 1302 yard up and down with their handoffs
 internal/cli/users.go 1055 the user command, inboxes and conversations
@@ -2281,7 +2281,6 @@ packs/pushover/                internal/notify internal/dispatch
 packs/posthog/                 internal/hooks internal/store
 packs/webhook/                 internal/hooks
 packs/template/                internal/pack packs
-packs/aiquokka/                packs
 packs/website/                 internal/pack
 .yardr/flows/                  internal/cli internal/dispatch internal/store internal/flowdraw contrib/assembly
 .yardr/security_paths          internal/store

@@ -625,7 +625,7 @@ func TestSetupWithoutForms(t *testing.T) {
 	if err := json.Unmarshal([]byte(setup(t, st, "--json")), &rep); err != nil {
 		t.Fatal(err)
 	}
-	if len(f.asked) != 0 || len(rep.Steps) != 8 || rep.Next == nil || rep.Next.Key != stepDepot {
+	if len(f.asked) != 0 || len(rep.Steps) != 9 || rep.Next == nil || rep.Next.Key != stepDepot {
 		t.Fatalf("asked %v, json %+v", f.asked, rep)
 	}
 }

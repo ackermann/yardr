@@ -517,11 +517,19 @@ when its file has a `limits` key: **a command**, and the harness kinds it
 answers for, each with the provider's own name for it. Such a file needs no
 `base` and no `calls`. This one is whole, for
 [aiquokka](https://github.com/McKean/aiquokka), which reads the limits of
-Claude, Codex, Kimi and others from the logins their CLIs store:
-Put its executable beside the declaration file; `yardr source add` copies
-it into the yard's source directory.
+Claude, Codex, Kimi and others from the logins their CLIs store. yardr
+carries it, so it is added by its name, with no file to hand:
 
 ```yaml
+# Aiquokka as a declared source: the usage limits of the subscriptions the
+# agents' CLIs are logged in to, read from the logins their CLIs store. The
+# source is its limits command and has no call: `yardr limits <kind>` asks
+# it, and a route's condition gates on the windows it reports. The program
+# is the file of the same name beside this one, which runs the aiquokka the
+# yard's machine carries on PATH; the binary is the person's to install
+# (yardr docs integrations). It names no login of its own: the command runs
+# with the asking group's env, so a group on its own login gates on its own
+# windows.
 name: aiquokka
 about: Usage limits of the subscriptions the agents' CLIs are logged in to (github.com/McKean/aiquokka).
 limits:
@@ -529,18 +537,64 @@ limits:
   kinds:              # harness kind -> the provider's own name for it
     claude: claude
     codex: codex
-    kimi: kimi
     grok: grok
-    copilot: copilot
-    kiro: kiro
+    kimi: kimi
+    muse: muse
 ```
 
 ```sh
-yardr source add aiquokka.yaml
+yardr source add aiquokka       # a file of that name in the directory is added instead, and the add says so
 yardr source check aiquokka     # asks for each kind the file lists
 yardr limits                    # every provider the yard burns, each once, naming who burns it
 yardr limits kimi --json        # the report, for a program
 ```
+
+What yardr carries is the declaration and the file its command names,
+`aiquokka`: a shell script of one line that runs the aiquokka found on PATH.
+`yardr source add` copies it into the yard's source directory, as it does any
+file a command names beside a declaration ([below](#commands-a-file-names)).
+The program itself is not carried. It is the operator's to install, and the
+source reads nothing until it is:
+
+1. **Install aiquokka** from its releases (github.com/McKean/aiquokka/releases):
+   download the one for the platform and put its `aiquokka` on PATH; where the
+   page has none for it, build it with `go install
+   github.com/McKean/aiquokka@latest`. It must be found on the PATH of whoever
+   runs the yard, the daemon included, and the daemon's PATH need not be the
+   shell's: a binary under `~/go/bin` wants that directory on the daemon's
+   PATH too. Where `aiquokka` is on PATH and the yard declares no source of
+   that name, `yardr doctor` proposes the add; `yardr setup` lists it as an
+   optional step, which the setup does not wait for.
+2. **Check it**, with each CLI whose limits the yard should read logged in as
+   that CLI logs in: `aiquokka claude --json` prints one JSON object with the
+   provider's windows. A provider whose CLI is not logged in answers nothing,
+   and the yard reads no windows for it until it is.
+3. **Add it.** The operator adds it in a terminal with `yardr source add
+   aiquokka`. A crew member proposes it, and the operator approves its card,
+   which is weighty since the file is a program the yard will run:
+   `yardr bead ask <bead> "Add the aiquokka limits source?" --context "Routes
+   can then gate builders on token use." --run "source add aiquokka"`. The
+   card shows the declaration and the command file whole, as they will be
+   added; the operator approves it in footplate, or in a terminal on the
+   yard's machine with `yardr bead answer <bead> <ask> --approve`. A source
+   named aiquokka that the yard already has is replaced by the operator in a
+   terminal, never by a card. The file lists five kinds, and `yardr source
+   check aiquokka` fails for one whose CLI is not logged in on this machine,
+   which only means that kind is not read. To read fewer, delete their lines
+   under `kinds` in a copy of the file (the command file goes beside it) and
+   add the copy.
+4. **Read the windows and gate a route on them.** `yardr limits claude` prints
+   the windows with the labels a condition names, and a route gates on one
+   with `yardr route add --stage new --depot web --group 'builders@Weekly<90'`
+   ([groups.md](groups.md#a-route-with-further-groups-and-quota-conditions)).
+   The label is matched exactly, so read it from the report.
+
+The source names no login of its own: the command runs with the env of
+whoever asks, so a group on its own login gates on its own windows. Where the
+muse login the yard should read lives in a file of its own, set
+`MUSE_AUTH_PATH` to it in the env of the group that burns muse, in that
+group's env_file (`yardr group set <group> env_file=<file>`); `yardr limits
+--group <group> muse` reads the same.
 
 With no kinds the file is shorter, and the command takes no `{provider}`:
 
@@ -697,8 +751,8 @@ they have no answer, and `source check` fails for them.
   ([packs.md](packs.md#how-a-pack-maps-to-the-yard)). A crew member
   proposes a new one with a run ask, and the operator approves its card
   ([below](#a-call-by-a-session-or-a-crew-member)). aiquokka's declaration
-  and command file are in a yardr checkout as `packs/aiquokka`, with the
-  notes for setting it up.
+  and command file are carried by yardr, so its run ask is `source add
+  aiquokka` (above).
 
 ### A declared source
 

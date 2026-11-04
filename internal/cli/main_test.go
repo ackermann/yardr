@@ -136,6 +136,15 @@ func TestMain(m *testing.M) {
 	askHerdrServer = herdrServer
 	herdrServer = func(context.Context, string) serverCheck { return serverCheck{State: herdrUp} }
 	loginShell = func() string { return "" }
+	// Nor does doctor find an aiquokka this machine happens to have on PATH:
+	// its offer of the source (aiquokkaOffer) is for a test that names the
+	// program (stubLookPath), not for whatever runs the suite.
+	lookPath = func(name string) (string, error) {
+		if name == source.Aiquokka {
+			return "", exec.ErrNotFound
+		}
+		return exec.LookPath(name)
+	}
 	// Nor does a test call a harness that is somebody's own, and costs
 	// them a model call: a test of the call puts it back (realTry).
 	realTry = tryHarnessCall

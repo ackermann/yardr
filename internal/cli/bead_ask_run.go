@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -125,11 +126,12 @@ func depotTestCommand(command string) bool {
 }
 
 // sourceAddCarried reads what a --run "source add <file>" ask carries:
-// the declaration file once, resolved as yardr source add resolves it,
-// and each relative program's bytes from beside it as CopyCommandFiles
-// reads them, each with its SHA-256. It answers nil for any other
-// command. A file that cannot be read or does not parse is refused
-// here, in the parser's words, and nothing is stored.
+// the declaration file once, resolved as yardr source add resolves it
+// (a name yardr carries a source under, where no file stands), and each
+// relative program's bytes from beside it as CopyCommandFiles reads
+// them, each with its SHA-256. It answers nil for any other command. A
+// file that cannot be read or does not parse is refused here, in the
+// parser's words, and nothing is stored.
 func sourceAddCarried(command string) ([]store.AskSource, error) {
 	// Match parseRow's character gate before touching a path: a command
 	// the store will reject must not make the CLI read a file first.
@@ -150,7 +152,7 @@ func sourceAddCarried(command string) ([]store.AskSource, error) {
 		return nil, nil
 	}
 	file := words[2]
-	text, err := readSourceAskFile(file, store.MaxRunSourceDeclaration, "the declaration")
+	text, known, err := sourceAskDeclaration(file)
 	if err != nil {
 		return nil, err
 	}
@@ -174,8 +176,7 @@ func sourceAddCarried(command string) ([]store.AskSource, error) {
 	}
 	var files []store.AskFile
 	for _, prog := range programs {
-		path := filepath.Join(declDir, prog)
-		data, err := readSourceAskFile(path, store.MaxRunSourceCommandFile, "source "+d.Name+" command file "+store.OneLine(prog))
+		data, err := sourceAskCommandFile(known, declDir, prog, d.Name)
 		if err != nil {
 			return nil, fmt.Errorf("source %s: a command's program %s is a file beside the declaration's file: %v", d.Name, store.OneLine(prog), err)
 		}
@@ -187,6 +188,29 @@ func sourceAddCarried(command string) ([]store.AskSource, error) {
 		files = append(files, store.AskFile{Program: prog, Text: string(data), SHA256: hex.EncodeToString(sum[:])})
 	}
 	return []store.AskSource{{Name: d.Name, Text: string(text), Files: files}}, nil
+}
+
+// sourceAskDeclaration reads the declaration a source add ask names the way
+// yardr source add reads its argument: the file, or where no file stands,
+// the source yardr carries under that name, whose command files stand in
+// known. A file is read as an ask reads one (readSourceAskFile), since this
+// runs in a pane on a path the crew member chose.
+func sourceAskDeclaration(file string) (text []byte, known fs.FS, err error) {
+	if text, known, ok := knownFor(file); ok {
+		return text, known, nil
+	}
+	text, err = readSourceAskFile(file, store.MaxRunSourceDeclaration, "the declaration")
+	return text, nil, err
+}
+
+// sourceAskCommandFile reads the file the program prog of the source name
+// names: from the source yardr carries (known), else from beside the
+// declaration's file.
+func sourceAskCommandFile(known fs.FS, declDir, prog, name string) ([]byte, error) {
+	if known != nil {
+		return fs.ReadFile(known, prog)
+	}
+	return readSourceAskFile(filepath.Join(declDir, prog), store.MaxRunSourceCommandFile, "source "+name+" command file "+store.OneLine(prog))
 }
 
 func readSourceAskFile(file string, limit int, what string) ([]byte, error) {
