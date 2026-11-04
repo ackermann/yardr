@@ -16,7 +16,10 @@ import (
 // mark, the proposer and the lifetime, the running preview's log tail,
 // and a stale mark when the depot HEAD has moved past the running
 // commit. The command and the log are the operator's to read; any other
-// reader gets the card without them.
+// reader gets the card without them. A watch has a card of its own kind
+// while it runs, with the bead, directory and lifetime, and Open and Stop:
+// it has no command or commit to approve, and a watch that ended leaves
+// the page, where a card that waits for a person must stand out.
 type Previews struct {
 	// As is the user the request acts as, "" when it acts as none: the
 	// card's buttons are drawn only for a request that acts.
@@ -119,10 +122,14 @@ func (s *Server) previewsPage(ctx context.Context, head uint64) (Previews, error
 	// approval's command with the card's: it is the same command.
 	operator := s.isOperator(ctx)
 	for _, p := range all {
+		if p.Kind == store.PreviewKindWatch && p.State != store.PreviewRunning {
+			continue
+		}
 		c := PreviewCard{Preview: p}
 		// A row forgotten between the list and this read leaves the
-		// card without a head, not the page without its cards.
-		if h, err := s.st.PreviewHead(ctx, p.App); err == nil {
+		// card without a head, not the page without its cards. A watch
+		// runs no commit, so it is never behind one.
+		if h, err := s.st.PreviewHead(ctx, p.App); err == nil && p.Kind != store.PreviewKindWatch {
 			c.Head = h
 			c.Stale = h != "" && p.Commit != "" && h != p.Commit
 		}

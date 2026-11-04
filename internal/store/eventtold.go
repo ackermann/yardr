@@ -244,6 +244,7 @@ var eventDataTold = map[string][]string{
 
 	// Previews: which app, and what became of it. Its command, directory
 	// and the words of an exit are the yard's machine's, and are held.
+	"preview_watched":       {"app", "bead", "stage"},
 	"preview_proposed":      {"app", "port", "depot", "commit", "dirty"},
 	"preview_approved":      {"app", "port"},
 	"preview_stop_asked":    {"app"},

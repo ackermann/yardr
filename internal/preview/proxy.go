@@ -24,7 +24,8 @@ import (
 // back, WebSockets included. No edge credential is forwarded: the
 // router strips its own names, and this drops the same names itself,
 // so the yard-side rule does not depend on the router having stripped
-// first.
+// first. A watch runs nothing to forward to: the supervisor serves its
+// files itself (watch.go), under the same counting.
 func (s *Supervisor) Handler() http.Handler {
 	return http.HandlerFunc(s.servePreview)
 }
@@ -48,6 +49,10 @@ func (s *Supervisor) servePreview(w http.ResponseWriter, r *http.Request) {
 	p, err := s.Store.GetPreview(ctx, app)
 	if err != nil {
 		http.NotFound(w, r)
+		return
+	}
+	if p.Kind == store.PreviewKindWatch {
+		s.servePreviewWatch(w, r, p, rest)
 		return
 	}
 	switch p.State {
@@ -78,20 +83,11 @@ func (s *Supervisor) servePreview(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if !s.enter(app) {
-		// The 21st request in flight waits two seconds, then is
-		// answered with the supervisor's own 503.
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(2 * time.Second):
-		}
-		if !s.enter(app) {
-			http.Error(w, "preview "+app+": too many requests in flight", http.StatusServiceUnavailable)
-			return
-		}
+	leave, ok := s.admit(w, r, app)
+	if !ok {
+		return
 	}
-	defer s.leave(app)
+	defer leave()
 	now := time.Now()
 	_, _ = s.Store.UpdatePreview(ctx, app, store.PreviewUpdate{LastRequest: &now})
 
@@ -134,6 +130,25 @@ func (s *Supervisor) waitPort(ctx context.Context, port int) bool {
 		}
 	}
 	return false
+}
+
+// admit counts the request in flight for app, as enter does, and says
+// what to call when it is done. The 21st request in flight waits two
+// seconds for room, then is answered with the supervisor's own 503; ok is
+// false for it, and for a request whose caller left meanwhile.
+func (s *Supervisor) admit(w http.ResponseWriter, r *http.Request, app string) (leave func(), ok bool) {
+	if !s.enter(app) {
+		select {
+		case <-r.Context().Done():
+			return nil, false
+		case <-time.After(2 * time.Second):
+		}
+		if !s.enter(app) {
+			http.Error(w, "preview "+app+": too many requests in flight", http.StatusServiceUnavailable)
+			return nil, false
+		}
+	}
+	return func() { s.leave(app) }, true
 }
 
 // enter counts one more request in flight for app, refusing past the

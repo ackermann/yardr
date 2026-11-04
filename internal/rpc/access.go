@@ -327,8 +327,11 @@ var Access = map[string]Class{
 	"FoldSidings":          Admin,
 
 	// Previews: a crew member proposes and may stop its own; approval,
-	// refusal, restart and forgetting are the yard's person's alone.
+	// refusal, restart and forgetting are the yard's person's alone. A
+	// watch of a bead's files is started by an agent working the bead,
+	// its originator or an operator, which the store decides.
 	"ProposePreview": Agent,
+	"WatchPreview":   Agent,
 	"Previews":       Read,
 	"GetPreview":     Read,
 	"ApprovePreview": Operator,

@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -97,5 +98,73 @@ func TestPreviewProposeListStopForget(t *testing.T) {
 	}
 	if _, err := st.GetPreview(ctx, "demo"); err == nil {
 		t.Fatal("preview still there after forget")
+	}
+}
+
+// A watch is started from a bead by its builder, the user it is for or an
+// operator, names the address it opens at and when it ends, and is listed
+// as a watch, without a commit or a port.
+func TestPreviewWatchStartsAndListsAWatch(t *testing.T) {
+	t.Parallel()
+	st, ctx := reviewYard(t, "/tmp/yard")
+	if err := st.SetSetting(ctx, store.OperatorSetting, "ada", "me"); err != nil {
+		t.Fatal(err)
+	}
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "site", Depot: "yard", Stage: "new"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess, err := st.Claim(ctx, b.ID, "builders", "new", "yard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tree, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(tree, "mockups"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetHandle(ctx, sess.ID, map[string]any{"worktree": tree}); err != nil {
+		t.Fatal(err)
+	}
+	a := &app{st: st, actor: "ada"}
+
+	out, err := run(t, a.previewCmd(), "watch", b.ID, "mockups")
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := store.WatchApp(b.ID)
+	for _, want := range []string{
+		"watching " + b.ID + ": " + filepath.Join(tree, "mockups") + " is served read-only",
+		"opens at /preview/" + name + "/",
+		"ends when " + b.ID + " leaves new, after 4h without a request, or in 7d",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("watch printed %q, lacking %q", out, want)
+		}
+	}
+	out, err = run(t, a.previewCmd(), "list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !regexp.MustCompile(`(?m)^` + name + `\s+running\s+-\s+-\s+-\s+watch$`).MatchString(out) {
+		t.Fatalf("list printed %q, want a running watch with no commit, request or port", out)
+	}
+	if !strings.Contains(out, "KIND") {
+		t.Fatalf("list printed %q, lacking its KIND column", out)
+	}
+
+	// A directory that is not one of the worktree's, and a user who is not
+	// the bead's, the builder's or an operator, are refused in words.
+	if _, err := run(t, a.previewCmd(), "watch", b.ID, "nowhere"); err == nil || !strings.Contains(err.Error(), "nowhere is not a directory of its worktree") {
+		t.Fatalf("watch of a missing directory = %v", err)
+	}
+	a.actor = "lee"
+	if _, err := run(t, a.previewCmd(), "watch", b.ID); err == nil || !strings.Contains(err.Error(), "may watch its files; this is lee") {
+		t.Fatalf("watch by lee = %v", err)
+	}
+	if _, err := run(t, a.previewCmd(), "stop", name); err == nil {
+		t.Fatal("lee stopped ada's watch")
 	}
 }

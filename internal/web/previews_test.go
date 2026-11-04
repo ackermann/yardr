@@ -243,6 +243,98 @@ func TestPreviewsPage(t *testing.T) {
 	}
 }
 
+// A running watch is a card of its own kind: the bead it follows and the
+// directory it serves, its address and lifetime, Open and Stop, and no
+// command, commit or Restart. One that ended leaves the page.
+func TestPreviewsPageDrawsARunningWatch(t *testing.T) {
+	t.Parallel()
+	f := previewFixture(t)
+	ctx := context.Background()
+	flow, err := store.ParseFlow("backlog -> new\nnew -> review on done | backlog\nreview -> approved on done | new on changes\napproved -> merged\nmerged terminal\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	flow.Name = "site"
+	if err := f.st.PutDepot(ctx, store.Depot{Name: "site", Base: "main"}, "ada"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.st.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr"}, "ada"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.st.PutFlow(ctx, *flow, "ada"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.st.SetFlowPointer(ctx, "site", "", "site", "ada"); err != nil {
+		t.Fatal(err)
+	}
+	b, err := f.st.CreateBead(ctx, store.NewBead{Title: "site", Depot: "site", Stage: "new"}, "ada")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess, err := f.st.Claim(ctx, b.ID, "builders", "new", "site")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tree, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(tree, "mockups"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.st.SetHandle(ctx, sess.ID, map[string]any{"worktree": tree}); err != nil {
+		t.Fatal(err)
+	}
+	p, err := f.st.WatchPreview(ctx, b.ID, "mockups", "ada")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	acting := f.as(t, "ada")
+	var got web.Previews
+	acting.getJSON("/previews", &got)
+	if len(got.Previews) != 1 {
+		t.Fatalf("previews = %+v", got)
+	}
+	card := got.Previews[0]
+	if card.App != p.App || card.Kind != store.PreviewKindWatch || card.Bead != b.ID || card.Stage != "new" ||
+		card.Dir != filepath.Join(tree, "mockups") || card.State != store.PreviewRunning ||
+		card.Command != "" || card.Port != 0 || card.Head != "" || card.Stale || card.Approval != nil {
+		t.Fatalf("watch card = %+v", card)
+	}
+	page := acting.get("/previews").body
+	for _, want := range []string{
+		"watch of", b.ID + " in new", filepath.Join(tree, "mockups"), "/preview/" + p.App + "/",
+		`href="/preview/` + p.App + `/"`, `value="stop">Stop`, "idle 4h · age 7d", "started by",
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("the page does not show %q", want)
+		}
+	}
+	for _, not := range []string{"<dt>command</dt>", "<dt>commit</dt>", "<dt>head</dt>", "<dt>proposed by</dt>", "Restart", "Approve"} {
+		if strings.Contains(page, not) {
+			t.Errorf("the watch's card shows %q", not)
+		}
+	}
+	if r := acting.postForm("/previews", url.Values{"app": {p.App}, "action": {"restart"}}, "Origin", acting.ts.URL); r.status != http.StatusOK ||
+		!strings.Contains(r.body, "has no approved form to restart") {
+		t.Fatalf("restart of a watch: status %d: %s", r.status, r.body)
+	}
+
+	// Stopped, it leaves the page, and it is still a row `yardr preview list` has.
+	if r := acting.postForm("/previews", url.Values{"app": {p.App}, "action": {"stop"}}, "Origin", acting.ts.URL); r.status != http.StatusSeeOther {
+		t.Fatalf("stop: status %d: %s", r.status, r.body)
+	}
+	got = web.Previews{}
+	acting.getJSON("/previews", &got)
+	if len(got.Previews) != 0 {
+		t.Fatalf("an ended watch is on the page: %+v", got.Previews)
+	}
+	if row, err := f.st.GetPreview(ctx, p.App); err != nil || row.State != store.PreviewStopped {
+		t.Fatalf("the ended watch = %+v, %v", row, err)
+	}
+}
+
 // A crew session's approval attempt is refused on the page, as the
 // store's operator rule refuses it: the page comes back redrawn with
 // why, and the proposal stays pending.

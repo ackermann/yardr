@@ -37,6 +37,11 @@ const (
 	PreviewFailed   = "failed"
 )
 
+// PreviewKindWatch is the kind of a watch: the files of a bead's worktree
+// served read-only by the supervisor itself (previewwatch.go). A preview of
+// no kind is an app, the only kind there was: a program the supervisor runs.
+const PreviewKindWatch = "watch"
+
 // Preview settings and bounds.
 const (
 	// PreviewIdleSetting is how long a preview may go without a request
@@ -46,7 +51,8 @@ const (
 	DefaultPreviewIdle = 4 * time.Hour
 	// PreviewAgeLimit stops a preview however often it is used.
 	PreviewAgeLimit = 7 * 24 * time.Hour
-	// PreviewLimit is how many previews one yard may hold at once.
+	// PreviewLimit is how many app previews one yard may hold at once; a
+	// watch runs nothing and takes none of the places.
 	PreviewLimit = 3
 	// PreviewRunningLimit is how many may run at once.
 	PreviewRunningLimit = 2
@@ -131,6 +137,15 @@ type Preview struct {
 	Depot  string `json:"depot,omitempty"`
 	Commit string `json:"commit,omitempty"`
 	Dirty  bool   `json:"dirty,omitempty"`
+
+	// Kind is PreviewKindWatch for a watch and empty for an app. A watch
+	// has no command, port or approval: Dir is the directory it serves.
+	Kind string `json:"kind,omitempty"`
+	// Bead and Stage are a watch's: the bead whose worktree it serves, and
+	// the stage that bead was in when the watch began. The watch ends when
+	// the bead is no longer in that stage.
+	Bead  string `json:"bead,omitempty"`
+	Stage string `json:"stage,omitempty"`
 
 	State       string           `json:"state"`
 	StateDetail string           `json:"state_detail,omitempty"`
@@ -233,7 +248,12 @@ func (s *Store) ProposePreview(ctx context.Context, np NewPreview, actor string)
 			return fmt.Errorf("preview %s: a preview of that name is already in the yard (yardr preview list); forget it first if it should go", np.App)
 		}
 		live := 0
-		if err := each(w.Tx, bPreviews, "", func(_ []byte, _ *Preview) error { live++; return nil }); err != nil {
+		if err := each(w.Tx, bPreviews, "", func(_ []byte, p *Preview) error {
+			if p.Kind != PreviewKindWatch {
+				live++
+			}
+			return nil
+		}); err != nil {
 			return err
 		}
 		if live >= PreviewLimit {

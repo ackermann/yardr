@@ -19,10 +19,12 @@ import (
 // its supervisor and opened by the yard's person through the edge.
 // The records are the store's; the supervisor, part of yardr server,
 // does the running.
-// This file is the crew's face: propose, list, stop, logs and forget.
-// Start and restart have no crew command: a start is the person's
-// approval or Start, the supervisor's crash restart, or the on-demand
-// start when its person visits.
+// This file is the crew's face: propose, watch, list, stop, logs and
+// forget. Start and restart have no crew command: a start is the
+// person's approval or Start, the supervisor's crash restart, or the
+// on-demand start when its person visits. A watch is the one start a
+// crew member makes, because it runs nothing of theirs: the supervisor
+// serves files.
 
 func (a *app) previewCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "preview", Short: "Propose and tend the yard's previews of built apps",
@@ -37,8 +39,14 @@ stops it after preview_idle without a request (four hours while
 unset) or seven days running. An approval is for the commit and dirty
 mark its card showed: a start or restart on a tree that reads
 otherwise takes the approval back, and the card waits pending for a
-new one.`}
-	cmd.AddCommand(a.previewProposeCmd(), a.previewListCmd(), a.previewStopCmd(), a.previewLogsCmd(), a.previewForgetCmd())
+new one.
+
+A watch is a preview of another kind, for a site being built: the yard
+itself serves the files of a directory of a bead's worktree, read-only,
+and the page reloads when a file changes. It runs no command, so there
+is nothing to approve. It is plain files only: a site that needs a build
+step is an app, proposed as above.`}
+	cmd.AddCommand(a.previewProposeCmd(), a.previewWatchCmd(), a.previewListCmd(), a.previewStopCmd(), a.previewLogsCmd(), a.previewForgetCmd())
 	return cmd
 }
 
@@ -87,6 +95,51 @@ func (a *app) previewProposeCmd() *cobra.Command {
 	return c
 }
 
+func (a *app) previewWatchCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "watch <bead> [dir]",
+		Short: "Serve a bead's worktree files live, reloading the page when one changes",
+		Long: `Serve the files of a directory of a bead's worktree through the preview
+endpoint, read-only, so a person can watch the site take shape while the
+bead is built. dir is read against the worktree (mockups, say) and
+defaults to the worktree itself. A file or directory whose name starts
+with a dot is never served, nor anything outside dir, and a directory
+answers its index.html. A page is given a small script that reloads it
+when a file in dir has changed and stood still for a moment.
+
+The bead's builder, the user it is for or an operator may start a watch.
+It ends when the bead leaves the stage it is in now or is closed, after
+the idle time without a request (preview_idle, four hours while unset), or
+seven days after it began, and the same command starts it again at the
+same address. Put the address it prints in the bead's note.
+
+A watch serves plain files. A site that needs a build step runs the
+builder's code, and is an app: yardr preview propose.`,
+		Args: cobra.RangeArgs(1, 2),
+		RunE: func(c *cobra.Command, args []string) error {
+			dir := ""
+			if len(args) == 2 {
+				dir = args[1]
+			}
+			st, err := a.store(c.Context())
+			if err != nil {
+				return err
+			}
+			p, err := st.WatchPreview(c.Context(), args[0], dir, a.who())
+			if err != nil {
+				return err
+			}
+			settings, _ := st.Settings(c.Context())
+			return a.out(c.OutOrStdout(), p, func(w io.Writer) {
+				fmt.Fprintf(w, "watching %s: %s is served read-only, and its pages reload when a file changes\n", p.Bead, p.Dir)
+				fmt.Fprintf(w, "opens at /preview/%s/\n", p.App)
+				fmt.Fprintf(w, "ends when %s leaves %s, after %s without a request, or in %s\n",
+					p.Bead, p.Stage, store.Span(store.PreviewIdle(settings)), store.Span(store.PreviewAgeLimit))
+			})
+		},
+	}
+}
+
 func shortCommit(commit string) string {
 	if len(commit) > 12 {
 		return commit[:12]
@@ -120,9 +173,14 @@ func (a *app) previewListCmd() *cobra.Command {
 					if p.LastRequestAt != nil {
 						last = p.LastRequestAt.Format(time.RFC3339)
 					}
-					rows = append(rows, []string{p.App, state, shortCommit(p.Commit), last, strconv.Itoa(p.Port)})
+					// A watch holds no commit or port: it serves a worktree as it is.
+					kind, port := "app", strconv.Itoa(p.Port)
+					if p.Kind == store.PreviewKindWatch {
+						kind, port = p.Kind, "-"
+					}
+					rows = append(rows, []string{p.App, state, shortCommit(p.Commit), last, port, kind})
 				}
-				table(w, "APP\tSTATE\tCOMMIT\tLAST REQUEST\tPORT", rows)
+				table(w, "APP\tSTATE\tCOMMIT\tLAST REQUEST\tPORT\tKIND", rows)
 			})
 		},
 	}

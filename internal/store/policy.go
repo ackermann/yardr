@@ -118,6 +118,7 @@ const (
 	ActApprovePreview Action = "approve a preview"
 	ActStopPreview    Action = "stop a preview"
 	ActForgetPreview  Action = "forget a preview"
+	ActWatchPreview   Action = "watch a bead's files" // an agent working the bead, its originator, or an operator
 	ActSubscribe      Action = "change what a user is told"
 	ActSubscribeCrew  Action = "change what a crew member is told"
 	ActSubscribeGroup Action = "change what a group tells its members"
@@ -192,8 +193,9 @@ type Object struct {
 	// or the destination of a source transfer. Whose is the user whose own
 	// a command is (ActApproveOwn), the one who alone gives it
 	// (ActApproveSole), the user a grant is as (ActGrantSourceAs), who
-	// asked an ask (ActTakeBackAsk), or the proposer of a preview
-	// (ActStopPreview).
+	// asked an ask (ActTakeBackAsk), the proposer of a preview
+	// (ActStopPreview), or the originator of a bead whose files are
+	// watched (ActWatchPreview).
 	To, Whose string
 	// Seq is an ask's number on its bead.
 	Seq uint64
@@ -312,6 +314,7 @@ func init() {
 		ActApprovePreview:    ruleOperatorRequired,
 		ActStopPreview:       mayStopPreview,
 		ActForgetPreview:     ruleOperatorRequired,
+		ActWatchPreview:      mayWatchPreview,
 		ActSourceCheckTell:   maySourceCheckTell,
 		ActSubscribe:         maySubscribe,
 		ActSubscribeCrew:     maySubscribeCrew,
@@ -663,31 +666,6 @@ func mayApproveSole(ctx context.Context, tx *bolt.Tx, actor string, _ Action, ob
 		return fmt.Errorf("this command is %s's own to approve alone, and %s is not them", sole, to)
 	}
 	return nil
-}
-
-// mayStopPreview lets a preview's proposer or a person of the yard stop it.
-// The proposer is the actor stored with the proposal, not a role the caller
-// may choose by naming another actor.
-func mayStopPreview(ctx context.Context, tx *bolt.Tx, actor string, _ Action, obj Object) error {
-	resolved, err := paneAuthor(tx, callerOf(ctx), actor)
-	if err != nil {
-		return err
-	}
-	if obj.Whose != "" && resolved == obj.Whose {
-		return nil
-	}
-	ops, err := operatorsIn(tx)
-	if err != nil {
-		return err
-	}
-	if ops.is(resolved) {
-		return nil
-	}
-	who := ops.words()
-	if ops.none() {
-		who = "the operator"
-	}
-	return fmt.Errorf("only %s or %s may stop preview %s; this is %s", obj.Whose, who, obj.Name, or(resolved, "nobody"))
 }
 
 // mayTell refuses a change of where the user Object.Name is told outside

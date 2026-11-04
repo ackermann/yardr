@@ -17,6 +17,16 @@
       {{- end}}
     </header>
     <dl class="figures">
+      {{- if eq .Kind "watch"}}
+      {{- /* A watch runs nothing: the yard serves the files of a directory of
+             a bead's worktree while the bead stays in the stage it was
+             watched in. */}}
+      <div><dt>watch of</dt><dd>{{.Bead}} in {{.Stage}}</dd></div>
+      <div><dt>directory</dt><dd>{{.Dir}}</dd></div>
+      <div><dt>opens at</dt><dd>/preview/{{.App}}/</dd></div>
+      <div><dt>started by</dt><dd>{{.Proposer}} {{with .StartedAt}}<time datetime="{{.UTC.Format "2006-01-02T15:04:05Z"}}">{{.Local.Format "Jan 2 15:04"}}</time>{{end}}</dd></div>
+      <div><dt>lifetime</dt><dd>idle {{$.Data.Idle}} · age {{$.Data.MaxAge}}</dd></div>
+      {{- else}}
       {{- /* The start command verbatim, in full, with no truncation: it is
              what the approval authorises. */}}
       <div><dt>command</dt><dd><code>{{.Command}}</code></dd></div>
@@ -33,6 +43,7 @@
       <div><dt>approved by</dt><dd>{{.By}} <time datetime="{{.At.UTC.Format "2006-01-02T15:04:05Z"}}">{{.At.Local.Format "Jan 2 15:04"}}</time></dd></div>
       {{- end}}
       <div><dt>lifetime</dt><dd>idle {{$.Data.Idle}} · age {{$.Data.MaxAge}}</dd></div>
+      {{- end}}
     </dl>
     {{- if .Log}}
     <h3 class="label">log</h3>
@@ -46,7 +57,7 @@
     {{- if eq .State "pending"}}
     <form class="preview-actions" method="post" action="/previews" hx-post="/previews" hx-target="#live" hx-select="#live > *" hx-swap="innerHTML ignoreTitle:true">{{template "csrf"}}<input type="hidden" name="app" value="{{.App}}"><button type="submit" name="action" value="approve">Approve</button><button type="submit" name="action" value="refuse">Refuse</button></form>
     {{- else if ne .State "refused"}}
-    <form class="preview-actions" method="post" action="/previews" hx-post="/previews" hx-target="#live" hx-select="#live > *" hx-swap="innerHTML ignoreTitle:true">{{template "csrf"}}<input type="hidden" name="app" value="{{.App}}"><a href="/preview/{{.App}}/">Open</a><button type="submit" name="action" value="stop">Stop</button><button type="submit" name="action" value="restart">Restart</button></form>
+    <form class="preview-actions" method="post" action="/previews" hx-post="/previews" hx-target="#live" hx-select="#live > *" hx-swap="innerHTML ignoreTitle:true">{{template "csrf"}}<input type="hidden" name="app" value="{{.App}}"><a href="/preview/{{.App}}/">Open</a><button type="submit" name="action" value="stop">Stop</button>{{if ne .Kind "watch"}}<button type="submit" name="action" value="restart">Restart</button>{{end}}</form>
     {{- end}}
     {{- end}}
   </article>

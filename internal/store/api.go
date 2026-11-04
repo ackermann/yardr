@@ -316,6 +316,7 @@ type API interface {
 	PreviewHead(ctx context.Context, app string) (string, error)
 	PreviewStop(ctx context.Context, app, actor string) (*Preview, error)
 	ForgetPreview(ctx context.Context, app, actor string) (*Preview, error)
+	WatchPreview(ctx context.Context, bead, dir, actor string) (*Preview, error)
 
 	RecordPack(ctx context.Context, rec PackImport, changed bool, actor string) (bool, error)
 	Packs(ctx context.Context) ([]PackImport, error)

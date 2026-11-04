@@ -33,6 +33,7 @@ type Store interface {
 	GetPreview(ctx context.Context, app string) (*store.Preview, error)
 	UpdatePreview(ctx context.Context, app string, upd store.PreviewUpdate) (*store.Preview, error)
 	CheckPreviewTree(ctx context.Context, app string) error
+	GetBead(ctx context.Context, id string) (*store.Bead, error)
 	LogPreviewEvent(ctx context.Context, app, kind, detail string) error
 	Settings(ctx context.Context) (map[string]string, error)
 }
@@ -76,6 +77,9 @@ type Supervisor struct {
 	MemLimit                               int64
 	// Backoffs replaces crashBackoffs (tests shorten it).
 	Backoffs []time.Duration
+	// WatchPoll and WatchSettle shape what a watch's stream reads of its
+	// directory (watch.go); zero takes the default beside them.
+	WatchPoll, WatchSettle time.Duration
 
 	mu       sync.Mutex
 	running  map[string]*proc
@@ -177,9 +181,10 @@ func (s *Supervisor) reconcile(ctx context.Context, first bool) {
 	if first && !s.rebooted {
 		s.rebooted = true
 		// A box reboot, or a server restart, leaves every preview
-		// stopped for its person to start.
+		// stopped for its person to start. A watch runs no code to
+		// resurrect, so it stands: an upgrade restarts the server.
 		for _, p := range all {
-			if p.State == store.PreviewRunning {
+			if p.State == store.PreviewRunning && p.Kind != store.PreviewKindWatch {
 				detail := "reboot"
 				pid := -1
 				if _, err := s.Store.UpdatePreview(ctx, p.App, store.PreviewUpdate{
@@ -196,6 +201,10 @@ func (s *Supervisor) reconcile(ctx context.Context, first bool) {
 				s.Log.Debug("preview: not started", "app", p.App, "err", err)
 			}
 		case store.PreviewRunning:
+			if p.Kind == store.PreviewKindWatch {
+				s.reapWatch(ctx, p, now, idle)
+				continue
+			}
 			s.mu.Lock()
 			pr := s.running[p.App]
 			s.mu.Unlock()

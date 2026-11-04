@@ -760,7 +760,7 @@ origin; the test allows those and only those ([One bead](#one-bead)).
 | `/sessions` | the running sessions, the oldest first, with bead, stage, group, originator, login, runner, state and age (`yardr session list`), and under them the claims of manual groups, live | `Sessions` |
 | `/sessions?all=1` | the same page; its JSON lists the ended sessions too, every one (`yardr session list -a --all`) | `Sessions` |
 | `/crew` | each crew member: whether it runs, since when, and its unread inbox count when there is one, live. Journals and handoffs are not shown | `Crew` |
-| `/previews` | the yard's previews: one card per preview with the start command in full, the directory, the port, the depot commit and dirty mark beside the depot's HEAD now, the proposer and the lifetime, the running preview's log tail and a stale mark, live; on a view that acts, with Approve, Refuse, Open, Stop and Restart | `Previews` |
+| `/previews` | the yard's previews: one card per preview with the start command in full, the directory, the port, the depot commit and dirty mark beside the depot's HEAD now, the proposer and the lifetime, the running preview's log tail and a stale mark, live; on a view that acts, with Approve, Refuse, Open, Stop and Restart. A running [watch](watch.md) is a card of its own, with the bead, the directory and Open and Stop | `Previews` |
 | `/config` | the hub of the configuration pages: links to the lists, with Telemetry for the operator | `Config` |
 | `/depots` | the yard's depots: each with its kind, path, base and test command (`yardr depot list`), live | `Depots` |
 | `/groups` | the yard's groups: each with its runner, limit, members and config (`yardr group list`), live | `Groups` |
@@ -1025,7 +1025,7 @@ with the start command and the running preview's log tail held back.
 | `yardr bead history <bead>` | `/beads/<bead>` | `history` |
 | `yardr flow show <depot>` | `/flows` | `depots[].flows`, as the page has them ([Flows](#flows)) |
 | `yardr limits` | `/limits` | `limits` with `unmapped`: what the command answers with no kind named, one entry per provider in use, with the burning kinds and users beside the report |
-| `yardr preview list` | `/previews` | `previews`, each row with the depot's HEAD now beside the commit it runs, whether it is stale, and the running preview's log tail, the command and the log for the operator alone |
+| `yardr preview list` | `/previews` | `previews`, each row with the depot's HEAD now beside the commit it runs, whether it is stale, and the running preview's log tail, the command and the log for the operator alone; a running [watch](watch.md) as a row of its own kind |
 
 ```json
 {
@@ -1066,7 +1066,9 @@ and the command's are added:
   (set when the depot has moved past the commit the preview runs) and
   `log` (the running preview's tail, newest last) beside them. The
   start command and the log are the operator's to read: anyone else
-  gets the card without them. The
+  gets the card without them. A [watch](watch.md) adds `kind` (`watch`),
+  `bead` and `stage`, and has no command, port or commit; one that ended is
+  left off the page, which `preview list` still shows. The
   yard's `idle` bound and `max_age` stand beside the rows, as the card
   shows them ("4h", "7d").
 

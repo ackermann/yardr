@@ -84,7 +84,8 @@ it lists every exported name with its comment, faster than grepping.
   the store recognises a call from a session's pane.
 - `preview`: the yard's preview supervisor (part of `yardr server`): starts
   approved previews, keeps them running under their caps, captures their
-  logs and carries their traffic on its yard-side endpoint.
+  logs and carries their traffic on its yard-side endpoint; serves the
+  files of a bead's worktree as a watch, which runs nothing.
 - `rpc`: the store API over a local unix socket (`POST /call/<Method>`);
   the client is generated from `store.API`.
 - `runner`: starts work: herdr agents and exec commands in worktrees at
