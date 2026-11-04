@@ -140,17 +140,20 @@ after your last commit and your test run, and attach it to the note:
 - Shoot it at 1280x800 with headless Chrome: `contrib/shot/shot <url>
   <file>` from a yardr checkout (`yardr depot show yardr` names its path)
   keeps the flags (`--headless --screenshot=<file> --window-size=1280,800`)
-  and refuses a missing page or an unwritable file with its reason. Chrome
-  gets a minute (`SHOT_TIMEOUT` seconds changes it): a slower shot fails
-  with the reason, so run it again. Where the page needs driving first (a
-  click, a scroll), drive it with `agent-browser` and shoot with
-  `agent-browser screenshot`. A depot may carry its own shot script instead:
-  the depot's README or `.yardr/depot.md` names it.
+  and refuses a missing page or an unwritable file with its reason. The
+  window is 1280 wide (`SHOT_WIDTH` pixels changes it; `SHOT_WIDTH=390` is
+  a phone's) and 800 high. Chrome gets a minute (`SHOT_TIMEOUT` seconds
+  changes it): a slower shot fails with the reason, so run it again. Where
+  the page needs driving first (a click, a scroll), drive it with
+  `agent-browser` and shoot with `agent-browser screenshot`. A depot may
+  carry its own shot script instead: the depot's README or `.yardr/depot.md`
+  names it.
 - Never shoot a deployed preview, wherever it is hosted: the preview stage
   deploys after review, so at build time it shows the previous push, or
   nothing yet.
-- Confirm the shot mechanically: the file exists, is non-empty, and 1280x800
-  (`file` names a PNG's dimensions).
+- Confirm the shot mechanically: the file exists, is non-empty, and 1280x800,
+  or as wide as the `SHOT_WIDTH` you set and 800 high (`file` names a PNG's
+  dimensions).
 - Note what the shot shows, in words first (what was opened, at what size,
   what to look at), with the short SHA of the commit it was shot at
   (`git rev-parse --short HEAD`), and attach it:

@@ -815,29 +815,42 @@ func TestWebsiteDeployVoidIsTheReferenceDeploy(t *testing.T) {
 
 // The builder's screenshot recipe quotes the reference script's flags, so
 // the two change together: the size the role names is the window the script
-// shoots, and the flags it quotes are the script's.
+// shoots, and the flags it quotes are the script's. The width is the script's
+// SHOT_WIDTH default, which the role names as the setting that changes it, and
+// the height is the one the script's window flag carries. Every pack's
+// builder role says it, since each is its own copy.
 func TestBuilderRoleQuotesTheShotFlags(t *testing.T) {
-	role, err := os.ReadFile(filepath.Join(starter, "roles", "builder.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
 	shot, err := os.ReadFile("../../contrib/shot/shot")
 	if err != nil {
 		t.Fatal(err)
 	}
-	size := regexp.MustCompile(`--window-size=(\d+),(\d+)`).FindStringSubmatch(string(shot))
-	if size == nil {
-		t.Fatal("contrib/shot/shot names no --window-size=W,H")
+	width := regexp.MustCompile(`SHOT_WIDTH:=(\d+)`).FindStringSubmatch(string(shot))
+	if width == nil {
+		t.Fatal("contrib/shot/shot names no SHOT_WIDTH default")
 	}
-	if want := size[1] + "x" + size[2]; !strings.Contains(string(role), want) {
-		t.Errorf("packs/starter/roles/builder.md does not name %s, the window contrib/shot/shot shoots", want)
+	height := regexp.MustCompile(`--window-size="\$SHOT_WIDTH,(\d+)"`).FindStringSubmatch(string(shot))
+	if height == nil {
+		t.Fatal("contrib/shot/shot names no --window-size=$SHOT_WIDTH,H")
 	}
-	for _, flag := range []string{"--headless", "--screenshot=", "--window-size=" + size[1] + "," + size[2]} {
+	for _, flag := range []string{"--headless", "--screenshot="} {
 		if !strings.Contains(string(shot), flag) {
 			t.Errorf("contrib/shot/shot does not carry %s", flag)
 		}
-		if !strings.Contains(string(role), flag) {
-			t.Errorf("packs/starter/roles/builder.md does not quote %s", flag)
+	}
+	window := "--window-size=" + width[1] + "," + height[1]
+	for _, dir := range []string{starter, contributors, design, website} {
+		path := filepath.Join(dir, "roles", "builder.md")
+		role, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := width[1] + "x" + height[1]; !strings.Contains(string(role), want) {
+			t.Errorf("%s does not name %s, the window contrib/shot/shot shoots", path, want)
+		}
+		for _, want := range []string{"--headless", "--screenshot=", window, "SHOT_WIDTH"} {
+			if !strings.Contains(string(role), want) {
+				t.Errorf("%s does not quote %s", path, want)
+			}
 		}
 	}
 }

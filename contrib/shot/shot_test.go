@@ -28,6 +28,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime/debug"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -260,44 +261,90 @@ func TestShotUsage(t *testing.T) {
 }
 
 // The script passes the page to Chrome with its flags, and removes the
-// throwaway profile afterwards.
+// throwaway profile afterwards. The window is 1280 wide where SHOT_WIDTH is
+// unset (or empty, as SHOT_TIMEOUT's is) and as wide as it says where it is
+// set, and 800 high either way; Chrome is passed one window flag, never two
+// that disagree.
 func TestShotPassesFlagsToChrome(t *testing.T) {
 	if _, err := exec.LookPath("curl"); err != nil {
 		t.Skip("no curl: it checks the page before the shot")
 	}
 	s := page(t)
-	env, argsFile := standin(t, "shot", 0)
-	out := filepath.Join(t.TempDir(), "shot.png")
-	rc, outText := runShot(shotCtx(t), t, []string{s.URL + "/page", out}, env...)
-	if rc != 0 {
-		t.Fatalf("shot: exit %d: %s", rc, outText)
+	for _, c := range []struct {
+		name   string
+		env    []string
+		window string // the one window flag Chrome is passed
+	}{
+		{"SHOT_WIDTH unset", nil, "--window-size=1280,800"},
+		{"SHOT_WIDTH empty", []string{"SHOT_WIDTH="}, "--window-size=1280,800"},
+		{"SHOT_WIDTH=390", []string{"SHOT_WIDTH=390"}, "--window-size=390,800"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			env, argsFile := standin(t, "shot", 0)
+			out := filepath.Join(t.TempDir(), "shot.png")
+			rc, outText := runShot(shotCtx(t), t, []string{s.URL + "/page", out}, append(env, c.env...)...)
+			if rc != 0 {
+				t.Fatalf("shot: exit %d: %s", rc, outText)
+			}
+			got, err := os.ReadFile(out)
+			if err != nil || string(got) != "shot" {
+				t.Fatalf("shot wrote %q, %v, want the stand-in's bytes", got, err)
+			}
+			raw, err := os.ReadFile(argsFile)
+			if err != nil {
+				t.Fatal(err)
+			}
+			args := string(raw)
+			for _, want := range []string{"--headless", "--disable-gpu",
+				"--screenshot=" + out, s.URL + "/page"} {
+				if !strings.Contains(args, want) {
+					t.Errorf("Chrome was passed %q, which lacks %s", args, want)
+				}
+			}
+			var windows []string
+			for _, field := range strings.Fields(args) {
+				if strings.HasPrefix(field, "--window-size=") {
+					windows = append(windows, field)
+				}
+			}
+			if !slices.Equal(windows, []string{c.window}) {
+				t.Errorf("Chrome was passed %q, want the one window flag %s", args, c.window)
+			}
+			prof := ""
+			for _, field := range strings.Fields(args) {
+				if rest, ok := strings.CutPrefix(field, "--user-data-dir="); ok {
+					prof = rest
+				}
+			}
+			if prof == "" {
+				t.Fatalf("Chrome was passed %q, with no --user-data-dir", args)
+			}
+			if _, err := os.Stat(prof); !os.IsNotExist(err) {
+				t.Errorf("the throwaway profile %s is still there: %v", prof, err)
+			}
+		})
 	}
-	got, err := os.ReadFile(out)
-	if err != nil || string(got) != "shot" {
-		t.Fatalf("shot wrote %q, %v, want the stand-in's bytes", got, err)
+}
+
+// SHOT_WIDTH is a positive number of pixels, as SHOT_TIMEOUT is of seconds:
+// anything else is refused naming the variable, and Chrome never runs.
+func TestShotRefusesABadWidth(t *testing.T) {
+	if _, err := exec.LookPath("curl"); err != nil {
+		t.Skip("no curl: it checks the page before the shot")
 	}
-	raw, err := os.ReadFile(argsFile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	args := string(raw)
-	for _, want := range []string{"--headless", "--disable-gpu",
-		"--screenshot=" + out, "--window-size=1280,800", s.URL + "/page"} {
-		if !strings.Contains(args, want) {
-			t.Errorf("Chrome was passed %q, which lacks %s", args, want)
-		}
-	}
-	prof := ""
-	for _, field := range strings.Fields(args) {
-		if rest, ok := strings.CutPrefix(field, "--user-data-dir="); ok {
-			prof = rest
-		}
-	}
-	if prof == "" {
-		t.Fatalf("Chrome was passed %q, with no --user-data-dir", args)
-	}
-	if _, err := os.Stat(prof); !os.IsNotExist(err) {
-		t.Errorf("the throwaway profile %s is still there: %v", prof, err)
+	s := page(t)
+	for _, width := range []string{"abc", "0", "00", "-5", "12.5", "390px", "3 90", "99999999999999999999"} {
+		t.Run(width, func(t *testing.T) {
+			env, argsFile := standin(t, "shot", 0)
+			out := filepath.Join(t.TempDir(), "shot.png")
+			rc, text := runShot(shotCtx(t), t, []string{s.URL + "/page", out}, append(env, "SHOT_WIDTH="+width)...)
+			if want := "SHOT_WIDTH=" + width + " is not a positive number of pixels"; rc != 1 || !strings.Contains(text, want) {
+				t.Errorf("SHOT_WIDTH=%q: exit %d, %q, want exit 1 with %q", width, rc, text, want)
+			}
+			if _, err := os.Stat(argsFile); !os.IsNotExist(err) {
+				t.Errorf("SHOT_WIDTH=%q: Chrome ran despite the refusal: %v", width, err)
+			}
+		})
 	}
 }
 
@@ -628,33 +675,44 @@ func lineWith(text, sub string) string {
 }
 
 // The shot itself, with real Chrome against the local page: a window-sized
-// PNG. A machine with no Chrome skips it; the stand-in test above proves
-// the flags there. So does a Chrome that cannot make a display link, and
-// under load the deadline is short and a Chrome that misses it skips too,
-// with the reason (windowVerdict): a slow machine or a host with no display
-// is not a failure of the shot code, and the skip must not cost the full
-// minute.
+// PNG, 1280x800 and, where SHOT_WIDTH says so, a phone's 390x800. A window
+// that narrow is Chrome's to give and not only the script's to ask for, so
+// the stand-in's check of the flag is not enough. A machine with no Chrome
+// skips it; the stand-in test above proves the flags there. So does a Chrome
+// that cannot make a display link, and under load the deadline is short and a
+// Chrome that misses it skips too, with the reason (windowVerdict): a slow
+// machine or a host with no display is not a failure of the shot code, and
+// the skip must not cost the full minute. A skip ends the test, so the second
+// shot is taken only where the first was made, and a skip costs one deadline.
 func TestShotWritesAWindowSizedPNG(t *testing.T) {
 	if _, err := exec.LookPath("curl"); err != nil {
 		t.Skip("no curl: it checks the page before the shot")
 	}
 	s := page(t)
-	out := filepath.Join(t.TempDir(), "shot.png")
 	timeout := windowTimeout()
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	t.Cleanup(cancel)
-	rc, text := runShot(ctx, t, []string{s.URL + "/page", out},
-		"SHOT_TIMEOUT="+strconv.Itoa(int(timeout/time.Second)))
-	// The load is read after the shot: a minute's wait is long enough for
-	// the machine to have been quiet at its start and busy by its end.
-	switch v, why := windowVerdict(rc, text, underLoad()); v {
-	case shotSkipped:
-		t.Skip(why)
-	case shotFailed:
-		t.Fatal(why)
-	}
-	if w, h := pngSize(t, out); w != 1280 || h != 800 {
-		t.Errorf("the shot is %dx%d, want 1280x800", w, h)
+	for _, c := range []struct {
+		env  []string
+		w, h uint32
+	}{
+		{nil, 1280, 800},
+		{[]string{"SHOT_WIDTH=390"}, 390, 800},
+	} {
+		out := filepath.Join(t.TempDir(), "shot.png")
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		rc, text := runShot(ctx, t, []string{s.URL + "/page", out},
+			append([]string{"SHOT_TIMEOUT=" + strconv.Itoa(int(timeout/time.Second))}, c.env...)...)
+		cancel()
+		// The load is read after the shot: a minute's wait is long enough for
+		// the machine to have been quiet at its start and busy by its end.
+		switch v, why := windowVerdict(rc, text, underLoad()); v {
+		case shotSkipped:
+			t.Skip(why)
+		case shotFailed:
+			t.Fatal(why)
+		}
+		if w, h := pngSize(t, out); w != c.w || h != c.h {
+			t.Errorf("the shot with %q is %dx%d, want %dx%d", c.env, w, h, c.w, c.h)
+		}
 	}
 }
 

@@ -1,10 +1,11 @@
 #!/bin/sh
 # shot: a window-sized PNG of a web page, with headless Chrome.
 #
-# shot <url> <file> writes <file> as a 1280x800 PNG of <url>. It refuses a
-# page that is not there and a file that cannot be written, with the reason,
-# before Chrome runs; afterwards a shot Chrome wrote nothing to is refused
-# the same way, since headless Chrome exits 0 however the page loaded.
+# shot <url> <file> writes <file> as a 1280x800 PNG of <url>; SHOT_WIDTH
+# pixels changes the width (390 is a phone's), and the height stays 800. It
+# refuses a page that is not there and a file that cannot be written, with the
+# reason, before Chrome runs; afterwards a shot Chrome wrote nothing to is
+# refused the same way, since headless Chrome exits 0 however the page loaded.
 #
 # Chrome is SHOT_CHROME where that names an executable, else the first of
 # google-chrome, google-chrome-stable, chromium and chromium-browser on PATH,
@@ -128,6 +129,16 @@ case "$SHOT_TIMEOUT" in
 esac
 [ "$SHOT_TIMEOUT" -gt 0 ] 2>/dev/null || { echo "shot: SHOT_TIMEOUT=$SHOT_TIMEOUT is not a positive number of seconds" >&2; exit 1; }
 
+# The window is SHOT_WIDTH pixels wide, 1280 when that is unset, and 800 high.
+# A page lays itself out for the width of its window, so a phone-width check
+# needs a window that narrow, not a crop of a wider shot. Only the width is a
+# setting: it is what a layout changes with.
+: "${SHOT_WIDTH:=1280}"
+case "$SHOT_WIDTH" in
+  ""|*[!0-9]*) { echo "shot: SHOT_WIDTH=$SHOT_WIDTH is not a positive number of pixels" >&2; exit 1; } ;;
+esac
+[ "$SHOT_WIDTH" -gt 0 ] 2>/dev/null || { echo "shot: SHOT_WIDTH=$SHOT_WIDTH is not a positive number of pixels" >&2; exit 1; }
+
 prof=$(mktemp -d "${TMPDIR:-/tmp}/shot.XXXXXX") ||
   { echo "shot: cannot make a profile directory" >&2; exit 1; }
 trap 'rm -rf "${prof:?}"' EXIT
@@ -163,7 +174,7 @@ trap 'stop_sig=HUP; stop_code=129; stop_shot' HUP
 # finishes first, the watchdog stops and reaps its timer instead of leaving
 # a sleeper behind.
 "$chrome" --headless --disable-gpu --user-data-dir="$prof" \
-  --screenshot="$out" --window-size=1280,800 "$url" </dev/null &
+  --screenshot="$out" --window-size="$SHOT_WIDTH,800" "$url" </dev/null &
 pid=$!
 ( timer=
   # Invoked by the subshell's TERM/INT/HUP trap below, not by name.
