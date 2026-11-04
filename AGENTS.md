@@ -202,6 +202,13 @@ it lists every exported name with its comment, faster than grepping.
 - The test rules are `docs/testing.md` (per-package time budget, sleep
   budget, parallelism); the gate is `sh .yardr/test` in the worktree, and
   its printed `test:` line is the record of a run.
+- A non-test Go file over 1000 lines has a ceiling that only falls (the
+  `filesizes` table in `.yardr/test`), so a listed file cannot grow by a line
+  and one with no row fails at 1000. Before planning a change to a Go file near
+  or over 1000 lines, run `sh .yardr/test sizes [path]`: it reports each file's
+  lines, ceiling and room in seconds, runs no gate step and exits 0, where the
+  gate would fail the file only at its end. The gate also warns of every file
+  with fewer than 50 lines of room under its ceiling, including listed files.
 - The gate sets `GOFLAGS=-trimpath`, so one worktree's cached builds and
   test results serve the others. A source file's path in a trace or from
   `runtime.Caller` is then its import path: a test finds a repo file from

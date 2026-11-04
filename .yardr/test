@@ -93,7 +93,15 @@
 #
 # YARDR_TEST_PLAN=1 says what the run would test and stops: no gofmt, vet,
 # build or test. The test of this script runs it so (yardtest_test.go).
+#
+# `sh .yardr/test sizes [path]` is no run of the gate: it reports how much room
+# each Go file has under its ceiling (the filesizes table below), in the seconds
+# a find and a wc take, and exits 0 whatever it finds. A listed file has none, a
+# file with no row fails at 1000 lines, so run it before planning a change to a
+# file near or over 1000 lines, not after the gate has failed it. With a path it
+# reports that file alone.
 set -e
+filesizewarnings_done=
 # The settings of the yard's server are not the tests': a server one of them
 # starts would listen on this yard's webhook address (config.ServerSettings).
 unset YARDR_HOOK_ADDR YARDR_EVENT_RETENTION YARDR_HOOK_PAYLOAD_RETENTION YARDR_PPROF
@@ -1817,13 +1825,15 @@ internal/web/beads.go 647 the bead cards, flows and panels
 # is wc -l, the count the table was seeded
 # with. The allow-list goes by file, as the reads table does: awk takes no
 # newline in -v. It says how many listed files the tree holds, so the
-# re-measure can count the oversize debt.
+# re-measure can count the oversize debt. Before formatting, vet, build and
+# test, the run warns of each file with fewer than 50 lines of room under its
+# ceiling (filesizeview), so the file is known before a change takes it over.
 filesizebudget() {
   t0=$(date +%s)
   st=0
   allow=$(mktemp)
   printf '%s\n' "$filesizes" >"$allow"
-  out=$(find . -name '*.go' -not -name '*_test.go' -not -path './.git/*' -exec wc -l {} + 2>/dev/null | awk -v landing="$YARDR_LANDING" '
+  out=$(sizelines | awk -v landing="$YARDR_LANDING" '
     FILENAME == ARGV[1] {
       if ($0 ~ /^[^ ]+ [0-9]+ /) {
         f = $0; sub(/ .*/, "", f)
@@ -1873,8 +1883,84 @@ filesizebudget() {
     }' "$allow" -) || st=$?
   rm -f "$allow"
   took "$t0" "file size budgets"
+  # A direct budget check still warns, while a gate run's earlier call makes
+  # this a no-op there. A warning fails nothing, not even by failing itself.
+  filesizewarnings
   if [ -n "$out" ]; then printf '%s\n' "$out"; fi
   [ "$st" = 0 ] || exit 1
+}
+# sizelines prints the line count and path of each non-test Go file, as wc -l
+# does, in path order. It is the one list of files that the file size budget
+# judges and `sh .yardr/test sizes` reports, so the two cannot disagree about
+# which files there are, and the order makes what they print read the same on
+# every machine.
+sizelines() {
+  find . -name '*.go' -not -name '*_test.go' -not -path './.git/*' -exec wc -l {} + 2>/dev/null | LC_ALL=C sort -k 2
+}
+# filesizeview prints what the file size table says of the tree that the
+# budget's verdict does not: how much room each file has under its ceiling,
+# the ceiling being 1000 for a file with no row. Its mode ($1) is report, the
+# lines of `sh .yardr/test sizes [path]`, or warn, which the gate prints
+# before its verdict. A report has a line for each listed file (its lines, its
+# ceiling and the room between them, negative for a file over its ceiling), for
+# each row whose file is gone, and for each file with no row once fewer than 50
+# lines of room are left; with a path ($2), the line for that file alone, small
+# or not. Warnings include listed files and files with no row, using the row's
+# ceiling or 1000 respectively. A file over its ceiling is already named by
+# the budget's verdict. The view judges nothing and passes whatever it finds.
+filesizeview() {
+  table=$(mktemp)
+  printf '%s\n' "$filesizes" >"$table"
+  sizelines | awk -v mode="$1" -v want="$2" '
+    BEGIN { limit = 1000; near = 50 }
+    FILENAME == ARGV[1] {
+      if ($0 ~ /^[^ ]+ [0-9]+ /) {
+        f = $0; sub(/ .*/, "", f)
+        m = $0; sub(/^[^ ]+ /, "", m); sub(/ .*/, "", m)
+        ceil[f] = m + 0
+        order[++rows] = f
+      }
+      next
+    }
+    $2 == "total" || NF < 2 { next }
+    {
+      n = $1 + 0
+      f = $0; sub(/^ *[0-9]+ +/, "", f); sub(/^\.\//, "", f)
+      seen[f] = 1
+      listed = (f in ceil)
+      c = listed ? ceil[f] : limit
+      if (mode == "warn") {
+        room = c - n
+        if (room >= 0 && room < near) {
+          printf "test: warning: %s has %d lines, %d under its %d-line ceiling: split it along a concept before it grows past %d\n", f, n, room, c, c
+        }
+        next
+      }
+      if (want == "" ? (listed || n > c - near) : (f == want)) {
+        printf "test: sizes: %s %d/%d (%+d)%s\n", f, n, c, c - n, (listed ? "" : " no row, fails over " limit)
+        shown++
+      }
+    }
+    END {
+      if (mode == "warn") exit 0
+      for (i = 1; i <= rows; i++) {
+        f = order[i]
+        if ((f in seen) || (want != "" && f != want)) continue
+        printf "test: sizes: %s gone, its row says %d: delete the row with the file\n", f, ceil[f]
+        shown++
+      }
+      if (want != "" && !shown) printf "test: sizes: %s is no non-test Go file here\n", want
+    }' "$table" - || true
+  rm -f "$table"
+}
+# filesizewarnings reports near-ceiling files once per gate run. The gate calls
+# it before formatting, vet, build and tests, and filesizebudget calls it too so
+# its focused check keeps the same output without duplicating warnings in a full
+# run.
+filesizewarnings() {
+  if [ -n "$filesizewarnings_done" ]; then return 0; fi
+  filesizewarnings_done=1
+  filesizeview warn || true
 }
 # nomarkers fails the run when a tracked file carries the redaction marker
 # (REDACTED in capitals inside square brackets): tool output redacts a word
@@ -1996,6 +2082,7 @@ whole() {
     fi
     exit 0
   fi
+  filesizewarnings
   listed
   # gofmt first: CI fails on it, so this must too.
   formatted
@@ -2093,6 +2180,19 @@ if [ "$1" = "--race-queue" ]; then
   rc=$?
   trap - EXIT
   exit "$rc"
+fi
+# The report of how much room the Go files have under their ceilings
+# (filesizeview). It is no gate run, and it comes ahead of all that one does:
+# the base, the selection and every step, git and go among them, so it takes
+# the seconds a find does. It prints no test line, which would pass for the
+# record of a run, and it exits 0 whatever it finds, since it judges nothing.
+# A path is cut to the tree's own spelling, as a person or a tool names a file.
+if [ "$1" = sizes ]; then
+  path=${2#./}
+  case $path in "$PWD"/*) path=${path#"$PWD"/} ;; esac
+  filesizeview report "$path" || true
+  trap - EXIT
+  exit 0
 fi
 # What the branch changed: against the base, from where the branch left it.
 # For a wagon of a train that is the tip of its train's branch, so a wagon is
@@ -2243,6 +2343,7 @@ conformance/                   -
 '
 built() {
   [ -z "$YARDR_TEST_PLAN" ] || return 0
+  filesizewarnings
   formatted
   again go vet ./...
   again go build ./...

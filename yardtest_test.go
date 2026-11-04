@@ -663,6 +663,16 @@ func TestYardTestSelects(t *testing.T) {
 	script, rows := yardTestRows(t)
 	needTool(t, "go")
 	const pre = "test: "
+	// A file within 50 lines of 1000 where go does not look, a testdata
+	// directory, so that it adds no package: the fixture holds one, and every
+	// gate run warns of it before formatting, whether it is plain or a landing.
+	const nearWarning = "test: warning: testdata/near.go has 960 lines, 40 under its 1000-line ceiling: split it along a concept before it grows past 1000"
+	wantNear := func(t *testing.T, rest string) {
+		t.Helper()
+		if n := strings.Count(rest, nearWarning+"\n"); n != 1 {
+			t.Errorf("the output has the warning of testdata/near.go %d times, want once:\n%s", n, rest)
+		}
+	}
 	// In the row tables below, sincePH and shortPH stand for the shared
 	// base: the row fills it in before it compares.
 	const sincePH = "\x00since\x00"
@@ -731,6 +741,7 @@ func TestYardTestSelects(t *testing.T) {
 		write("qemb/v1.txt", "v\n")
 		write("qemb/other.txt", "other\n")
 		write("alone/p.go", "package p\n")
+		write("testdata/near.go", "package p\n"+strings.Repeat("// pad\n", 959))
 		// A package one case's change deletes, while the script still rows
 		// it, as base's copy does at a landing.
 		write("fakepkg/p.go", "package p\n\nvar Existing int\n")
@@ -1133,6 +1144,7 @@ func TestYardTestSelects(t *testing.T) {
 			// Each step is timed, choosing the packages too, after the first
 			// line: that one says which run it is.
 			wantSteps(t, rest, c.steps)
+			wantNear(t, rest)
 			// No lock: the home never saw the yard's directory, and the test
 			// line says the run waited for nothing.
 			if _, err := os.Stat(filepath.Join(home, ".yardr")); !errors.Is(err, os.ErrNotExist) {
@@ -1209,8 +1221,26 @@ func TestYardTestSelects(t *testing.T) {
 			}
 			wantGoCalls(t, fake, c.calls)
 			wantSteps(t, rest, c.steps)
+			wantNear(t, rest)
 		})
 	}
+	t.Run("the near-ceiling warning is shown when gofmt fails first", func(t *testing.T) {
+		t.Parallel()
+		fx := rowFixture(t)
+		fake, _ := fakeBins(t, map[string]string{
+			"gofmt": "#!/bin/sh\necho testdata/near.go\n",
+		})
+		first, rest, err := planned(t, &fx, script, []string{
+			"YARDR_TEST_PLAN=", "YARDR_RACE_HELD=1", "FAKE=" + fake, pathWith(fake),
+		}, "docs/web.md")
+		if err == nil || !strings.HasPrefix(first, pre+"what changed ") {
+			t.Errorf("err %v, first line %q, want a failed gate run after its run description", err, first)
+		}
+		wantNear(t, rest)
+		if !strings.Contains(rest, "gofmt needed on:\ntestdata/near.go") || strings.Contains(rest, "file size budgets") {
+			t.Errorf("output did not stop at the gofmt failure:\n%s", rest)
+		}
+	})
 	// A row whose package is gone fails the run, whatever changed. A plain run
 	// reads the table in its selection, ahead of its first line as a landing's
 	// does, so the complaint is all it says.
@@ -2240,8 +2270,8 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 			} else if ycalls != "" {
 				t.Errorf("the run called yardr %q with none on PATH", ycalls)
 			}
-			if c.barePath && strings.Contains(out, "test: warning") {
-				t.Errorf("a run with no CLI warns, want it to log only")
+			if c.barePath && strings.Contains(out, "test: warning: cannot ") {
+				t.Errorf("a run with no CLI warns that it could not file the repeat, want it to log only")
 			}
 			wantSteps(t, out, c.steps)
 			// The test line: a red run fails naming its failed packages.
@@ -4846,13 +4876,14 @@ func TestYardTestRaceQueueView(t *testing.T) {
 
 // yardTestProbe pulls the budget checks out of .yardr/test: the three
 // allow-lists, the three functions that judge them, and what they call
-// (took, runlogged, machineload and loadedmachine), sizewaits, which reads
-// the same load for the race leg's wait factor, and gatepar and legflag,
-// which turn it into the race leg's -p. The probe runs them as the script
-// has them, so a case over it fails when the gate would. It also returns
-// the allow-listed directories, how many distinct sleep sites the table
-// holds, and the filesizes rows. A script the cuts no longer follow fails
-// the test, telling its editor to move the probe with it.
+// (took, runlogged, machineload and loadedmachine, and for the file size
+// budget sizelines and filesizeview, which it shares with the sizes run),
+// sizewaits, which reads the same load for the race leg's wait factor, and
+// gatepar and legflag, which turn it into the race leg's -p. The probe runs
+// them as the script has them, so a case over it fails when the gate would.
+// It also returns the allow-listed directories, how many distinct sleep
+// sites the table holds, and the filesizes rows. A script the cuts no longer
+// follow fails the test, telling its editor to move the probe with it.
 func yardTestProbe(t *testing.T) (probe string, overDirs []string, sleepSites int, sizeRows []filesizeRow) {
 	t.Helper()
 	b, err := os.ReadFile(yardTest)
@@ -4886,8 +4917,11 @@ func yardTestProbe(t *testing.T) (probe string, overDirs []string, sleepSites in
 	sleepfn := cut("\nsleepbudget() {\n", "\n}\n")
 	sizes := cut("\nfilesizes='\n", "\n'\n")
 	filesizefn := cut("\nfilesizebudget() {\n", "\n}\n")
+	sizelinefn := cut("\nsizelines() {\n", "\n}\n")
+	viewfn := cut("\nfilesizeview() {\n", "\n}\n")
+	warnfn := cut("\nfilesizewarnings() {\n", "\n}\n")
 	markfn := cut("\nnomarkers() {\n", "\n}\n")
-	if !strings.Contains(pkgfn, "60 s budget") || !strings.Contains(sleepfn, "500 ms budget") || !strings.Contains(filesizefn, "1000 lines allow-listed") || !strings.Contains(markfn, "redaction marker scan") || !strings.Contains(machinefn, "load $avg on $cores cores") || !strings.Contains(loadfn, "machineload") || !strings.Contains(sizefn, "YARDR_TEST_LOAD=") || !strings.Contains(eitherfn, `echo "$1"`) || !strings.Contains(gatefn, "awk") || !strings.Contains(legfn, "gatepar") {
+	if !strings.Contains(pkgfn, "60 s budget") || !strings.Contains(sleepfn, "500 ms budget") || !strings.Contains(filesizefn, "1000 lines allow-listed") || !strings.Contains(sizelinefn, "wc -l") || !strings.Contains(viewfn, "no row, fails over") || !strings.Contains(warnfn, "filesizeview warn") || !strings.Contains(markfn, "redaction marker scan") || !strings.Contains(machinefn, "load $avg on $cores cores") || !strings.Contains(loadfn, "machineload") || !strings.Contains(sizefn, "YARDR_TEST_LOAD=") || !strings.Contains(eitherfn, `echo "$1"`) || !strings.Contains(gatefn, "awk") || !strings.Contains(legfn, "gatepar") {
 		t.Fatal("the probe missed the budget functions: move it with .yardr/test")
 	}
 	for _, line := range strings.Split(over, "\n") {
@@ -4935,7 +4969,7 @@ func yardTestProbe(t *testing.T) (probe string, overDirs []string, sleepSites in
 	for _, n := range keys {
 		sites += n
 	}
-	return took + runlogfn + over + machinefn + loadfn + sizefn + eitherfn + gatefn + legfn + pkgfn + long + sleepfn + sizes + filesizefn + markfn + "\n\"$@\"\n", overDirs, sites, sizeRows
+	return took + runlogfn + over + machinefn + loadfn + sizefn + eitherfn + gatefn + legfn + pkgfn + long + sleepfn + sizes + sizelinefn + viewfn + warnfn + filesizefn + markfn + "\n\"$@\"\n", overDirs, sites, sizeRows
 }
 
 // The race lock is released when the race-leg command and its R1 checks end,
@@ -5360,12 +5394,29 @@ func TestYardTestBudgets(t *testing.T) {
 		wantRun(t, out, code, 0, "test: "+strconv.Itoa(sleepSites)+" sleeps over 500 ms allow-listed")
 	})
 
+	// warnLine is what the file size budget says of any file with fewer than
+	// 50 lines of room under its ceiling, whether the ceiling is a table row or
+	// the 1000-line limit. Warnings returns those lines from a gate output.
+	warnLine := func(file string, lines, ceiling int) string {
+		return fmt.Sprintf("test: warning: %s has %d lines, %d under its %d-line ceiling: split it along a concept before it grows past %d", file, lines, ceiling-lines, ceiling, ceiling)
+	}
+	warnings := func(out string) []string {
+		var got []string
+		for _, line := range strings.Split(out, "\n") {
+			if strings.HasPrefix(line, "test: warning: ") {
+				got = append(got, line)
+			}
+		}
+		return got
+	}
+
 	t.Run("a compliant tree passes the file size budget", func(t *testing.T) {
 		t.Parallel()
 		dir := t.TempDir()
 		writeSizeTree(t, dir, sizeRows)
 		// Exactly 1000 lines is no row's business, and a test file or a
-		// file under .git is not judged.
+		// file under .git is not judged. Every listed file stands at its
+		// ceiling in this tree, and exact.go stands at the unlisted limit.
 		writeFiles(t, dir, map[string]string{
 			"exact.go":     strings.Repeat("x\n", 1000),
 			"big_test.go":  strings.Repeat("x\n", 2000),
@@ -5373,6 +5424,15 @@ func TestYardTestBudgets(t *testing.T) {
 		})
 		out, code := run(t, dir, "filesizebudget")
 		wantRun(t, out, code, 0, "test: "+strconv.Itoa(len(sizeRows))+" files over 1000 lines allow-listed")
+		want := make([]string, 0, len(sizeRows)+1)
+		for _, row := range sizeRows {
+			want = append(want, warnLine(row.path, row.ceil, row.ceil))
+		}
+		want = append(want, warnLine("exact.go", 1000, 1000))
+		slices.Sort(want)
+		if got := warnings(out); !slices.Equal(got, want) {
+			t.Errorf("warnings %q, want %q", got, want)
+		}
 	})
 
 	// The file size budget over the tree at its ceilings with the first
@@ -5426,6 +5486,17 @@ func TestYardTestBudgets(t *testing.T) {
 			return "test: new.go has 1001 lines, over 1000 with no filesizes row: " + tail
 		}
 	}
+	// A file with no row 40 lines short of 1000, alone and beside a listed file
+	// grown past its ceiling: the warning is the same whether the step passes
+	// or fails, and at landing as in a plain run.
+	near := func(t *testing.T, dir string, _ filesizeRow) {
+		writeFile(t, dir, "near.go", strings.Repeat("x\n", 960))
+	}
+	growAndNear := func(t *testing.T, dir string, row filesizeRow) {
+		grow(t, dir, row)
+		near(t, dir, row)
+	}
+	nearWarning := func(filesizeRow) string { return warnLine("near.go", 960, 1000) }
 	for _, c := range []struct {
 		name    string
 		edit    func(t *testing.T, dir string, row filesizeRow)
@@ -5453,6 +5524,9 @@ func TestYardTestBudgets(t *testing.T) {
 			overCeiling("split it along a concept")},
 		{"an unlisted file over 1000 fails the file size budget at landing", unlisted, true, 1,
 			overOnly("split it along a concept")},
+		{"an unlisted file within 50 lines of 1000 warns and passes the file size budget", near, false, 0, nearWarning},
+		{"an unlisted file within 50 lines of 1000 warns while the file size budget fails", growAndNear, false, 1, nearWarning},
+		{"an unlisted file within 50 lines of 1000 warns at landing", near, true, 0, nearWarning},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
@@ -5468,6 +5542,37 @@ func TestYardTestBudgets(t *testing.T) {
 			wantRun(t, out, code, c.code, c.want(row))
 		})
 	}
+
+	// The edges of the warning in one tree: 950 lines is not within 50 of 1000
+	// and 951 is, 1000 is the last that passes, and 1001 fails with the verdict
+	// alone, which names it with both numbers already. The warnings come in
+	// path order and before the verdict, including the listed files at ceiling.
+	t.Run("the warning covers the files from 951 to 1000 lines, ahead of the verdict", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		writeSizeTree(t, dir, sizeRows)
+		writeFiles(t, dir, map[string]string{
+			"d1001.go": strings.Repeat("x\n", 1001),
+			"c1000.go": strings.Repeat("x\n", 1000),
+			"b951.go":  strings.Repeat("x\n", 951),
+			"a950.go":  strings.Repeat("x\n", 950),
+		})
+		out, code := run(t, dir, "filesizebudget")
+		over := "test: d1001.go has 1001 lines, over 1000 with no filesizes row: split it along a concept"
+		wantRun(t, out, code, 1, over)
+		want := make([]string, 0, len(sizeRows)+2)
+		for _, row := range sizeRows {
+			want = append(want, warnLine(row.path, row.ceil, row.ceil))
+		}
+		want = append(want, warnLine("b951.go", 951, 1000), warnLine("c1000.go", 1000, 1000))
+		slices.Sort(want)
+		if got := warnings(out); !slices.Equal(got, want) {
+			t.Errorf("warnings %q, want %q", got, want)
+		}
+		if strings.Index(out, want[1]) > strings.Index(out, over) {
+			t.Errorf("the warnings follow the verdict:\n%s", out)
+		}
+	})
 
 	t.Run("the tree's listed files are at their ceilings", func(t *testing.T) {
 		t.Parallel()
@@ -6151,4 +6256,121 @@ loadedmachine() {
 			}
 		}
 	})
+}
+
+// `sh .yardr/test sizes [path]` reports how much room the Go files have under
+// their ceilings, ahead of everything a gate run does: it asks git and go for
+// nothing, leaves nothing in the run's TMPDIR, prints no test line, which would
+// pass for the record of a run, and exits 0 however the tree stands. One tree
+// serves every case, with a line's worth of each kind: a listed file short of
+// its ceiling, one over it and one gone, and files with no row at 960, 1000,
+// 1001 and 12 lines; the files a report leaves out are in it too (one at 950
+// lines, a test file, one under .git).
+func TestYardTestSizes(t *testing.T) {
+	t.Parallel()
+	_, _, _, sizeRows := yardTestProbe(t)
+	script, err := filepath.Abs(yardTest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	writeSizeTree(t, dir, sizeRows)
+	short, over, gone := sizeRows[0], sizeRows[1], sizeRows[2]
+	writeFile(t, dir, short.path, strings.Repeat("x\n", short.ceil-3))
+	writeFile(t, dir, over.path, strings.Repeat("x\n", over.ceil+2))
+	if err := os.Remove(filepath.Join(dir, gone.path)); err != nil {
+		t.Fatal(err)
+	}
+	writeFiles(t, dir, map[string]string{
+		"near.go":      strings.Repeat("x\n", 960),
+		"exact.go":     strings.Repeat("x\n", 1000),
+		"over.go":      strings.Repeat("x\n", 1001),
+		"small.go":     strings.Repeat("x\n", 12),
+		"edge.go":      strings.Repeat("x\n", 950),
+		"big_test.go":  strings.Repeat("x\n", 2000),
+		".git/huge.go": strings.Repeat("x\n", 2000),
+	})
+	listed := func(path string, lines, ceil int) string {
+		return fmt.Sprintf("test: sizes: %s %d/%d (%+d)", path, lines, ceil, ceil-lines)
+	}
+	noRow := func(path string, lines int) string {
+		return fmt.Sprintf("test: sizes: %s %d/1000 (%+d) no row, fails over 1000", path, lines, 1000-lines)
+	}
+	noFile := func(path string) string { return "test: sizes: " + path + " is no non-test Go file here" }
+	shortLine := listed(short.path, short.ceil-3, short.ceil)
+	overLine := listed(over.path, over.ceil+2, over.ceil)
+	goneLine := fmt.Sprintf("test: sizes: %s gone, its row says %d: delete the row with the file", gone.path, gone.ceil)
+	// The report: a line for each file that has one, in path order, and the
+	// rows whose file is gone after them.
+	byPath := map[string]string{
+		short.path: shortLine,
+		over.path:  overLine,
+		"near.go":  noRow("near.go", 960),
+		"exact.go": noRow("exact.go", 1000),
+		"over.go":  noRow("over.go", 1001),
+	}
+	for _, row := range sizeRows[3:] {
+		byPath[row.path] = listed(row.path, row.ceil, row.ceil)
+	}
+	paths := make([]string, 0, len(byPath))
+	for path := range byPath {
+		paths = append(paths, path)
+	}
+	slices.Sort(paths)
+	var report []string
+	for _, path := range paths {
+		report = append(report, byPath[path])
+	}
+	report = append(report, goneLine)
+	// The pwd as the shell has it is the directory's own spelling, which a
+	// path given in full has to match.
+	env := append(scriptEnv(), "PWD="+dir)
+	run := func(t *testing.T, env []string, args ...string) (string, int) {
+		t.Helper()
+		cmd := exec.Command("sh", append([]string{script, "sizes"}, args...)...)
+		cmd.Dir = dir
+		cmd.Env = env
+		return runCmd(t, cmd)
+	}
+
+	t.Run("lists each listed file with its lines, ceiling and room, and the files near 1000", func(t *testing.T) {
+		t.Parallel()
+		// Every tool a gate step runs is a recorder first on the PATH: the
+		// report may run none of them, and it leaves no temporary file.
+		record := "#!/bin/sh\necho \"$0 $*\" >>\"$FAKE/calls\"\n"
+		fake, tmp := fakeBins(t, map[string]string{"go": record, "git": record, "gofmt": record})
+		out, code := run(t, boxEnv(fake, tmp, "PWD="+dir))
+		// Exactly these lines: no step's seconds, no test line of a run.
+		if got := splitLines(out); code != 0 || !slices.Equal(got, report) {
+			t.Errorf("exit %d, output:\n%s\nwant exit 0 and:\n%s", code, out, strings.Join(report, "\n"))
+		}
+		if calls := fakeLog(fake, "calls"); calls != "" {
+			t.Errorf("the report ran:\n%s", calls)
+		}
+		wantEmpty(t, tmp)
+	})
+
+	for _, c := range []struct {
+		name string
+		arg  string
+		want string
+	}{
+		{"a listed file over its ceiling", over.path, overLine},
+		{"a listed file short of its ceiling", short.path, shortLine},
+		{"a path as ./ spells it", "./" + over.path, overLine},
+		{"a path given in full", dir + "/" + over.path, overLine},
+		{"a row whose file is gone", gone.path, goneLine},
+		{"a file with no row near 1000", "near.go", noRow("near.go", 960)},
+		{"a file with no row, whatever its size", "small.go", noRow("small.go", 12)},
+		{"a test file", "big_test.go", noFile("big_test.go")},
+		{"a name that is no file", "nosuch.go", noFile("nosuch.go")},
+	} {
+		t.Run("with a path, "+c.name+" alone", func(t *testing.T) {
+			t.Parallel()
+			out, code := run(t, env, c.arg)
+			if code != 0 || out != c.want+"\n" {
+				t.Errorf("exit %d, output %q, want exit 0 and %q", code, out, c.want)
+			}
+		})
+	}
 }

@@ -307,6 +307,28 @@ assembly runs the base's copy of `.yardr/test`, so it still has the old row
 while the branch lowers or deletes its row. Over-ceiling and
 unlisted-over-1000 fail at landing as ever.
 
+Two things say where a file stands before a change takes it over, so that a
+split is planned and not found at the gate. `sh .yardr/test sizes [path]`
+reports how much room the Go files have, in the seconds a find and a `wc`
+take: none of a run's steps, no git and no go, and no test line (which would
+pass for the record of a run). It prints a line for each listed file, as
+`test: sizes: <file> <lines>/<ceiling> (<room>)` with the room signed (negative
+for a file over its ceiling); for each row whose file is gone; and for each file
+with no row once fewer than 50 lines are left before the 1000 it fails at,
+marked `no row, fails over 1000`. With a path it prints that file's line alone,
+whatever its size. It judges nothing and always exits 0. Run it before planning
+a change to a file over 1000 lines: a listed file has no room, since a plain
+run holds its ceiling to its size, so a change that grows one splits it first.
+
+The gate warns before formatting, vet, build and tests, whether it then passes
+or fails, of every file with fewer than 50 lines of room under its ceiling, as
+`test: warning: <file>
+has <lines> lines, <n> under its <ceiling>-line ceiling ...`. A listed file's
+ceiling is its filesizes row; a file with no row has a ceiling of 1000. The
+warning appears even when formatting, vet or build fails first, so a builder
+sees the file before planning a change. Listed files at their rows are warned
+of too, since they have no room under their ceiling.
+
 ## Pruning tests
 
 `contrib/testprune` finds which of one package's tests can go without
