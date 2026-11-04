@@ -14,8 +14,9 @@ contrib/shot/shot <url> <file>
 The window is 1280 wide, or `SHOT_WIDTH` pixels where that is set
 (`SHOT_WIDTH=390 contrib/shot/shot <url> <file>` is a phone's width), and 800
 high either way. The page is laid out for a window of that width, not cropped
-from a wider one. A `SHOT_WIDTH` that is not a positive number is refused,
-naming it, before Chrome runs.
+from a wider one. Widths under 500 go through a same-machine frame, so the
+layout width is exact; a page that forbids framing is refused. A `SHOT_WIDTH`
+that is not a positive number is refused, naming it, before Chrome runs.
 
 The URL is `http://` or `https://`, and the file is not a symbolic link:
 anything else is refused. It refuses a page that is not there and a file that cannot be written, with

@@ -6,6 +6,9 @@
 # refuses a page that is not there and a file that cannot be written, with the
 # reason, before Chrome runs; afterwards a shot Chrome wrote nothing to is
 # refused the same way, since headless Chrome exits 0 however the page loaded.
+# Under 500 wide the page is shot inside a frame of that width, since Chrome
+# on macOS lays every narrower window out 500 wide; a page that forbids
+# framing is refused instead, naming the header.
 #
 # Chrome is SHOT_CHROME where that names an executable, else the first of
 # google-chrome, google-chrome-stable, chromium and chromium-browser on PATH,
@@ -70,6 +73,12 @@ in_127_8() {
   valid_octet "$rest"
 }
 
+# The throwaway profile is made before the page check: besides Chrome's
+# profile it holds the check's headers and, under 500 wide, the frame page.
+prof=$(mktemp -d "${TMPDIR:-/tmp}/shot.XXXXXX") ||
+  { echo "shot: cannot make a profile directory" >&2; exit 1; }
+trap 'rm -rf "${prof:?}"' EXIT
+
 # Then the page, with curl's reason when it is not there.
 command -v curl >/dev/null 2>&1 || { echo "shot: curl is not on PATH: it checks the page before the shot" >&2; exit 1; }
 # A loopback page needs no proxy, and the box's may not reach it: curl
@@ -96,8 +105,9 @@ esac
 # matched host holds no spaces or glob characters.
 noproxy_flags=
 [ -n "$noproxy" ] && noproxy_flags="--noproxy $noproxy"
+# The headers are kept for the framing check on the wrapper path below.
 # shellcheck disable=SC2086
-reason=$(curl -sS -f -L -o /dev/null --max-time 60 --proto =http,https --proto-redir =http,https $noproxy_flags -- "$url" 2>&1) ||
+reason=$(curl -sS -f -L -o /dev/null -D "$prof/headers" --max-time 60 --proto =http,https --proto-redir =http,https $noproxy_flags -- "$url" 2>&1) ||
   { echo "shot: $url: $reason" >&2; exit 1; }
 
 # Then Chrome. A name on PATH is resolved to its path, so the check below
@@ -139,9 +149,33 @@ case "$SHOT_WIDTH" in
 esac
 [ "$SHOT_WIDTH" -gt 0 ] 2>/dev/null || { echo "shot: SHOT_WIDTH=$SHOT_WIDTH is not a positive number of pixels" >&2; exit 1; }
 
-prof=$(mktemp -d "${TMPDIR:-/tmp}/shot.XXXXXX") ||
-  { echo "shot: cannot make a profile directory" >&2; exit 1; }
-trap 'rm -rf "${prof:?}"' EXIT
+# Under 500 wide the page is shot through a frame: Chrome on macOS will not
+# make a window narrower than 500, so a direct shot at such a width lays the
+# page out 500 wide and the PNG is its left slice. The wrapper is one iframe
+# at the shot's width, shot by file:// with the same window flag; the PNG's
+# left edge is then the frame's, at the exact width. At 500 and above the
+# page is shot direct, as before.
+shoot=$url
+if [ "$SHOT_WIDTH" -lt 500 ]; then
+  # file:// is never same-origin with the page, so any framing opt-out
+  # forbids the wrapper, whatever its value; the shot is refused naming it,
+  # before Chrome runs and before the out file is touched.
+  if grep -qi '^x-frame-options:' "$prof/headers" 2>/dev/null; then
+    echo "shot: $url: X-Frame-Options forbids framing this page, so it cannot be shot under 500 pixels wide" >&2
+    exit 1
+  fi
+  if grep -qi '^content-security-policy:.*frame-ancestors' "$prof/headers" 2>/dev/null; then
+    echo "shot: $url: frame-ancestors forbids framing this page, so it cannot be shot under 500 pixels wide" >&2
+    exit 1
+  fi
+  src=$(printf '%s' "$url" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' -e 's/"/\&quot;/g')
+  wrap=$prof/wrap.html
+  cat >"$wrap" <<EOF || { echo "shot: cannot write the frame page for $url" >&2; exit 1; }
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><style>html,body{margin:0;padding:0}iframe{border:0;display:block}</style></head><body><iframe src="$src" width="$SHOT_WIDTH" height="800"></iframe></body></html>
+EOF
+  shoot="file://$wrap"
+fi
 # A stop in mid-shot stops Chrome too: the exit path below kills the
 # watcher alone, so without this a Chrome that ignores TERM outlives the
 # script. Each trap names its signal and exit code, and the handler stops
@@ -174,7 +208,7 @@ trap 'stop_sig=HUP; stop_code=129; stop_shot' HUP
 # finishes first, the watchdog stops and reaps its timer instead of leaving
 # a sleeper behind.
 "$chrome" --headless --disable-gpu --user-data-dir="$prof" \
-  --screenshot="$out" --window-size="$SHOT_WIDTH,800" "$url" </dev/null &
+  --screenshot="$out" --window-size="$SHOT_WIDTH,800" "$shoot" </dev/null &
 pid=$!
 ( timer=
   # Invoked by the subshell's TERM/INT/HUP trap below, not by name.

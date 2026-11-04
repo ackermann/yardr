@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"image/png"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -260,11 +261,35 @@ func TestShotUsage(t *testing.T) {
 	}
 }
 
+// frameStandin is a SHOT_CHROME like standin's that also keeps the frame:
+// where the script shoots through a wrapper, the stand-in copies the file://
+// page it was passed to wrap, since the throwaway profile is gone by the
+// time the test looks. On a direct shot wrap is never written.
+func frameStandin(t *testing.T, want string, exitCode int) (env []string, args, wrap string) {
+	t.Helper()
+	dir := t.TempDir()
+	args = filepath.Join(dir, "args")
+	wrap = filepath.Join(dir, "wrap.html")
+	bin := filepath.Join(dir, "chrome")
+	script := "#!/bin/sh\n" +
+		"echo \"$@\" >" + args + "\n" +
+		"for a in \"$@\"; do case \"$a\" in --screenshot=*) out=${a#--screenshot=};; esac; done\n" +
+		"for a in \"$@\"; do case \"$a\" in file://*) cp \"${a#file://}\" " + wrap + " 2>/dev/null;; esac; done\n"
+	if want != "" {
+		script += "printf '%s' '" + want + "' >\"$out\"\n"
+	}
+	script += "exit " + strconv.Itoa(exitCode) + "\n"
+	scripttest.Write(t, bin, script)
+	return []string{"SHOT_CHROME=" + bin}, args, wrap
+}
+
 // The script passes the page to Chrome with its flags, and removes the
 // throwaway profile afterwards. The window is 1280 wide where SHOT_WIDTH is
 // unset (or empty, as SHOT_TIMEOUT's is) and as wide as it says where it is
 // set, and 800 high either way; Chrome is passed one window flag, never two
-// that disagree.
+// that disagree. Under 500 wide Chrome is passed a frame of that width
+// holding the page, not the page itself, since no narrower window lays out
+// narrower; at 500 and above the page goes direct.
 func TestShotPassesFlagsToChrome(t *testing.T) {
 	if _, err := exec.LookPath("curl"); err != nil {
 		t.Skip("no curl: it checks the page before the shot")
@@ -273,14 +298,18 @@ func TestShotPassesFlagsToChrome(t *testing.T) {
 	for _, c := range []struct {
 		name   string
 		env    []string
+		width  string // the shot's width, as the window flag and the frame carry it
 		window string // the one window flag Chrome is passed
+		wrap   bool   // Chrome is passed a frame page, not the page itself
 	}{
-		{"SHOT_WIDTH unset", nil, "--window-size=1280,800"},
-		{"SHOT_WIDTH empty", []string{"SHOT_WIDTH="}, "--window-size=1280,800"},
-		{"SHOT_WIDTH=390", []string{"SHOT_WIDTH=390"}, "--window-size=390,800"},
+		{"SHOT_WIDTH unset", nil, "1280", "--window-size=1280,800", false},
+		{"SHOT_WIDTH empty", []string{"SHOT_WIDTH="}, "1280", "--window-size=1280,800", false},
+		{"SHOT_WIDTH=390", []string{"SHOT_WIDTH=390"}, "390", "--window-size=390,800", true},
+		{"SHOT_WIDTH=499", []string{"SHOT_WIDTH=499"}, "499", "--window-size=499,800", true},
+		{"SHOT_WIDTH=500", []string{"SHOT_WIDTH=500"}, "500", "--window-size=500,800", false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			env, argsFile := standin(t, "shot", 0)
+			env, argsFile, wrapFile := frameStandin(t, "shot", 0)
 			out := filepath.Join(t.TempDir(), "shot.png")
 			rc, outText := runShot(shotCtx(t), t, []string{s.URL + "/page", out}, append(env, c.env...)...)
 			if rc != 0 {
@@ -296,7 +325,7 @@ func TestShotPassesFlagsToChrome(t *testing.T) {
 			}
 			args := string(raw)
 			for _, want := range []string{"--headless", "--disable-gpu",
-				"--screenshot=" + out, s.URL + "/page"} {
+				"--screenshot=" + out} {
 				if !strings.Contains(args, want) {
 					t.Errorf("Chrome was passed %q, which lacks %s", args, want)
 				}
@@ -319,8 +348,149 @@ func TestShotPassesFlagsToChrome(t *testing.T) {
 			if prof == "" {
 				t.Fatalf("Chrome was passed %q, with no --user-data-dir", args)
 			}
+			if c.wrap {
+				if strings.Contains(args, s.URL+"/page") {
+					t.Errorf("Chrome was passed %q, which names the page instead of its frame", args)
+				}
+				if !strings.Contains(args, "file://"+prof+"/") {
+					t.Errorf("Chrome was passed %q, with no frame in the throwaway profile %s", args, prof)
+				}
+				wrap, err := os.ReadFile(wrapFile)
+				if err != nil {
+					t.Fatalf("the stand-in kept no frame: %v", err)
+				}
+				for _, want := range []string{"<iframe", `src="` + s.URL + "/page" + `"`,
+					`width="` + c.width + `"`, `height="800"`, "margin:0"} {
+					if !strings.Contains(string(wrap), want) {
+						t.Errorf("the frame is %q, which lacks %s", wrap, want)
+					}
+				}
+			} else {
+				if !strings.Contains(args, s.URL+"/page") {
+					t.Errorf("Chrome was passed %q, which lacks the page", args)
+				}
+				if _, err := os.Stat(wrapFile); !os.IsNotExist(err) {
+					t.Errorf("Chrome was passed a frame where the page goes direct: %v", err)
+				}
+			}
 			if _, err := os.Stat(prof); !os.IsNotExist(err) {
 				t.Errorf("the throwaway profile %s is still there: %v", prof, err)
+			}
+		})
+	}
+}
+
+// The frame carries the page's URL in an attribute, so what would break out
+// of it is escaped: &<>". The page is never fetched here, a stand-in curl
+// answers, since the URL's only purpose is what the frame makes of it.
+func TestShotEscapesTheFramedURL(t *testing.T) {
+	s := page(t)
+	dir := t.TempDir()
+	fake := filepath.Join(dir, "curl")
+	scripttest.Write(t, fake, "#!/bin/sh\nexit 0\n")
+	env, argsFile, wrapFile := frameStandin(t, "shot", 0)
+	env = append(env, "SHOT_WIDTH=390", "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	url := s.URL + `/page?a=1&b=<2>&c="3"`
+	out := filepath.Join(t.TempDir(), "shot.png")
+	rc, text := runShot(shotCtx(t), t, []string{url, out}, env...)
+	if rc != 0 {
+		t.Fatalf("shot: exit %d: %s", rc, text)
+	}
+	raw, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), url) {
+		t.Errorf("Chrome was passed %q, which names the page instead of its frame", raw)
+	}
+	wrap, err := os.ReadFile(wrapFile)
+	if err != nil {
+		t.Fatalf("the stand-in kept no frame: %v", err)
+	}
+	want := `src="` + s.URL + `/page?a=1&amp;b=&lt;2&gt;&amp;c=&quot;3&quot;"`
+	if !strings.Contains(string(wrap), want) {
+		t.Errorf("the frame is %q, which lacks %s", wrap, want)
+	}
+}
+
+// Under 500 wide the page is shot through a frame, so one that forbids
+// framing is refused naming the header, before Chrome runs and with no file;
+// at 500 and above the same page shoots direct, and a page whose policy
+// names no frame rule shoots framed.
+func TestShotRefusesAFramingForbiddenPage(t *testing.T) {
+	if _, err := exec.LookPath("curl"); err != nil {
+		t.Skip("no curl: it checks the page before the shot")
+	}
+	framed := "<html><body>shot</body></html>"
+	mux := http.NewServeMux()
+	mux.HandleFunc("/deny", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Frame-Options", "DENY")
+		_, _ = w.Write([]byte(framed))
+	})
+	mux.HandleFunc("/sameorigin", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Frame-Options", "SAMEORIGIN")
+		_, _ = w.Write([]byte(framed))
+	})
+	mux.HandleFunc("/lower", func(w http.ResponseWriter, r *http.Request) {
+		w.Header()["x-frame-options"] = []string{"DENY"}
+		_, _ = w.Write([]byte(framed))
+	})
+	mux.HandleFunc("/ancestors-none", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Security-Policy", "frame-ancestors 'none'")
+		_, _ = w.Write([]byte(framed))
+	})
+	mux.HandleFunc("/ancestors-mixed", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; frame-ancestors 'self'")
+		_, _ = w.Write([]byte(framed))
+	})
+	mux.HandleFunc("/csp-other", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Security-Policy", "default-src 'self'")
+		_, _ = w.Write([]byte(framed))
+	})
+	s := httptest.NewServer(mux)
+	t.Cleanup(s.Close)
+	for _, c := range []struct {
+		name   string
+		path   string
+		width  string
+		refuse bool
+		token  string // the header the refusal names
+	}{
+		{"DENY", "/deny", "390", true, "X-Frame-Options"},
+		{"SAMEORIGIN", "/sameorigin", "390", true, "X-Frame-Options"},
+		{"lowercase", "/lower", "390", true, "X-Frame-Options"},
+		{"frame-ancestors alone", "/ancestors-none", "390", true, "frame-ancestors"},
+		{"frame-ancestors among others", "/ancestors-mixed", "390", true, "frame-ancestors"},
+		{"a policy with no frame rule shoots", "/csp-other", "390", false, ""},
+		{"a forbidden page shoots direct at 1280", "/deny", "1280", false, ""},
+		{"a forbidden page shoots direct at 500", "/ancestors-none", "500", false, ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			env, argsFile := standin(t, "shot", 0)
+			out := filepath.Join(t.TempDir(), "shot.png")
+			rc, text := runShot(shotCtx(t), t, []string{s.URL + c.path, out}, append(env, "SHOT_WIDTH="+c.width)...)
+			if !c.refuse {
+				if rc != 0 {
+					t.Fatalf("shot: exit %d: %s", rc, text)
+				}
+				if got, err := os.ReadFile(out); err != nil || string(got) != "shot" {
+					t.Fatalf("shot wrote %q, %v, want the stand-in's bytes", got, err)
+				}
+				return
+			}
+			if rc == 0 {
+				t.Fatalf("shot %s at %s: exit 0, want a refusal", c.path, c.width)
+			}
+			for _, want := range []string{s.URL + c.path, c.token} {
+				if !strings.Contains(text, want) {
+					t.Errorf("shot %s at %s: %q, which does not name %s", c.path, c.width, text, want)
+				}
+			}
+			if _, err := os.Stat(argsFile); !os.IsNotExist(err) {
+				t.Error("Chrome ran for a page that forbids framing")
+			}
+			if _, err := os.Stat(out); !os.IsNotExist(err) {
+				t.Errorf("a shot of it is at %s", out)
 			}
 		})
 	}
@@ -674,12 +844,61 @@ func lineWith(text, sub string) string {
 	return ""
 }
 
+// widthPage is one local page at /page whose background tells the width it
+// was laid out at: pink past 420 px, green at or under it. A shot laid out
+// 390 wide shows green; the left slice of a 500-wide layout shows pink, the
+// rule never having fired.
+func widthPage(t *testing.T) *httptest.Server {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/page", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte("<html><head><style>body{background:#ffc0cb}@media(max-width:420px){body{background:#008000}}</style></head><body></body></html>"))
+	})
+	s := httptest.NewServer(mux)
+	t.Cleanup(s.Close)
+	return s
+}
+
+// shotPixel decodes path as a PNG and returns the 8-bit RGB of its centre
+// pixel, which on widthPage's empty page is the page's own background.
+func shotPixel(t *testing.T, path string) (uint8, uint8, uint8) {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	img, err := png.Decode(bytes.NewReader(raw))
+	if err != nil {
+		t.Fatalf("%s is not a PNG: %v", path, err)
+	}
+	b := img.Bounds()
+	r, g, bl, _ := img.At((b.Min.X+b.Max.X)/2, (b.Min.Y+b.Max.Y)/2).RGBA()
+	return uint8(r >> 8), uint8(g >> 8), uint8(bl >> 8)
+}
+
+// closeTo reports whether each channel of got is within 8 of want: flat CSS
+// fills render exact, and the slack is for rounding alone. Pink and green
+// differ by 64 or more in every channel, so no slack bridges them.
+func closeTo(r, g, b, wantR, wantG, wantB uint8) bool {
+	diff := func(a, c uint8) uint8 {
+		if a > c {
+			return a - c
+		}
+		return c - a
+	}
+	return diff(r, wantR) <= 8 && diff(g, wantG) <= 8 && diff(b, wantB) <= 8
+}
+
 // The shot itself, with real Chrome against the local page: a window-sized
-// PNG, 1280x800 and, where SHOT_WIDTH says so, a phone's 390x800. A window
-// that narrow is Chrome's to give and not only the script's to ask for, so
-// the stand-in's check of the flag is not enough. A machine with no Chrome
-// skips it; the stand-in test above proves the flags there. So does a Chrome
-// that cannot make a display link, and under load the deadline is short and a
+// PNG, 1280x800 and, where SHOT_WIDTH says so, a phone's 390x800, each
+// showing the page laid out at that width and not a crop of a wider one.
+// The pixel size alone cannot tell those apart, so each case also reads the
+// page's own width in its background, alongside the size. A window that
+// narrow is Chrome's to give and not only the script's to ask for, so the
+// stand-in's check of the flag is not enough. A machine with no Chrome skips
+// it; the stand-in test above proves the flags there. So does a Chrome that
+// cannot make a display link, and under load the deadline is short and a
 // Chrome that misses it skips too, with the reason (windowVerdict): a slow
 // machine or a host with no display is not a failure of the shot code, and
 // the skip must not cost the full minute. A skip ends the test, so the second
@@ -688,14 +907,15 @@ func TestShotWritesAWindowSizedPNG(t *testing.T) {
 	if _, err := exec.LookPath("curl"); err != nil {
 		t.Skip("no curl: it checks the page before the shot")
 	}
-	s := page(t)
+	s := widthPage(t)
 	timeout := windowTimeout()
 	for _, c := range []struct {
-		env  []string
-		w, h uint32
+		env     []string
+		w, h    uint32
+		r, g, b uint8 // the background the page shows laid out w wide
 	}{
-		{nil, 1280, 800},
-		{[]string{"SHOT_WIDTH=390"}, 390, 800},
+		{nil, 1280, 800, 0xff, 0xc0, 0xcb},
+		{[]string{"SHOT_WIDTH=390"}, 390, 800, 0x00, 0x80, 0x00},
 	} {
 		out := filepath.Join(t.TempDir(), "shot.png")
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -712,6 +932,9 @@ func TestShotWritesAWindowSizedPNG(t *testing.T) {
 		}
 		if w, h := pngSize(t, out); w != c.w || h != c.h {
 			t.Errorf("the shot with %q is %dx%d, want %dx%d", c.env, w, h, c.w, c.h)
+		}
+		if r, g, b := shotPixel(t, out); !closeTo(r, g, b, c.r, c.g, c.b) {
+			t.Errorf("the shot with %q shows #%02x%02x%02x, want the #%02x%02x%02x of a page laid out %d wide", c.env, r, g, b, c.r, c.g, c.b, c.w)
 		}
 	}
 }
