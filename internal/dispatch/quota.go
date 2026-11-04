@@ -222,9 +222,16 @@ func (d *Dispatcher) reportGroupWait(ctx context.Context, b store.Bead, r *store
 // the command runs under the group's env, so the condition gates on that
 // login's windows. The kind is the one Claim gives the group's sessions
 // (store.Group.Kind, def being the yard's default_kind), so the windows
-// read are those the session burns; a group that starts no agents is asked
-// for as before.
+// read are those the session burns. A group that starts no agents burns no
+// provider and has no windows: an exec group gated on a source reads the
+// source's alone, and what Choose asks of the provider besides, for a
+// condition that names only sources, finds nothing, as for a provider that
+// reports no window. Nothing is run for it, and the default kind's provider
+// is not read in its place.
 func (d *Dispatcher) routeQuota(ctx context.Context, g store.Group, def string) store.Quota {
+	if !g.StartsAgents(def) {
+		return store.Quota{}
+	}
 	kind := g.Kind(def)
 	if kind == "" {
 		kind = agents.DefaultKind

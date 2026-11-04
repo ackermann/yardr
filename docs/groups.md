@@ -360,7 +360,8 @@ prints them as `builders@Weekly<80,5h<90 else spare-builders`.
   text the yard's limits source reports for the window
   ([integrations.md](integrations.md#say-what-a-subscription-still-carries);
   `yardr limits` prints them), matched exactly, so a window the condition
-  does not name does not gate. `@<80` with no label is every window the
+  does not name does not gate, unless the condition names no window of the
+  provider at all (below). `@<80` with no label is every window the
   report has. yardr compares two numbers and knows no provider's windows;
   the threshold is yours, and no pack brings one. Whose windows are meant
   follows from the group's `kind` and its `provider` setting, as for a
@@ -371,7 +372,13 @@ prints them as `builders@Weekly<80,5h<90 else spare-builders`.
   window instead: `machine.load<80` reads the window labelled `load` of
   what the source `machine` says of itself, whatever the group's provider
   is (`machine.<80` is every window it reports), and the two forms mix
-  (`machine.load<80,Weekly<90`).
+  (`machine.load<80,Weekly<90`). A condition on sources alone does not
+  take the provider's windows away: the group is judged by `<100` on them
+  as well, as a group with no condition is (below), so
+  `builders@machine.load<80` is passed over for a busy machine and for a
+  window of its provider used up alike. A condition that names any window
+  of the provider (`Weekly<80`, `<80`, `Weekly<100`) says which of them
+  gate, and the others do not.
 - **The pace instead of a number.** In place of a percentage the right
   side may be the window's target with an optional margin:
   `Weekly<target`, `Weekly<target+10`, `Weekly<target-5`. The target is
@@ -412,16 +419,18 @@ prints them as `builders@Weekly<80,5h<90 else spare-builders`.
   change with the quota.
 - **A group with no condition still waits while a window of its provider is
   used up.** A group that starts agents is judged as if its condition were
-  `<100`: it takes no bead while any window its provider reports is 100%
-  used, since a session started into one stops on the limit at once, a
-  per-model window aside (next). So a
-  route to `builders` alone waits as `builders@<100` would, and in
+  `<100`, and so is one whose condition names sources alone
+  (`builders@machine.load<80`): it takes no bead while any window its
+  provider reports is 100% used, since a session started into one stops on
+  the limit at once, a per-model window aside (next). So a route to
+  `builders` alone waits as `builders@<100` would, and in
   `builders@Weekly<80 else spare-builders` the further group is passed over
   too when its provider's windows are used up. Only a window at 100% is
   used up: a group with no condition still takes a bead at 99.9%. A
-  group that starts no agents burns no provider and is not read. To gate a
-  group on fewer windows, give it a condition that names them
-  (`builders@Weekly<100` leaves the others out). A provider that reports
+  group that starts no agents burns no provider and is not read, with a
+  condition on a source or without. To gate a group on fewer windows, give
+  it a condition that names them (`builders@Weekly<100` leaves the others
+  out). A provider that reports
   no window knows of no limit: none is used up, and the claim says nothing
   of it. Where no source answers for the group's provider, or its command
   fails, nothing is known and the group takes the bead, as for any
@@ -439,7 +448,8 @@ prints them as `builders@Weekly<80,5h<90 else spare-builders`.
   every model draws from instead where one is used up too, since the yard
   does not know which model the agent that stopped runs. A condition
   that names the window (`builders@Weekly Fable<100`) or every window
-  (`builders@<100`) reads it as it reads any other. A provider that reports
+  (`builders@<100`) reads it as it reads any other; one on sources alone
+  leaves it out, as a group with no condition does. A provider that reports
   only per-model windows holds a group with no condition for nothing.
 - **When no condition holds, the bead waits.** A route with one
   conditioned group and no `--else` says "this group or nobody", as
@@ -468,7 +478,8 @@ prints them as `builders@Weekly<80,5h<90 else spare-builders`.
   no target, and for a comparison on a source no source of the name that
   answers for itself: the group takes the bead, and the `claimed` event says
   so in `limits_unknown`. That holds for the condition a group with none is
-  judged by too, so in a yard with no source for a group's provider each of
+  judged by too, and for the `<100` a condition on sources alone is judged
+  by besides, so in a yard with no source for a group's provider each of
   its claims says the limits were not known; a report with no window is no
   such case there. A limits command that breaks takes the gate away; it
   does not stop the yard. Two things it does not take away: what the

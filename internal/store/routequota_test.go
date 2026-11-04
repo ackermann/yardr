@@ -334,7 +334,8 @@ func TestGroupOfAQuotaRouteKeepsItsRunner(t *testing.T) {
 // passed over why. A group with no condition holds while none of the windows
 // its provider's models share is used up, and none the bead's own model in
 // that group draws from alone: a window the source says counts for another
-// model alone, or for one where no model is known, is not read for it.
+// model alone, or for one where no model is known, is not read for it. So
+// does a group whose condition names windows of sources alone, besides them.
 func TestRouteChoose(t *testing.T) {
 	t.Parallel()
 	pct := func(p float64) *float64 { return &p }
@@ -426,6 +427,8 @@ func TestRouteChoose(t *testing.T) {
 		"no condition, only per-model windows of its own model":                {"a": "Fable"},
 		"no condition, a per-model window last known used up":                  {"a": "k3"},
 		"no condition, a per-model window of its own model last known used up": {"a": "Fable"},
+		"a source's window clear, a per-model window used up":                  {"a": "k3"},
+		"a source's window clear, a per-model window of its own model used up": {"a": "Fable"},
 	}
 	for name, tc := range map[string]struct {
 		route store.Route
@@ -557,6 +560,45 @@ func TestRouteChoose(t *testing.T) {
 		"a source nothing is known of holds": {route("a@machine.load<80", "b"),
 			map[string]store.Quota{"machine": {Unknown: "no source named machine says limits of itself"}},
 			store.RouteChoice{Group: "a", Unknown: "the limits of a were not known: no source named machine says limits of itself"}, "a@machine"},
+		// A condition on sources alone does not take the provider's windows
+		// away: the group is judged by "<100" on them too, as a group with no
+		// condition is, and the provider is asked after the sources.
+		"a source's window clear, a provider window used up": {route("a@machine.load<80", "b"),
+			map[string]store.Quota{"machine": machine(70), "a": twoWindows(10, 100)},
+			store.RouteChoice{Group: "b", Passed: []store.PassedGroup{
+				{Group: "a", Reason: "Claude's 5h window is 100% used, the route asks under 100", ResetsAt: &early}}}, "a@machine a"},
+		"a source's window clear, the provider's just under": {route("a@machine.load<80", "b"),
+			map[string]store.Quota{"machine": machine(70), "a": twoWindows(99.9, 10)},
+			store.RouteChoice{Group: "a"}, "a@machine a"},
+		"a source's window past it, a provider window used up": {route("a@machine.load<80", "b"),
+			map[string]store.Quota{"machine": machine(93), "a": twoWindows(100, 10)},
+			store.RouteChoice{Group: "b", Passed: []store.PassedGroup{
+				{Group: "a", ResetsAt: &late, Reason: "machine's load window is 93% used, the route asks under 80; " +
+					"Claude's Weekly window is 100% used, the route asks under 100"}}}, "a@machine a"},
+		"a source's window clear, the provider's limits not known": {route("a@machine.load<80", "b"),
+			map[string]store.Quota{"machine": machine(70), "a": {Unknown: "no source of this yard answers for provider muse"}},
+			store.RouteChoice{Group: "a", Unknown: "the limits of a were not known: no source of this yard answers for provider muse"}, "a@machine a"},
+		// A window the source says counts for one model alone holds the group
+		// only where it is the bead's model, as it does a group with no
+		// condition.
+		"a source's window clear, a per-model window used up": {route("a@machine.load<80", "b"),
+			map[string]store.Quota{"machine": machine(70), "a": claude(19, 10)},
+			store.RouteChoice{Group: "a"}, "a@machine a"},
+		"a source's window clear, a per-model window of its own model used up": {route("a@machine.load<80", "b"),
+			map[string]store.Quota{"machine": machine(70), "a": claude(19, 10)},
+			store.RouteChoice{Group: "b", Passed: []store.PassedGroup{
+				{Group: "a", Reason: "Claude's Weekly Fable window is 100% used, the route asks under 100"}}}, "a@machine a"},
+		// A condition that names a window of the provider says which of its
+		// windows gate, beside a source's: the 5h window is used up and this
+		// one does not name it, and <100 on every window asks for the per-model
+		// one as it always did.
+		"a source's window and a provider window, another used up": {route("a@machine.load<80,Weekly<100", "b"),
+			map[string]store.Quota{"machine": machine(70), "a": twoWindows(10, 100)},
+			store.RouteChoice{Group: "a"}, "a@machine a"},
+		"a source's window and every window of the provider": {route("a@machine.load<80,<100", "b"),
+			map[string]store.Quota{"machine": machine(70), "a": claude(10, 10)},
+			store.RouteChoice{Group: "b", Passed: []store.PassedGroup{
+				{Group: "a", Reason: "Claude's Weekly Fable window is 100% used, the route asks under 100"}}}, "a@machine a"},
 		"wait ends the route": {route("a@Weekly<80", "wait"), map[string]store.Quota{"a": claude(90, 10)},
 			store.RouteChoice{Passed: []store.PassedGroup{
 				{Group: "a", Reason: "Claude's Weekly window is 90% used, the route asks under 80", ResetsAt: &late}}}, "a"},

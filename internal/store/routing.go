@@ -448,7 +448,7 @@ func (r Route) Quotaed() bool {
 // setting, for a group that names no kind (Group.Kind).
 func (r Route) Gated(groups map[string]Group, def string) bool {
 	for _, g := range r.Groups() {
-		if g.When != "" || groups[g.Name].Kind(def) != "" || groups[g.Name].Runner == "herdr" {
+		if g.When != "" || groups[g.Name].StartsAgents(def) {
 			return true
 		}
 	}
@@ -733,9 +733,9 @@ func (c RouteChoice) Why() string {
 }
 
 // noWindowUsedUp is the condition a group is judged by when its route names
-// none, "<100": every window its provider reports is under 100% used, but
-// for those the source says count for one model alone (judge), unless it is
-// the model the bead would start with in that group.
+// none, "<100", and besides one on sources alone (withProviderWindows): every
+// window its provider reports is under 100% used, but for those the source
+// says count for one model alone (judge), unless it is the bead's model there.
 var noWindowUsedUp = []QuotaLimit{{Under: 100, Implicit: true}}
 
 // Choose goes through the route's groups in order and takes the first
@@ -745,7 +745,7 @@ var noWindowUsedUp = []QuotaLimit{{Under: 100, Implicit: true}}
 // learned. model says which model the bead would start with in a group, for
 // the comparison no route wrote (nil where the caller knows none, and
 // per-model windows read as they did before any caller knew). A group with
-// no condition is judged as if its condition were
+// no condition, or one on sources alone (withProviderWindows), is judged by
 // "<100" (noWindowUsedUp): it takes no bead while a window of its provider
 // is used up, since a session started into one stops on the limit at once;
 // a window the source says is for one model alone counts when it is that
@@ -779,7 +779,7 @@ func (r Route) ChooseAt(now time.Time, quota func(group, source string) Quota, m
 				c.Group, c.Unknown = g.Name, err.Error()
 				return c
 			}
-			limits = parsed
+			limits = withProviderWindows(parsed)
 		} else if quota == nil {
 			c.Group = g.Name
 			return c

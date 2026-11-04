@@ -1493,6 +1493,9 @@ func TestRouteConditionMixesASourceAndAProvider(t *testing.T) {
 
 // A group with no kind is gated the same way: an exec group carries a
 // condition on a source, and its beads wait while the source answers over.
+// It burns no provider, so the window of the default kind's provider, used
+// up, holds nothing, as it holds a group that starts agents with the same
+// condition.
 func TestRouteGatesAGroupWithNoKindOnASource(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -1506,6 +1509,11 @@ func TestRouteGatesAGroupWithNoKindOnASource(t *testing.T) {
 	g := store.ParseRouteGroup("refinery@machine.load<80")
 	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: g.Name, When: g.When, Else: []store.RouteGroup{{Name: "wait"}}}, "me")
 	must(t, err)
+	claude := filepath.Join(t.TempDir(), "claude")
+	scripttest.Write(t, claude, "#!/bin/sh\necho '{\"provider\":\"Claude\",\"windows\":[{\"label\":\"5h\",\"used_percent\":100}]}'\n")
+	_, err = s.PutSource(ctx, "anthropic.yaml", "name: anthropic\nlimits:\n  command: ["+claude+", \"{provider}\", --json]\n  kinds: { claude: anthropic }\n", "me")
+	must(t, err)
+	primeGroupLimits(t, s, d, "refinery")
 	say(loadReport(93))
 	dispatch.PrimeSourceLimits(d, ctx, "machine")
 	b := newBead(t, s, "x")
@@ -1520,8 +1528,8 @@ func TestRouteGatesAGroupWithNoKindOnASource(t *testing.T) {
 	now = now.Add(6 * time.Minute)
 	dispatch.PrimeSourceLimits(d, ctx, "machine")
 	must(t, d.Reconcile(ctx))
-	if group, _ := claimedBy(t, s, b.ID); group != "refinery" {
-		t.Fatalf("claimed by %q once load opened, want refinery", group)
+	if group, data := claimedBy(t, s, b.ID); group != "refinery" || data["limits_unknown"] != nil || data["passed"] != nil {
+		t.Fatalf("claimed by %q with %v once load opened, want refinery with nothing said of a provider", group, data)
 	}
 	if got := f.starts(); len(got) != 1 {
 		t.Fatalf("starts = %v, want the one", got)

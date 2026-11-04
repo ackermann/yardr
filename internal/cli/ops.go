@@ -981,16 +981,16 @@ never resets, as the machine source's, holds nothing by it. A reset
 already past counts; a window whose report gives no reset is held to the
 number alone. The claimed event says which windows held (held). A bead
 goes to the first group whose condition holds; a group that starts agents
-with none holds while no window of its provider is used up (as <100 would;
-a window the source says counts for one model alone counts only where it is
-the model the bead would start with in that group: yardr limits marks it),
-and --else wait ends the route, so the bead waits. While no
-group's does, the bead waits (a quota_wait event says for what). A
-condition that cannot be evaluated (no limits source answers for the
-group's provider, its command failed, it reports no such window, it gives
-the window no percentage or, for a condition on the target, no target, and
-for a comparison on a source no source of the name that answers for
-itself) holds, and the claimed event says the limits were not known.
+with none, or with one on sources alone, holds while no window of its
+provider is used up (as <100 would; a window the source says counts for one
+model alone counts only where it is the model the bead would start with in
+that group: yardr limits marks it), and --else wait ends the route, so the
+bead waits. While no group's does, the bead waits (a quota_wait event says
+for what). A condition that cannot be evaluated (no limits source answers
+for the group's provider, its command failed, it reports no such window, it
+gives the window no percentage or, for a condition on the target, no
+target, and for a comparison on a source no source of the name that answers
+for itself) holds, and the claimed event says the limits were not known.
 
 Two groups of a route that burn one provider on one login read the same
 windows, so a further group with no condition that burns the provider of a
