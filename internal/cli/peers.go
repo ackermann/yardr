@@ -781,7 +781,7 @@ names no remote goes to the intake marked --default, if any. The first
 intake is the default; marking another moves it.
 
 The flow is this yard's choice, never the sender's: a flow of the store
-(yardr flow add) or of the depot's repository.
+(yardr flow set) or of the depot's repository.
 
 The flow's first stage says who looks at such a bead first, and nothing else
 does: the bead arrives there unheld and is routed as any bead in that stage.

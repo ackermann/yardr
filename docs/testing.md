@@ -137,6 +137,67 @@ a new bead. A fix lands on the in-session proof with the full-factor one
 outstanding: the assembly gate runs no burns, so landing never waited on
 them, and the note, not the gate, carries what is still owed.
 
+A test can also fail on the first start of an executable file that was not
+there before, such as a stand-in script it writes and runs or a binary it
+copies. A burn cannot prove the fix for such a failure. On macOS the system
+assesses an executable file the first time it is run. A process that pays for
+that waits hundreds of milliseconds for each new file, and seconds on a busy
+Mac (`internal/scripttest`'s package comment has the figures). A test that
+starts several inside a deadline the product sets fails when the waits add up
+to it, as yardr-xars, footplate-f2zx, footplate-yg50 and yd-rc1t did.
+
+A builder's pane may not pay the cost. Likely reason, unverified: macOS skips
+the first-launch check for processes started by a terminal on the Developer
+Tools list, and a launchd job has no such parent. On 4 Nov 2026 a new
+`#!/bin/sh` file took 2.4 ms to start from a pane (the median of 40 starts)
+and 223-314 ms (median 252 ms) as a launchd job. So `go test -count`, a burn
+and the gate run in a pane can all pass the old code. Burn runs the test binary
+from the shell it is in, and its loops are cpu load. yd-rc1t's old code passed
+1000 runs in one process and 200 under `contrib/burn/burn -x 1`. Whether every
+session is exempt is open, since footplate-f2zx saw the cost in a pane on
+23 Oct. So the pane proves nothing either way, and the recipe below is the
+proof.
+
+Prove the fix for such a failure as a launchd job on macOS, first on the code
+as it was, to see it fail, then on the fix. Build the test binary beforehand
+with `go test -c`, then submit it:
+
+```sh
+launchctl submit -l dev.yardr.<label> -o OUT -e ERR -- \
+  <test binary> -test.run '^TestName$' -test.count=10 -test.v
+# wait for PASS or FAIL in OUT
+launchctl remove dev.yardr.<label>
+```
+
+The job is one stream, takes a few seconds and adds no load of its own.
+launchd runs a submitted job again each time it exits, appending to OUT, until
+the job is removed. Remove it as soon as OUT shows the result: a closing PASS
+or FAIL, or a panic. Give the label a name of the run's own, the bead's id and
+old or fix. The yard's services carry `dev.yardr.` labels too, and
+`launchctl remove` stops whatever it is given. A job starts in `/`, with
+launchd's short `PATH` and none of the pane's variables. A test that reads a
+file of its package by a relative path needs the package directory, so put
+`/bin/sh -c 'cd "$1" && shift && exec "$@"' sh <package dir>` before the test
+binary.
+
+A quiet Mac needs the deadline cut as well. The product's deadline is sized for
+the seconds a busy Mac pays (`source.MintTimeout`, which bounds a source's mint
+command, is 30 s). A quiet Mac pays about 150 ms a new file, so yd-rc1t's old
+code passed there even as a job. Its test starts three new files and took half
+a second. Build the test binary a second time with the deadline cut to a few
+new files' worth of the quiet cost, which was 300 ms for that test. The old
+code then fails at the cost a quiet Mac pays, with no load to raise it.
+
+Make the cut with a throwaway build:
+`go test -c -overlay <overlay file> -o <test binary> <package>`. The overlay
+file maps the product's file to the copy with the deadline cut, both as
+absolute paths:
+`{"Replace": {"<the product file>": "<its copy with the deadline cut>"}}`.
+Keep the copy outside the worktree and never commit it. Build the old code's
+binary and the fix's with the same cut, so that the code is the only
+difference. With it, yd-rc1t's old code failed 10 of 10 runs and its fix passed
+10 of 10. The note names the label, the cut deadline and the counts for each.
+
 R3. A package over the R1 budget with over 100 tests runs its tests
 parallel: `t.Parallel` on every test that owns its state, allow-list for
 the rest. That binds the volume debt -- internal/dispatch, whose fix bead

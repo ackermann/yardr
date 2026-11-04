@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 // Every command with subcommands answers one it has not with an error on
@@ -78,5 +80,96 @@ func TestCommandGroupsRefuseAnUnknownSubcommand(t *testing.T) {
 				t.Errorf("%s bare left %v in a home with no yard (%v)", path, left, err)
 			}
 		})
+	}
+}
+
+// A help text that tells its reader to run a subcommand of a group names one
+// the group has. yardr peer intake's help sent people to a flow subcommand that
+// flow never had (add, where it has set), and nothing noticed while a group
+// answered a word it had not with its help and a zero status. The test reads
+// the mentions from every command's own help and holds them to the tree
+// rootCmd builds, so a command added later is checked without anyone listing
+// it.
+//
+// It judges little, because help is prose. Only the word after a group counts.
+// The words after a command that runs are its arguments, and the word right
+// after yardr is prose. And only a word some other command is named by counts,
+// since a sentence about what a group's process does would read as a mistaken
+// command, while a person who types a word no command has is refused by the
+// group.
+func TestHelpNamesOnlyCommandsThatExist(t *testing.T) {
+	t.Parallel()
+	root := (&app{}).rootCmd()
+	// known is every name a command answers to, at any depth.
+	known := map[string]bool{}
+	var names func(c *cobra.Command)
+	names = func(c *cobra.Command) {
+		known[c.Name()] = true
+		for _, alias := range c.Aliases {
+			known[alias] = true
+		}
+		for _, sub := range c.Commands() {
+			names(sub)
+		}
+	}
+	names(root)
+	// A mention is a run of lowercase words; a flag, a <placeholder>, a
+	// bracket or the end of the line ends it.
+	mention := regexp.MustCompile(`\byardr((?: [a-z][a-z0-9-]*)+)`)
+	// stray walks the words of a mention down the tree and returns the group
+	// that has no subcommand of the next word, and that word, when some other
+	// command is named by it.
+	stray := func(words []string) (*cobra.Command, string) {
+		cur := root
+		for _, w := range words {
+			var next *cobra.Command
+			for _, sub := range cur.Commands() {
+				if sub.Name() == w || sub.HasAlias(w) {
+					next = sub
+					break
+				}
+			}
+			if next == nil {
+				if cur == root || !cur.HasSubCommands() || !known[w] {
+					return nil, ""
+				}
+				return cur, w
+			}
+			cur = next
+		}
+		return nil, ""
+	}
+	var checked int
+	var walk func(c *cobra.Command)
+	walk = func(c *cobra.Command) {
+		texts := []string{c.Short, c.Long, c.Example}
+		for _, flags := range []*pflag.FlagSet{c.Flags(), c.PersistentFlags()} {
+			flags.VisitAll(func(f *pflag.Flag) { texts = append(texts, f.Usage) })
+		}
+		for _, text := range texts {
+			for _, m := range mention.FindAllStringSubmatch(text, -1) {
+				words := strings.Fields(m[1])
+				checked++
+				if group, word := stray(words); group != nil {
+					t.Errorf("%s: its help names \"yardr %s\", and %s has no subcommand %q", c.CommandPath(), strings.Join(words, " "), group.CommandPath(), word)
+				}
+			}
+		}
+		for _, sub := range c.Commands() {
+			walk(sub)
+		}
+	}
+	walk(root)
+	// Not for want of looking: the help names commands by the hundred (900
+	// when this was written). The two calls below hold stray itself: it flags
+	// the wording that stood and lets the one that holds by.
+	if checked < 500 {
+		t.Fatalf("%d mentions of a command found in the help of the whole tree", checked)
+	}
+	if group, word := stray([]string{"flow", "add"}); group == nil || group.CommandPath() != "yardr flow" || word != "add" {
+		t.Errorf("flow, add: stray gave %v, %q, want the flow group and add", group, word)
+	}
+	if group, word := stray([]string{"flow", "set", "named"}); group != nil {
+		t.Errorf("flow, set, named: stray gave %s and %q, want none", group.CommandPath(), word)
 	}
 }
