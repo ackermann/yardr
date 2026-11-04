@@ -2,11 +2,14 @@ package server
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"yardr.dev/yardr/internal/config"
@@ -17,7 +20,8 @@ import (
 // KeepEdge keeps a link of role to the configured edge and serves h over it.
 // It follows the edge setting without a restart and loads the yard's key
 // from PeerKey. An empty role keeps the default yard link and its edge.state;
-// the web role reports events only, since that file describes the server.
+// the web role reports events only, since that file describes the server, and
+// keeps its link only while no other web view of the home does (lockWebLink).
 // up, when not nil, is called each time a link of the role comes up, from the
 // link's own goroutine, so it must not block: the preview supervisor reports
 // its previews to the edge again then. The function returned closes the link
@@ -33,6 +37,11 @@ func KeepEdge(ctx context.Context, c *config.Config, st store.API, role string, 
 		)
 		var links linkHolder
 		var sender *pushSender
+		// A web view that was passed over (lockWebLink) stays so while it
+		// runs. Were it to try again at the next change of the setting, a
+		// second view that lives a minute could take the link from the one
+		// that serves for good, and leave the yard with none when it ends.
+		var passedOver bool
 		if role == "" {
 			// The yard role's link carries the footplate sender: intents
 			// and removals ride it up to the relay. The sender runs
@@ -75,12 +84,33 @@ func KeepEdge(ctx context.Context, c *config.Config, st store.API, role string, 
 				log.Warn("edge: the yard's key is not read; no link", "err", err)
 				return
 			}
+			release := func() {}
+			if role == "web" {
+				if passedOver {
+					log.Info("edge: this view was passed over for the edge link, and serves without it until it is restarted")
+					return
+				}
+				unlock, err := lockWebLink(c)
+				switch {
+				case errors.Is(err, errWebLinkHeld):
+					passedOver = true
+					log.Info("edge: another web view of this yard holds the edge link; this view serves without it", "lock", c.EdgeWebLock())
+					return
+				case err != nil:
+					log.Warn("edge: the web link's lock is not taken; linking without it", "err", err)
+				default:
+					release = unlock
+				}
+			}
 			l := &edgelink.Link{Edge: e, Key: key, Role: role, Handler: h, Log: log}
 			if sender != nil {
 				l.OnPushAck = sender.ack
 				links.set(l)
 			}
-			stopLink = startLink(ctx, c, st, l, up)
+			stop := startLink(ctx, c, st, l, up)
+			// The lock is let go once the link is closed, so that no moment
+			// has two views of the home linked.
+			stopLink = func() { stop(); release() }
 		}
 		// The stream ends whenever the server does, and a server that is
 		// replacing itself does not answer for a moment: subscribe again
@@ -138,6 +168,47 @@ func KeepEdge(ctx context.Context, c *config.Config, st store.API, role string, 
 		cancel()
 		<-done
 	}
+}
+
+// errWebLinkHeld is what lockWebLink answers when another web view of the
+// home keeps the yard's web link.
+var errWebLinkHeld = errors.New("another web view keeps the yard's web link")
+
+// lockWebLink takes the flock by which one web view of the home keeps the
+// yard's web link; unlock lets it go. The edge keeps one link for a yard and
+// role and closes the older with 1001 when a newer one answers its challenge
+// (that is how a laptop that woke on a new network gets its link back), so two
+// web views that dial the same edge close each other's link and dial again,
+// for as long as both run. Only the web role can meet itself: the yard's link
+// and the preview link are the server's, and a home has one server.
+//
+// A flock and not the views' records (internal/cli/webviews.go): views that
+// start together each find no record of the other, and a killed view's record
+// is stale, but exactly one of any number of views takes a flock, and it dies
+// with its holder. The call does not wait, and a view that loses holds
+// nothing, so one restarted after the holder has gone always takes the link;
+// the loser serves without it until it is restarted.
+//
+// The file stays when the lock is let go: a lock file that is removed lets
+// one process lock the file it opened while another makes it anew and locks
+// that.
+func lockWebLink(c *config.Config) (unlock func(), err error) {
+	path := c.EdgeWebLock()
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		f.Close()
+		if errors.Is(err, syscall.EWOULDBLOCK) {
+			return nil, errWebLinkHeld
+		}
+		return nil, fmt.Errorf("lock %s: %w", path, err)
+	}
+	return func() {
+		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		f.Close()
+	}, nil
 }
 
 // linkHolder is the yard role's current link, for the footplate sender:

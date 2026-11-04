@@ -224,7 +224,8 @@ func TestEdgeLinkServesTheListenersHandlersWithNoAddress(t *testing.T) {
 
 // The edge setting is read while the server runs: connecting has a server
 // with a listener dial at once, the listener serving on beside the link,
-// and disconnecting closes the link, told with its reason.
+// and disconnecting closes the link, told with its reason. A web view of a
+// home whose web link another view keeps dials nothing.
 func TestEdgeLinkFollowsTheSettingBesideTheListener(t *testing.T) {
 	for _, role := range []string{"", "web"} {
 		t.Run("role="+role, func(t *testing.T) {
@@ -270,6 +271,9 @@ func TestEdgeLinkFollowsTheSettingBesideTheListener(t *testing.T) {
 			if _, err := os.Stat(c.EdgeState()); !os.IsNotExist(err) {
 				t.Fatalf("a yard with no edge has a state file: %v", err)
 			}
+			if _, err := os.Stat(c.EdgeWebLock()); !os.IsNotExist(err) {
+				t.Fatalf("a yard with no edge has a lock for the web link: %v", err)
+			}
 			if err := cl.SetSetting(ctx, store.EdgeSetting, value, "jo"); err != nil {
 				t.Fatal(err)
 			}
@@ -294,6 +298,11 @@ func TestEdgeLinkFollowsTheSettingBesideTheListener(t *testing.T) {
 			}
 			hasRole := func(e store.Event) bool { return e.Data["role"] == eventRole }
 			waitEvent(t, cl, "edge_link_up", hasRole)
+			// Only the web link is guarded: the yard's is the server's, one to
+			// a home.
+			if _, err := os.Stat(c.EdgeWebLock()); (err == nil) != (role == "web") {
+				t.Errorf("with the %q link up, the lock for the web link exists = %v", role, err == nil)
+			}
 			if role == "" {
 				if a := overLink(t, l, "/hooks/adhoc", http.Header{"Authorization": {"Bearer " + hookToken}, "Yard-Delivery": {"linked-1"}}, `{"text":"linked"}`); a.Status != http.StatusOK {
 					t.Errorf("a delivery over the link answered %d %s", a.Status, a.Body)
@@ -459,6 +468,127 @@ func TestEdgeLinkFollowsTheSettingBesideTheListener(t *testing.T) {
 			t.Errorf("upgrade key = %q, want the yard's key", got)
 		}
 		waitEvent(t, real, "edge_link_up", func(e store.Event) bool { return e.Data["role"] == "web" })
+	})
+	// The edge keeps one web link for a yard and closes the older when a
+	// newer one answers, so a second web view of the home (a serve started
+	// beside the running one) must dial nothing, or the two close each
+	// other's link for as long as both run; and it must stay without the link
+	// while it runs, or a view that lives a minute takes it from the one that
+	// serves for good. The stand-in takes every link it is offered, so a dial
+	// from the second view shows as a second upgrade, and the view says it was
+	// passed over before the count is read.
+	t.Run("web beside a second web view", func(t *testing.T) {
+		const passedOver = "serves without it"
+		edge, srv := stubEdge(t)
+		c := home(t)
+		ctx := context.Background()
+		edgeYard(t, c, edge, srv, true)
+		cl := storetest.NewIn(t, c.Home)
+		var first, second, third lockedBuffer
+		// A view answers with its own name, to tell whose link carries a
+		// request.
+		keep := func(name string, logged *lockedBuffer) func() {
+			view := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				io.WriteString(w, "web home of "+name)
+			})
+			return KeepEdge(ctx, c, cl, "web", view, slog.New(slog.NewTextHandler(logged, nil)), nil)
+		}
+		carriedBy := func(l *standin.EdgeLink, name string) {
+			t.Helper()
+			if a := overLink(t, l, "/", nil, ""); !strings.Contains(string(a.Body), "web home of "+name) {
+				t.Errorf("the link answered %q, want the %s view's page", a.Body, name)
+			}
+		}
+		linkEnds := func(l *standin.EdgeLink, what string) {
+			t.Helper()
+			select {
+			case <-l.Done():
+			case <-time.After(10 * time.Second):
+				t.Fatalf("the link stayed open at the edge after %s", what)
+			}
+		}
+		upgrades := func(want int) {
+			t.Helper()
+			if got := edge.Upgrades(); got != want {
+				t.Errorf("the edge took %d signed upgrades, want %d", got, want)
+			}
+		}
+
+		stopFirst := keep("first", &first)
+		defer stopFirst()
+		l := nextLink(t, edge)
+		stopSecond := keep("second", &second)
+		defer stopSecond()
+		waitFor(t, "the second view to say it serves without the link", func() bool {
+			return strings.Contains(second.String(), passedOver)
+		})
+		upgrades(1)
+		select {
+		case <-l.Done():
+			t.Error("the first view's link closed when a second view started")
+		default:
+		}
+		if strings.Contains(first.String(), passedOver) {
+			t.Errorf("the view that took the link was passed over: %s", first.String())
+		}
+
+		// The holder's lock goes with its link, so a view started now takes
+		// the link.
+		stopFirst()
+		linkEnds(l, "its view stopped")
+		stopThird := keep("third", &third)
+		defer stopThird()
+		l = nextLink(t, edge)
+		carriedBy(l, "third")
+		upgrades(2)
+		if strings.Contains(third.String(), passedOver) {
+			t.Errorf("the view started after the holder stopped was passed over: %s", third.String())
+		}
+
+		// The edge setting changes with both views running: the holder lets
+		// go of its lock with its link and takes both again, where the view
+		// passed over does not try, and says it stays without the link.
+		const staysSo = "until it is restarted"
+		stays := func() int { return strings.Count(second.String(), staysSo) }
+		change := func(handle string) {
+			t.Helper()
+			v := store.Edge{URL: srv.URL, Key: edge.PublicKey(), Handle: handle}.String()
+			if err := cl.SetSetting(ctx, store.EdgeSetting, v, "jo"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		change("jo2")
+		l = nextLink(t, edge)
+		waitFor(t, "the view passed over to say it stays so", func() bool { return stays() == 1 })
+		carriedBy(l, "third")
+		upgrades(3)
+
+		// The lock is free when the holder has stopped, and the view passed
+		// over stays so all the same, until it is restarted.
+		stopThird()
+		linkEnds(l, "its view stopped")
+		change("jo3")
+		waitFor(t, "the view passed over to say it stays so again", func() bool { return stays() == 2 })
+		upgrades(3)
+	})
+	// A lock that cannot be taken for a reason of its own, not another view's
+	// holding it, is told and does not take the link away: the view dials as
+	// it did before the lock.
+	t.Run("web whose link lock cannot be taken", func(t *testing.T) {
+		edge, srv := stubEdge(t)
+		c := home(t)
+		edgeYard(t, c, edge, srv, true)
+		// A directory where the lock file goes cannot be opened to write.
+		if err := os.Mkdir(c.EdgeWebLock(), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		var logged lockedBuffer
+		stop := KeepEdge(context.Background(), c, storetest.NewIn(t, c.Home), "web", http.NotFoundHandler(), slog.New(slog.NewTextHandler(&logged, nil)), nil)
+		defer stop()
+		nextLink(t, edge)
+		if !strings.Contains(logged.String(), "lock is not taken") {
+			t.Errorf("the lock that could not be taken was not logged: %s", logged.String())
+		}
 	})
 }
 

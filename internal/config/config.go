@@ -204,6 +204,11 @@ func (c *Config) HookState() string { return filepath.Join(c.Home, "hooks.state"
 // it changes (see edgelink.ReadState).
 func (c *Config) EdgeState() string { return filepath.Join(c.Home, "edge.state") }
 
+// EdgeWebLock is the file the web view that keeps the yard's web link to the
+// edge holds one flock on while it keeps it (see server.KeepEdge). It holds
+// nothing, and stays when the lock is let go.
+func (c *Config) EdgeWebLock() string { return filepath.Join(c.Home, "edge-web.lock") }
+
 // PeerKey is the file holding the yard's private key, by which other yards
 // know it (see internal/yardkey). It is read as a secret file is: mode 0600.
 func (c *Config) PeerKey() string { return filepath.Join(c.Home, "peer.key") }

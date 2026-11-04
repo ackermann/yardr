@@ -274,6 +274,13 @@ The yard needs two things for that:
   loopback only. While no view runs, the yard is away for the browser, and
   the edge answers `503` with `X-Edge-Refusal: away`.
 
+Only one view of a yard keeps the link. A second view on the same yard, such
+as `yardr web serve --addr 127.0.0.1:9000` beside the one that runs, serves on
+its own address and keeps no link: the edge closes a yard's older web link
+when a newer one arrives, so two views would close each other's for as long
+as both ran. The view passed over says so in its log, and takes the link only
+when it is started again after the other has stopped.
+
 The `web_jwt_*` settings are the operator's to set by hand
 ([Behind an auth gateway](web.md#behind-an-auth-gateway)). While
 `web_jwt_issuer` is unset, JWT mode is off. The view checks no token, and the

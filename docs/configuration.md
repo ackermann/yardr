@@ -541,6 +541,7 @@ Everything yardr keeps for itself lives in one directory, the yard's
 | `binary` | the yardr binary the yard runs: its absolute path on one line, which a program with no `PATH` to find yardr by reads ([Which yardr a yard runs](#which-yardr-a-yard-runs)); written by `yardr init` and at each start of the server and the daemon, and kept when they stop |
 | `hooks.state` | what the running server takes webhooks on, or why it does not, which `yardr doctor` and the pack plan read ([below](#settings)); gone when the server stops |
 | `edge.state` | how the running server's link to the edge is, written at each change: up and since when, or down and why, which `yardr status`, `yardr doctor` and `yardr edge status` read; gone when the server stops or the yard disconnects |
+| `edge-web.lock` | held by the web view that keeps the yard's web link to the edge, so that a second view on the yard serves without a link ([edge.md](edge.md#the-web-view-of-a-connected-yard)); it holds nothing, and stays when the lock is let go |
 | `peer.key` | the yard's private key, by which the yards it is linked with know it ([peers.md](peers.md#the-key)); made by the first `yardr peer key`, `peer invite` or `peer pair`, mode 0600, and refused when it is more open |
 | `daemon.lock` | held by the running daemon, with its pid and start time in it: one daemon per yard |
 | `daemon.log` | what a daemon started in the background prints (the onboarding's "Start the yard now?", `yardr init --start`); one in a pane of its own prints there instead |
