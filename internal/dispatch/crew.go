@@ -804,9 +804,9 @@ func (d *Dispatcher) crewRunning(ctx context.Context, runner Runner, s *memberSe
 	} else if err == nil {
 		d.crewHarnessOver(ctx, s, true)
 	}
-	if err != nil || page.Total == 0 || page.Last <= s.st.Notified {
-		// Nothing to type: text in the input holds nothing back, and a
-		// wait on it is over.
+	if err != nil || page.Total == 0 || page.Last <= s.st.Notified || d.crewNudgeHeld(s) {
+		// Nothing to type, or held for an error of its harness: text in the
+		// input holds nothing back, and a wait on it is over.
 		delete(d.drafts, key)
 		return err
 	}

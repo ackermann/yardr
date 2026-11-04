@@ -501,6 +501,10 @@ func (d *Dispatcher) markHarnessError(ctx context.Context, s *store.Session, rea
 // harness work for a moment and stop on the same error, so every new item
 // in its inbox would raise the event again. The mark goes when a look finds
 // the pane without an error, or the inbox empty (see crewHarnessOver).
+// While it stands no inbox nudge is typed (crewNudgeHeld): a nudge starts the
+// round that failed again, as the one that met the error did, so the items
+// stay unread and the event is what tells of them. The nudge is typed on the
+// pass that finds the mark gone.
 // The one thing yardr does for a crew member is prompt it when the window of
 // a usage limit has reset (harness_reset.go); at capacity it has no first
 // prompt to be given again.
@@ -558,9 +562,27 @@ func (d *Dispatcher) crewHarnessError(ctx context.Context, runner Runner, s *mem
 
 // crewHarnessLook starts the time the session's pane is read in anew:
 // something was typed there, and a harness that is stopped says so again
-// under it.
+// under it; or the nudge due was held back for the error it stands on, and
+// the pane is looked at again to see it gone (crewNudgeHeld).
 func (d *Dispatcher) crewHarnessLook(s *memberSession) {
 	d.idleSince[s.key()] = d.now()
+}
+
+// crewNudgeHeld reports whether the inbox nudge due for s is held back:
+// its harness stopped on an error and sits idle (the mark crewHarnessError
+// keeps on its handle), and a nudge would start the round that failed
+// again. The session_harness_error raised for it is the telling. Nothing is
+// typed and Notified stays where it is, so the items stay unread and the
+// nudge is typed on the pass that finds the mark gone. That pass has to
+// look at the pane, and the spell's first minutes are long past when a
+// person got the agent going: the look is started anew on each pass the
+// nudge is held.
+func (d *Dispatcher) crewNudgeHeld(s *memberSession) bool {
+	if s.st.Handle[HarnessErrorKey] == nil {
+		return false
+	}
+	d.crewHarnessLook(s)
+	return true
 }
 
 // crewHarnessOver ends the spell the session's pane was read in: its agent

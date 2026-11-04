@@ -453,6 +453,12 @@ at all.
 - A yard with an operator leads that login itself, with no agent in the
   loop: the crew member cannot relay a login its own harness needs to run.
   See "The yard leads a harness's login" below.
+- An error the harness stopped on (a failed turn, a usage limit) is told of
+  as `session_harness_error`, and its inbox is not nudged while the error
+  ends its pane: a nudge would start the round that failed again. The mail
+  stays unread, and the nudge is typed on the first pass that finds the
+  pane without the error. See "A crew member's harness" in
+  [groups.md](groups.md).
 - The one text the daemon sends is its own, alone in the input because its
   Enter was not taken: the last nudge (for two of the daemon's intervals after it was
   typed, a minute by default: the same words there later are taken as a

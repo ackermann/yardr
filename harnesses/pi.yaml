@@ -7,3 +7,19 @@ flags:
   model: --model
   version: [--version]
   one_shot: [-p]
+
+# pi retries a turn that failed on a transient error (an overload, a rate
+# limit, a 5xx) and, when it gives up, draws
+#
+#   Error: Retry failed after 3 attempts: <the last error>
+#
+# above its input and waits for input, which herdr calls idle (read in pi
+# 0.84.3's source: interactive mode, `auto_retry_end` and `showError`). The
+# number is how many retries it made, at most its `retry.maxRetries`. Only
+# the first part of the line is there to match, since a pane may break the
+# rest of it. A turn that fails with no retry is drawn as `Error: <the
+# provider's message>`: words that are the provider's, and that a tool's
+# output may begin with as well, so no line is known for it.
+errors:
+  - reason: other
+    pattern: '^Error: Retry failed after \d+ attempts'

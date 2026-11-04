@@ -913,6 +913,7 @@ before the general one:
 | `kimi` | `rate_limited` | `^Error: \[provider\.rate_limit\]` |
 | `kimi` | `at_capacity` | `^Error: \[provider\.overloaded\]` |
 | `kimi` | `not_logged_in` | `^Error: \[(auth\.(login_required\|token_missing\|token_unauthorized)\|provider\.auth_error)\]` |
+| `pi` | `other` | `^Error: Retry failed after \d+ attempts` |
 | `muse` | `other` | `^model failed:` |
 | any other | | none known: nothing is reported, and `session_idle` with its `tail` is what there is |
 <!-- /harness errors -->
@@ -932,10 +933,22 @@ that part; the rest is in `tail`. The usage limit is a line read from a pane
 (6 Oct 2026, Kimi Code 2.1.1). The others are known by their code alone,
 from Kimi's list of error codes, and no pane with one has been seen.
 
+pi retries a turn that failed on a transient error (an overload, a rate
+limit, a server error) and, when it gives up, draws `Error: Retry failed
+after <n> attempts: <the last error>` above its input and waits. `<n>` is
+how many retries it made, 3 unless its settings say otherwise. As with
+Kimi's, only the first part of the line is matched, since a pane may break
+the rest. It is a line read from a pane. The error
+lines pi draws before it, one for each attempt, and the one for a turn that
+fails with no retry are `Error: <the provider's message>`: none is matched,
+since a tool's output may begin that way too and an agent at work would be
+taken for a harness that stopped.
+
 **A crew member's harness.** A crew member has no idle limit, so its pane
 is read for the same lines when it is idle with something unread in its
-inbox: on each pass in the first 2 minutes of that, and for 2 minutes after
-each nudge typed into its pane. A known error of its `kind` raises
+inbox: on each pass in the first 2 minutes of that, for 2 minutes after
+each nudge typed into its pane, and on every pass while a nudge is held
+back for an error (below). A known error of its `kind` raises
 `session_harness_error` on its journal, with `crew` (its name) where a
 session's event has `session`, `group` and `stage`, and with `kind`,
 `reason`, `line`, `tail` and `hint`. Whoever hears the kind through `--on`
@@ -946,8 +959,13 @@ nudge makes a stopped harness work: it is told again once a look has found
 the pane without an error, or the inbox was emptied. A crew member has no
 first prompt to be given again, so nothing is tried for `at_capacity`; at a
 usage limit it is prompted when the window has reset, as a session is
-([below](#a-window-that-resets-within-six-hours-is-waited-for)). Its nudges
-are typed as before, except while such a prompt has not shown in its pane.
+([below](#a-window-that-resets-within-six-hours-is-waited-for)). While the
+reason stands no nudge for its inbox is typed, since it would start the
+round that failed again: the items stay unread, and the event is what tells
+of them. The nudge is typed on the first pass that finds the pane without
+the error; an inbox that was handled ends the hold too. The requests to
+hand off (context, rotation) are typed as before. Every nudge waits while a
+prompt given at a reset has not shown in the agent's pane.
 
 **`session_idle` says what the pane shows.** It carries the same `tail`, so
 the yardmaster reads why an agent sits there (it asks its human something, it

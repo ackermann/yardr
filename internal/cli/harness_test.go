@@ -33,7 +33,7 @@ func TestHarnessListAndShow(t *testing.T) {
 		"codex     Codex        v1    pane marks, error lines, dialogs told of, reported model, token count, trust dialog, unattended flags, model flag, flags always passed,",
 		"muse      Muse Code    v1    pane marks, error lines, login screen, background work, reported model, token count, trust dialog, unattended flags,",
 		"kimi      Kimi         v1    pane marks, error lines, dialogs told of, hints, trust dialog, trust environment, unattended flags,",
-		"pi        pi           v1    model flag, version flag, one-shot call\n",
+		"pi        pi           v1    error lines, model flag, version flag, one-shot call\n",
 		"No file, so started as herdr starts it and nothing more known: gemini, cursor,")
 	var listed struct {
 		Harnesses []store.Harness `json:"harnesses"`
@@ -142,7 +142,7 @@ func TestHarnessListAndShow(t *testing.T) {
 		"claude-opus-5.5 (Opus 5.5), recommended for a yardmaster", "auto (Auto)", "claude-sonnet-4.5 (Sonnet 4.5)")
 	wantText(t, ask(0, "harness", "show", "claude"), "claude  Claude Code, by Anthropic  (harnesses/claude.yaml, version 1)")
 	wantText(t, ask(0, "harness", "show", "pi"), "Models it offers", "none named: --model takes any id",
-		"pi  pi  (harnesses/pi.yaml, version 1)")
+		"pi  pi  (harnesses/pi.yaml, version 1)", `other   ^Error: Retry failed after \d+ attempts`)
 	shown = store.Harness{}
 	if err := json.Unmarshal([]byte(ask(0, "harness", "show", "pi", "--json")), &shown); err != nil || shown.Provider != "" {
 		t.Fatalf("show pi --json: %v, provider %q", err, shown.Provider)

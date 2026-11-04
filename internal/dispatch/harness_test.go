@@ -118,7 +118,7 @@ func TestHarnessErrorOnlyForAKnownLineOfTheKind(t *testing.T) {
 		"only idle":             {kind: "codex", tail: "• Committed the change. Waiting for review.\n› Ask Codex to do anything"},
 		"writes about an error": {kind: "codex", tail: "• The reviewer saw \"Selected model is at capacity\" last night.\n› Ask Codex to do anything"},
 		"another harness's":     {kind: "claude", tail: atCapacity},
-		"a kind not known":      {kind: "pi", tail: atCapacity},
+		"a kind with no lines":  {kind: "opencode", tail: atCapacity},
 		"idle off":              {kind: "codex", cfg: map[string]any{"idle": "off"}, tail: atCapacity, want: dispatch.ReasonAtCapacity},
 		"claude, the default kind": {kind: "", tail: "⏺ API Error: 529 {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}\n" +
 			"────────\n❯ \n────────\n  ⏵⏵ auto mode on", want: dispatch.ReasonAtCapacity},
@@ -419,6 +419,15 @@ func TestHarnessErrorLines(t *testing.T) {
 		{"muse", "◆ model failed: stream protocol error: function_call_arguments.done name mismatch for `fc_0192a3f4` (request id: 9a1b2c3d-4e5f-6a7b-8c9d-0e1f2a3b4c5d)", dispatch.ReasonOther},
 		{"muse", "◆ The pane said model failed: server_error last night.", ""},
 		{"muse", "❯ Why did it say model failed: server_error?", ""},
+		{"pi", " Error: Retry failed after 3 attempts: 529: {\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}", dispatch.ReasonOther},
+		{"pi", " Error: Retry failed after 3 attempts: 529:", dispatch.ReasonOther},
+		{"pi", " Error: Retry failed after 10 attempts: Unknown error", dispatch.ReasonOther},
+		{"pi", " Error: 529: {\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}", ""},
+		{"pi", " Error: ENOENT: no such file or directory, open 'go.mod'", ""},
+		{"pi", " Retrying (2/3) in 4s... (esc to cancel)", ""},
+		{"pi", " The code draws Error: Retry failed after 3 attempts when it gives up.", ""},
+		{"pi", "❯ Why did it say Retry failed after 3 attempts?", ""},
+		{"claude", " Error: Retry failed after 3 attempts: 529:", ""},
 		{"kimi", "   Error: [provider.auth_error] 403 You've reached your", dispatch.ReasonRateLimited},
 		{"kimi", "   Error: [provider.auth_error] 403 You've reached your 5-hour usage limit. Your quota will reset when the current 5-hour window ends.", dispatch.ReasonRateLimited},
 		{"kimi", "   Error: [provider.rate_limit] 429 Too many requests", dispatch.ReasonRateLimited},
@@ -453,6 +462,19 @@ func TestHarnessErrorLines(t *testing.T) {
 	narrow = strings.Replace(narrow, " file with us for diagnosis.", " file with us\n for diagnosis.", 1)
 	if reason, _, _ := dispatch.HarnessError("kimi", narrow); reason != dispatch.ReasonRateLimited {
 		t.Errorf("kimi's usage limit 14 lines up: reason %q", reason)
+	}
+	// pi's, in the pane it was drawn in: broken at the pane's width after
+	// "529:", below the error lines of the attempts that failed before it,
+	// which are the provider's words and end no turn on their own. Those
+	// alone, or a pane with nothing wrong, are no stop.
+	if reason, line, ok := dispatch.HarnessError("pi", piRetryFailed); reason != dispatch.ReasonOther || !ok ||
+		line != "Error: Retry failed after 3 attempts: 529:" {
+		t.Errorf("pi's failed turn: reason %q line %q", reason, line)
+	}
+	for name, pane := range map[string]string{"attempts only": piAttempts + piBox, "nothing wrong": piIdle} {
+		if reason, line, ok := dispatch.HarnessError("pi", pane); ok {
+			t.Errorf("pi, %s: taken for a stop: reason %q line %q", name, reason, line)
+		}
 	}
 }
 
@@ -538,6 +560,38 @@ const museServerError = "◆ model failed: server_error: The model failed to gen
 	"───…\n" +
 	"    muse-spark-1.3 · max · /private/tmp/lyr0/work · Auto-review"
 
+// The pane of pi 0.84.3 (60 columns) whose provider answered every request
+// with an overload error, recorded against a stand-in provider on 4 Nov 2026.
+// Each failed attempt drew the provider's message as an error line of its
+// own, and with the retries used up pi drew the line it gives up with and
+// waited for input. It breaks a line at the pane's width itself, after
+// "529:" here, and draws a message after one space.
+const (
+	piAttempt = " Error: 529:\n" +
+		" {\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}\n" +
+		"\n"
+	piAttempts = " say hello\n" +
+		"\n" +
+		"\n" +
+		piAttempt + piAttempt + piAttempt + piAttempt
+	piBox = "────────────────────────────────────────────────────────────\n" +
+		"\n" +
+		"────────────────────────────────────────────────────────────\n" +
+		"/tmp/work\n" +
+		"0.0%/128k (auto)                                          m1"
+	piRetryFailed = piAttempts +
+		" Error: Retry failed after 3 attempts: 529:\n" +
+		" {\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}\n" +
+		"\n" +
+		piBox
+	// piIdle is the same pane with nothing wrong in it: the agent answered.
+	piIdle = " say hello\n" +
+		"\n" +
+		" Nothing in my inbox needs a reply.\n" +
+		"\n" +
+		piBox
+)
+
 // A bead's session of kind muse that stops on a failed turn is told of as
 // claude's, codex's and kimi's are.
 func TestMuseSessionOnAFailedTurnIsReported(t *testing.T) {
@@ -614,9 +668,10 @@ func TestCrewMemberAtItsUsageLimitIsReported(t *testing.T) {
 	if len(page.Events) != 1 || page.Events[0].Kind != "session_harness_error" {
 		t.Fatalf("inbox of who hears session_harness_error = %v, want the event", page.Events)
 	}
-	// Each new item in its inbox is a nudge, which a stopped harness
-	// answers by working for a moment and stopping on the same error: that
-	// is not told again.
+	// A stopped harness answers what it is typed by working for a moment
+	// and stopping on the same error: that is not told again. Mail that
+	// comes while the error stands is not nudged, since a nudge would only
+	// start the round that failed again.
 	f.set(agent, "working")
 	pass(1, "working for a moment")
 	f.set(agent, "idle")
@@ -624,8 +679,8 @@ func TestCrewMemberAtItsUsageLimitIsReported(t *testing.T) {
 	must(t, s.Mail(ctx, "yardmaster", "are you there?", "chris"))
 	pass(1, "more mail")
 	pass(1, "more mail, a pass later")
-	if len(f.nudges) != 2 {
-		t.Fatalf("nudges = %v, want one for each mail", f.nudges)
+	if len(f.nudges) != 1 {
+		t.Fatalf("nudges = %v, want the first mail's alone: none while the error stands", f.nudges)
 	}
 
 	// A daemon that replaced itself reads the mark and does not tell twice.
@@ -641,6 +696,9 @@ func TestCrewMemberAtItsUsageLimitIsReported(t *testing.T) {
 	if mark := member().Handle[dispatch.HarnessErrorKey]; mark != nil {
 		t.Fatalf("handle keeps %v with the error gone from the pane", mark)
 	}
+	if len(f.nudges) != 2 || !strings.Contains(f.nudges[1], "2 new in your inbox") {
+		t.Fatalf("nudges = %v, want the mail held back nudged once the error is gone", f.nudges)
+	}
 	f.show(kimiLimit)
 	pass(2, "the usage limit again")
 	// So does an inbox that was handled.
@@ -651,6 +709,84 @@ func TestCrewMemberAtItsUsageLimitIsReported(t *testing.T) {
 	if mark := member().Handle[dispatch.HarnessErrorKey]; mark != nil {
 		t.Fatalf("handle keeps %v with the inbox handled", mark)
 	}
+}
+
+// A pi crew member whose provider kept failing sits idle at the line pi gives
+// up with, and a nudge would start the round that failed again. The line
+// raises session_harness_error, once, and no nudge is typed while it ends the
+// pane, however much mail comes: the items stay unread, and the pass that
+// finds the pane without the line types the one nudge for them all, however
+// long after the spell began.
+func TestCrewMemberAtAFailedTurnIsNotNudged(t *testing.T) {
+	t.Parallel()
+	s, f, d := crewSetup(t, store.CrewMember{Config: map[string]any{"kind": "pi"}})
+	ctx := context.Background()
+	now := time.Now()
+	dispatch.SetClock(d, func() time.Time { return now })
+	must(t, d.Reconcile(ctx))
+	must(t, d.Reconcile(ctx))
+	agent := agentOf(t, s)
+	member := func() *store.CrewMember {
+		t.Helper()
+		r, err := s.GetCrew(ctx, "yardmaster")
+		must(t, err)
+		return r
+	}
+	told := func() []store.Event { t.Helper(); return eventKinds(t, s, member().Journal, "session_harness_error") }
+	pass := func(when string, wantTold, wantNudges int) {
+		t.Helper()
+		must(t, d.Reconcile(ctx))
+		if evs := told(); len(evs) != wantTold || len(f.nudges) != wantNudges {
+			t.Fatalf("%s: session_harness_error events = %d, nudges = %q; want %d and %d", when, len(evs), f.nudges, wantTold, wantNudges)
+		}
+	}
+
+	// Mail arrives for a pi whose pane ends in the line: told, not nudged.
+	f.show(piRetryFailed)
+	must(t, s.Mail(ctx, "yardmaster", "review yardr-1my8", "chris"))
+	pass("idle at the line, one unread", 1, 0)
+	data := told()[0].Data
+	if data["crew"] != "yardmaster" || data["kind"] != "pi" || data["reason"] != dispatch.ReasonOther ||
+		data["line"] != "Error: Retry failed after 3 attempts: 529:" || data["tail"] != piRetryFailed ||
+		!strings.Contains(data["hint"].(string), "yardr crew restart yardmaster") {
+		t.Fatalf("session_harness_error data = %v", data)
+	}
+	if member().Handle[dispatch.HarnessErrorKey] != dispatch.ReasonOther {
+		t.Fatalf("handle = %v, want the reason kept on it", member().Handle)
+	}
+
+	// More comes, passes go by, and a person gets the agent to work for a
+	// moment, which ends at the same line: not told again, not nudged.
+	must(t, s.Mail(ctx, "yardmaster", "are you there?", "chris"))
+	pass("a second item", 1, 0)
+	pass("a pass later", 1, 0)
+	f.set(agent, "working")
+	pass("working for a moment", 1, 0)
+	f.set(agent, "idle")
+	pass("stopped at the same line", 1, 0)
+
+	// Long past the first minutes of the spell nothing has changed, and the
+	// pane is looked at again on every pass: the line gone from it is seen
+	// on the first pass after, and the mail is nudged once, for both items.
+	now = now.Add(time.Hour)
+	pass("an hour on", 1, 0)
+	f.show(piIdle)
+	pass("the pane clear", 1, 1)
+	if !strings.Contains(f.nudges[0], "2 new in your inbox") {
+		t.Fatalf("nudge = %q, want one for the two unread", f.nudges[0])
+	}
+	if mark := member().Handle[dispatch.HarnessErrorKey]; mark != nil {
+		t.Fatalf("handle keeps %v with the line gone from the pane", mark)
+	}
+	pass("nudged already", 1, 1)
+
+	// Nudged as before from then on, and a failure after it is told anew.
+	must(t, s.Mail(ctx, "yardmaster", "and one more", "chris"))
+	pass("more mail, the pane clear", 1, 2)
+	f.show(piRetryFailed)
+	pass("the line again under the nudge", 2, 2)
+	must(t, s.Mail(ctx, "yardmaster", "last one", "chris"))
+	pass("more mail, the line again", 2, 2)
 }
 
 // The pane is read at the start of a spell and after a nudge, not for as
