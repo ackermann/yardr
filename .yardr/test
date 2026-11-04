@@ -12,10 +12,11 @@
 # is right; a leaf package takes seconds. It is also what a wagon of a train
 # passes to land on its train's branch. A plain run is never raced: the race
 # detector runs at landing only (docs/testing.md R4), so a plain run tests
-# with a plain go test. A plain run that covers the whole suite still queues
-# on the race lock, as class 1 behind landings (see lockplain below): two
-# whole-suite runs at once overload the machine. A smaller selection takes
-# no ticket, whatever it changed.
+# with a plain go test. A plain run that covers the whole suite (70% of its
+# packages or more, wholeplain below) still queues on the race lock, as
+# class 1 behind landings (see lockplain below): two whole-suite runs at once
+# overload the machine. A smaller selection takes no ticket, whatever it
+# changed.
 #
 # With YARDR_LANDING=1, as the assembly sets it for what lands on main, a
 # landing that changes code runs the plain selection plus always the six
@@ -2525,14 +2526,18 @@ awk -F'|' -v root="$toplevel" -v rows="$tmp/rows" -v stray="$tmp/stray" -v embed
   }' "$tmp/reads" "$tmp/deleted" "$tmp/changed" "$tmp/deldirs" "$tmp/pkgs" >"$tmp/run"
 }
 # wholeplain says whether a plain selection covers the whole suite: at
-# least half the suite's packages, counted from pick's lists -- its package
+# least 70% of the suite's packages, counted from pick's lists -- its package
 # list ($1, test variants folded to their package, as pick's base does)
 # against the selection ($2). It reads two files, so the gate's own tests
-# feed it canned pairs.
+# feed it canned pairs. The line is 70% and not half (yardr-13mx): nearly all
+# the time builders and reviewers waited on the lock went to plain runs of
+# half the suite or more, and most of those stopped short of 70% of it, where
+# the overload the queue guards against (yardr-f4tr) is two runs of the whole
+# suite. If runs under the line overload the machine again, lower it.
 wholeplain() {
   total=$(awk -F'|' '{ p=$1; sub(/ \[.*/, "", p); sub(/\.test$/, "", p); sub(/_test$/, "", p); if (!(p in seen)) { seen[p]=1; n++ } } END { print n+0 }' "$1")
   sel=$(awk 'END { print NR }' "$2")
-  [ "$((sel + sel))" -ge "$total" ]
+  [ "$((100 * sel))" -ge "$((70 * total))" ]
 }
 # The race detector is the landing's (docs/testing.md R4, which has the
 # measurement): a run without YARDR_LANDING is never raced. A plain go test

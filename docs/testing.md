@@ -156,9 +156,14 @@ line (`testing without -race (race runs at landing only, docs/testing.md
 R4)`), and so never takes the machine-wide race lock for its race, nor
 judges R1, which is defined under `-race`. A plain run whose step covers
 the whole suite -- `go.mod` or `go.sum`, a file no row knows, or a selection
-of at least half the suite's packages -- still queues on that lock as class
+of at least 70% of the suite's packages -- still queues on that lock as class
 1, behind landings (R5): two whole-suite runs at once overload the machine,
 while a leaf run beside them is the normal tolerated load (yardr-f4tr).
+The line was half the suite until yardr-13mx counted who waited: since
+yardr-f4tr, 211 plain runs of half the suite or more had queued as class 1,
+a median of 33 of 57 packages and only 18 of them 40 or more, and they
+account for 11.4 of the 11.9 hours that builders and reviewers waited on the
+lock. If two runs under the line overload the machine again, lower it.
 Measured on 22 Oct 2026 over the last 200 beads'
 notes: of 170 passing test lines, 66% of the gate's wall time (129k of
 193k s) was queued on that lock, and 107 runs waited over half their run;
@@ -207,7 +212,7 @@ so the pick alone misses them. A landing that changed nothing compiled
 runs the plain selection alone, as before, without `-race`: no `.go` file,
 embedded file or deletion is in it, so the binaries are the base's and only
 a test that opens a changed file by path can differ, which the selection
-holds. If that selection covers at least half the suite's packages, its
+holds. If that selection covers at least 70% of the suite's packages, its
 plain go-test step queues as class 1; a smaller selection takes no ticket
 (R4, yardr-f4tr). A landing whose change cannot be selected (go.mod or
 go.sum, a deletion, a file no row knows) and one with nothing to compare

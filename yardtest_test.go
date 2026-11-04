@@ -3329,7 +3329,7 @@ func plainLockFixture(t *testing.T, script []byte) (dir, base string, pkgs []str
 	}
 	// The directories of the filesizes-listed files, which gateRepo writes,
 	// join the package list, which stays the suite's whole set: the
-	// whole-suite tests change over half of it.
+	// whole-suite tests change over 70% of it (overPlainLine).
 	_, _, _, sizeRows := yardTestProbe(t)
 	for _, row := range sizeRows {
 		if d := row.path[:strings.LastIndex(row.path, "/")]; !seen[d] {
@@ -3340,6 +3340,13 @@ func plainLockFixture(t *testing.T, script []byte) (dir, base string, pkgs []str
 	dir, base = gateRepo(t, files)
 	return dir, base, pkgs
 }
+
+// overPlainLine is how many of the fixture's packages a plain selection
+// changes to queue on the race lock: one over the 70% wholeplain takes for
+// the whole suite, a margin against the fixture's count being off by one.
+// TestYardTestWholePlainThreshold says where the line is exactly; a retune of
+// it moves this count too.
+func overPlainLine(pkgs []string) int { return len(pkgs)*7/10 + 1 }
 
 // plainLockFake writes the go a plain-lock run drives: the real one for the
 // list of packages, and every other call written down. A go test also marks
@@ -3452,7 +3459,7 @@ func plainLockSettle(t *testing.T, release string) {
 
 // Two whole-suite plain runs serialize on the race lock: the second queues
 // behind the first as class 1, waits, then runs. The selection is over
-// half the fixture's packages, so the plain step queues; the first run's
+// 70% of the fixture's packages, so the plain step queues; the first run's
 // go test waits for the test's release, which comes once the second says it
 // waits, so the second's wait is real by construction and spans whole
 // seconds. Each run has its own directory, worktree and bead, and the two
@@ -3474,10 +3481,10 @@ func TestYardTestWholePlainRunsSerialize(t *testing.T) {
 	// twice.
 	dir2 := copyFixture(t, dir1)
 	base2 := base1
-	// Over half the suite's packages, changed in both worktrees: the same
+	// Over 70% of the suite's packages, changed in both worktrees: the same
 	// step, the same queue. Nothing imports anything, so the selection is
 	// the changed set alone.
-	need := len(pkgs)/2 + 1
+	need := overPlainLine(pkgs)
 	changed := make([]string, 0, need)
 	oks := make([]string, 0, need)
 	for _, pkg := range pkgs[:need] {
@@ -3678,7 +3685,7 @@ func TestYardTestHeldWholePlainRunNeverQueues(t *testing.T) {
 	script := gateScript(t)
 	home, _ := holdRaceLock(t)
 	dir, base, pkgs := plainLockFixture(t, script)
-	changed := pkgs[:len(pkgs)/2+1]
+	changed := pkgs[:overPlainLine(pkgs)]
 	for i, pkg := range changed {
 		writeFile(t, dir, pkg+"/p.go", fmt.Sprintf("package p\n\nvar Changed%d int\n", i))
 	}
@@ -3702,10 +3709,11 @@ func TestYardTestHeldWholePlainRunNeverQueues(t *testing.T) {
 }
 
 // wholeplain is the gate's verdict on a plain selection: the whole suite at
-// half the suite's packages or more, counted from pick's lists, the test
+// 70% of the suite's packages or more, counted from pick's lists, the test
 // variants folded to their package. The probe cuts it out of .yardr/test,
 // failing when the script no longer holds that shape, and the cases feed it
-// canned pairs: the boundary both ways, and every variant spelling.
+// canned pairs: the boundary both ways, in the suite's own size and in small
+// suites where the line rounds, and every variant spelling.
 func TestYardTestWholePlainThreshold(t *testing.T) {
 	t.Parallel()
 	b := gateScript(t)
@@ -3713,7 +3721,7 @@ func TestYardTestWholePlainThreshold(t *testing.T) {
 	if ok {
 		fn, _, ok = strings.Cut("\nwholeplain() {\n"+fn, "\n}\n")
 	}
-	if !ok || !strings.Contains(fn, "sel + sel") {
+	if !ok || !strings.Contains(fn, "* total") {
 		t.Fatalf("cannot cut wholeplain out of %s: move the probe with the script", yardTest)
 	}
 	probe := filepath.Join(t.TempDir(), "probe.sh")
@@ -3722,25 +3730,41 @@ func TestYardTestWholePlainThreshold(t *testing.T) {
 	}
 	// pkgsLine is one go list -test line; only the import path counts.
 	pkgsLine := func(path string) string { return path + "|/tmp/x|m.test/m/z||\n" }
+	// suite is the first n packages of a canned suite, so a selection of it
+	// is a prefix of the suite it is picked from.
+	suite := func(n int) []string {
+		paths := make([]string, n)
+		for i := range paths {
+			paths[i] = fmt.Sprintf("m.test/m/p%02d", i)
+		}
+		return paths
+	}
 	for _, c := range []struct {
 		name  string
 		pkgs  []string
 		run   []string
 		whole bool
 	}{
-		{"exactly half queues", []string{"m.test/m/a", "m.test/m/b", "m.test/m/c", "m.test/m/d"},
-			[]string{"m.test/m/a", "m.test/m/b"}, true},
-		{"under half skips", []string{"m.test/m/a", "m.test/m/b", "m.test/m/c", "m.test/m/d"},
-			[]string{"m.test/m/a"}, false},
-		{"one of two queues", []string{"m.test/m/a", "m.test/m/b"},
-			[]string{"m.test/m/a"}, true},
-		{"one of three skips", []string{"m.test/m/a", "m.test/m/b", "m.test/m/c"},
-			[]string{"m.test/m/a"}, false},
-		{"all queues", []string{"m.test/m/a", "m.test/m/b"},
-			[]string{"m.test/m/a", "m.test/m/b"}, true},
-		{"none skips", []string{"m.test/m/a", "m.test/m/b"}, nil, false},
+		// The suite had 57 packages when the line was set: 70% of that is
+		// 39.9, so the line is 40 and not the 39 a rounded-down one gives.
+		{"40 of 57 queues", suite(57), suite(40), true},
+		{"39 of 57 skips", suite(57), suite(39), false},
+		// Those two only bracket the line between 68.4% and 70.2%: exactly
+		// 70% queues, and the whole percent under it does not.
+		{"exactly 70% queues", suite(10), suite(7), true},
+		{"69 of 100 skips", suite(100), suite(69), false},
+		// A small suite rounds up the same way: 70% of four is 2.8, of three
+		// 2.1, of two 1.4.
+		{"three of four queues", suite(4), suite(3), true},
+		{"half of four skips", suite(4), suite(2), false},
+		{"two of three skips", suite(3), suite(2), false},
+		{"one of two skips", suite(2), suite(1), false},
+		{"all queues", suite(2), suite(2), true},
+		{"none skips", suite(2), nil, false},
+		// Both packages are selected, so only the folding makes it all of
+		// them: counted by line it is two of five.
 		{"test variants fold to their package", []string{"m.test/m/a", "m.test/m/a [m.test/m/a.test]", "m.test/m/a_test [m.test/m/a.test]", "m.test/m/a.test", "m.test/m/b"},
-			[]string{"m.test/m/a"}, true},
+			[]string{"m.test/m/a", "m.test/m/b"}, true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
