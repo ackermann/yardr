@@ -358,7 +358,7 @@ this machine. Both answers carry Retry-After.`,
 					log.Info("to act as " + as + ", run yardr web open: the token is in the view's record, not in this log")
 				}
 			}
-			stopEdge := server.KeepEdge(ctx, a.cfg, st, "web", srv, log)
+			stopEdge := server.KeepEdge(ctx, a.cfg, st, "web", srv, log, nil)
 			defer stopEdge()
 			servers := 2
 			if ls != nil {

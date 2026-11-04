@@ -65,9 +65,10 @@ it lists every exported name with its comment, faster than grepping.
   (GOCACHE rotation, stale go-tmp), run by `yardr disk keep`.
 - `edgelink`: the yard's side of the edge (`yardr edge connect`): fetching
   the edge's key and enrolling the yard by a code, each call signed with the
-  yard's key, and the link `yardr server` keeps open to it (dialled,
-  challenged, every frame checked, served with the listener's mux); the
-  edge itself is the `yardr-hosted` router, not here.
+  yard's key (the member and preview reports among them), and the link
+  `yardr server` keeps open to it (dialled, challenged, every frame checked,
+  served with the listener's mux); the edge itself is the `yardr-hosted`
+  router, not here.
 - `eta`: arrival-time estimates and the arrivals board rows.
 - `flowdraw`: flows drawn as SVG signalling diagrams (generated into
   `docs/flows/`); the drawing holds no beads.
@@ -85,7 +86,8 @@ it lists every exported name with its comment, faster than grepping.
 - `preview`: the yard's preview supervisor (part of `yardr server`): starts
   approved previews, keeps them running under their caps, captures their
   logs and carries their traffic on its yard-side endpoint; serves the
-  files of a bead's worktree as a watch, which runs nothing.
+  files of a bead's worktree as a watch, which runs nothing; reports each
+  preview to the edge, which answers the host it is opened at.
 - `rpc`: the store API over a local unix socket (`POST /call/<Method>`);
   the client is generated from `store.API`.
 - `runner`: starts work: herdr agents and exec commands in worktrees at

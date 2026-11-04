@@ -106,7 +106,9 @@ func (s *Store) WatchPreview(ctx context.Context, bead, dir, actor string) (*Pre
 			return fmt.Errorf("preview %s: a preview of that name is already in the yard (yardr preview list); forget it first if it should go", app)
 		}
 		at := now()
-		*p = Preview{App: app, Kind: PreviewKindWatch, Bead: row.ID, Stage: row.Stage, Dir: served,
+		// The host is the edge's for the watch's name and outlives the watch:
+		// the one it had stands when the watch is started again.
+		*p = Preview{App: app, Kind: PreviewKindWatch, Bead: row.ID, Stage: row.Stage, Dir: served, Host: old.Host,
 			State: PreviewRunning, Proposer: actor, ProposedAt: at, StartedAt: &at}
 		if row.Depot != nil {
 			p.Depot = *row.Depot

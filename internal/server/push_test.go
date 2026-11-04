@@ -45,7 +45,7 @@ func pushYard(t *testing.T) *pushTestYard {
 	var buf bytes.Buffer
 	stopEdge := KeepEdge(ctx, c, st, "", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
-	}), slog.New(slog.NewTextHandler(&buf, nil)))
+	}), slog.New(slog.NewTextHandler(&buf, nil)), nil)
 	t.Cleanup(stopEdge)
 	return &pushTestYard{st: st, edge: edge, link: nextLink(t, edge), token: token, db: c.DBPath(), log: &buf}
 }

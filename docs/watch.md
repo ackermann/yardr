@@ -17,7 +17,17 @@ ends when yardr-1a2b leaves new, after 4h without a request, or in 7d
 ```
 
 The builder puts the address in the note it writes on the bead; notes show
-as they always do. `yardr bead show` has nothing new.
+as they always do. `yardr bead show` has nothing new. On a yard connected to an
+edge the address is the host the edge gave the watch, which the command waits
+a few seconds for, and the note's reader opens it in a browser:
+
+```text
+opens at https://p-12.preview.example.net/
+```
+
+Where the edge gives none, the address is the path on the yard as above, and the
+words the edge refused with are printed under it
+([Previews through the edge](edge.md#previews-through-the-edge)).
 
 ## A watch is a preview of another kind
 
@@ -98,6 +108,11 @@ and stays in `yardr preview list`.
 
 The yard answers on its preview endpoint, `/preview/<app>/`, and the edge
 carries a person's request there behind their login, on a host of its own.
-The edge serves previews for yards on their own server (`vps`) alone today. A
-yard on the person's machine, connected to the edge, gets a watch there
-once the edge admits connected yards to previews.
+The yard reports the watch to the edge as it reports any preview
+([Previews through the edge](edge.md#previews-through-the-edge)): running while
+it serves, stopped once it has ended, and forgotten when `yardr preview forget`
+drops it. A watch binds no port, and the report says so. The host the edge
+answers with is kept on the watch's row, and it stands when the same command
+starts the watch again, so the address is the same. The edge serves previews
+for yards on their own server (`vps`) alone today; for a yard it does not serve
+it refuses the report, and the watch keeps its path on the yard.

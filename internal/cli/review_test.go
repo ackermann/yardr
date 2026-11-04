@@ -28,8 +28,15 @@ merged terminal
 `
 
 func reviewYard(t *testing.T, depotPath string) (store.API, context.Context) {
+	st, _, ctx := reviewYardOwned(t, depotPath)
+	return st, ctx
+}
+
+// reviewYardOwned is reviewYard, with the store the yard's server owns as
+// well: the writes the supervisor makes (UpdatePreview) are made on it.
+func reviewYardOwned(t *testing.T, depotPath string) (store.API, *store.Store, context.Context) {
 	t.Helper()
-	st := storetest.New(t)
+	st, own := storetest.NewOwned(t)
 	ctx := context.Background()
 	must := func(err error) {
 		t.Helper()
@@ -51,7 +58,7 @@ func reviewYard(t *testing.T, depotPath string) (store.API, context.Context) {
 	_, err = st.PutFlow(ctx, *f, "me")
 	must(err)
 	must(st.SetFlowPointer(ctx, "yard", "", "yard", "me"))
-	return st, ctx
+	return st, own, ctx
 }
 
 func TestReviewQueue(t *testing.T) {

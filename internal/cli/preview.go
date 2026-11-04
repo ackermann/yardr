@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"cmp"
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -111,7 +113,10 @@ The bead's builder, the user it is for or an operator may start a watch.
 It ends when the bead leaves the stage it is in now or is closed, after
 the idle time without a request (preview_idle, four hours while unset), or
 seven days after it began, and the same command starts it again at the
-same address. Put the address it prints in the bead's note.
+same address. Put the address it prints in the bead's note. On a yard
+connected to an edge that is the host the edge gave the watch, which the
+command waits a few seconds for; where the edge gives none it is the path on
+this yard, and the words the edge refused with are printed beneath it.
 
 A watch serves plain files. A site that needs a build step runs the
 builder's code, and is an app: yardr preview propose.`,
@@ -130,14 +135,60 @@ builder's code, and is an app: yardr preview propose.`,
 				return err
 			}
 			settings, _ := st.Settings(c.Context())
+			p = a.awaitHost(c.Context(), st, p, settings)
 			return a.out(c.OutOrStdout(), p, func(w io.Writer) {
 				fmt.Fprintf(w, "watching %s: %s is served read-only, and its pages reload when a file changes\n", p.Bead, p.Dir)
-				fmt.Fprintf(w, "opens at /preview/%s/\n", p.App)
+				fmt.Fprintf(w, "opens at %s\n", opensAt(p))
+				if p.StateDetail != "" {
+					fmt.Fprintf(w, "%s\n", p.StateDetail)
+				}
 				fmt.Fprintf(w, "ends when %s leaves %s, after %s without a request, or in %s\n",
 					p.Bead, p.Stage, store.Span(store.PreviewIdle(settings)), store.Span(store.PreviewAgeLimit))
 			})
 		},
 	}
+}
+
+// previewHostWait is how long yardr preview watch waits for the host of a
+// watch on a yard connected to an edge: the supervisor reports the watch on
+// its next pass, a poll away, and the edge answers at once. A yard connected
+// to none waits for nothing.
+const (
+	previewHostWait = 5 * time.Second
+	previewHostPoll = 100 * time.Millisecond
+)
+
+// awaitHost reads the watch p again until the edge has given it a host, or has
+// refused to (the supervisor then keeps its words in the row's detail), or the
+// wait is up; a watch that has its host already, or a yard connected to no
+// edge, is answered as it is.
+func (a *app) awaitHost(ctx context.Context, st store.API, p *store.Preview, settings map[string]string) *store.Preview {
+	if _, connected, err := store.EdgeOf(settings); err != nil || !connected {
+		return p
+	}
+	deadline := time.Now().Add(cmp.Or(a.hostWait, previewHostWait))
+	for p.Host == "" && p.StateDetail == "" && time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return p
+		case <-time.After(previewHostPoll):
+		}
+		cur, err := st.GetPreview(ctx, p.App)
+		if err != nil {
+			return p
+		}
+		p = cur
+	}
+	return p
+}
+
+// opensAt is where a person opens the preview p: the host the edge gave it,
+// else its path on this yard.
+func opensAt(p *store.Preview) string {
+	if p.Host != "" {
+		return "https://" + p.Host + "/"
+	}
+	return "/preview/" + p.App + "/"
 }
 
 func shortCommit(commit string) string {
@@ -166,7 +217,7 @@ func (a *app) previewListCmd() *cobra.Command {
 				rows := make([][]string, 0, len(all))
 				for _, p := range all {
 					state := p.State
-					if p.StateDetail != "" && p.State != store.PreviewRunning {
+					if p.StateDetail != "" {
 						state += " (" + p.StateDetail + ")"
 					}
 					last := "-"
@@ -178,9 +229,13 @@ func (a *app) previewListCmd() *cobra.Command {
 					if p.Kind == store.PreviewKindWatch {
 						kind, port = p.Kind, "-"
 					}
-					rows = append(rows, []string{p.App, state, shortCommit(p.Commit), last, port, kind})
+					host := p.Host
+					if host == "" {
+						host = "-"
+					}
+					rows = append(rows, []string{p.App, state, shortCommit(p.Commit), last, port, kind, host})
 				}
-				table(w, "APP\tSTATE\tCOMMIT\tLAST REQUEST\tPORT\tKIND", rows)
+				table(w, "APP\tSTATE\tCOMMIT\tLAST REQUEST\tPORT\tKIND\tHOST", rows)
 			})
 		},
 	}

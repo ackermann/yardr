@@ -19,7 +19,9 @@ import (
 // reader gets the card without them. A watch has a card of its own kind
 // while it runs, with the bead, directory and lifetime, and Open and Stop:
 // it has no command or commit to approve, and a watch that ended leaves
-// the page, where a card that waits for a person must stand out.
+// the page, where a card that waits for a person must stand out. A card
+// shows the host the edge gave the preview beside its path, once it has
+// one.
 type Previews struct {
 	// As is the user the request acts as, "" when it acts as none: the
 	// card's buttons are drawn only for a request that acts.
@@ -52,9 +54,11 @@ type PreviewCard struct {
 }
 
 // Status is the state as `yardr preview list` shows it: the state, with
-// its detail behind it unless the preview runs.
+// its detail behind it. A running preview has one only when the edge has
+// refused the report of it, which is the page's word of why it has no
+// address.
 func (c PreviewCard) Status() string {
-	if c.StateDetail != "" && c.State != store.PreviewRunning {
+	if c.StateDetail != "" {
 		return c.State + " (" + c.StateDetail + ")"
 	}
 	return c.State

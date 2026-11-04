@@ -20,10 +20,12 @@ import (
 // yard's enrolment at POST /edge/enrol (answering a code, and the account's
 // handle with the yard's name once a person has approved the yard),
 // drops a yard's row at POST /edge/disconnect, mints a Google access
-// token at POST /mint/google, and serves the link at GET /edge/link
-// (edgelink.go). A request is checked as a peer's is, signed by the yard
-// whose key it names, to this edge's key, within yardkey.MaxSkew; every
-// answer is signed with the key the stand-in is told to sign with.
+// token at POST /mint/google, takes a yard's preview reports at POST
+// /preview/report (answering the id it issued the preview and its host),
+// and serves the link at GET /edge/link (edgelink.go). A request is
+// checked as a peer's is, signed by the yard whose key it names, to this
+// edge's key, within yardkey.MaxSkew; every answer is signed with the key
+// the stand-in is told to sign with.
 //
 // It is an http.Handler: a test serves it with httptest.NewTLSServer, whose
 // client trusts its certificate, or httptest.NewServer for the loopback
@@ -45,6 +47,12 @@ type Edge struct {
 	// address, so a removal of one never added answers 404 as the
 	// edge's does.
 	members map[string]bool
+	// previews are the ids issued to the previews a yard has reported, by
+	// yard and app, and lastPreview the latest id issued: an id is issued
+	// once and never again, not even to a preview reported forgotten and
+	// then again.
+	previews    map[string]int
+	lastPreview int
 }
 
 // EdgeBehaviour is what a test changes about an Edge, with Behave.
@@ -86,6 +94,13 @@ type EdgeBehaviour struct {
 	// of an address no add named, 404).
 	MemberRefuse, MemberAddRefuse, MemberRemoveRefuse int
 	MemberReason                                      string
+	// PreviewRefuse, when not zero, is the status every preview report is
+	// refused with, in PreviewReason's words; a report is then recorded
+	// and issued no id. PreviewBase is what the hosts it answers are under,
+	// p-<id>.<base>: PreviewBaseDefault when empty.
+	PreviewRefuse int
+	PreviewReason string
+	PreviewBase   string
 	// ChallengeSigner, when not nil, signs the link's challenge in place of
 	// the edge's key, and ChallengeOverNonce, when not nil, is the yard nonce
 	// it is signed over in place of the one the upgrade named: a challenge
@@ -120,6 +135,14 @@ type EdgeMemberRemove struct {
 	Key, YardHandle, YardName, Email, YardKey, Time, Sig string
 }
 
+// EdgePreviewReport is one preview report as the edge took it.
+type EdgePreviewReport struct {
+	// Key is the yard's, from the signature's header; App, Port, Kind and
+	// State are the body's, and Time and Sig the signature's own.
+	Key, App, Kind, State, Time, Sig string
+	Port                             int
+}
+
 // EdgeState is what the edge has been asked.
 type EdgeState struct {
 	KeyFetches int
@@ -132,6 +155,8 @@ type EdgeState struct {
 	// MemberAdds and MemberRemoves are the member reports, in order.
 	MemberAdds    []EdgeMemberAdd
 	MemberRemoves []EdgeMemberRemove
+	// PreviewReports are the preview reports, in order.
+	PreviewReports []EdgePreviewReport
 }
 
 // NewEdge makes an edge with a key of its own, which approves a yard on its
@@ -141,7 +166,7 @@ func NewEdge() (*Edge, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Edge{key: key, asked: map[string]int{}, members: map[string]bool{},
+	return &Edge{key: key, asked: map[string]int{}, members: map[string]bool{}, previews: map[string]int{},
 		b: EdgeBehaviour{Served: key, Signer: key, ApproveAfter: 1, Handle: "mckean", Name: "mckean", Email: "chris@mckean.co"}}, nil
 }
 
@@ -166,6 +191,7 @@ func (e *Edge) State() EdgeState {
 	s.Mints = append([]EdgeMint(nil), s.Mints...)
 	s.MemberAdds = append([]EdgeMemberAdd(nil), s.MemberAdds...)
 	s.MemberRemoves = append([]EdgeMemberRemove(nil), s.MemberRemoves...)
+	s.PreviewReports = append([]EdgePreviewReport(nil), s.PreviewReports...)
 	return s
 }
 
@@ -196,6 +222,8 @@ func (e *Edge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		e.memberAdd(w, r)
 	case "POST /member/remove":
 		e.memberRemove(w, r)
+	case "POST /preview/report":
+		e.previewReport(w, r)
 	case "GET /edge/link":
 		e.link(w, r)
 	default:
@@ -365,6 +393,82 @@ func (e *Edge) memberRemove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	e.answer(w, r, http.StatusOK, map[string]string{"status": "removed"})
+}
+
+// PreviewBaseDefault is what the hosts the stand-in answers a preview report
+// with are under, until a test says another.
+const PreviewBaseDefault = "preview.example.net"
+
+// previewReport takes a yard's report of one preview as the router does
+// (previews design, 4.2): the key names the yard, the app is named as the
+// yard's registry names one, a port is a port except that a watch binds none,
+// and a preview kept addressable (approved, running, stopped) is answered its
+// id and host. The id is issued the first time the yard reports the app and
+// never again. A forgotten preview is dropped and answers no host; another
+// state is answered its id alone.
+func (e *Edge) previewReport(w http.ResponseWriter, r *http.Request) {
+	body, ok := e.signed(w, r)
+	if !ok {
+		return
+	}
+	var in struct {
+		App   string `json:"app"`
+		Port  int    `json:"port"`
+		Kind  string `json:"kind"`
+		State string `json:"state"`
+	}
+	bad := json.Unmarshal(body, &in) != nil || store.CheckPreviewApp(in.App) != nil || in.State == ""
+	switch in.Kind {
+	case "":
+		bad = bad || in.Port < 1 || in.Port > 65535
+	case store.PreviewKindWatch:
+		bad = bad || in.Port < 0 || in.Port > 65535
+	default:
+		bad = true
+	}
+	if bad {
+		e.answer(w, r, http.StatusBadRequest, map[string]string{"refused": `a preview report names the app, its port and its state, and a watch's kind: {"app":"demo","port":8080,"state":"running"}`})
+		return
+	}
+	yard := r.Header.Get(yardkey.HeaderKey)
+	e.mu.Lock()
+	e.state.PreviewReports = append(e.state.PreviewReports, EdgePreviewReport{
+		Key: yard, App: in.App, Port: in.Port, Kind: in.Kind, State: in.State,
+		Time: r.Header.Get(yardkey.HeaderTime), Sig: r.Header.Get(yardkey.HeaderSig)})
+	b := e.b
+	if e.previews == nil {
+		e.previews = map[string]int{}
+	}
+	key := yard + "/" + in.App
+	id := e.previews[key]
+	if b.PreviewRefuse == 0 {
+		switch {
+		case in.State == "forgotten":
+			delete(e.previews, key)
+		case id == 0:
+			e.lastPreview++
+			id = e.lastPreview
+			e.previews[key] = id
+		}
+	}
+	e.mu.Unlock()
+	if b.PreviewRefuse != 0 {
+		e.answer(w, r, b.PreviewRefuse, map[string]string{"refused": b.PreviewReason})
+		return
+	}
+	answer := map[string]any{"status": in.State}
+	switch in.State {
+	case "forgotten":
+	case "approved", "running", "stopped":
+		base := b.PreviewBase
+		if base == "" {
+			base = PreviewBaseDefault
+		}
+		answer["preview_id"], answer["host"] = id, fmt.Sprintf("p-%d.%s", id, base)
+	default:
+		answer["preview_id"] = id
+	}
+	e.answer(w, r, http.StatusOK, answer)
 }
 
 func (e *Edge) disconnect(w http.ResponseWriter, r *http.Request) {

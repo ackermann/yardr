@@ -275,6 +275,12 @@ func TestWatchPreviewStartsAnEndedWatchInPlace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The edge gave it a host while it ran. An update that names none leaves
+	// the host, so the one that ends the watch keeps it.
+	host := "p-12.preview.example.net"
+	if _, err := y.s.UpdatePreview(ctx, first.App, store.PreviewUpdate{Host: &host}); err != nil {
+		t.Fatal(err)
+	}
 	// It ends, its last request long ago; the bead is in another stage when
 	// it is watched again.
 	ended := "stage left"
@@ -293,8 +299,16 @@ func TestWatchPreviewStartsAnEndedWatchInPlace(t *testing.T) {
 		again.LastRequestAt != nil || !again.StartedAt.After(*first.StartedAt) || !strings.HasSuffix(again.Dir, "mockups") {
 		t.Fatalf("watched again = %+v, want the same app running from now in review", again)
 	}
+	if again.Host != host {
+		t.Fatalf("watched again has host %q, want the %q it had: the address stands", again.Host, host)
+	}
 	if all, _ := y.s.Previews(ctx); len(all) != 1 {
 		t.Fatalf("the yard holds %d previews, want the one watch", len(all))
+	}
+	// The supervisor clears a host the edge no longer stands behind.
+	none := ""
+	if cleared, err := y.s.UpdatePreview(ctx, again.App, store.PreviewUpdate{Host: &none}); err != nil || cleared.Host != "" {
+		t.Fatalf("clearing the host = %+v, %v", cleared, err)
 	}
 
 	// A preview of the name that is an app is not overwritten, and nothing a

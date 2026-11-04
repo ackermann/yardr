@@ -51,6 +51,18 @@
 //	                      503 (or no answer) leaves it owed. The router
 //	                      sets who reports from the signing key, so no
 //	                      body field names the reporter.
+//	POST /preview/report {"app", "port", "kind", "state"}: the yard
+//	                      reports one of its previews. An app has no kind
+//	                      and the port it binds; a watch has kind "watch"
+//	                      and port 0, since it binds none. The state is
+//	                      the yard's own (approved, running, stopped), or
+//	                      "forgotten" for a preview the yard has dropped.
+//	                      Answered {"status", "preview_id", "host"}: the id
+//	                      the edge issued the preview and the host it is
+//	                      opened at, which a state the edge keeps no
+//	                      address for leaves out. A signed 4xx but 429
+//	                      refuses the report in {"refused"}'s words, and a
+//	                      signed 429 or 5xx (or no answer) leaves it owed.
 //
 // A request carries the yard's key, the time and the signature in the
 // Yardr-Peer-* headers, as between peers. An answer carries its signature
@@ -77,6 +89,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 	"unicode"
@@ -88,12 +101,13 @@ import (
 // The edge's paths. They are fixed, which is why the edge's address is its
 // origin alone (store.CheckEdgeURL): a signature covers the path.
 const (
-	KeyPath          = "/edge/key"
-	EnrolPath        = "/edge/enrol"
-	DisconnectPath   = "/edge/disconnect"
-	MintGooglePath   = "/mint/google"
-	MemberAddPath    = "/member/add"
-	MemberRemovePath = "/member/remove"
+	KeyPath           = "/edge/key"
+	EnrolPath         = "/edge/enrol"
+	DisconnectPath    = "/edge/disconnect"
+	MintGooglePath    = "/mint/google"
+	MemberAddPath     = "/member/add"
+	MemberRemovePath  = "/member/remove"
+	PreviewReportPath = "/preview/report"
 )
 
 const (
@@ -113,6 +127,9 @@ const (
 	maxAnswer = 4 << 10
 	// maxText bounds each word of the edge's that is shown to a person.
 	maxText = 64
+	// maxHost bounds a preview's host: the longest host name there is, and a
+	// port's colon and digits.
+	maxHost = 253 + 6
 )
 
 // ErrNotApproved ends a wait that ran out, with the person not having
@@ -488,9 +505,9 @@ type MemberRemove struct {
 	YardKey    string `json:"yard_key"`
 }
 
-// memberAnswer is what the edge says to a member report, and its
-// refusals: the edge's own door writes "refused", the provisioner's
-// socket writes "error"; both are signed, so both are read.
+// memberAnswer is what the edge says to a member or a preview report,
+// and its refusals: the edge's own door writes "refused", the
+// provisioner's socket writes "error"; both are signed, so both are read.
 type memberAnswer struct {
 	Refused string `json:"refused"`
 	Error   string `json:"error"`
@@ -545,6 +562,73 @@ func (c *Client) MemberRemove(ctx context.Context, edgeKey string, yard ed25519.
 	var a memberAnswer
 	_ = json.Unmarshal(answer, &a)
 	return &Refused{Status: status, Reason: words(a.reason())}
+}
+
+// PreviewForgotten is the state a yard reports for a preview its registry no
+// longer holds, where its own states (approved, running, stopped) name the
+// ones it does.
+const PreviewForgotten = "forgotten"
+
+// PreviewReport is one yard's report of a preview to the edge: the app, the
+// loopback port it binds in the yard (0 for a watch, which binds none), its
+// kind (empty for an app, which has none) and its state as the yard's
+// registry holds it, or PreviewForgotten for one the registry no longer holds.
+type PreviewReport struct {
+	App   string `json:"app"`
+	Port  int    `json:"port"`
+	Kind  string `json:"kind,omitempty"`
+	State string `json:"state"`
+}
+
+// PreviewAnswer is the edge's answer to a preview report it took: the id it
+// issued the preview, which it never issues again, and the host the preview
+// is opened at. Host is empty for a state the edge keeps no address for.
+type PreviewAnswer struct {
+	ID   int64
+	Host string
+}
+
+// previewAnswer is what the edge says to a report it took.
+type previewAnswer struct {
+	PreviewID int64  `json:"preview_id"`
+	Host      string `json:"host"`
+}
+
+// hostName is a host the edge may name a preview by: dot-separated labels of
+// lower case letters, digits and '-', none beginning or ending with one, and
+// a port after them at most. The host reaches a terminal, a link and JSON, so
+// whatever else the edge signs there is not taken for one.
+var hostName = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*(:[0-9]{1,5})?$`)
+
+// PreviewReport reports one preview to the edge, signed with the yard's key
+// to the edge's, as MemberAdd is, and answers the id and host the edge gave
+// it. A 200 says the edge took the report; any other signed answer is a
+// *Refused in the edge's words, whole, which the caller reads by status (a
+// 429 or a 5xx leaves the report owed; another 4xx refuses it), and an
+// answer no signature covers is ErrUnsigned. A host that is not a host name
+// is an error and not an address.
+func (c *Client) PreviewReport(ctx context.Context, edgeKey string, yard ed25519.PrivateKey, r PreviewReport) (PreviewAnswer, error) {
+	body, err := json.Marshal(r)
+	if err != nil {
+		return PreviewAnswer{}, err
+	}
+	status, answer, err := c.call(ctx, edgeKey, yard, PreviewReportPath, body)
+	if err != nil {
+		return PreviewAnswer{}, err
+	}
+	if status != http.StatusOK {
+		var a memberAnswer
+		_ = json.Unmarshal(answer, &a)
+		return PreviewAnswer{}, &Refused{Status: status, Reason: words(a.reason())}
+	}
+	var a previewAnswer
+	if err := json.Unmarshal(answer, &a); err != nil {
+		return PreviewAnswer{}, fmt.Errorf("the edge's answer to the preview report is no JSON object (%d)", status)
+	}
+	if a.Host != "" && (len(a.Host) > maxHost || !hostName.MatchString(a.Host)) {
+		return PreviewAnswer{}, fmt.Errorf("the edge's answer to the preview report names no host a person could open: %q", text(a.Host))
+	}
+	return PreviewAnswer{ID: a.PreviewID, Host: a.Host}, nil
 }
 
 // Drop asks the edge to forget the yard whose key is yard: the row that

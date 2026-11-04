@@ -9,8 +9,9 @@ yard dials out, so a laptop on any network, with no open port and no tunnel of
 its own, is reachable for webhooks and for its devices' calls. What the edge
 hands over of a delivery is the sender's raw body and headers, and the yard
 verifies every delivery itself, with secrets only it holds. Today the edge
-carries webhooks, the calls of peers and devices, and the web view
-([below](#the-web-view-of-a-connected-yard)).
+carries webhooks, the calls of peers and devices, the web view
+([below](#the-web-view-of-a-connected-yard)), and the previews of the yards it
+serves them for ([below](#previews-through-the-edge)).
 
 ```sh
 yardr edge connect https://my.yardr.dev   # fetch the edge's key, show it, enrol by a code
@@ -305,6 +306,38 @@ dashboard's server-side fetch, holds none. Start the view with `--local-read
 read-only JSON with no token
 ([A reader on this machine](web.md#a-reader-on-this-machine---local-read)).
 A browser on the machine opens the view at the edge, like any other.
+
+## Previews through the edge
+
+A [preview](web.md#the-lists) is an app the yard keeps running, and a
+[watch](watch.md) is a bead's site served live. A person opens either on a
+host of its own at the edge, behind their login, such as
+`p-12.preview.example.net`. The yard does not choose that host. It reports each
+preview to the edge, on a signed call like the other reports a yard makes, and
+**the host comes from the edge's answer to the report**: the edge issues the
+preview an id, once, and answers with the host it is opened at. The yard keeps
+the host on the preview's row and shows it beside the path
+`/preview/<app>/`: on the Previews page, in `yardr preview list` (the `HOST`
+column, and `host` with `--json`), and as the address `yardr preview watch`
+prints for the bead's note.
+
+What is reported is the app, the port it binds (a watch binds none), its kind
+and its state, for a preview that is approved, running or stopped. A proposal
+that waits for approval, and a refused, crashed or failed preview, have no
+address, and the edge keeps what it was last told of one. A preview the yard
+forgets is reported forgotten, and the edge drops its address. The yard's own
+list of previews is the source and the edge's copy of it a cache that may be
+lost, so the server reports a preview within a moment of its changing, and
+every preview again each time its link to the edge comes up. A report the edge
+does not answer is made again a minute later, or when the link comes up.
+
+A yard connected to no edge reports nothing, and its previews are what they
+were: the path on the yard. An edge that does not take previews from a yard
+(it serves them for some kinds of yard alone) refuses the report. The edge's
+words are kept in the preview's state detail, where the Previews page and
+`yardr preview list` show them beside the state of a preview that is approved
+or running (a stopped one shows the reason it stopped), and nothing else about
+the preview changes. A host the edge gave goes when the yard leaves the edge.
 
 ## While the yard is away: the queue
 

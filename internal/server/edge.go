@@ -18,8 +18,11 @@ import (
 // It follows the edge setting without a restart and loads the yard's key
 // from PeerKey. An empty role keeps the default yard link and its edge.state;
 // the web role reports events only, since that file describes the server.
-// The function returned closes the link and waits for it.
-func KeepEdge(ctx context.Context, c *config.Config, st store.API, role string, h http.Handler, log *slog.Logger) (stop func()) {
+// up, when not nil, is called each time a link of the role comes up, from the
+// link's own goroutine, so it must not block: the preview supervisor reports
+// its previews to the edge again then. The function returned closes the link
+// and waits for it.
+func KeepEdge(ctx context.Context, c *config.Config, st store.API, role string, h http.Handler, log *slog.Logger, up func()) (stop func()) {
 	ctx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
 	go func() {
@@ -77,7 +80,7 @@ func KeepEdge(ctx context.Context, c *config.Config, st store.API, role string, 
 				l.OnPushAck = sender.ack
 				links.set(l)
 			}
-			stopLink = startLink(ctx, c, st, l)
+			stopLink = startLink(ctx, c, st, l, up)
 		}
 		// The stream ends whenever the server does, and a server that is
 		// replacing itself does not answer for a moment: subscribe again
@@ -161,8 +164,8 @@ func (h *linkHolder) get() *edgelink.Link {
 var linkTest func(*edgelink.Link)
 
 // startLink runs l until the function it returns is called, and tells each
-// change of it.
-func startLink(ctx context.Context, c *config.Config, st store.API, l *edgelink.Link) (stop func()) {
+// change of it, and tells up (when not nil) each time it comes up.
+func startLink(ctx context.Context, c *config.Config, st store.API, l *edgelink.Link, up func()) (stop func()) {
 	if linkTest != nil {
 		linkTest(l)
 	}
@@ -182,6 +185,9 @@ func startLink(ctx context.Context, c *config.Config, st store.API, l *edgelink.
 		// yard's all the same, and the store is open until KeepEdge returns.
 		if err := st.LogDispatch(context.Background(), "", kind, "yard", data); err != nil {
 			l.Log.Warn(kind+" event", "err", err)
+		}
+		if s.Up && up != nil {
+			up()
 		}
 	}
 	ctx, cancel := context.WithCancel(ctx)

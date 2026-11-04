@@ -6,10 +6,12 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -262,7 +264,7 @@ func TestEdgeLinkFollowsTheSettingBesideTheListener(t *testing.T) {
 					tune(l)
 					l.PingEvery, l.DeadAfter = 20*time.Millisecond, 2*time.Second
 				}
-				stopEdge = KeepEdge(ctx, c, cl, role, view, slog.New(slog.NewTextHandler(io.Discard, nil)))
+				stopEdge = KeepEdge(ctx, c, cl, role, view, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 				defer stopEdge()
 			}
 			if _, err := os.Stat(c.EdgeState()); !os.IsNotExist(err) {
@@ -416,7 +418,7 @@ func TestEdgeLinkFollowsTheSettingBesideTheListener(t *testing.T) {
 		view := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			io.WriteString(w, "web home")
 		})
-		stopEdge := KeepEdge(ctx, c, away, "web", view, slog.New(slog.NewTextHandler(io.Discard, nil)))
+		stopEdge := KeepEdge(ctx, c, away, "web", view, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 		defer stopEdge()
 		nextAttempt := func() uint64 {
 			t.Helper()
@@ -457,5 +459,68 @@ func TestEdgeLinkFollowsTheSettingBesideTheListener(t *testing.T) {
 			t.Errorf("upgrade key = %q, want the yard's key", got)
 		}
 		waitEvent(t, real, "edge_link_up", func(e store.Event) bool { return e.Data["role"] == "web" })
+	})
+}
+
+// A server connected to an edge tells it of its previews, and tells it of them
+// all again each time its preview link comes up: the supervisor is wired to the
+// link KeepEdge keeps for it, and an edge that lost what it was told hears it
+// again.
+func TestServerReportsItsPreviewsToTheEdgeAndAgainWhenThePreviewLinkComesUp(t *testing.T) {
+	edge, err := standin.NewEdge()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Plain http on loopback, which the supervisor's client needs no
+	// certificate for.
+	srv := httptest.NewServer(edge)
+	t.Cleanup(srv.Close)
+	linkTest = func(l *edgelink.Link) { l.Backoff, l.BackoffMax = 10*time.Millisecond, 20*time.Millisecond }
+	t.Cleanup(func() { linkTest = nil })
+	c := home(t)
+	edgeYard(t, c, edge, srv, true)
+	start(t, &runner{c: c})
+	cl := rpc.NewClient(c.Socket())
+	defer cl.Close(context.Background())
+
+	var previewLink *standin.EdgeLink
+	for deadline := time.After(10 * time.Second); previewLink == nil; {
+		select {
+		case l := <-edge.Links():
+			if l.Header.Get("Yardr-Link-Role") == "preview" {
+				previewLink = l
+			}
+		case <-deadline:
+			t.Fatal("the server's preview link never came up at the edge")
+		}
+	}
+
+	_, port, err := net.SplitHostPort(freeAddr(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, _ := strconv.Atoi(port)
+	ctx := context.Background()
+	if _, err := cl.ProposePreview(ctx, store.NewPreview{App: "demo", Command: "exit 0", Dir: t.TempDir(), Port: n}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cl.ApprovePreview(ctx, "demo", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	lastTold := func() standin.EdgePreviewReport {
+		reports := edge.State().PreviewReports
+		if len(reports) == 0 {
+			return standin.EdgePreviewReport{}
+		}
+		return reports[len(reports)-1]
+	}
+	waitFor(t, "the edge to be told the preview ended", func() bool {
+		return lastTold().App == "demo" && lastTold().State == store.PreviewStopped
+	})
+	before := len(edge.State().PreviewReports)
+
+	previewLink.Close()
+	waitFor(t, "the edge to be told again when the preview link came up", func() bool {
+		return len(edge.State().PreviewReports) > before && lastTold().App == "demo" && lastTold().State == store.PreviewStopped
 	})
 }

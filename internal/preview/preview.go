@@ -14,6 +14,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -80,6 +81,12 @@ type Supervisor struct {
 	// WatchPoll and WatchSettle shape what a watch's stream reads of its
 	// directory (watch.go); zero takes the default beside them.
 	WatchPoll, WatchSettle time.Duration
+	// EdgeHTTP makes the calls that report previews to the edge (report.go);
+	// nil is a client with the system's roots, and a test gives the one that
+	// trusts its stand-in edge. ReportRetry is how long a report the edge did
+	// not answer waits before it is made again; zero takes the default.
+	EdgeHTTP    *http.Client
+	ReportRetry time.Duration
 
 	mu       sync.Mutex
 	running  map[string]*proc
@@ -87,6 +94,7 @@ type Supervisor struct {
 	over     map[string]time.Time // app -> first moment over the memory cap
 	startMu  sync.Mutex           // one start at a time
 	rebooted bool
+	report   reporting
 }
 
 type proc struct {
@@ -104,7 +112,7 @@ func New(st Store, home string, log *slog.Logger) *Supervisor {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Supervisor{Store: st, Home: home, Log: log,
+	return &Supervisor{Store: st, Home: home, Log: log, report: newReporting(),
 		running: map[string]*proc{}, inflight: map[string]int{}, over: map[string]time.Time{}}
 }
 
@@ -137,7 +145,9 @@ func (s *Supervisor) logPath(app string) string {
 // Run supervises until ctx ends, then stops every preview it runs: a
 // preview does not outlive the supervisor that watches it, and a server
 // that replaces itself starts its successor's previews from the
-// registry as stopped.
+// registry as stopped. It also reports the previews to the edge the yard is
+// connected to (report.go), and does not return before that is done with
+// the store.
 func (s *Supervisor) Run(ctx context.Context) {
 	tick := time.NewTicker(s.poll())
 	defer tick.Stop()
@@ -146,6 +156,9 @@ func (s *Supervisor) Run(ctx context.Context) {
 	if ctx.Err() != nil {
 		return
 	}
+	var reports sync.WaitGroup
+	defer reports.Wait()
+	reports.Go(func() { s.keepReported(ctx) })
 	s.reconcile(ctx, true)
 	for {
 		select {
@@ -240,6 +253,8 @@ func (s *Supervisor) reconcile(ctx context.Context, first bool) {
 			}
 		}
 	}
+	// The registry is as the processes are now, and the edge is told of it.
+	s.wakeReport()
 	_ = first
 }
 

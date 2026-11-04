@@ -751,3 +751,123 @@ func TestMemberRefusals(t *testing.T) {
 		t.Errorf("MemberAdd, answered by another key = %v, want ErrUnsigned", err)
 	}
 }
+
+// A preview report names the app, its port and its state, signed with the
+// yard's key to the edge's, and a watch adds its kind and binds no port. The
+// edge answers the id it issued and the host the preview is opened at, the
+// same for every report of the app, none for one that is forgotten, and a new
+// id when the app is reported again after: an id is never issued twice.
+func TestPreviewReportAsksSignedAndReadsTheAnswer(t *testing.T) {
+	t.Parallel()
+	edge, srv := edgeAt(t)
+	c := &Client{URL: srv.URL, HTTP: srv.Client()}
+	yard := newKey(t)
+	report := func(r PreviewReport) PreviewAnswer {
+		t.Helper()
+		a, err := c.PreviewReport(context.Background(), edge.PublicKey(), yard, r)
+		if err != nil {
+			t.Fatalf("PreviewReport(%+v) = %v", r, err)
+		}
+		return a
+	}
+	host := func(id int64) string { return fmt.Sprintf("p-%d.%s", id, standin.PreviewBaseDefault) }
+
+	demo := PreviewReport{App: "demo", Port: 8080, State: "approved"}
+	if a := report(demo); a.ID != 1 || a.Host != host(1) {
+		t.Errorf("the first report of an app was answered %+v, want id 1 and %s", a, host(1))
+	}
+	demo.State = "running"
+	if a := report(demo); a.ID != 1 || a.Host != host(1) {
+		t.Errorf("a second report of the app was answered %+v, want the id and host it had", a)
+	}
+	watch := PreviewReport{App: "yardr-1a2b", Kind: "watch", State: "running"}
+	if a := report(watch); a.ID != 2 || a.Host != host(2) {
+		t.Errorf("a watch's report was answered %+v, want id 2 and %s", a, host(2))
+	}
+	demo.State = "forgotten"
+	if a := report(demo); a != (PreviewAnswer{}) {
+		t.Errorf("a forgotten preview was answered %+v, want no id and no host", a)
+	}
+	demo.State = "stopped"
+	if a := report(demo); a.ID != 3 || a.Host != host(3) {
+		t.Errorf("an app reported again after it was forgotten was answered %+v, want a new id, 3", a)
+	}
+
+	got := edge.State().PreviewReports
+	want := []standin.EdgePreviewReport{
+		{App: "demo", Port: 8080, State: "approved"}, {App: "demo", Port: 8080, State: "running"},
+		{App: "yardr-1a2b", Port: 0, Kind: "watch", State: "running"},
+		{App: "demo", Port: 8080, State: "forgotten"}, {App: "demo", Port: 8080, State: "stopped"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("the edge took %d reports, want %d: %+v", len(got), len(want), got)
+	}
+	for i, w := range want {
+		g := got[i]
+		if g.Key != store.Public(yard) || g.Time == "" || g.Sig == "" {
+			t.Errorf("report %d was not signed as this yard: %+v", i, g)
+		}
+		g.Key, g.Time, g.Sig = "", "", ""
+		if g != w {
+			t.Errorf("report %d = %+v, want %+v", i, g, w)
+		}
+	}
+
+	// The wire is the router's own example for an app, and a watch's kind
+	// beside it: an app names no kind at all.
+	for r, wire := range map[PreviewReport]string{
+		{App: "demo", Port: 8080, State: "running"}:          `{"app":"demo","port":8080,"state":"running"}`,
+		{App: "yardr-1a2b", Kind: "watch", State: "running"}: `{"app":"yardr-1a2b","port":0,"kind":"watch","state":"running"}`,
+	} {
+		if b, err := json.Marshal(r); err != nil || string(b) != wire {
+			t.Errorf("%+v is sent as %s (%v), want %s", r, b, err, wire)
+		}
+	}
+}
+
+// A signed refusal is a *Refused in the edge's words, whole, which the caller
+// reads by status; an answer signed by another key is none; and a host that
+// is no host name is no address, however the edge signs it.
+func TestPreviewReportRefusalsAndHosts(t *testing.T) {
+	t.Parallel()
+	edge, srv := edgeAt(t)
+	c := &Client{URL: srv.URL, HTTP: srv.Client()}
+	yard := newKey(t)
+	demo := PreviewReport{App: "demo", Port: 8080, State: "running"}
+	for _, tc := range []struct {
+		status int
+		reason string
+	}{
+		{http.StatusForbidden, "previews need a yard on its own server: this yard is docker"},
+		{http.StatusBadRequest, `a preview report is signed over a JSON object that names the app, its port and its state: {"app":"demo","port":8080,"state":"running"}`},
+		{http.StatusTooManyRequests, "ask again shortly"},
+		{http.StatusServiceUnavailable, "the map did not answer; ask again shortly"},
+	} {
+		edge.Behave(func(b *standin.EdgeBehaviour) { b.PreviewRefuse, b.PreviewReason = tc.status, tc.reason })
+		_, err := c.PreviewReport(context.Background(), edge.PublicKey(), yard, demo)
+		var refused *Refused
+		if !errors.As(err, &refused) || refused.Status != tc.status || refused.Reason != tc.reason {
+			t.Errorf("PreviewReport, refused %d = %v, want a *Refused with its words", tc.status, err)
+		}
+	}
+	edge.Behave(func(b *standin.EdgeBehaviour) { b.PreviewRefuse = 0 })
+	if _, err := c.PreviewReport(context.Background(), store.Public(newKey(t)), yard, demo); !errors.Is(err, ErrUnsigned) {
+		t.Errorf("PreviewReport, signed to another key = %v, want ErrUnsigned", err)
+	}
+	for _, base := range []string{"evil.example/phish", "Preview.Example.Net", "a b.example", "-x.example"} {
+		edge.Behave(func(b *standin.EdgeBehaviour) { b.PreviewBase = base })
+		if a, err := c.PreviewReport(context.Background(), edge.PublicKey(), yard, demo); err == nil || a != (PreviewAnswer{}) {
+			t.Errorf("PreviewReport, answered a host under %q = %+v, %v, want an error and no address", base, a, err)
+		}
+	}
+	// A port after the host is a host the edge may have, as a stand-in's is.
+	edge.Behave(func(b *standin.EdgeBehaviour) { b.PreviewBase = "localhost:8443" })
+	if a, err := c.PreviewReport(context.Background(), edge.PublicKey(), yard, demo); err != nil || a.Host != "p-1.localhost:8443" {
+		t.Errorf("PreviewReport, answered a host with a port = %+v, %v", a, err)
+	}
+	other := newKey(t)
+	edge.Behave(func(b *standin.EdgeBehaviour) { b.PreviewBase, b.Signer = "", other })
+	if _, err := c.PreviewReport(context.Background(), edge.PublicKey(), yard, demo); !errors.Is(err, ErrUnsigned) {
+		t.Errorf("PreviewReport, answered by another key = %v, want ErrUnsigned", err)
+	}
+}

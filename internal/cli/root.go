@@ -89,6 +89,9 @@ type app struct {
 	// trusts their stand-in's certificate, and a short poll.
 	edgeHTTP *http.Client
 	edgePoll time.Duration
+	// hostWait is how long yardr preview watch waits for the edge's host on a
+	// connected yard; zero is previewHostWait, and tests shorten it.
+	hostWait time.Duration
 }
 
 // Execute runs the CLI and returns the process exit code.

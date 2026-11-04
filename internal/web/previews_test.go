@@ -316,6 +316,36 @@ func TestPreviewsPageDrawsARunningWatch(t *testing.T) {
 			t.Errorf("the watch's card shows %q", not)
 		}
 	}
+	// The edge's host for the watch stands beside its path as a link, once it
+	// has one; a watch it gave none shows no address.
+	if strings.Contains(page, "<dt>address</dt>") {
+		t.Error("a watch the edge gave no host shows an address")
+	}
+	host := "p-12.preview.example.net"
+	if _, err := f.own.UpdatePreview(ctx, p.App, store.PreviewUpdate{Host: &host}); err != nil {
+		t.Fatal(err)
+	}
+	got = web.Previews{}
+	acting.getJSON("/previews", &got)
+	if got.Previews[0].Host != host {
+		t.Fatalf("watch card host = %q, want %q", got.Previews[0].Host, host)
+	}
+	page = acting.get("/previews").body
+	for _, want := range []string{"<dt>address</dt>", `href="https://` + host + `/"`} {
+		if !strings.Contains(page, want) {
+			t.Errorf("the watch's card does not show %q", want)
+		}
+	}
+	// A refusal of the edge's is the running card's status, in the detail
+	// the card shows for a preview that has one, and the host goes.
+	none, refusal := "", "the edge refused the report: no previews here (403)"
+	if _, err := f.own.UpdatePreview(ctx, p.App, store.PreviewUpdate{Host: &none, StateDetail: &refusal}); err != nil {
+		t.Fatal(err)
+	}
+	page = acting.get("/previews").body
+	if !strings.Contains(page, "running ("+refusal+")") || strings.Contains(page, "<dt>address</dt>") {
+		t.Errorf("a running watch the edge refused: want its refusal for the status and no address:\n%s", page)
+	}
 	if r := acting.postForm("/previews", url.Values{"app": {p.App}, "action": {"restart"}}, "Origin", acting.ts.URL); r.status != http.StatusOK ||
 		!strings.Contains(r.body, "has no approved form to restart") {
 		t.Fatalf("restart of a watch: status %d: %s", r.status, r.body)
@@ -332,6 +362,37 @@ func TestPreviewsPageDrawsARunningWatch(t *testing.T) {
 	}
 	if row, err := f.st.GetPreview(ctx, p.App); err != nil || row.State != store.PreviewStopped {
 		t.Fatalf("the ended watch = %+v, %v", row, err)
+	}
+}
+
+// An app's card shows the host the edge gave it beside its path, as a link;
+// a card the edge gave none shows no address.
+func TestPreviewsPageShowsTheHostTheEdgeGave(t *testing.T) {
+	t.Parallel()
+	f := previewFixture(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+	for _, app := range []string{"hosted", "plain"} {
+		if _, err := f.st.ProposePreview(ctx, store.NewPreview{App: app, Command: "serve .", Dir: dir, Port: previewPort(t)}, "builder"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := f.st.ApprovePreview(ctx, "hosted", "ada"); err != nil {
+		t.Fatal(err)
+	}
+	host := "p-3.preview.example.net"
+	if _, err := f.own.UpdatePreview(ctx, "hosted", store.PreviewUpdate{Host: &host}); err != nil {
+		t.Fatal(err)
+	}
+	acting := f.as(t, "ada")
+	var got web.Previews
+	acting.getJSON("/previews", &got)
+	if len(got.Previews) != 2 || got.Previews[0].App != "hosted" || got.Previews[0].Host != host || got.Previews[1].Host != "" {
+		t.Fatalf("previews = %+v, want the first to carry the host the edge gave and the second none", got.Previews)
+	}
+	page := acting.get("/previews").body
+	if n := strings.Count(page, "<dt>address</dt>"); n != 1 || !strings.Contains(page, `href="https://`+host+`/"`) {
+		t.Errorf("the page shows %d addresses, want the one link to %s:\n%s", n, host, page)
 	}
 }
 

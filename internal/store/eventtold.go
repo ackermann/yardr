@@ -243,7 +243,8 @@ var eventDataTold = map[string][]string{
 	"peer_bead_undelivered": {"attempts", "id", "outcome", "peer", "sent", "stage"},
 
 	// Previews: which app, and what became of it. Its command, directory
-	// and the words of an exit are the yard's machine's, and are held.
+	// and the words of an exit are the yard's machine's, and are held, as
+	// are the host the edge gave it and the words it refused with.
 	"preview_watched":       {"app", "bead", "stage"},
 	"preview_proposed":      {"app", "port", "depot", "commit", "dirty"},
 	"preview_approved":      {"app", "port"},
@@ -256,6 +257,7 @@ var eventDataTold = map[string][]string{
 	"preview_failed":        {"app"},
 	"preview_crashed":       {"app"},
 	"preview_exited":        {"app"},
+	"preview_addressed":     {"app"},
 
 	// Timers: when they are due and for whom. What a timer says is mail to
 	// its user, in the person's own words, and so is not told.

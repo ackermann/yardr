@@ -8,8 +8,10 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/standin"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 )
@@ -103,10 +105,13 @@ func TestPreviewProposeListStopForget(t *testing.T) {
 
 // A watch is started from a bead by its builder, the user it is for or an
 // operator, names the address it opens at and when it ends, and is listed
-// as a watch, without a commit or a port.
+// as a watch, without a commit or a port. The address is its path on the
+// yard, or, on a yard connected to an edge, the host the edge gave it: the
+// command waits for the supervisor to keep that on the row, and falls back to
+// the path, with the words of the edge's refusal beneath it.
 func TestPreviewWatchStartsAndListsAWatch(t *testing.T) {
 	t.Parallel()
-	st, ctx := reviewYard(t, "/tmp/yard")
+	st, own, ctx := reviewYardOwned(t, "/tmp/yard")
 	if err := st.SetSetting(ctx, store.OperatorSetting, "ada", "me"); err != nil {
 		t.Fatal(err)
 	}
@@ -148,12 +153,96 @@ func TestPreviewWatchStartsAndListsAWatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !regexp.MustCompile(`(?m)^` + name + `\s+running\s+-\s+-\s+-\s+watch$`).MatchString(out) {
-		t.Fatalf("list printed %q, want a running watch with no commit, request or port", out)
+	if !regexp.MustCompile(`(?m)^` + name + `\s+running\s+-\s+-\s+-\s+watch\s+-$`).MatchString(out) {
+		t.Fatalf("list printed %q, want a running watch with no commit, request, port or host", out)
 	}
-	if !strings.Contains(out, "KIND") {
-		t.Fatalf("list printed %q, lacking its KIND column", out)
+	if !strings.Contains(out, "KIND") || !strings.Contains(out, "HOST") {
+		t.Fatalf("list printed %q, lacking its KIND and HOST columns", out)
 	}
+
+	// Connected to an edge, the command waits for the host the supervisor
+	// keeps on the row once the edge has answered the report. Here the test is
+	// the supervisor: it answers as soon as the watch has a row to answer.
+	edge, err := standin.NewEdge()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSetting(ctx, store.EdgeSetting, store.Edge{URL: "https://edge.example.net", Key: edge.PublicKey(), Handle: "ada", Name: "yard"}.String(), "ada"); err != nil {
+		t.Fatal(err)
+	}
+	answering, stopAnswering := context.WithCancel(ctx)
+	t.Cleanup(stopAnswering)
+	// again drops the watch's row, as a stop and a forget do, so that the
+	// next watch makes a new one; answer then gives that row what the edge said.
+	again := func() {
+		t.Helper()
+		if _, err := st.PreviewStop(ctx, name, "ada"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.ForgetPreview(ctx, name, "ada"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	answer := func(upd store.PreviewUpdate) {
+		go func() {
+			for {
+				if _, err := own.UpdatePreview(answering, name, upd); err == nil || answering.Err() != nil {
+					return
+				}
+				time.Sleep(5 * time.Millisecond)
+			}
+		}()
+	}
+	host := "p-7.preview.example.net"
+	again()
+	answer(store.PreviewUpdate{Host: &host})
+	out, err = run(t, a.previewCmd(), "watch", b.ID, "mockups")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "opens at https://"+host+"/\n") || strings.Contains(out, "/preview/"+name+"/") {
+		t.Fatalf("watch on a connected yard printed %q, want the host the edge gave as the address", out)
+	}
+	out, err = run(t, a.previewCmd(), "list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !regexp.MustCompile(`(?m)^` + name + `\s+running\s+-\s+-\s+-\s+watch\s+` + regexp.QuoteMeta(host) + `$`).MatchString(out) {
+		t.Fatalf("list printed %q, want the host in its column", out)
+	}
+	a.json = true
+	out, err = run(t, a.previewCmd(), "list")
+	a.json = false
+	if err != nil || !strings.Contains(out, `"host": "`+host+`"`) {
+		t.Fatalf("list --json printed %q, %v, want the host in the row", out, err)
+	}
+
+	// An edge that refused the report leaves its words in the row's detail:
+	// the command stops waiting, prints the path and says why that is all.
+	refusal := "the edge refused the report: previews need a yard on its own server: this yard is docker (403)"
+	none := ""
+	again()
+	answer(store.PreviewUpdate{Host: &none, StateDetail: &refusal})
+	out, err = run(t, a.previewCmd(), "watch", b.ID, "mockups")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "opens at /preview/"+name+"/\n"+refusal+"\n") {
+		t.Fatalf("watch the edge refused printed %q, want the path and the refusal beneath it", out)
+	}
+	out, err = run(t, a.previewCmd(), "list")
+	if err != nil || !strings.Contains(out, "running ("+refusal+")") {
+		t.Fatalf("list printed %q, %v, want the refusal after the state", out, err)
+	}
+
+	// An edge that has not answered when the wait is up: the path, as before.
+	again()
+	a.hostWait = 20 * time.Millisecond
+	out, err = run(t, a.previewCmd(), "watch", b.ID, "mockups")
+	if err != nil || !strings.Contains(out, "opens at /preview/"+name+"/\nends when") {
+		t.Fatalf("watch with no answer printed %q, %v, want the path", out, err)
+	}
+	a.hostWait = 0
 
 	// A directory that is not one of the worktree's, and a user who is not
 	// the bead's, the builder's or an operator, are refused in words.

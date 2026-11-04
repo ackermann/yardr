@@ -24,6 +24,9 @@
       <div><dt>watch of</dt><dd>{{.Bead}} in {{.Stage}}</dd></div>
       <div><dt>directory</dt><dd>{{.Dir}}</dd></div>
       <div><dt>opens at</dt><dd>/preview/{{.App}}/</dd></div>
+      {{- with .Host}}
+      <div><dt>address</dt><dd><a href="https://{{.}}/">{{.}}</a></dd></div>
+      {{- end}}
       <div><dt>started by</dt><dd>{{.Proposer}} {{with .StartedAt}}<time datetime="{{.UTC.Format "2006-01-02T15:04:05Z"}}">{{.Local.Format "Jan 2 15:04"}}</time>{{end}}</dd></div>
       <div><dt>lifetime</dt><dd>idle {{$.Data.Idle}} · age {{$.Data.MaxAge}}</dd></div>
       {{- else}}
@@ -38,6 +41,9 @@
              stale preview reads apart from a fresh one. */}}
       <div><dt>head</dt><dd>{{.ShortHead}}</dd></div>
       <div><dt>opens at</dt><dd>/preview/{{.App}}/</dd></div>
+      {{- with .Host}}
+      <div><dt>address</dt><dd><a href="https://{{.}}/">{{.}}</a></dd></div>
+      {{- end}}
       <div><dt>proposed by</dt><dd>{{.Proposer}} <time datetime="{{.ProposedAt.UTC.Format "2006-01-02T15:04:05Z"}}">{{.ProposedAt.Local.Format "Jan 2 15:04"}}</time></dd></div>
       {{- with .Approval}}
       <div><dt>approved by</dt><dd>{{.By}} <time datetime="{{.At.UTC.Format "2006-01-02T15:04:05Z"}}">{{.At.Local.Format "Jan 2 15:04"}}</time></dd></div>

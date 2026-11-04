@@ -286,7 +286,7 @@ func (r *runner) serve(ctx context.Context) (string, bool, error) {
 		stopWatchCtx()
 		<-supervisorDone
 	}()
-	stopPreviewLink := KeepEdge(ctx, c, st, "preview", supervisor.Handler(), log)
+	stopPreviewLink := KeepEdge(ctx, c, st, "preview", supervisor.Handler(), log, supervisor.LinkUp)
 	defer servePprof(config.Getenv(PprofEnv), log)()
 	served := make(chan error, 1)
 	go func() { served <- srv.Serve(ln) }()
@@ -503,7 +503,7 @@ func serveHooks(ctx context.Context, c *config.Config, st *store.Store, log *slo
 	// Without the slash too, or the mux would answer a redirect there to
 	// whoever asks.
 	mux.Handle(strings.TrimSuffix(rpc.UserPath, "/"), device)
-	stopEdge := KeepEdge(ctx, c, st, "", withoutPeers(mux), log)
+	stopEdge := KeepEdge(ctx, c, st, "", withoutPeers(mux), log, nil)
 	stopListener := func() {}
 	if l.Addr != "" {
 		stopListener = listenHooks(ctx, st, &l, mux, log)

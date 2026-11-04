@@ -97,7 +97,7 @@ var variableSites = map[string]struct {
 	"internal/store/subscriptions.go": {5, []string{"subscribed", "unsubscribed", "identity_set", "identity_removed"}},
 	"internal/store/threads.go":       {1, []string{"thread_opened", "replied"}},
 	"internal/store/previews.go": {1, []string{"preview_started", "preview_stopped", "preview_refused",
-		"preview_failed", "preview_crashed", "preview_exited"}},
+		"preview_failed", "preview_crashed", "preview_exited", "preview_addressed"}},
 }
 
 // prefixedKinds are the kinds a call writes as a prefix and a variable: the

@@ -760,7 +760,7 @@ origin; the test allows those and only those ([One bead](#one-bead)).
 | `/sessions` | the running sessions, the oldest first, with bead, stage, group, originator, login, runner, state and age (`yardr session list`), and under them the claims of manual groups, live | `Sessions` |
 | `/sessions?all=1` | the same page; its JSON lists the ended sessions too, every one (`yardr session list -a --all`) | `Sessions` |
 | `/crew` | each crew member: whether it runs, since when, and its unread inbox count when there is one, live. Journals and handoffs are not shown | `Crew` |
-| `/previews` | the yard's previews: one card per preview with the start command in full, the directory, the port, the depot commit and dirty mark beside the depot's HEAD now, the proposer and the lifetime, the running preview's log tail and a stale mark, live; on a view that acts, with Approve, Refuse, Open, Stop and Restart. A running [watch](watch.md) is a card of its own, with the bead, the directory and Open and Stop | `Previews` |
+| `/previews` | the yard's previews: one card per preview with the start command in full, the directory, the port, the depot commit and dirty mark beside the depot's HEAD now, the proposer and the lifetime, the running preview's log tail and a stale mark, live; on a view that acts, with Approve, Refuse, Open, Stop and Restart. A card shows the host the [edge](edge.md#previews-through-the-edge) gave the preview, as an address beside its path, once it has one. A running [watch](watch.md) is a card of its own, with the bead, the directory and Open and Stop | `Previews` |
 | `/config` | the hub of the configuration pages: links to the lists, with Telemetry for the operator | `Config` |
 | `/depots` | the yard's depots: each with its kind, path, base and test command (`yardr depot list`), live | `Depots` |
 | `/groups` | the yard's groups: each with its runner, limit, members and config (`yardr group list`), live | `Groups` |
@@ -1080,6 +1080,7 @@ and the command's are added:
   "previews": [
     {"app": "demo", "command": "serve .", "dir": "~/site", "port": 8080,
      "depot": "site", "commit": "a1b2c3d4e5f6", "dirty": true,
+     "host": "p-3.preview.example.net",
      "state": "running", "proposer": "yardr-9c2k-new", "proposed_at": "2026-10-04T00:02:11Z",
      "approval": {"by": "mckean", "at": "2026-10-04T00:31:40Z", "command": "serve .", "dir": "~/site", "port": 8080,
                   "commit": "a1b2c3d4e5f6", "dirty": true},
@@ -1097,6 +1098,11 @@ and the command's are added:
 - `head` is the depot's HEAD now, beside the `commit` the preview runs;
   `stale` is set when the two differ and both are known. A row with no
   repository has neither.
+- `host` is the host the edge answered the yard's report of the preview
+  with, an address to open it at (`https://<host>/`): absent while the yard
+  is connected to no edge or the edge gave none. An edge that refused the
+  report leaves its words in `state_detail`, which a running preview has
+  none other in ([Previews through the edge](edge.md#previews-through-the-edge)).
 - `log` is there while the preview runs, for the operator: the last
   hundred lines of its captured output, newest last.
 - On a view that acts, the card's buttons post to `/previews` as the

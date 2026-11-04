@@ -146,6 +146,11 @@ type Preview struct {
 	// the bead is no longer in that stage.
 	Bead  string `json:"bead,omitempty"`
 	Stage string `json:"stage,omitempty"`
+	// Host is the host the edge answered the supervisor's report of the
+	// preview with, which a person opens it at (https://<host>/). It is the
+	// edge's to give: empty while the yard is connected to none, or the edge
+	// has no address for the preview (internal/preview, report.go).
+	Host string `json:"host,omitempty"`
 
 	State       string           `json:"state"`
 	StateDetail string           `json:"state_detail,omitempty"`
@@ -406,6 +411,7 @@ type PreviewUpdate struct {
 	Restarts      *int
 	Exits         []time.Time // nil: leave
 	Commit        string      // "": leave; the commit a (re)start runs
+	Host          *string     // nil: leave; "" clears the edge's host
 }
 
 // UpdatePreview records upd on the preview app. It is the supervisor's
@@ -451,6 +457,9 @@ func (s *Store) UpdatePreview(ctx context.Context, app string, upd PreviewUpdate
 		}
 		if upd.Commit != "" {
 			p.Commit = upd.Commit
+		}
+		if upd.Host != nil {
+			p.Host = *upd.Host
 		}
 		return put(w.Tx, bPreviews, app, p)
 	})
