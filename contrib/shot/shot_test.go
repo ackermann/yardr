@@ -496,23 +496,54 @@ func TestShotRefusesAFramingForbiddenPage(t *testing.T) {
 	}
 }
 
-// SHOT_WIDTH is a positive number of pixels, as SHOT_TIMEOUT is of seconds:
-// anything else is refused naming the variable, and Chrome never runs.
-func TestShotRefusesABadWidth(t *testing.T) {
+// A setting outside its accepted values is refused naming the variable, and
+// Chrome never runs. An invalid SHOT_ANY_STATUS is checked before the page is
+// fetched, so its cases use a port nothing listens on.
+func TestShotRefusesABadSetting(t *testing.T) {
 	if _, err := exec.LookPath("curl"); err != nil {
 		t.Skip("no curl: it checks the page before the shot")
 	}
 	s := page(t)
-	for _, width := range []string{"abc", "0", "00", "-5", "12.5", "390px", "3 90", "99999999999999999999"} {
-		t.Run(width, func(t *testing.T) {
-			env, argsFile := standin(t, "shot", 0)
-			out := filepath.Join(t.TempDir(), "shot.png")
-			rc, text := runShot(shotCtx(t), t, []string{s.URL + "/page", out}, append(env, "SHOT_WIDTH="+width)...)
-			if want := "SHOT_WIDTH=" + width + " is not a positive number of pixels"; rc != 1 || !strings.Contains(text, want) {
-				t.Errorf("SHOT_WIDTH=%q: exit %d, %q, want exit 1 with %q", width, rc, text, want)
-			}
-			if _, err := os.Stat(argsFile); !os.IsNotExist(err) {
-				t.Errorf("SHOT_WIDTH=%q: Chrome ran despite the refusal: %v", width, err)
+	shut := closedAddr(t)
+	for _, tc := range []struct {
+		setting string
+		values  []string
+		url     string
+		refusal func(string) string
+	}{
+		{
+			setting: "SHOT_WIDTH",
+			values:  []string{"abc", "0", "00", "-5", "12.5", "390px", "3 90", "99999999999999999999"},
+			url:     s.URL + "/page",
+			refusal: func(value string) string {
+				return "SHOT_WIDTH=" + value + " is not a positive number of pixels"
+			},
+		},
+		{
+			setting: "SHOT_ANY_STATUS",
+			values:  []string{"yes", "true", "2", "01", "00", "-1", " 1", "1 "},
+			url:     "http://" + shut + "/page",
+			refusal: func(value string) string {
+				return "SHOT_ANY_STATUS=" + value + " is not 1 (on) or 0 (off)"
+			},
+		},
+	} {
+		t.Run(tc.setting, func(t *testing.T) {
+			for _, value := range tc.values {
+				t.Run(value, func(t *testing.T) {
+					env, argsFile := standin(t, "shot", 0)
+					out := filepath.Join(t.TempDir(), "shot.png")
+					rc, text := runShot(shotCtx(t), t, []string{tc.url, out}, append(env, tc.setting+"="+value)...)
+					if want := tc.refusal(value); rc != 1 || !strings.Contains(text, want) {
+						t.Errorf("%s=%q: exit %d, %q, want exit 1 with %q", tc.setting, value, rc, text, want)
+					}
+					if _, err := os.Stat(argsFile); !os.IsNotExist(err) {
+						t.Errorf("%s=%q: Chrome ran despite the refusal: %v", tc.setting, value, err)
+					}
+					if _, err := os.Stat(out); !os.IsNotExist(err) {
+						t.Errorf("%s=%q: a shot is at %s", tc.setting, value, out)
+					}
+				})
 			}
 		})
 	}
@@ -683,6 +714,201 @@ func TestShotRefusesAMissingPage(t *testing.T) {
 	}
 	if _, text := runShot(shotCtx(t), t, []string{s.URL + "/missing", filepath.Join(t.TempDir(), "shot.png")}); !strings.Contains(text, "404") {
 		t.Errorf("a missing path is refused with %q, which carries no reason", text)
+	}
+}
+
+// errorPages is a local server of the answers the script's page check tells
+// apart: error pages that send a body (the refusal page of a rate limit, a 429
+// asking for a minute's wait, among them), the same statuses sent bare, a
+// redirect to each kind (http.Redirect sends a body of its own, which must not
+// count as the final answer's), a redirect loop and an ordinary page.
+func errorPages(t *testing.T) *httptest.Server {
+	t.Helper()
+	withBody := func(status int, retryAfter string) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/html")
+			if retryAfter != "" {
+				w.Header().Set("Retry-After", retryAfter)
+			}
+			w.WriteHeader(status)
+			_, _ = w.Write([]byte("<html><body><h1>" + http.StatusText(status) + "</h1></body></html>"))
+		}
+	}
+	bare := func(status int) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(status) }
+	}
+	redirect := func(to string) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, to, http.StatusFound) }
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/too-many", withBody(http.StatusTooManyRequests, "60"))
+	mux.HandleFunc("/unavailable", withBody(http.StatusServiceUnavailable, ""))
+	mux.HandleFunc("/not-found", withBody(http.StatusNotFound, ""))
+	mux.HandleFunc("/bare-429", bare(http.StatusTooManyRequests))
+	mux.HandleFunc("/bare-503", bare(http.StatusServiceUnavailable))
+	mux.HandleFunc("/redirect-to-too-many", redirect("/too-many"))
+	mux.HandleFunc("/redirect-to-bare", redirect("/bare-429"))
+	mux.HandleFunc("/loop", redirect("/loop"))
+	mux.HandleFunc("/page", withBody(http.StatusOK, ""))
+	s := httptest.NewServer(mux)
+	t.Cleanup(s.Close)
+	return s
+}
+
+// closedAddr is the address of a port nothing listens on: listened on and
+// closed.
+func closedAddr(t *testing.T) string {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := l.Addr().String()
+	l.Close()
+	return addr
+}
+
+// shootsOrRefuses runs the script on url with env and checks what it did.
+// With no refusal given the page is shot: Chrome was passed the page and the
+// file holds its bytes. With one it is refused: the output names the page and
+// carries every word of the refusal, Chrome never ran and no file was written.
+func shootsOrRefuses(t *testing.T, url string, refusal []string, env ...string) {
+	t.Helper()
+	chrome, argsFile := standin(t, "shot", 0)
+	out := filepath.Join(t.TempDir(), "shot.png")
+	rc, text := runShot(shotCtx(t), t, []string{url, out}, append(chrome, env...)...)
+	if refusal == nil {
+		if rc != 0 {
+			t.Fatalf("shot %s with %q: exit %d: %s", url, env, rc, text)
+		}
+		if got, err := os.ReadFile(out); err != nil || string(got) != "shot" {
+			t.Errorf("shot %s with %q wrote %q, %v, want the stand-in's bytes", url, env, got, err)
+		}
+		if raw, err := os.ReadFile(argsFile); err != nil || !strings.Contains(string(raw), url) {
+			t.Errorf("shot %s with %q passed Chrome %q, %v, want the page", url, env, raw, err)
+		}
+		return
+	}
+	if rc == 0 {
+		t.Fatalf("shot %s with %q: exit 0, want a refusal", url, env)
+	}
+	for _, want := range append([]string{url}, refusal...) {
+		if !strings.Contains(text, want) {
+			t.Errorf("shot %s with %q: %q, which lacks %q", url, env, text, want)
+		}
+	}
+	if _, err := os.Stat(argsFile); !os.IsNotExist(err) {
+		t.Errorf("shot %s with %q: Chrome ran for a refused page", url, env)
+	}
+	if _, err := os.Stat(out); !os.IsNotExist(err) {
+		t.Errorf("shot %s with %q: a shot of a refused page is at %s", url, env, out)
+	}
+}
+
+// A page that answers 4xx or 5xx is shot only when the person shooting says it
+// is meant to (SHOT_ANY_STATUS=1), since an error page and a missing route can
+// answer alike, and then only if it sends a body: a bare answer has nothing to
+// render, and Chrome shoots nothing for it, or its own error page. What curl
+// cannot get an answer from (a closed port, a redirect loop) is refused either
+// way, and the page's own status decides, not that of a redirect on the way.
+func TestShotShootsAnErrorPageOnlyWhenTold(t *testing.T) {
+	if _, err := exec.LookPath("curl"); err != nil {
+		t.Skip("no curl: it checks the page before the shot")
+	}
+	s := errorPages(t)
+	shut := closedAddr(t)
+	for _, c := range []struct {
+		name    string
+		url     string
+		off, on []string // the words of the refusal with the switch off and on; nil: the page is shot
+	}{
+		{"a 429 with a body", s.URL + "/too-many", []string{"429"}, nil},
+		{"a 503 with a body", s.URL + "/unavailable", []string{"503"}, nil},
+		{"a 404 with a body", s.URL + "/not-found", []string{"404"}, nil},
+		{"a redirect to a 429 with a body", s.URL + "/redirect-to-too-many", []string{"429"}, nil},
+		{"a 429 with no body", s.URL + "/bare-429", []string{"429"}, []string{"empty answer", "429"}},
+		{"a 503 with no body", s.URL + "/bare-503", []string{"503"}, []string{"empty answer", "503"}},
+		{"a redirect with a body to a 429 with none", s.URL + "/redirect-to-bare", []string{"429"}, []string{"empty answer", "429"}},
+		{"a redirect loop", s.URL + "/loop", []string{"redirects"}, []string{"redirects"}},
+		{"a port nothing listens on", "http://" + shut + "/page", []string{"Failed to connect"}, []string{"Failed to connect"}},
+		{"a page that answers 200", s.URL + "/page", nil, nil},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			shootsOrRefuses(t, c.url, c.off)
+			shootsOrRefuses(t, c.url, c.on, "SHOT_ANY_STATUS=1")
+		})
+	}
+	// Off is unset, as above, and just as much empty or 0.
+	for _, off := range []string{"SHOT_ANY_STATUS=", "SHOT_ANY_STATUS=0"} {
+		t.Run(off, func(t *testing.T) {
+			shootsOrRefuses(t, s.URL+"/too-many", []string{"429"}, off)
+		})
+	}
+}
+
+// The final answer's body is kept only where SHOT_ANY_STATUS=1 asks the empty-
+// answer check of it: without the switch the fetch discards the body, as it
+// always did, so a page that never stops sending cannot fill the disk in the
+// minute curl is given. A stand-in Chrome lists the throwaway profile it is run
+// with, the one place the body could be; the page's headers, which the script
+// does keep there, show the listing is of the profile.
+func TestShotKeepsNoBodyUnlessTold(t *testing.T) {
+	if _, err := exec.LookPath("curl"); err != nil {
+		t.Skip("no curl: it checks the page before the shot")
+	}
+	s := errorPages(t)
+	dir := t.TempDir()
+	listing := filepath.Join(dir, "listing")
+	bin := filepath.Join(dir, "chrome")
+	scripttest.Write(t, bin, "#!/bin/sh\n"+
+		"for a in \"$@\"; do case \"$a\" in\n"+
+		"  --user-data-dir=*) prof=${a#--user-data-dir=};;\n"+
+		"  --screenshot=*) out=${a#--screenshot=};;\n"+
+		"esac; done\n"+
+		"ls -l \"$prof\" >\""+listing+"\"\n"+
+		"printf shot >\"$out\"\n")
+	profileModes := func() map[string]string {
+		t.Helper()
+		raw, err := os.ReadFile(listing)
+		if err != nil {
+			t.Fatal(err)
+		}
+		modes := make(map[string]string)
+		for _, line := range strings.Split(string(raw), "\n") {
+			fields := strings.Fields(line)
+			if len(fields) >= 2 {
+				name := fields[len(fields)-1]
+				if name == "headers" || name == "body" {
+					modes[name] = fields[0]
+				}
+			}
+		}
+		return modes
+	}
+	out := filepath.Join(t.TempDir(), "shot.png")
+	if rc, text := runShot(shotCtx(t), t, []string{s.URL + "/page", out}, "SHOT_CHROME="+bin); rc != 0 {
+		t.Fatalf("shot: exit %d: %s", rc, text)
+	}
+	modes := profileModes()
+	if _, ok := modes["headers"]; !ok {
+		t.Fatalf("the profile holds %v, want the page's headers", modes)
+	}
+	if _, ok := modes["body"]; ok {
+		t.Errorf("the profile holds %v: the body of a page was kept without SHOT_ANY_STATUS=1", modes)
+	}
+	if modes["headers"] != "-rw-------" {
+		t.Errorf("the profile's headers have mode %q, want -rw-------", modes["headers"])
+	}
+
+	out = filepath.Join(t.TempDir(), "error-shot.png")
+	if rc, text := runShot(shotCtx(t), t, []string{s.URL + "/too-many", out}, "SHOT_CHROME="+bin, "SHOT_ANY_STATUS=1"); rc != 0 {
+		t.Fatalf("shot the error page: exit %d: %s", rc, text)
+	}
+	modes = profileModes()
+	for _, name := range []string{"headers", "body"} {
+		if modes[name] != "-rw-------" {
+			t.Errorf("the profile's %s have mode %q, want -rw-------", name, modes[name])
+		}
 	}
 }
 

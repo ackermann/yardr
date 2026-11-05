@@ -32,9 +32,20 @@ own. Chrome gets `SHOT_TIMEOUT` seconds to finish, a minute when that is
 unset; a slower shot fails with `shot: chrome did not finish within ...` and
 what Chrome printed so far.
 
+A page that answers 4xx or 5xx counts as not there, with the status in the
+reason: an error page and a missing route can answer with the same status and
+the same body, so only the person shooting can say the page is meant to.
+`SHOT_ANY_STATUS=1` says so (`SHOT_ANY_STATUS=1 contrib/shot/shot <url> <file>`
+shoots a refusal page, a 429 or a 503): the page is shot if it sends a body,
+and refused as an empty answer, naming the status, if it sends none, since
+there is nothing to render and Chrome shoots nothing for it, or its own error
+page. A connection error, a timeout and a redirect loop are refused either
+way. Unset, empty or `0` leaves the switch off, and any other value is
+refused, naming `SHOT_ANY_STATUS`, before the page is fetched.
+
 The builder's role (`packs/starter/roles/builder.md`, and the same text in the
-design, website and contributors packs) quotes the script's flags; a test
-fails when the two drift (`TestBuilderRoleQuotesTheShotFlags`). Where the page
-needs driving first (a click, a scroll), the role names `agent-browser
-screenshot` instead; a depot may carry its own shot script, named by its
-README or `.yardr/depot.md`.
+design, website and contributors packs) quotes the script's flags and its
+`SHOT_ANY_STATUS=1` switch; a test fails when the two drift
+(`TestBuilderRoleQuotesTheShotFlags`). Where the page needs driving first (a
+click, a scroll), the role names `agent-browser screenshot` instead; a depot
+may carry its own shot script, named by its README or `.yardr/depot.md`.

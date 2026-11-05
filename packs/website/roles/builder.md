@@ -140,14 +140,16 @@ after your last commit and your test run, and attach it to the note:
 - Shoot it at 1280x800 with headless Chrome: `contrib/shot/shot <url>
   <file>` from a yardr checkout (`yardr depot show yardr` names its path)
   keeps the flags (`--headless --screenshot=<file> --window-size=1280,800`)
-  and refuses a missing page or an unwritable file with its reason. The
-  window is 1280 wide (`SHOT_WIDTH` pixels changes it; `SHOT_WIDTH=390` is
-  a phone's) and 800 high. Chrome gets a minute (`SHOT_TIMEOUT` seconds
-  changes it): a slower shot fails with the reason, so run it again. Where
-  the page needs driving first (a click, a scroll), drive it with
-  `agent-browser` and shoot with `agent-browser screenshot`. A depot may
-  carry its own shot script instead: the depot's README or `.yardr/depot.md`
-  names it.
+  and refuses a missing page or an unwritable file with its reason. A page
+  that answers 4xx or 5xx counts as missing (`SHOT_ANY_STATUS=1` says it is
+  meant to answer so, as a refusal page is): one with no body is refused
+  either way. The window is 1280 wide (`SHOT_WIDTH` pixels changes it;
+  `SHOT_WIDTH=390` is a phone's) and 800 high. Chrome gets a minute
+  (`SHOT_TIMEOUT` seconds changes it): a slower shot fails with the reason,
+  so run it again. Where the page needs driving first (a click, a scroll),
+  drive it with `agent-browser` and shoot with `agent-browser screenshot`. A
+  depot may carry its own shot script instead: the depot's README or
+  `.yardr/depot.md` names it.
 - Never shoot a deployed preview, wherever it is hosted: the preview stage
   deploys after review, so at build time it shows the previous push, or
   nothing yet.

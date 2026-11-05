@@ -817,8 +817,10 @@ func TestWebsiteDeployVoidIsTheReferenceDeploy(t *testing.T) {
 // the two change together: the size the role names is the window the script
 // shoots, and the flags it quotes are the script's. The width is the script's
 // SHOT_WIDTH default, which the role names as the setting that changes it, and
-// the height is the one the script's window flag carries. Every pack's
-// builder role says it, since each is its own copy.
+// the height is the one the script's window flag carries. The switch that
+// shoots a page answering 4xx or 5xx is the script's SHOT_ANY_STATUS=1, which
+// the role names the same way. Every pack's builder role says it, since each
+// is its own copy.
 func TestBuilderRoleQuotesTheShotFlags(t *testing.T) {
 	shot, err := os.ReadFile("../../contrib/shot/shot")
 	if err != nil {
@@ -832,7 +834,7 @@ func TestBuilderRoleQuotesTheShotFlags(t *testing.T) {
 	if height == nil {
 		t.Fatal("contrib/shot/shot names no --window-size=$SHOT_WIDTH,H")
 	}
-	for _, flag := range []string{"--headless", "--screenshot="} {
+	for _, flag := range []string{"--headless", "--screenshot=", "SHOT_ANY_STATUS=1"} {
 		if !strings.Contains(string(shot), flag) {
 			t.Errorf("contrib/shot/shot does not carry %s", flag)
 		}
@@ -847,7 +849,7 @@ func TestBuilderRoleQuotesTheShotFlags(t *testing.T) {
 		if want := width[1] + "x" + height[1]; !strings.Contains(string(role), want) {
 			t.Errorf("%s does not name %s, the window contrib/shot/shot shoots", path, want)
 		}
-		for _, want := range []string{"--headless", "--screenshot=", window, "SHOT_WIDTH"} {
+		for _, want := range []string{"--headless", "--screenshot=", window, "SHOT_WIDTH", "SHOT_ANY_STATUS=1"} {
 			if !strings.Contains(string(role), want) {
 				t.Errorf("%s does not quote %s", path, want)
 			}

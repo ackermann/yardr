@@ -10,6 +10,14 @@
 # on macOS lays every narrower window out 500 wide; a page that forbids
 # framing is refused instead, naming the header.
 #
+# A page that answers 4xx or 5xx is a page that is not there, whatever it
+# sends: an error page and a missing route can answer alike, so only the
+# person shooting can say the page is meant to. SHOT_ANY_STATUS=1 says so: a
+# page that sends a body is shot, and one that sends none is refused as an
+# empty answer, since there is nothing to render and Chrome shoots nothing for
+# it, or its own error page. Unset, empty or 0 leaves the switch off, and any
+# other value is refused.
+#
 # Chrome is SHOT_CHROME where that names an executable, else the first of
 # google-chrome, google-chrome-stable, chromium and chromium-browser on PATH,
 # else the macOS application. The page is fetched first with curl, which must
@@ -105,10 +113,34 @@ esac
 # matched host holds no spaces or glob characters.
 noproxy_flags=
 [ -n "$noproxy" ] && noproxy_flags="--noproxy $noproxy"
-# The headers are kept for the framing check on the wrapper path below.
+# -f is what refuses a page that answers 4xx or 5xx, with its status, so
+# SHOT_ANY_STATUS=1 is the one thing that drops it. It then keeps the final
+# answer's body, which the empty-answer check after the fetch judges an error
+# status by; otherwise the body is discarded, as it always was. A value that is
+# neither 1 nor off is refused, before the page is fetched, rather than read as
+# off: whoever wrote yes would otherwise be told the page is missing.
+fail=-f body=/dev/null
+case "${SHOT_ANY_STATUS:-0}" in
+  0) ;;
+  1) fail='' body=$prof/body ;;
+  *) echo "shot: SHOT_ANY_STATUS=$SHOT_ANY_STATUS is not 1 (on) or 0 (off)" >&2; exit 1 ;;
+esac
+# The headers are kept for the framing check on the wrapper path below. The
+# status goes to stdout and curl's reason to a file, which is what a refusal
+# prints.
 # shellcheck disable=SC2086
-reason=$(curl -sS -f -L -o /dev/null -D "$prof/headers" --max-time 60 --proto =http,https --proto-redir =http,https $noproxy_flags -- "$url" 2>&1) ||
-  { echo "shot: $url: $reason" >&2; exit 1; }
+code=$(umask 077; curl -sS $fail -L -o "$body" -w '%{http_code}' -D "$prof/headers" --max-time 60 --proto =http,https --proto-redir =http,https $noproxy_flags -- "$url" 2>"$prof/reason") ||
+  { echo "shot: $url: $(cat "$prof/reason")" >&2; exit 1; }
+# Without -f an error status is an answer like another, and what makes it a
+# page is its body: a bare one has nothing to render, and Chrome shoots nothing
+# for it, or its own error page, neither of them a shot of this page. -o holds
+# the final answer's body alone, so the body of a redirect on the way does not
+# count.
+case "$code" in
+  [45]??)
+    [ -s "$body" ] ||
+      { echo "shot: $url: empty answer: it said $code with no body, so there is nothing to shoot" >&2; exit 1; } ;;
+esac
 
 # Then Chrome. A name on PATH is resolved to its path, so the check below
 # holds the binary and not the working directory.
