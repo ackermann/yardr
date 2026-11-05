@@ -929,9 +929,10 @@ herdr yardr adds that herdr has to be opened to see it.
 When the yardmaster is not up, yardr says why the wait ended (the time is up;
 the daemon gave up after five failed starts; a start failed with herdr or the
 harness not on PATH, which no waiting brings; the daemon ended; the yardmaster
-is disabled), what is known (which program is missing, the reason of the last
-failed start, the last lines of the yardmaster's pane, where the daemon logs)
-and how to go on. Of a session that runs without an answer, and of a start
+is disabled), what is known (which program is missing, and for herdr the
+command that runs its own installer, with its page, as `yardr doctor` gives it;
+the reason of the last failed start, the last lines of the yardmaster's pane,
+where the daemon logs) and how to go on. Of a session that runs without an answer, and of a start
 that failed with every program there, what is known has one more line: what
 one real call to the harness outside a pane came to, made once after the
 failure, with a terminal or without; how to go on says what that usually
@@ -1016,7 +1017,9 @@ yardr wrote for the yard, then a list of what it left on the machine
 herdr is looked for on PATH, then with your login shell, as `yardr doctor`
 looks for a program: a window starts yardr without what your profile adds to
 PATH. When only the login shell finds herdr, the line says so, and when
-neither finds it, the line says where it looked. What up starts as its own
+neither finds it, the line says where it looked and gives the command that
+runs herdr's own installer, with its page, as `yardr doctor` does; up never
+runs it. What up starts as its own
 child gets that shell's PATH after its own, where there is a login shell to
 ask: from a card or a run, up's own PATH is the server's short one.
 

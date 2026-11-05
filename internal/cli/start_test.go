@@ -501,7 +501,10 @@ func TestWaitEndsOnAFailedStart(t *testing.T) {
 		t.Errorf("a harness that is not there is not one to try:\n%s", next)
 	}
 	known := strings.Join(res.Known, "\n")
-	for _, s := range []string{"herdr is not on PATH: it starts every agent", "claude is not on PATH: it is the harness yardmaster runs on",
+	// herdr's line carries the command that runs its installer, with its
+	// page, as doctor and the onboarding say where to get it.
+	for _, s := range []string{"herdr is not on PATH: it starts every agent, so nothing runs until it is installed. Get it: " + herdrInstall + " (more: https://herdr.dev)",
+		"claude is not on PATH: it is the harness yardmaster runs on",
 		"the last start failed with: herdr workspace.create", "logs to " + home + "/daemon.log"} {
 		if !strings.Contains(known, s) {
 			t.Errorf("known lacks %q:\n%s", s, known)
@@ -523,6 +526,10 @@ func TestWaitEndsOnAFailedStart(t *testing.T) {
 		!strings.Contains(strings.Join(res.Next, "\n"), hereAt(home, "yardr crew start yardmaster")) ||
 		!strings.Contains(strings.Join(res.Known, "\n"), "the last start failed with: herdr agent start: boom") {
 		t.Fatalf("%+v", res)
+	}
+	// herdr is there: the report says nothing of getting it.
+	if known := strings.Join(res.Known, "\n"); strings.Contains(known, herdrInstall) {
+		t.Errorf("herdr is on PATH, and the report says how to get it:\n%s", known)
 	}
 	// A start that failed with every program there names the call that says
 	// whether the harness works (yardr-aa7y); one that failed for want of a

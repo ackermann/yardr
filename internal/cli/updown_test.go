@@ -678,6 +678,9 @@ func TestUpStartsWhatDoesNotRun(t *testing.T) {
 	if strings.Contains(out, "web view") || strings.Contains(out, "BDP") {
 		t.Errorf("up speaks of a part the yard has no address for:\n%s", out)
 	}
+	if strings.Contains(out, herdrInstall) {
+		t.Errorf("up says how to get herdr, which is on PATH:\n%s", out)
+	}
 
 	stub(t, &serverRunning, func(context.Context, *config.Config) bool { return true })
 	out, err = run(t, a(false).rootCmd(), "up")
@@ -703,8 +706,9 @@ func TestUpStartsWhatDoesNotRun(t *testing.T) {
 	}
 }
 
-// Without herdr up says where it looked and what to do, and starts no
-// daemon: every agent it started would fail and count as a failed start.
+// Without herdr up says where it looked and what to do, the installer's
+// command with its page among it as doctor says it, and starts no daemon:
+// every agent it started would fail and count as a failed start.
 func TestUpWithoutHerdr(t *testing.T) {
 	home, _, a, herdrStarts, daemonStarts := upYard(t, false)
 	stubLookPath(t, "claude", "git")
@@ -715,7 +719,7 @@ func TestUpWithoutHerdr(t *testing.T) {
 	}
 	wantText(t, out,
 		"herdr's server  NOT herdr is not installed, or not where yardr looks: PATH (/usr/bin:/bin); SHELL names no login shell to ask\n",
-		"                  install herdr (https://herdr.dev), then: "+hereAt(home, "yardr up")+"\n",
+		"                  install herdr with "+herdrInstall+" (more: https://herdr.dev), then: "+hereAt(home, "yardr up")+"\n",
 		"server          running already (pid 4711)\n",
 		"daemon          NOT herdr's server does not run",
 		"is not up: see NOT above.\n")

@@ -456,7 +456,7 @@ func (a *app) upHerdr(ctx context.Context, cfg *config.Config, login bool) (p ya
 	bin, looked := herdrProgram(ctx)
 	if bin == "" {
 		p.Error = "herdr is not installed, or not where yardr looks: " + looked
-		p.Do = "install herdr (https://herdr.dev), then: " + again
+		p.Do = "install herdr with " + basicNeeds()[0].Get + ", then: " + again
 		notInstalled("herdr is not installed")
 		return p, l
 	}

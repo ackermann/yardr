@@ -691,7 +691,9 @@ func diagnose(ctx context.Context, cfg *config.Config, st store.API, r *store.Cr
 		kind, _ := r.Config["kind"].(string)
 		for _, exe := range absent(*r) {
 			if exe == "herdr" {
-				known = append(known, "herdr is not on PATH: it starts every agent, so nothing runs until it is installed")
+				// Get is the words yardr doctor and the onboarding say where
+				// to get herdr: its installer's command, with its page.
+				known = append(known, "herdr is not on PATH: it starts every agent, so nothing runs until it is installed. Get it: "+basicNeeds()[0].Get)
 			} else {
 				known = append(known, fmt.Sprintf("%s is not on PATH: it is the harness %s runs on (%s)", exe, yardmaster, kind))
 			}
