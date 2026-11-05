@@ -167,7 +167,7 @@ own after the FAULT, so it is easy to copy. yardr never runs it.
 | `ok herdr <path>, its server is running` | on PATH, and its server answers |
 | ``FAULT herdr <path>: on PATH, but its server is not running (server_not_running: <herdr's message>): the daemon cannot start agents until it is. Start it: run herdr in a terminal (ctrl+b q detaches, the server stays); on a machine without a desktop, run `herdr server`, its headless server, as a service (docs/install.md, "herdr's server")`` | herdr says no server is at its socket: every start of a crew member or a bead's agent fails with `server_not_running` until one is ([install.md](install.md#herdrs-server)). On a yard, `yardr up` starts it too ([configuration.md](configuration.md#starting-and-stopping-a-yard)) |
 | `note herdr <path>: on PATH; whether its server is running could not be asked: <what herdr said>` | herdr answered with something else, or not in 5 seconds: not known to be down, so no fault |
-| `FAULT <program> not on PATH: <what it is needed for>. Get it: <where>` | missing. For git and herdr the same words the onboarding uses before its first page, which prints herdr's command on a line of its own. For a harness, `<where>` is its install command where yardr knows one (claude, codex, kiro, opencode), else a pointer to the agent's own documentation |
+| `FAULT <program> not on PATH: <what it is needed for>. Get it: <where>` | missing. For git and herdr the same words the onboarding uses before its first page, which prints herdr's command on a line of its own where it does not [install herdr](#the-onboarding-installs-herdr) first. For a harness, `<where>` is its install command where yardr knows one (claude, codex, kiro, opencode), else a pointer to the agent's own documentation |
 | `    curl -fsSL https://herdr.dev/install.sh \| sh` | herdr is missing: the installer command from its FAULT, printed on its own line so it can be copied |
 | ``FAULT <program> not on PATH: <what it is needed for>. Found at <path> by your login shell, which this shell's PATH does not have: add <dir> to PATH here, or for the daemon's service run `yardr daemon install` from a login shell`` | missing here and installed: your login shell finds it. A shell without a terminal (ssh with a command, a service) reads no profile, so it lacks what `~/.profile` adds, `~/.local/bin` for one. The daemon's service gets the PATH of the shell that installs it ([configuration.md](configuration.md#login-services)) |
 | `FAULT a harness not on PATH: …` | a home with no yard, and no agent herdr starts is installed: a program that [answers as another](#a-program-that-answers-as-another) does not count as one. When the login shell finds claude, codex, grok, kimi, kiro, opencode, pi or muse, the line above is printed for each it finds instead |
@@ -434,8 +434,10 @@ A Mac as it comes has no npm and no Homebrew, and the person a window such
 as footplate sets a yard up for has no terminal open. So for a program that
 is missing, `yardr doctor --json` says on macOS how a program can fetch it
 with nothing but the Mac: one file its maker publishes, of one version, with
-the checksum it had when yardr's data was verified. yardr fetches nothing
-itself. This is data for a program that does.
+the checksum it had when yardr's data was verified. Doctor fetches nothing
+itself. This is data for a program that does, and for one fetch of yardr's
+own: [the onboarding](#the-onboarding-installs-herdr) installs herdr from it,
+on a yes.
 
 ```json
 {
@@ -447,7 +449,7 @@ itself. This is data for a program that does.
     "sha256": "ea20bfff9cb8c83a996081c926e6ff9370de8e543baa859bca48d19175d895ff",
     "size": 22547232,
     "path": "/Users/pat/.local/bin/herdr",
-    "verified": {"from": "https://herdr.dev/docs/install/", "on": "2026-10-13"}
+    "verified": {"from": "https://herdr.dev/docs/install/", "on": "2026-11-05"}
   }
 }
 ```
@@ -486,19 +488,21 @@ No package manager, no shell and no `curl | sh` is in it. The version is
 pinned, and each of these programs has its own way to a newer one: `herdr
 update`, Claude Code's own updates in the background, `codex update`.
 
-| program | what is fetched | verified from, on 2026-10-13 |
+| program | what is fetched | verified from, and on |
 |---|---|---|
-| herdr 0.9.4 | the release's binary for the Mac, moved to `~/.local/bin/herdr` | <https://herdr.dev/docs/install/>, "Download manually"; the checksums are those of <https://herdr.dev/latest.json>. herdr publishes no signature and its binaries are signed ad hoc, by no Developer ID: the checksum here is all that says the file is the one that was verified |
-| Claude Code 2.1.296 | the release's binary, run with `install 2.1.296`, which puts the launcher at `~/.local/bin/claude` | <https://code.claude.com/docs/en/setup>, "Binary integrity and code signing", and Anthropic's own installer (<https://claude.ai/install.sh>), which does the same two things; the checksums are those of the version's `manifest.json`, which Anthropic signs. The binaries are signed by Developer ID Application: Anthropic PBC (Q6L2SF6YDW). `install` needs the network and downloads the version once more itself: the checksum here is of the installer that is run, and what ends at `path` is Anthropic's own download of that version |
-| Codex 0.162.1 | the archive the README names for a Mac, whose one member is moved to `~/.local/bin/codex` | <https://github.com/openai/codex/blob/main/README.md>; the checksums are the digests of <https://releases.openai.com/codex/channels/latest>. The binaries are signed by Developer ID Application: OpenAI OpCo, LLC (2DC432GLL2). It is the README's binary alone, without what OpenAI's installer puts beside it |
+| herdr 0.9.4 | the release's binary for the Mac, moved to `~/.local/bin/herdr`; for a Linux box too, which only [the onboarding](#the-onboarding-installs-herdr) uses | on 2026-11-05: <https://herdr.dev/docs/install/>, "Download manually"; the checksums are those of <https://herdr.dev/latest.json>, and each of the four files (Mac and Linux, arm64 and amd64) was downloaded that day and found to be of the size and sum pinned. The Linux files are static executables. herdr publishes no signature and its binaries are signed ad hoc, by no Developer ID: the checksum here is all that says the file is the one that was verified |
+| Claude Code 2.1.296 | the release's binary, run with `install 2.1.296`, which puts the launcher at `~/.local/bin/claude` | on 2026-10-13: <https://code.claude.com/docs/en/setup>, "Binary integrity and code signing", and Anthropic's own installer (<https://claude.ai/install.sh>), which does the same two things; the checksums are those of the version's `manifest.json`, which Anthropic signs. The binaries are signed by Developer ID Application: Anthropic PBC (Q6L2SF6YDW). `install` needs the network and downloads the version once more itself: the checksum here is of the installer that is run, and what ends at `path` is Anthropic's own download of that version |
+| Codex 0.162.1 | the archive the README names for a Mac, whose one member is moved to `~/.local/bin/codex` | on 2026-10-13: <https://github.com/openai/codex/blob/main/README.md>; the checksums are the digests of <https://releases.openai.com/codex/channels/latest>. The binaries are signed by Developer ID Application: OpenAI OpCo, LLC (2DC432GLL2). It is the README's binary alone, without what OpenAI's installer puts beside it |
 
 git has no `fetch`: on a Mac it is always `xcode-select --install`, Apple's
 own dialog. muse, opencode, grok, kimi, pi and every kind with no harness
 file have none either, because no way of theirs was verified: an item with no
 `fetch` is a program installed by hand, and its `get` says where. On Linux
 no item has a `fetch` or an `any_of`, whatever the program: there is no one
-way to install without a terminal there, so every missing program keeps its
-`get`.
+way to install without a terminal there for a program that fetches, so every
+missing program keeps its `get`. herdr's file for a Linux box is no part of
+the report; [the onboarding](#the-onboarding-installs-herdr) alone installs
+from it.
 
 On a home with no yard and no harness installed, the machine has one item
 for the harness, `a harness`. On a Mac it carries `any_of`: an item for each
@@ -512,12 +516,44 @@ gives the one of this machine. herdr's is beside its hint in
 `internal/cli/needs.go`.
 
 **A fetch changes only with a bead that verifies it again.** That bead reads
-the maker's own page, downloads the file for both kinds of Mac, compares
-each with the checksum the maker publishes, runs the program in an empty
-home, and sets `verified` to that page and that day. A new version, a new
-address and a new way to put the program in place are each such a change.
-The loader refuses a fetch that is not https, whose address does not name
-its version, or that names a system that is no Mac (`TestFetchCheck`).
+the maker's own page, downloads the file for every system the fetch names
+(both kinds of Mac, and herdr's two Linux files), compares each with the
+checksum the maker publishes, runs the program in an empty home where it can
+(a Linux file cannot be run on a Mac), and sets `verified` to that page and
+that day for all of them. A new version, a new address and a new way to put
+the program in place are each such a change. The loader refuses a fetch that
+is not https, whose address does not name its version, or that names a
+system that is neither a Mac nor a Linux box (`TestFetchCheck`).
+
+### The onboarding installs herdr
+
+The onboarding (bare `yardr` on a home with no yard) is a program that fetches,
+for herdr alone: where herdr is not on PATH, it is at a terminal, and a file is
+pinned for the system above (macOS or Linux, arm64 or amd64), it asks `Install
+herdr 0.9.4 into ~/.local/bin now?` (yes by default), and on a yes does the
+steps above for that file:
+
+- step 1 as it is: a regular, executable file at `~/.local/bin/herdr` is herdr
+  installed and not on PATH, and is used without a question, never fetched
+  over; anything else there is left alone and the command is printed;
+- steps 2 and 3 as they are, and a response that is not 200, a redirect to an
+  address that is not https, or a file that is not the pinned size is refused as
+  a different sum is. Only that many bytes are read, and nothing is written
+  before they check out;
+- step 5 without `run`: the file is written to a temporary file in
+  `~/.local/bin`, run with `--version` (up to 20 seconds, any first line
+  answers), and renamed to `~/.local/bin/herdr`, mode 0755. A file that does not
+  run here replaces nothing;
+- step 6 for its own run: the directory joins the PATH of the onboarding, which
+  the daemon it starts takes, and where it was not on PATH the onboarding
+  prints the line a new terminal needs, the one `install.sh` prints. It writes
+  no shell profile.
+
+Anything that goes wrong keeps nothing in `~/.local/bin` and says why in one
+line (`herdr was not installed: the download's sha256 (…) is not the one yardr
+pins; nothing of it was kept.`); the command that runs herdr's own installer is
+then printed, as for a no. ctrl+c while the file comes down ends the
+onboarding, as it does in a form. herdr's own installer is never run by yardr.
 
 ## A harness's login led by a program
 

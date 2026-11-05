@@ -278,7 +278,7 @@ func (a *app) onboard(c *cobra.Command) error {
 	if err != nil {
 		return err
 	}
-	opts, err := onboardForm(c.OutOrStdout(), cfg.Home, part, a.getenv)
+	opts, err := onboardForm(c.Context(), c.OutOrStdout(), cfg.Home, part, a.getenv)
 	if errors.Is(err, huh.ErrUserAborted) {
 		if part != nil {
 			return fmt.Errorf("onboarding cancelled; nothing was added to %s", cfg.Home)
@@ -1023,7 +1023,7 @@ func (r *initResult) printNext(w io.Writer) {
 // that run stored. Your name does not: it is who this terminal acts as
 // (actsAs), whatever that run was told. get is the run's environment, which
 // names who that is.
-func onboardForm(w io.Writer, home string, part *partYard, get func(string) string) (initOptions, error) {
+func onboardForm(ctx context.Context, w io.Writer, home string, part *partYard, get func(string) string) (initOptions, error) {
 	opts, def := harnessOptions()
 	operator, err := config.ActorWith(get)
 	if err != nil {
@@ -1042,7 +1042,7 @@ func onboardForm(w io.Writer, home string, part *partYard, get func(string) stri
 		fmt.Fprintf(w, "An earlier setup of this home did not reach its end. It left %s.\n"+
 			"This one goes on from that, and says at its end what it added.\n\n", strings.Join(part.found(home), "; "))
 	}
-	if err := preflight(w); err != nil {
+	if err := preflight(ctx, w); err != nil {
 		return o, err
 	}
 	if err := ask(huh.NewSelect[string]().Title("Harness").

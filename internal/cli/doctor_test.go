@@ -1399,7 +1399,7 @@ func TestPreflightSaysWhereToGet(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			stubLookPath(t, tc.found...)
 			var buf bytes.Buffer
-			err := preflight(&buf)
+			err := preflight(context.Background(), &buf)
 			if buf.String() != tc.want || errors.Is(err, huh.ErrUserAborted) != tc.aborted || (err != nil) != tc.aborted {
 				t.Fatalf("preflight said\n%s\nwant\n%s\nand the answer to stop is %v; it returned %v", buf.String(), tc.want, tc.aborted, err)
 			}

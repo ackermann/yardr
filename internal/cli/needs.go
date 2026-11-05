@@ -26,8 +26,9 @@ import (
 
 // requirements are the programs a yard needs beside its harness: what for,
 // as the onboarding and yardr doctor say it when one is not on PATH, and
-// where to get it. Nothing here is run by yardr: the text is for the person,
-// and fetch is data for a program that fetches (store.Fetch).
+// where to get it. Nothing here is run by yardr but the file the onboarding
+// installs from fetch on a yes (offerInstall): the text is for the person,
+// and fetch is also data for a program that fetches (store.Fetch).
 //
 // cmd is the one command in get that a person pastes into a terminal, "" where
 // there is none. get starts with it, so that the places that print get on one
@@ -51,19 +52,24 @@ var requirements = []struct {
 // to do, who is given its page beside it to read first.
 const herdrInstall = "curl -fsSL https://herdr.dev/install.sh | sh"
 
-// herdrFetch is herdr on a Mac without a terminal (docs/doctor.md, "A
-// program fetched on a Mac"). herdr's install page has it under "Download
-// manually": the release's binary for the system, made executable and moved
-// to ~/.local/bin/herdr, which is also where herdr's own installer
-// (https://herdr.dev/install.sh) puts it, and `herdr update` keeps it
-// current from there. The sha256 are those https://herdr.dev/latest.json
-// gave for 0.9.4 on 2026-10-13; the arm64 one was run (`--version`) on
-// macOS 26.5.1 in an empty home. herdr publishes no signature, and its
-// binaries are signed ad hoc, by no Developer ID: these checksums are all
-// that says the file is the one that was verified. The address is GitHub's
-// and answers with a redirect to GitHub's storage.
+// herdrFetch is herdr as yardr puts it on a machine: on a Mac without a
+// terminal (docs/doctor.md, "A program fetched on a Mac"), and, on a yes, by
+// the first-run wizard on a Mac or a Linux box (offerInstall). herdr's
+// install page has it under "Download manually": the release's binary for
+// the system, made executable and moved to ~/.local/bin/herdr, which is also
+// where herdr's own installer (https://herdr.dev/install.sh) puts it, and
+// `herdr update` keeps it current from there. The sha256 are those
+// https://herdr.dev/latest.json gave for 0.9.4, and each of the four files
+// was downloaded on 2026-11-05 and found to be of that size and sum. The
+// Linux files are static executables (x86-64 and aarch64). The arm64 Mac
+// one was run (`--version`) on macOS 26.5.1 in an empty home on 2026-10-13,
+// and its bytes are the same today; the others were not run. herdr
+// publishes no signature, and its binaries are signed ad hoc, by no
+// Developer ID: these checksums are all that says the file is the one that
+// was verified. The address is GitHub's and answers with a redirect to
+// GitHub's storage.
 var herdrFetch = &store.Fetch{
-	Verified: store.Verified{From: "https://herdr.dev/docs/install/", On: "2026-10-13"},
+	Verified: store.Verified{From: "https://herdr.dev/docs/install/", On: "2026-11-05"},
 	Version:  "0.9.4",
 	Path:     "~/.local/bin/herdr",
 	Targets: map[string]store.FetchFile{
@@ -76,6 +82,16 @@ var herdrFetch = &store.Fetch{
 			URL:    "https://github.com/herdrdev/herdr/releases/download/v0.9.4/herdr-macos-x86_64",
 			SHA256: "2015ca1de3e93b84cdcccbfd94fbbd65dd56338cea4d3e57a8660e977a3bd700",
 			Size:   24365744,
+		},
+		"linux/arm64": {
+			URL:    "https://github.com/herdrdev/herdr/releases/download/v0.9.4/herdr-linux-aarch64",
+			SHA256: "9511cb70982c1ef115f232058e7ed7cf9640aa5a2c0ca78934cefda3aeb093fd",
+			Size:   27897920,
+		},
+		"linux/amd64": {
+			URL:    "https://github.com/herdrdev/herdr/releases/download/v0.9.4/herdr-linux-x86_64",
+			SHA256: "493304fbefb0ed0ea0455f373b47f48d24e8774bc7974f4c916ad2e937675b23",
+			Size:   30302608,
 		},
 	},
 }
@@ -105,6 +121,11 @@ type need struct {
 	// a Mac, and yardr knows a way (see fetchFor). With none it is installed
 	// by hand, as Get says.
 	Fetch *store.Download `json:"fetch,omitempty"`
+	// download is the file the onboarding offers to install when the program
+	// is not found: Fetch's, and on a Linux box where a target is pinned for
+	// one (see downloadFor). It is no field of the report, whose Fetch is a
+	// Mac's alone.
+	download *store.Download
 	// AnyOf, on the line that says no harness is installed, are the
 	// harnesses that can be fetched here: any one of them answers it.
 	AnyOf []need `json:"any_of,omitempty"`
@@ -221,9 +242,9 @@ type harnessUse struct {
 func basicNeeds() []need {
 	var out []need
 	for _, r := range requirements {
-		n := need{Program: r.exe, For: r.need, Get: r.get, cmd: r.cmd, Fetch: fetchFor(r.fetch)}
+		n := need{Program: r.exe, For: r.need, Get: r.get, cmd: r.cmd, Fetch: fetchFor(r.fetch), download: downloadFor(r.fetch)}
 		if p, err := lookPath(r.exe); err == nil {
-			n.Found, n.Path, n.Get, n.cmd, n.Fetch = true, p, "", "", nil
+			n.Found, n.Path, n.Get, n.cmd, n.Fetch, n.download = true, p, "", "", nil, nil
 		}
 		out = append(out, n)
 	}
@@ -287,10 +308,23 @@ func onPath(kind string) bool {
 	return err == nil
 }
 
-// fetchFor is f for this machine and this user: nil off a Mac, where
-// nothing is fetched and a missing program stays a hint to install it by
-// hand, and nil when the home is not known.
+// fetchFor is f for this machine and this user, as doctor's report says it:
+// nil off a Mac, where a program that fetches has no one way and a missing
+// program stays a hint to install it by hand, and nil when the home is not
+// known.
 func fetchFor(f *store.Fetch) *store.Download {
+	if goos != "darwin" {
+		return nil
+	}
+	return downloadFor(f)
+}
+
+// downloadFor is f for this machine and this user whatever the system, where
+// a target is pinned for it: what the onboarding installs from (offerInstall).
+// Doctor's report is not given a Linux box's file by it, since a program that
+// reads that report fetches by what it says, and footplate installs nothing on
+// Linux (design yardr-3az6, open question 3).
+func downloadFor(f *store.Fetch) *store.Download {
 	home, err := userHomeDir()
 	if err != nil {
 		return nil

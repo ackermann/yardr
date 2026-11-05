@@ -22,15 +22,25 @@ func machineOf(t *testing.T) map[string]need {
 }
 
 // herdr's fetch is not in a harness file, so nothing checks it when yardr
-// starts: this does.
+// starts: this does. It names a file for each system the onboarding installs
+// on, and each is a different one.
 func TestHerdrFetch(t *testing.T) {
 	t.Parallel()
 	if err := herdrFetch.Check("herdr"); err != nil {
 		t.Fatal(err)
 	}
-	for _, arch := range []string{"arm64", "amd64"} {
-		if herdrFetch.For("darwin", arch, "/Users/x") == nil {
-			t.Errorf("no herdr for darwin/%s", arch)
+	urls := map[string]bool{}
+	for _, goos := range []string{"darwin", "linux"} {
+		for _, arch := range []string{"arm64", "amd64"} {
+			d := herdrFetch.For(goos, arch, "/home/x")
+			if d == nil {
+				t.Errorf("no herdr for %s/%s", goos, arch)
+				continue
+			}
+			if urls[d.URL] {
+				t.Errorf("%s/%s has a file that another system has: %s", goos, arch, d.URL)
+			}
+			urls[d.URL] = true
 		}
 	}
 }
@@ -51,7 +61,7 @@ func TestDoctorFetchOnMac(t *testing.T) {
 	if f := herdr.Fetch; herdr.Found || herdr.Get != "curl -fsSL https://herdr.dev/install.sh | sh (more: https://herdr.dev)" || f == nil ||
 		f.Path != "/Users/pat/.local/bin/herdr" || f.Version != "0.9.4" || !strings.HasSuffix(f.URL, "/v0.9.4/herdr-macos-aarch64") ||
 		f.SHA256 != herdrFetch.Targets["darwin/arm64"].SHA256 || f.Size == 0 || f.Member != "" || f.Run != nil ||
-		f.Verified != (store.Verified{From: "https://herdr.dev/docs/install/", On: "2026-10-13"}) {
+		f.Verified != (store.Verified{From: "https://herdr.dev/docs/install/", On: "2026-11-05"}) {
 		t.Errorf("herdr: %+v, fetch %+v", herdr, f)
 	}
 	if git := m["git"]; git.Fetch != nil || !strings.Contains(git.Get, "xcode-select --install") {
@@ -94,7 +104,8 @@ func TestDoctorFetchOnMac(t *testing.T) {
 }
 
 // Off a Mac nothing is fetched: every missing program keeps its hint to
-// install it by hand, and no item carries a fetch.
+// install it by hand, and no item carries a fetch. The onboarding has herdr's
+// file for a Linux box to install from all the same, which no report carries.
 func TestDoctorNoFetchOnLinux(t *testing.T) {
 	fakeTools(t, nil)
 	stub(t, &loginShell, func() string { return "" })
@@ -106,6 +117,10 @@ func TestDoctorNoFetchOnLinux(t *testing.T) {
 			if n.Fetch != nil || n.AnyOf != nil || n.Get == "" {
 				t.Errorf("%s on linux/%s: get %q, fetch %+v, any_of %+v", program, arch, n.Get, n.Fetch, n.AnyOf)
 			}
+		}
+		if h := basicNeeds()[0]; h.Program != "herdr" || h.download == nil || h.download.Path != "/home/pat/.local/bin/herdr" ||
+			!strings.Contains(h.download.URL, "-linux-") || h.Fetch != nil {
+			t.Errorf("herdr on linux/%s: %+v, download %+v", arch, h, h.download)
 		}
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -40,6 +41,10 @@ var realTry func(context.Context, string, string, []string) tryCheck
 
 // realAnswers is answers as yardr has it, for a test whose listener is real.
 var realAnswers func(string) bool
+
+// realOfferInstall is offerInstall as yardr has it, for a test of the offer,
+// which downloads from a stand-in server.
+var realOfferInstall func(context.Context, io.Writer, need) (bool, error)
 
 func TestMain(m *testing.M) {
 	// Code that starts a part of yardr runs its own binary again (as
@@ -145,6 +150,10 @@ func TestMain(m *testing.M) {
 		}
 		return exec.LookPath(name)
 	}
+	// Nor does the onboarding offer to install herdr, or download it: a test
+	// of the offer puts it back (realOfferInstall) over a stand-in server.
+	realOfferInstall = offerInstall
+	offerInstall = func(context.Context, io.Writer, need) (bool, error) { return false, nil }
 	// Nor does a test call a harness that is somebody's own, and costs
 	// them a model call: a test of the call puts it back (realTry).
 	realTry = tryHarnessCall

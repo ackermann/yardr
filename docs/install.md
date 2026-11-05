@@ -212,6 +212,35 @@ ssh with a command, and in a service, the shell reads no profile and lacks
 what yours adds (`~/.local/bin`, where claude and codex install themselves).
 Doctor asks your login shell and names the directory when that finds it.
 
+### The onboarding offers to install herdr
+
+`yardr` in a terminal on a home with no yard runs the onboarding
+([configuration.md](configuration.md#creating-a-yard-the-onboarding-and-yardr-init)).
+Where herdr is not on PATH, and yardr pins a download for the system (macOS and
+Linux, on arm64 and amd64), it asks `Install herdr 0.9.4 into ~/.local/bin
+now?`, and yes is the default. On a yes it:
+
+1. downloads the file herdr publishes for the system, from the address yardr
+   pins (GitHub's release, which answers with a redirect to GitHub's storage:
+   only a redirect to https is followed);
+2. compares its size and its sha256 with the ones yardr pins, which are not
+   read from herdr's site at the time ([doctor.md](doctor.md#a-program-fetched-on-a-mac)
+   has them and where they were verified from);
+3. writes it to a temporary file in `~/.local/bin`, runs it with `--version`,
+   and renames it to `~/.local/bin/herdr`, as `install.sh` does for yardr;
+4. uses `~/.local/bin` for the rest of that run, so that the onboarding and the
+   daemon it starts find herdr, and, where it was not on PATH, prints the line a
+   new terminal needs, the one `install.sh` prints. It writes no shell profile.
+
+A download that fails, a size or sha256 that differs, or a file that does not
+answer `--version` keeps nothing, says why in one line, and falls back to the
+command above, as a no does. herdr's own installer is never run, nor any
+script: only the pinned file, once it checks out. A herdr already at
+`~/.local/bin/herdr` is used as it is and never replaced (`herdr update` keeps
+it current); the onboarding then only puts the directory on PATH for the run.
+Without a terminal, nothing is offered and the command is printed, as
+`install.sh` prints it. A harness (claude, codex) is not offered this way.
+
 Then run `yardr` for the onboarding ([the README](../README.md#quick-start)).
 It ends in [`yardr chat`](chat.md#from-the-onboarding), talking to the
 yardmaster in the terminal you ran it in.

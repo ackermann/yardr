@@ -724,7 +724,13 @@ then "Create this yard?" and "Start the yard now?"
 not on PATH, it names each and what it is needed for (herdr starts every
 agent, the yardmaster first; a depot is a git repository) and where to get it:
 git's download page, and for herdr the command that runs its own installer on
-a line of its own, to copy whole, with its page. With herdr missing it then
+a line of its own, to copy whole, with its page. For herdr, on a system yardr
+pins a download for (macOS and Linux, arm64 and amd64), it first asks `Install
+herdr 0.9.4 into ~/.local/bin now?`, and yes is the default
+([install.md](install.md#the-onboarding-offers-to-install-herdr) says what a yes
+does, and what keeps it from installing anything unverified); on a yes the form
+goes on with herdr found, and on a no, or when the install fails, which it says
+in one line, the command is printed as above. With herdr missing it then
 says to run `yardr` again once herdr is installed. It asks whether to go on:
 the answer starts at stop when herdr is missing, and stopping creates nothing.
 Without a terminal it prints how to initialize and exits 2.

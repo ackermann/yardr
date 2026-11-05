@@ -53,23 +53,27 @@ func TestFetchCheck(t *testing.T) {
 		return &store.Fetch{
 			Verified: store.Verified{From: "https://tool.example/install", On: "2026-10-13"},
 			Version:  "1.2.3", Path: "~/.local/bin/tool",
-			Targets: map[string]store.FetchFile{"darwin/arm64": {
-				URL: "https://tool.example/1.2.3/tool.tar.gz", SHA256: strings.Repeat("a1", 32), Size: 10, Member: "tool-arm64"}},
+			Targets: map[string]store.FetchFile{
+				"darwin/arm64": {
+					URL: "https://tool.example/1.2.3/tool.tar.gz", SHA256: strings.Repeat("a1", 32), Size: 10, Member: "tool-arm64"},
+				// A Linux box is a system a fetch may name (herdr's, for the onboarding).
+				"linux/amd64": {URL: "https://tool.example/1.2.3/tool-linux", SHA256: strings.Repeat("b2", 32), Size: 10},
+			},
 		}
 	}
 	if err := good().Check("tool"); err != nil {
 		t.Fatalf("a good fetch: %v", err)
 	}
 	for want, spoil := range map[string]func(f *store.Fetch){
-		"verified.from":      func(f *store.Fetch) { f.Verified.From = "http://tool.example/install" },
-		"verified.on":        func(f *store.Fetch) { f.Verified.On = "13 Oct 2026" },
-		"no version":         func(f *store.Fetch) { f.Version = "" },
-		"under the home":     func(f *store.Fetch) { f.Path = "/usr/local/bin/tool" },
-		"is not a clean":     func(f *store.Fetch) { f.Path = "~/../other/tool" },
-		"does not end in":    func(f *store.Fetch) { f.Path = "~/.local/bin/other" },
-		"no targets":         func(f *store.Fetch) { f.Targets = nil },
-		"an empty argument":  func(f *store.Fetch) { f.Run = []string{"install", ""} },
-		"only a Mac fetches": func(f *store.Fetch) { f.Targets["linux/amd64"] = f.Targets["darwin/arm64"] },
+		"verified.from":                     func(f *store.Fetch) { f.Verified.From = "http://tool.example/install" },
+		"verified.on":                       func(f *store.Fetch) { f.Verified.On = "13 Oct 2026" },
+		"no version":                        func(f *store.Fetch) { f.Version = "" },
+		"under the home":                    func(f *store.Fetch) { f.Path = "/usr/local/bin/tool" },
+		"is not a clean":                    func(f *store.Fetch) { f.Path = "~/../other/tool" },
+		"does not end in":                   func(f *store.Fetch) { f.Path = "~/.local/bin/other" },
+		"no targets":                        func(f *store.Fetch) { f.Targets = nil },
+		"an empty argument":                 func(f *store.Fetch) { f.Run = []string{"install", ""} },
+		"only a Mac or a Linux box fetches": func(f *store.Fetch) { f.Targets["windows/amd64"] = f.Targets["darwin/arm64"] },
 		"no https address": func(f *store.Fetch) {
 			f.Targets["darwin/arm64"] = store.FetchFile{URL: "http://tool.example/1.2.3/tool", SHA256: strings.Repeat("a1", 32), Size: 10}
 		},

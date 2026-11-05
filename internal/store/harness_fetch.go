@@ -12,9 +12,10 @@ import (
 // Fetch is how a program gets onto a Mac that has no package manager and
 // nobody at a terminal: one file its maker publishes, at one address, of one
 // version, with the checksum it had when it was verified. yardr fetches
-// nothing itself: this is data for a program that does (yardr doctor --json,
-// yardr harness show --json; docs/doctor.md, "A program fetched on a Mac"
-// says what such a program does with it, step by step).
+// nothing itself but herdr, on a yes in its first-run wizard; this is data for
+// a program that does (yardr doctor --json, yardr harness show --json;
+// docs/doctor.md, "A program fetched on a Mac" says what such a program does
+// with it, step by step).
 //
 // The version is pinned, and the checksum is yardr's, not read from the
 // maker's site when the file is fetched: a checksum served beside a download
@@ -65,10 +66,12 @@ type Download struct {
 	Verified Verified `json:"verified"`
 }
 
-// fetchTarget is a system a Fetch may name. Only the Mac: on Linux nothing
-// is fetched, and a missing program stays a hint to install it by hand
+// fetchTarget is a system a Fetch may name: a Mac, or a Linux box. A Linux
+// target is for yardr's own first-run wizard, which installs herdr from it;
+// doctor's report still carries a Mac's alone, since on Linux a missing
+// program stays a hint to install it by hand for a program that fetches
 // (design yardr-3az6, open question 3).
-var fetchTarget = regexp.MustCompile(`^darwin/(arm64|amd64)$`)
+var fetchTarget = regexp.MustCompile(`^(darwin|linux)/(arm64|amd64)$`)
 
 var fetchSHA256Hex = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
@@ -114,7 +117,7 @@ func (f *Fetch) Check(program string) error {
 		u, err := url.Parse(file.URL)
 		switch {
 		case !fetchTarget.MatchString(target):
-			return fmt.Errorf("targets: %q is none of darwin/arm64, darwin/amd64: only a Mac fetches", target)
+			return fmt.Errorf("targets: %q is none of darwin/arm64, darwin/amd64, linux/arm64, linux/amd64: only a Mac or a Linux box fetches", target)
 		case err != nil || u.Scheme != "https" || u.Host == "":
 			return fmt.Errorf("targets.%s: url %q is no https address", target, file.URL)
 		case !strings.Contains(file.URL, f.Version):

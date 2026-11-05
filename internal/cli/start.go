@@ -38,20 +38,29 @@ var pollEvery = 500 * time.Millisecond
 var screenSettle = 10 * time.Second
 
 // preflight runs before the form's first page: it names what is not on
-// PATH and what it is needed for (basicNeeds, as yardr doctor does), and lets
-// the user stop or go on. The answer starts at "go on" only when herdr is
-// there: without herdr the yard this form creates cannot start its yardmaster.
-// The form draws nothing once it is answered, so what a person who stops keeps
-// on the screen is what is printed here: each program's lines (getLines) and,
-// with herdr gone, the way back in once it is installed.
-func preflight(w io.Writer) error {
+// PATH and what it is needed for (basicNeeds, as yardr doctor does), offers a
+// person at a terminal to install what yardr has a pinned download for
+// (offerInstall), and lets the user stop or go on. The answer starts at "go
+// on" only when herdr is there: without herdr the yard this form creates
+// cannot start its yardmaster. The form draws nothing once it is answered, so
+// what a person who stops keeps on the screen is what is printed here: each
+// program's lines (getLines) and, with herdr gone, the way back in once it is
+// installed. A program that was installed is not gone, and its lines are not
+// printed.
+func preflight(ctx context.Context, w io.Writer) error {
 	var gone []string
 	goOn := true
 	for _, n := range basicNeeds() {
 		if n.Found {
 			continue
 		}
-		fmt.Fprintf(w, "%s is not on PATH: %s.\n%s\n", n.Program, n.For, n.getLines())
+		fmt.Fprintf(w, "%s is not on PATH: %s.\n", n.Program, n.For)
+		if in, err := offerInstall(ctx, w, n); err != nil {
+			return err
+		} else if in {
+			continue
+		}
+		fmt.Fprintf(w, "%s\n", n.getLines())
 		gone = append(gone, n.Program)
 		if n.Program == "herdr" {
 			goOn = false
