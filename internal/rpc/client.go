@@ -57,6 +57,14 @@ const SessionHeader = "X-Yardr-Session"
 // socket's server reads it back onto the call.
 const FreshWitnessHeader = "X-Yardr-Fresh-Witness"
 
+// ConnectionHeader carries the name of the connection the call is made
+// through, where the caller named one (store.WithConnection), as yardr
+// mcp sends its --connection name on every call. The socket's server
+// reads it back onto the call, and the store marks the writes made
+// under it. It is taken on trust, as a caller's named actor is: whoever
+// can open the socket already acts as the user their calls name.
+const ConnectionHeader = "X-Yardr-Connection"
+
 var _ store.API = (*Client)(nil)
 
 func NewClient(socket string) *Client {
@@ -163,6 +171,9 @@ func (c *Client) callOnce(ctx context.Context, method string, out any, body []by
 	}
 	if fw, ok := store.FreshWitnessOf(ctx); ok {
 		req.Header.Set(FreshWitnessHeader, fw.User+" "+strconv.FormatInt(fw.AuthTime.Unix(), 10))
+	}
+	if name := store.ConnectionOf(ctx); name != "" {
+		req.Header.Set(ConnectionHeader, name)
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {

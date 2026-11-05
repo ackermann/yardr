@@ -161,6 +161,7 @@ var allowSerial = map[string]string{
 	"TestLoginNotSupported":                                 "stubServices,upYard",
 	"TestLoginShellPATH":                                    "stub:loginShell,stub:loginShellTimeout",
 	"TestMailAUser":                                         "t.Chdir",
+	"TestMCPServeOverStdio":                                 "assign:mcpServe",
 	"TestNoCommandReachesTheMachinesYard":                   "t.Setenv",
 	"TestNoPairFormWithoutATerminal":                        "setInteractive,stubAsk",
 	"TestNoQuestionWithoutACallOrAStart":                    "newAsker,setInteractive,stubLookPath",

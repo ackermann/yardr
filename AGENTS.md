@@ -74,6 +74,10 @@ it lists every exported name with its comment, faster than grepping.
   yard events; declared-source notifiers live here too.
 - `limits`: what a harness subscription still carries, answered by the
   operator's command through a yard source; no provider logic.
+- `mcp`: the yard as an MCP server for a person's own client: the tool
+  contract (names, schemas, plain-words results) defined once, and the
+  local stdio server (`yardr mcp`) as one adapter over it; the edge's
+  remote endpoint is another adapter, not here.
 - `notify`: one message to a person through the source their record names;
   decides nothing about what is told.
 - `otel`: trace context plus a hand-written OTLP/HTTP exporter; no SDK.

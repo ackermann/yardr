@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -160,6 +161,47 @@ func TestSocketCarriesAFreshWitness(t *testing.T) {
 	}
 	if _, err := st.GetUser(ctx, "carol"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("the refused approval added carol: %v", err)
+	}
+
+	// The same socket carries a local connection name through its header,
+	// marking that call's write; a call without the header stays plain.
+	if err := c.AddNote(store.WithConnection(ctx, "openclaw"), b.ID, "from my client", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.AddNote(ctx, b.ID, "from a terminal", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	notes, err := st.Notes(ctx, b.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var noteViasFromNotes []string
+	noteViaBySeq := make(map[string]string)
+	for _, n := range notes {
+		if n.Kind == "note" {
+			noteViasFromNotes = append(noteViasFromNotes, n.Via)
+			noteViaBySeq[fmt.Sprint(n.Seq)] = n.Via
+		}
+	}
+	if len(noteViasFromNotes) != 2 || noteViasFromNotes[0] != "openclaw" || noteViasFromNotes[1] != "" {
+		t.Fatalf("the notes' via = %v, want openclaw then none", noteViasFromNotes)
+	}
+	noteEvents, err := st.Events(ctx, b.ID, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var noteVias []string
+	for _, e := range noteEvents {
+		if e.Kind == "noted" {
+			if seq, ok := e.Data["note"]; ok {
+				if _, matches := noteViaBySeq[fmt.Sprint(seq)]; matches {
+					noteVias = append(noteVias, store.Via(e))
+				}
+			}
+		}
+	}
+	if len(noteVias) != 2 || noteVias[0] != "openclaw" || noteVias[1] != "" {
+		t.Fatalf("the noted events' via = %v, want openclaw then none", noteVias)
 	}
 
 	req := httptest.NewRequest(http.MethodPost, "/call/Head", strings.NewReader("[]"))

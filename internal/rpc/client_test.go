@@ -329,22 +329,36 @@ func TestClientMailLong(t *testing.T) {
 // time. One made without carries none.
 func TestCallSendsFreshWitness(t *testing.T) {
 	sock := socket(t)
-	var got []string
+	type headers struct {
+		witness    string
+		connection string
+	}
+	var got []headers
 	serve(t, sock, func(w http.ResponseWriter, r *http.Request) {
-		got = append(got, r.Header.Get(FreshWitnessHeader))
+		got = append(got, headers{
+			witness:    r.Header.Get(FreshWitnessHeader),
+			connection: r.Header.Get(ConnectionHeader),
+		})
 		writeJSON(w, reply{Result: uint64(1)})
 	})
 	c := NewClient(sock)
 	at := time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
-	ctx := store.WithFreshWitness(context.Background(), "jo", at)
+	ctx := store.WithConnection(store.WithFreshWitness(context.Background(), "jo", at), "openclaw")
 	if _, err := c.Head(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Head(store.WithConnection(context.Background(), "terminal")); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := c.Head(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"jo " + fmt.Sprint(at.Unix()), ""}
+	want := []headers{
+		{witness: "jo " + fmt.Sprint(at.Unix()), connection: "openclaw"},
+		{connection: "terminal"},
+		{},
+	}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("witness headers = %q, want %q", got, want)
+		t.Fatalf("context headers = %+v, want %+v", got, want)
 	}
 }

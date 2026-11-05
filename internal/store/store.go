@@ -405,6 +405,10 @@ type wtx struct {
 	// via is the device this write came through and whose it is; the zero
 	// value for a write that came through none (writeVia).
 	via via
+	// conn is the connection name this write is made under, "" for none
+	// (WithConnection): a label for the write, as via is, with no device
+	// behind it.
+	conn string
 	// witness is how this write's approval was witnessed, recorded on the
 	// answer's event beside via; "" where the approval claims none. An
 	// approval sets it just before it records its answer, so the answer's

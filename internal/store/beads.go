@@ -314,7 +314,7 @@ func (s *Store) CreateBead(ctx context.Context, nb NewBead, actor string) (*Bead
 		return nil, err
 	}
 	var created *Bead
-	err = s.write(func(w *wtx) error {
+	err = s.writeVia(ctx, func(w *wtx) error { // as the other caller writes: marked with its connection or device (viaOf)
 		row, err := create(w)
 		if err != nil {
 			return err

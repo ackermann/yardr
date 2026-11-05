@@ -199,14 +199,18 @@ func (a *api) call(w http.ResponseWriter, r *http.Request, name string, body jso
 }
 
 // callerCtx is the request's context with the session the call says it is
-// of, as the store reads a caller (store.WithSession), and the fresh
-// sign-in it carries where it has one (store.WithFreshWitness). A witness
+// of, as the store reads a caller (store.WithSession), the fresh
+// sign-in it carries where it has one (store.WithFreshWitness), and the
+// connection name it carries where it has one (store.WithConnection). A witness
 // header that names no user and time refuses the call: only the web sets
 // it, and a malformed one is no statement to approve under.
 func callerCtx(r *http.Request) (context.Context, error) {
 	ctx := r.Context()
 	if id := r.Header.Get(SessionHeader); id != "" {
 		ctx = store.WithSession(ctx, id)
+	}
+	if name := r.Header.Get(ConnectionHeader); name != "" {
+		ctx = store.WithConnection(ctx, name)
 	}
 	if raw := r.Header.Get(FreshWitnessHeader); raw != "" {
 		fw, err := parseFreshWitness(raw)

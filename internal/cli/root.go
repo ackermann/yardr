@@ -181,7 +181,7 @@ func (a *app) rootCmd() *cobra.Command {
 	root.AddCommand(a.serverCmd(), a.daemonCmd(), a.depotCmd(), a.beadCmd(), a.readyCmd(), a.telemetryCmd(),
 		a.depCmd(), a.linkCmd(), a.groupCmd(), a.routeCmd(), a.flowCmd(), a.sessionCmd(), a.eventsCmd(), a.watchCmd(), a.primeCmd(),
 		a.bdpCmd(), a.webCmd(), a.crewCmd(), a.userCmd(), a.inboxCmd(), a.mailCmd(), a.timerCmd(), a.chatCmd(), a.rememberCmd(), a.recallCmd(), a.hookCmd(), a.sourceCmd(), a.callCmd(), a.limitsCmd(), a.harnessCmd(),
-		a.peerCmd(), a.edgeCmd(), a.subscribeCmd(), a.unsubscribeCmd(), a.threadCmd(), a.replyCmd(), a.reactCmd(), a.reviewCmd(), a.storeCmd(), a.packCmd(), a.docsCmd(), a.previewCmd(),
+		a.peerCmd(), a.edgeCmd(), a.subscribeCmd(), a.unsubscribeCmd(), a.threadCmd(), a.replyCmd(), a.reactCmd(), a.reviewCmd(), a.storeCmd(), a.packCmd(), a.docsCmd(), a.previewCmd(), a.mcpCmd(),
 		a.initCmd(), a.settingsCmd(), a.doctorCmd(), a.statusCmd(), a.upgradeCmd(), a.upCmd(), a.downCmd(), a.uninstallCmd(), a.setupCmd(), a.otelCmd(), a.diskCmd(), a.versionCmd())
 	// Cobra adds its completion command, a group like the rest, only as it
 	// executes; added now, it is in the tree refuseStray walks.

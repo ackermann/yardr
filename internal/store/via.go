@@ -24,6 +24,29 @@ func WithVia(ctx context.Context, user, device string) context.Context {
 	return context.WithValue(ctx, viaKey{}, via{user, device})
 }
 
+type connectionKey struct{}
+
+// WithConnection records on ctx the name of the connection the call is
+// made through: what the socket's server does for a call that crossed
+// with a connection name (rpc's ConnectionHeader), as yardr mcp sends
+// one on every call. It is a device's mark without a device: the name is
+// taken on trust, with no credential behind it, since whoever can open
+// the socket already acts as the user their calls name, so a name can
+// mislabel its bearer's own writes and widen nothing (design
+// yardr-ts4d 3.1). It is a record of which program acted, never a proof
+// of it, and nothing is decided by it.
+func WithConnection(ctx context.Context, name string) context.Context {
+	return context.WithValue(ctx, connectionKey{}, name)
+}
+
+// ConnectionOf is the connection name the call of ctx is made through,
+// "" for a call that carries none: a call on the yard's own machine that
+// no program named itself on.
+func ConnectionOf(ctx context.Context) string {
+	name, _ := ctx.Value(connectionKey{}).(string)
+	return name
+}
+
 // The way a call came in is on its context, set by the door it came through
 // and by no argument of the call: the socket marks it with the process at
 // its other end (WithCaller), the listener with the token of the device that
@@ -54,11 +77,15 @@ func reachOf(ctx context.Context) string {
 
 // writeVia is write for a call a device may make: what it writes as the
 // device's user is marked (wtx.event, wtx.addNoted), and a fresh sign-in
-// the call carries is read by the strong card's gate (gateRefusal).
+// the call carries is read by the strong card's gate (gateRefusal). A
+// call that carries a connection name and no device is marked the same
+// way (WithConnection): the name labels the write, and is read from the
+// call's context as via is.
 func (s *Store) writeVia(ctx context.Context, fn func(*wtx) error) error {
 	v, hasVia := ctx.Value(viaKey{}).(via)
 	fw, hasFresh := FreshWitnessOf(ctx)
-	if !hasVia && !hasFresh {
+	conn := ConnectionOf(ctx)
+	if !hasVia && !hasFresh && conn == "" {
 		return s.write(fn)
 	}
 	return s.write(func(w *wtx) error {
@@ -68,18 +95,35 @@ func (s *Store) writeVia(ctx context.Context, fn func(*wtx) error) error {
 		if hasFresh {
 			w.fresh, w.hasFresh = fw, true
 		}
+		w.conn = conn
 		return fn(w)
 	})
 }
 
-// viaOf is the device a write by actor came through in this transaction, ""
-// for a write made on the yard's own machine and for what the yard writes
-// beside the user's own (a refusal it mails, a notification).
-func (w *wtx) viaOf(actor string) string {
+// deviceViaOf is the device a write by actor came through in this
+// transaction, "" for a write that came through no device: a write made
+// on the yard's own machine (a connection name alone is no device, see
+// viaOf) and for what the yard writes beside the user's own (a refusal
+// it mails, a notification).
+func (w *wtx) deviceViaOf(actor string) string {
 	if w.via.device == "" || actor != w.via.user {
 		return ""
 	}
 	return w.via.device
+}
+
+// viaOf is how a write by actor came in, for its mark: the device it
+// came through (deviceViaOf), else the connection name the call carries,
+// which labels any write of the call but the yard's own beside it. "" for
+// a write made on the yard's own machine under no name.
+func (w *wtx) viaOf(actor string) string {
+	if device := w.deviceViaOf(actor); device != "" {
+		return device
+	}
+	if w.conn == "" || actor == "" || actor == "yard" {
+		return ""
+	}
+	return w.conn
 }
 
 // Via is the device the event e was written through, "" for any other.
@@ -140,7 +184,11 @@ func FreshWitnessOf(ctx context.Context) (fw FreshWitness, ok bool) {
 // approval calls it just before it records its answer, so the answer's
 // event alone carries the mark.
 func (w *wtx) witnessStrong(stored []AskWeight, actor string) {
-	if StrongWeight(stored) && w.viaOf(actor) == "" {
+	// A connection name is no device: an approval that came over the
+	// socket under one is witnessed as a terminal's is, since nothing
+	// stands between it and the yard's own machine (design yardr-ts4d
+	// 3.3). Only a device's approval claims neither witness.
+	if StrongWeight(stored) && w.deviceViaOf(actor) == "" {
 		w.witness = WitnessTerminal
 		if w.hasFresh {
 			w.witness = WitnessFreshSignIn
