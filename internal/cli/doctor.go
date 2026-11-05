@@ -817,7 +817,7 @@ func (n need) line() docLine {
 // lines are a need as the report prints it: its line and, for a harness
 // under --try, what one real call to it came to.
 func (n need) lines() []docLine {
-	out := []docLine{n.line()}
+	out := append([]docLine{n.line()}, n.commandLine()...)
 	t := n.Try
 	if t == nil {
 		return out
@@ -1212,7 +1212,7 @@ func (r *doctorReport) faults() {
 
 func printLines(w io.Writer, lines []docLine) {
 	for _, l := range lines {
-		fmt.Fprintf(w, "  %-5s  %-10s  %s\n", l.tag, l.name, l.text)
+		printDoctorLine(w, l)
 	}
 }
 

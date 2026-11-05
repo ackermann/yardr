@@ -722,9 +722,12 @@ your name for the role prompts, then "How should agents work with you?" and
 then "Create this yard?" and "Start the yard now?"
 ([below](#starting-the-yard)). Before the first page, when `git` or `herdr` is
 not on PATH, it names each and what it is needed for (herdr starts every
-agent, the yardmaster first; a depot is a git repository) and asks whether to go
-on: the answer starts at stop when herdr is missing, and stopping creates
-nothing. Without a terminal it prints how to initialize and exits 2.
+agent, the yardmaster first; a depot is a git repository) and where to get it:
+git's download page, and for herdr the command that runs its own installer on
+a line of its own, to copy whole, with its page. With herdr missing it then
+says to run `yardr` again once herdr is installed. It asks whether to go on:
+the answer starts at stop when herdr is missing, and stopping creates nothing.
+Without a terminal it prints how to initialize and exits 2.
 `yardr server`, `yardr init`, `yardr daemon`, `yardr settings` and
 `yardr help` never ask.
 

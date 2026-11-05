@@ -155,13 +155,20 @@ and every kind a herdr group or crew member names. `<who>` lists them
 with no yard the harnesses are those that are installed, any of which a yard
 can be created on; they are then never a fault.
 
+In the `FAULT … not on PATH` line below, `<where>` for herdr is the command that
+runs herdr's own installer, `curl -fsSL https://herdr.dev/install.sh | sh`,
+then herdr's page, `(more: https://herdr.dev)`; for git it is git's download
+page. When herdr is missing, yardr prints the command again on a line of its
+own after the FAULT, so it is easy to copy. yardr never runs it.
+
 | line | meaning |
 |---|---|
 | `ok git <path>` | on PATH |
 | `ok herdr <path>, its server is running` | on PATH, and its server answers |
 | ``FAULT herdr <path>: on PATH, but its server is not running (server_not_running: <herdr's message>): the daemon cannot start agents until it is. Start it: run herdr in a terminal (ctrl+b q detaches, the server stays); on a machine without a desktop, run `herdr server`, its headless server, as a service (docs/install.md, "herdr's server")`` | herdr says no server is at its socket: every start of a crew member or a bead's agent fails with `server_not_running` until one is ([install.md](install.md#herdrs-server)). On a yard, `yardr up` starts it too ([configuration.md](configuration.md#starting-and-stopping-a-yard)) |
 | `note herdr <path>: on PATH; whether its server is running could not be asked: <what herdr said>` | herdr answered with something else, or not in 5 seconds: not known to be down, so no fault |
-| `FAULT <program> not on PATH: <what it is needed for>. Get it: <where>` | missing. For git and herdr the same words the onboarding uses before its first page. For a harness, `<where>` is its install command where yardr knows one (claude, codex, kiro, opencode), else a pointer to the agent's own documentation |
+| `FAULT <program> not on PATH: <what it is needed for>. Get it: <where>` | missing. For git and herdr the same words the onboarding uses before its first page, which prints herdr's command on a line of its own. For a harness, `<where>` is its install command where yardr knows one (claude, codex, kiro, opencode), else a pointer to the agent's own documentation |
+| `    curl -fsSL https://herdr.dev/install.sh \| sh` | herdr is missing: the installer command from its FAULT, printed on its own line so it can be copied |
 | ``FAULT <program> not on PATH: <what it is needed for>. Found at <path> by your login shell, which this shell's PATH does not have: add <dir> to PATH here, or for the daemon's service run `yardr daemon install` from a login shell`` | missing here and installed: your login shell finds it. A shell without a terminal (ssh with a command, a service) reads no profile, so it lacks what `~/.profile` adds, `~/.local/bin` for one. The daemon's service gets the PATH of the shell that installs it ([configuration.md](configuration.md#login-services)) |
 | `FAULT a harness not on PATH: …` | a home with no yard, and no agent herdr starts is installed: a program that [answers as another](#a-program-that-answers-as-another) does not count as one. When the login shell finds claude, codex, grok, kimi, kiro, opencode, pi or muse, the line above is printed for each it finds instead |
 | `ok <harness> <path>, the harness of <who>: answers its version flag (<its first line>)` | found, and it runs |
@@ -432,7 +439,8 @@ itself. This is data for a program that does.
 
 ```json
 {
-  "program": "herdr", "found": false, "get": "https://herdr.dev",
+  "program": "herdr", "found": false,
+  "get": "curl -fsSL https://herdr.dev/install.sh | sh (more: https://herdr.dev)",
   "fetch": {
     "version": "0.9.4",
     "url": "https://github.com/herdrdev/herdr/releases/download/v0.9.4/herdr-macos-aarch64",

@@ -48,7 +48,7 @@ func TestDoctorFetchOnMac(t *testing.T) {
 	m := machineOf(t)
 
 	herdr := m["herdr"]
-	if f := herdr.Fetch; herdr.Found || herdr.Get != "https://herdr.dev" || f == nil ||
+	if f := herdr.Fetch; herdr.Found || herdr.Get != "curl -fsSL https://herdr.dev/install.sh | sh (more: https://herdr.dev)" || f == nil ||
 		f.Path != "/Users/pat/.local/bin/herdr" || f.Version != "0.9.4" || !strings.HasSuffix(f.URL, "/v0.9.4/herdr-macos-aarch64") ||
 		f.SHA256 != herdrFetch.Targets["darwin/arm64"].SHA256 || f.Size == 0 || f.Member != "" || f.Run != nil ||
 		f.Verified != (store.Verified{From: "https://herdr.dev/docs/install/", On: "2026-10-13"}) {

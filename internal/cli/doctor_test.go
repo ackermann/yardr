@@ -142,6 +142,9 @@ func TestDoctorEmptyHome(t *testing.T) {
 		// A harness nothing runs on yet that does not work is said, and is no fault.
 		"note   grok ", "its version flag fails: exit status 3: broken install",
 		"todo   a depot: ", "todo   a first merged bead: ", "Nothing the yard needs is missing.")
+	if strings.Contains(out, herdrInstall) {
+		t.Errorf("doctor says to install herdr when it is already on PATH:\n%s", out)
+	}
 	if strings.Contains(out, "The yard\n") || strings.Contains(out, "Optional") || strings.Contains(out, "Next step") {
 		t.Errorf("a home with no yard has no yard to report on:\n%s", out)
 	}
@@ -163,7 +166,9 @@ func TestDoctorEmptyHome(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("no herdr, no harness: exit %d:\n%s", code, out)
 	}
-	wantText(t, out, "FAULT  herdr ", "Get it: https://herdr.dev", "FAULT  a harness ", "2 faults")
+	wantText(t, out, "FAULT  herdr ", "Get it: curl -fsSL https://herdr.dev/install.sh | sh (more: https://herdr.dev)",
+		"    curl -fsSL https://herdr.dev/install.sh | sh\n",
+		"FAULT  a harness ", "2 faults")
 	rep, err := doctorJSONOn(t, newApp())
 	if !errors.Is(err, errCheckFailed) || rep.Yard || rep.State != nil || len(rep.Faults) != 2 || len(rep.Steps) == 0 || rep.Steps[0].Done {
 		t.Fatalf("json: %v %+v", err, rep)
@@ -1363,22 +1368,53 @@ func TestSetupStepsDirDepot(t *testing.T) {
 }
 
 // The onboarding asks about the same programs with the same words, and
-// says where to get them.
+// says where to get them. herdr's command is a line of its own, to be copied
+// whole, and the screen ends by saying how to come back once it is installed;
+// git's page is one line, as it was; and with herdr found the screen says
+// nothing of herdr.
 func TestPreflightSaysWhereToGet(t *testing.T) {
-	answeredTools(t, "git")
 	stubAsk(t, func(...huh.Field) error { return nil })
-	var err error
-	var buf bytes.Buffer
-	err = preflight(&buf)
-	out := buf.String()
-	if !errors.Is(err, huh.ErrUserAborted) {
-		t.Fatalf("no herdr: %v", err)
+	stubLookPath(t)
+	needs := basicNeeds()
+	herdr, git := needs[0], needs[1]
+	if herdr.Program != "herdr" || git.Program != "git" || herdr.Found || git.Found {
+		t.Fatalf("needs = %+v, %+v", herdr, git)
 	}
-	n := basicNeeds()[0]
-	if n.Program != "herdr" || n.Found || !strings.Contains(out, "herdr is not on PATH: "+n.For+".\n  Get it: "+n.Get+"\n") {
-		t.Fatalf("output:\n%s", out)
+	herdrLines := "herdr is not on PATH: " + herdr.For + ".\n" +
+		"  Get it with this command (more: https://herdr.dev):\n\n" +
+		"    curl -fsSL https://herdr.dev/install.sh | sh\n\n"
+	gitLines := "git is not on PATH: " + git.For + ".\n  Get it: " + git.Get + "\n\n"
+	const again = "Once herdr is installed, run yardr again.\n\n"
+	for _, tc := range []struct {
+		name    string
+		found   []string
+		want    string
+		aborted bool // the answer the form starts at is to stop
+	}{
+		{"no herdr", []string{"git"}, herdrLines + again, true},
+		{"neither", nil, herdrLines + gitLines + again, true},
+		{"no git", []string{"herdr"}, gitLines, false},
+		{"both", []string{"git", "herdr"}, "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stubLookPath(t, tc.found...)
+			var buf bytes.Buffer
+			err := preflight(&buf)
+			if buf.String() != tc.want || errors.Is(err, huh.ErrUserAborted) != tc.aborted || (err != nil) != tc.aborted {
+				t.Fatalf("preflight said\n%s\nwant\n%s\nand the answer to stop is %v; it returned %v", buf.String(), tc.want, tc.aborted, err)
+			}
+		})
 	}
-	if line := n.line(); line.tag != tagFault || !strings.Contains(line.text, n.For) || !strings.Contains(line.text, n.Get) {
+
+	// A command Get does not start with is not taken out of it.
+	if got := (need{Get: "see https://example.com", cmd: "curl example.com"}).getLines(); got != "  Get it: see https://example.com\n" {
+		t.Errorf("a command that is not in Get: %q", got)
+	}
+
+	// doctor's line for the same program carries the same command.
+	line := herdr.line()
+	if line.tag != tagFault || !strings.Contains(line.text, herdr.For) ||
+		!strings.Contains(line.text, "Get it: curl -fsSL https://herdr.dev/install.sh | sh (more: https://herdr.dev)") {
 		t.Fatalf("doctor's line = %+v", line)
 	}
 }

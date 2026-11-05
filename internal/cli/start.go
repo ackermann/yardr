@@ -41,6 +41,9 @@ var screenSettle = 10 * time.Second
 // PATH and what it is needed for (basicNeeds, as yardr doctor does), and lets
 // the user stop or go on. The answer starts at "go on" only when herdr is
 // there: without herdr the yard this form creates cannot start its yardmaster.
+// The form draws nothing once it is answered, so what a person who stops keeps
+// on the screen is what is printed here: each program's lines (getLines) and,
+// with herdr gone, the way back in once it is installed.
 func preflight(w io.Writer) error {
 	var gone []string
 	goOn := true
@@ -48,7 +51,7 @@ func preflight(w io.Writer) error {
 		if n.Found {
 			continue
 		}
-		fmt.Fprintf(w, "%s is not on PATH: %s.\n  Get it: %s\n", n.Program, n.For, n.Get)
+		fmt.Fprintf(w, "%s is not on PATH: %s.\n%s\n", n.Program, n.For, n.getLines())
 		gone = append(gone, n.Program)
 		if n.Program == "herdr" {
 			goOn = false
@@ -57,7 +60,9 @@ func preflight(w io.Writer) error {
 	if len(gone) == 0 {
 		return nil
 	}
-	fmt.Fprintln(w)
+	if !goOn {
+		fmt.Fprint(w, "Once herdr is installed, run yardr again.\n\n")
+	}
 	if err := ask(huh.NewConfirm().Title("Go on without " + strings.Join(gone, " and ") + "?").
 		Description("Stopping creates nothing: install what is missing and run yardr again.").
 		Affirmative("Go on").Negative("Stop").Value(&goOn)); err != nil {

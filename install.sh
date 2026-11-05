@@ -29,7 +29,9 @@
 # whole (the server and daemon notice the new file), and a program that cannot
 # run replaces nothing. Of the archive only `yardr` is unpacked. Installing over
 # a newer yardr is allowed. When ~/.local/bin is not on PATH the script says
-# the line to add; it changes no shell profile.
+# the line to add; it changes no shell profile. When herdr is not on PATH it
+# prints herdr's own installer as a line to run, and says that yardr also needs
+# an agent; it runs and installs nothing of that.
 #
 # POSIX sh. A release needs curl, tar, awk and sha256sum or shasum. The
 # script is functions and its last line calls main: the shell has read all of
@@ -286,6 +288,15 @@ main() {
     [ -z "$found" ] || say "note: until then yardr runs $found, not the one just installed"
     ;;
   esac
+
+  # What yardr still needs beside itself. This only looks, with command -v:
+  # herdr's installer is another project's script, and running it is for the
+  # person to do.
+  if ! command -v herdr >/dev/null 2>&1; then
+    say "herdr is not on PATH, and yardr starts every agent through it. Get it with this command (more: https://herdr.dev):"
+    printf '\n    curl -fsSL https://herdr.dev/install.sh | sh\n\n'
+    say "yardr also needs an agent such as claude or codex."
+  fi
 }
 
 main "$@"

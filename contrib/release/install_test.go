@@ -243,6 +243,13 @@ printf 'minisign %s\n' "$*" >>"$CALLS"
 exit "${STANDIN_MINISIGN_RC:-0}"
 `
 
+// standInHerdr is a herdr the script must only look for: a call to it is
+// logged, and the test fails on one.
+const standInHerdr = `#!/bin/sh
+printf 'herdr %s\n' "$*" >>"$CALLS"
+exit 1
+`
+
 // installTools are the programs the script is known to run, and so the whole
 // PATH it gets besides the stand-ins. gzip is for a GNU tar, which runs it.
 var installTools = []string{"awk", "cat", "chmod", "grep", "gzip", "mkdir", "mktemp", "mv", "rm", "tar", "sha256sum", "shasum"}
@@ -508,6 +515,8 @@ func TestInstallPutsTheReleaseInLocalBin(t *testing.T) {
 				"installed ~/.local/bin/yardr: " + installTag + " (fixture linux_amd64)",
 				// Not on the PATH of the run: the one line to add, said and not written.
 				`export PATH="$HOME/.local/bin:$PATH"`,
+				// No herdr on it either: its installer, to run, and not run.
+				"\n    curl -fsSL https://herdr.dev/install.sh | sh\n",
 			} {
 				if !strings.Contains(out, s) {
 					t.Errorf("the output lacks %q:\n%s", s, out)
@@ -937,7 +946,10 @@ func TestInstallChoosesThisSystemsArchive(t *testing.T) {
 }
 
 // The line to add is for a PATH without ~/.local/bin, and a yardr found before
-// the one installed is said to be the one that runs.
+// the one installed is said to be the one that runs. Last it says what else
+// yardr needs where herdr is not on PATH, with herdr's installer as a line of
+// its own, and says nothing of herdr where it is; either way the script only
+// looks for herdr and never runs it.
 func TestInstallSaysWhatThePathDoes(t *testing.T) {
 	t.Parallel()
 	const line = `export PATH="$HOME/.local/bin:$PATH"`
@@ -966,6 +978,14 @@ func TestInstallSaysWhatThePathDoes(t *testing.T) {
 		{"another yardr after ~/.local/bin", func(t *testing.T, w *installWorld) {
 			w.setenv("PATH=" + w.bin + string(os.PathListSeparator) + w.localBin() + string(os.PathListSeparator) + other(t))
 		}, nil, []string{"is not on your PATH", line, "note:"}},
+		// After the notes above it, the command a line of its own, then the agent.
+		{"herdr is not on PATH", func(*testing.T, *installWorld) {},
+			[]string{
+				line + "\n\ninstall.sh: herdr is not on PATH, and yardr starts every agent through it. Get it with this command (more: https://herdr.dev):\n",
+				"\n\n    curl -fsSL https://herdr.dev/install.sh | sh\n\ninstall.sh: yardr also needs an agent such as claude or codex.\n",
+			}, nil},
+		{"herdr is on PATH", func(_ *testing.T, w *installWorld) { w.standIn("herdr", standInHerdr) },
+			nil, []string{"install.sh: herdr", "herdr.dev", "an agent such as"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -981,6 +1001,11 @@ func TestInstallSaysWhatThePathDoes(t *testing.T) {
 			for _, s := range tc.lack {
 				if strings.Contains(out, s) {
 					t.Errorf("the output holds %q:\n%s", s, out)
+				}
+			}
+			for _, call := range w.log() {
+				if strings.HasPrefix(call, "herdr") {
+					t.Errorf("the script ran herdr: %q", call)
 				}
 			}
 		})

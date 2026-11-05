@@ -28,17 +28,28 @@ import (
 // as the onboarding and yardr doctor say it when one is not on PATH, and
 // where to get it. Nothing here is run by yardr: the text is for the person,
 // and fetch is data for a program that fetches (store.Fetch).
+//
+// cmd is the one command in get that a person pastes into a terminal, "" where
+// there is none. get starts with it, so that the places that print get on one
+// line carry the command, and the onboarding can take it out of get and print
+// it on a line of its own, where it is copied whole.
 var requirements = []struct {
-	exe, need, get string
-	fetch          *store.Fetch
+	exe, need, get, cmd string
+	fetch               *store.Fetch
 }{
 	{"herdr", "it starts every agent in a pane of its own, the yardmaster first: without it nothing runs",
-		"https://herdr.dev", herdrFetch},
+		herdrInstall + " (more: https://herdr.dev)", herdrInstall, herdrFetch},
 	// git has no fetch: on a Mac it is always `xcode-select --install`,
 	// which is Apple's own dialog.
 	{"git", "a depot is a git repository: beads are worked on branches, in worktrees",
-		"https://git-scm.com/downloads (on macOS: xcode-select --install)", nil},
+		"https://git-scm.com/downloads (on macOS: xcode-select --install)", "", nil},
 }
+
+// herdrInstall is the one line that runs herdr's own installer
+// (https://herdr.dev/install.sh). yardr only prints it, here and in
+// install.sh: it is another project's script, and running it is for the person
+// to do, who is given its page beside it to read first.
+const herdrInstall = "curl -fsSL https://herdr.dev/install.sh | sh"
 
 // herdrFetch is herdr on a Mac without a terminal (docs/doctor.md, "A
 // program fetched on a Mac"). herdr's install page has it under "Download
@@ -86,6 +97,10 @@ type need struct {
 	Path string `json:"path,omitempty"`
 	// Get is where to get it, when it is not found.
 	Get string `json:"get,omitempty"`
+	// cmd is the command in Get that a person pastes into a terminal, "" when
+	// there is none (see requirements). It is no field of the report: a
+	// program that reads Get has the command in it.
+	cmd string
 	// Fetch is how a program that fetches gets it, when it is not found, on
 	// a Mac, and yardr knows a way (see fetchFor). With none it is installed
 	// by hand, as Get says.
@@ -206,9 +221,9 @@ type harnessUse struct {
 func basicNeeds() []need {
 	var out []need
 	for _, r := range requirements {
-		n := need{Program: r.exe, For: r.need, Get: r.get, Fetch: fetchFor(r.fetch)}
+		n := need{Program: r.exe, For: r.need, Get: r.get, cmd: r.cmd, Fetch: fetchFor(r.fetch)}
 		if p, err := lookPath(r.exe); err == nil {
-			n.Found, n.Path, n.Get, n.Fetch = true, p, "", nil
+			n.Found, n.Path, n.Get, n.cmd, n.Fetch = true, p, "", "", nil
 		}
 		out = append(out, n)
 	}
@@ -252,6 +267,17 @@ func (n need) fileNote() string {
 		file += "; always flags: " + strings.Join(n.HarnessAlways, " ")
 	}
 	return file
+}
+
+// getLines are the lines of the onboarding that say where to get a program
+// that is not on PATH. A command to paste is on a line of its own, so that it is
+// copied whole, under what Get says besides it (where to read more); without
+// one, or where Get does not start with it, the line is Get as it is.
+func (n need) getLines() string {
+	if rest, ok := strings.CutPrefix(n.Get, n.cmd); ok && n.cmd != "" {
+		return fmt.Sprintf("  Get it with this command%s:\n\n    %s\n", rest, n.cmd)
+	}
+	return "  Get it: " + n.Get + "\n"
 }
 
 // onPath reports whether a program named as kind's harness is on PATH. That

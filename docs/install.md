@@ -54,6 +54,15 @@ archive](#from-a-release-archive) takes the same steps by hand:
 
    Where another `yardr` comes first on PATH, it says that too, as that is the
    one a shell then runs.
+7. Where `herdr` is not on PATH, it says so in one line, prints herdr's own
+   installer ([herdr.dev](https://herdr.dev)) as a line to run, and says that
+   yardr also needs an agent such as claude or codex. Where herdr is on PATH
+   it says nothing of it. It only looks, with `command -v`: it runs nothing
+   and installs nothing.
+
+   ```sh
+   curl -fsSL https://herdr.dev/install.sh | sh
+   ```
 
 It needs `curl`, `tar`, `awk` and `sha256sum` or `shasum`, and is plain POSIX sh.
 It writes `~/.local/bin/yardr` and nothing else of yours, and there is no flag
