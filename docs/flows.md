@@ -555,8 +555,9 @@ What goes in a stage file and what in a role prompt is in
 stage file for every stage of their flows, which `yardr depot init` installs
 in the yard's home
 ([configuration.md](configuration.md#seeding-a-depot-yardr-depot-init)), and depot
-yardr has one for every stage of both its flows
+yardr has one for every stage of its flows
 ([`.yardr/flows/default/`](../.yardr/flows/default),
+[`.yardr/flows/yardr.public/`](../.yardr/flows/yardr.public),
 [`.yardr/flows/yardr.train/`](../.yardr/flows/yardr.train)).
 
 ### The ask template: `## Ask`
@@ -1039,6 +1040,16 @@ the named flows `yard` and `yard.decision` (migrated from the depot and type
 flows they were), the second a type flow for decision beads (`decide ->
 decided`, `decided terminal`). Depot yardr has neither: a decision is a bead
 in `decide`, closed with the answer as its reason.
+
+The public line is a second flow of the repository, the default flow with the
+bead's branch published as a pull request,
+[`.yardr/flows/yardr.public.flow`](../.yardr/flows/yardr.public.flow): a `pr`
+stage after `new`, a stage that posts each review after the reviewer that wrote
+it (`review-post`, `review-security-post`), a `ciwait` stage before `approved`,
+and every stage name the default flow has, so that taking the pin off puts a bead
+back on the default line. A bead follows it when it is pinned
+(`yardr bead update <id> --meta flow=yardr.public`), as a pin wins over a
+pointer; see [line.md](line.md#the-public-line).
 
 Trains follow `yardr.train`, which the repository carries as
 [`.yardr/flows/yardr.train.flow`](../.yardr/flows/yardr.train.flow) (a named

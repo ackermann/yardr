@@ -531,4 +531,27 @@ func TestMergeOKIsTheOwningSessionToSay(t *testing.T) {
 			t.Fatalf("a refused accepted_head changed %s: %+v", id, got)
 		}
 	}
+
+	// review, the review post-review posts on the pull request as the App and
+	// routes the bead on, is the reviewer's to store on the pull request it
+	// read: refused on another bead, accepted on its own, and again over a
+	// review already there (a bead that came back to be read again).
+	stored := map[string]any{"outcome": "done", "body": "what the change does", "comments": []any{}}
+	if _, err := s.UpdateBead(pane, b.ID, store.BeadPatch{Metadata: map[string]any{"review": stored}}, unset, "yard-a-new"); err == nil || !strings.Contains(err.Error(), "may record review only on its own bead") {
+		t.Errorf("review on another bead from its pane: %v, want it refused", err)
+	}
+	if got, _ := s.GetBead(ctx, b.ID); got.Metadata["review"] != nil {
+		t.Fatalf("a refused review changed another bead: %+v", got)
+	}
+	again := map[string]any{"outcome": "changes", "body": "what is wrong", "comments": []any{}}
+	for _, r := range []map[string]any{stored, again} {
+		got, err := s.UpdateBead(pane, a.ID, store.BeadPatch{Metadata: map[string]any{"review": r}}, unset, "yard-a-new")
+		if err != nil {
+			t.Fatalf("the pane's own review %+v: %v", r, err)
+		}
+		kept, _ := got.Metadata["review"].(map[string]any)
+		if kept["outcome"] != r["outcome"] || kept["body"] != r["body"] {
+			t.Fatalf("the pane's own review %+v is not on the bead: %+v", r, got)
+		}
+	}
 }

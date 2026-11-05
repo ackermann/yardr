@@ -43,7 +43,8 @@ const (
 // head commit), and files a test writes to change the answer: state
 // (OPEN unless it says MERGED or CLOSED), bot (the author is a bot),
 // head-owner and head-name (the repository the head is in, o/r unless
-// written), view-fail and refuse (the error of that call), race (the commit
+// written), title and body (bump and a line of text unless written),
+// view-fail and refuse (the error of that call), race (the commit
 // the head moves to as the merge starts) and head-next (the commit the head
 // moves to once the next look at the pull request has been answered). A call whose GH_TOKEN is not
 // the mint's is refused as GitHub refuses a bad credential; merging with
@@ -57,9 +58,10 @@ if [ "$GH_TOKEN" != ` + mintToken + ` ]; then echo "HTTP 401: Bad credentials" >
 case "$1 $2" in
 "pr view")
   if [ -e "$d/view-fail" ]; then cat "$d/view-fail" >&2; exit 1; fi
-  printf '{"number":7,"state":"%s","headRefOid":"%s","headRepository":{"name":"%s"},"headRepositoryOwner":{"login":"%s"},"author":{"is_bot":%s,"login":"%s"}}\n' \
+  printf '{"number":7,"state":"%s","headRefOid":"%s","headRepository":{"name":"%s"},"headRepositoryOwner":{"login":"%s"},"author":{"is_bot":%s,"login":"%s"},"title":"%s","body":"%s"}\n' \
     "$(cat "$d/state" 2>/dev/null || echo OPEN)" "$(cat "$d/head")" "$(cat "$d/head-name" 2>/dev/null || echo r)" \
-    "$(cat "$d/head-owner" 2>/dev/null || echo o)" "$([ -e "$d/bot" ] && echo true || echo false)" "$([ -e "$d/bot" ] && echo app/dependabot || echo jo)"
+    "$(cat "$d/head-owner" 2>/dev/null || echo o)" "$([ -e "$d/bot" ] && echo true || echo false)" "$([ -e "$d/bot" ] && echo app/dependabot || echo jo)" \
+    "$(cat "$d/title" 2>/dev/null || echo bump)" "$(cat "$d/body" 2>/dev/null || echo a body of one line)"
   if [ -e "$d/head-next" ]; then mv "$d/head-next" "$d/head"; fi ;;
 "pr merge")
   if [ -e "$d/refuse" ]; then cat "$d/refuse" >&2; exit 1; fi
@@ -202,7 +204,7 @@ func (y *yard) prBeadIn(id, url, stage string, label bool) {
 // calls, its answers, its failures.
 func standIn(t *testing.T, gh string, o mergeOpts, files map[string]string) {
 	t.Helper()
-	for _, name := range []string{"calls", "state", "bot", "head-owner", "head-name", "view-fail", "refuse", "race", "head-next", "mint-fail", "mint-stdin", "mint-args"} {
+	for _, name := range []string{"calls", "state", "bot", "head-owner", "head-name", "title", "body", "view-fail", "refuse", "race", "head-next", "mint-fail", "mint-stdin", "mint-args"} {
 		if err := os.Remove(filepath.Join(gh, name)); err != nil && !os.IsNotExist(err) {
 			t.Fatal(err)
 		}
@@ -350,26 +352,32 @@ func TestMergePRMerges(t *testing.T) {
 		want   string            // the stage it ends in
 		flags  string            // what the merge is asked with, none when no merge is
 		note   string
-		source bool // the mint is the github source's own, not the group's cmd
+		source bool   // the mint is the github source's own, not the group's cmd
+		land   string // YARDR_LAND in the group's cmd, none when empty
 	}{
 		{"a bot's bump of its own repository", mergeOpts{head: headB, yes: headA}, false, nil, "merged",
-			"--rebase --delete-branch --match-head-commit " + headB, "merged %s at " + headB + " (rebase)", false},
+			"--rebase --delete-branch --match-head-commit " + headB, "merged %s at " + headB + " (rebase)", false, ""},
 		{"a human's fork", mergeOpts{human: true, headOwner: "mallory", yes: headA}, true, nil, "merged",
-			"--merge --match-head-commit " + headA, "merged %s at " + headA + " (merge commit)", false},
+			"--merge --match-head-commit " + headA, "merged %s at " + headA + " (merge commit)", false, ""},
 		{"a person's branch of the repository", mergeOpts{human: true, yes: headA}, true, nil, "merged",
-			"--rebase --delete-branch --match-head-commit " + headA, "merged %s at " + headA + " (rebase)", false},
+			"--rebase --delete-branch --match-head-commit " + headA, "merged %s at " + headA + " (rebase)", false, ""},
 		{"a bot's fork", mergeOpts{headOwner: "mallory", yes: headA}, true, nil, "merged",
-			"--merge --match-head-commit " + headA, "merged %s at " + headA + " (merge commit)", false},
-		{"a pull request merged already", mergeOpts{}, false, map[string]string{"state": "MERGED"}, "merged", "", "%s is merged already", false},
-		{"a pull request closed unmerged", mergeOpts{}, false, map[string]string{"state": "CLOSED"}, "closed", "", "%s is closed, unmerged", false},
+			"--merge --match-head-commit " + headA, "merged %s at " + headA + " (merge commit)", false, ""},
+		{"a pull request merged already", mergeOpts{}, false, map[string]string{"state": "MERGED"}, "merged", "", "%s is merged already", false, ""},
+		{"a pull request closed unmerged", mergeOpts{}, false, map[string]string{"state": "CLOSED"}, "closed", "", "%s is closed, unmerged", false, ""},
+		{"a bot's bump, squashed", mergeOpts{head: headB}, false, map[string]string{"title": "chore(deps): bump x (r-m)", "body": "Bump x.  Yardr-Bead: r-m"}, "merged",
+			"--squash --delete-branch --match-head-commit " + headB + " --subject chore(deps): bump x (r-m) --body Bump x.  Yardr-Bead: r-m", "merged %s at " + headB + " (squash)", false, "squash"},
 		{"a mint that is the github source's own", mergeOpts{}, false, nil, "merged",
-			"--rebase --delete-branch --match-head-commit " + headA, "merged %s at " + headA + " (rebase)", true},
+			"--rebase --delete-branch --match-head-commit " + headA, "merged %s at " + headA + " (rebase)", true, ""},
 	} {
 		t.Run(c.what, func(t *testing.T) {
 			y, gh := mergeYard(t)
 			depot := y.git(y.repo, "status", "--porcelain") + y.git(y.repo, "rev-parse", "HEAD")
 			id, url := "r-m", prURLn(10)
 			y.prBead(id, url, !c.said)
+			if c.land != "" {
+				y.opts += " YARDR_LAND=" + c.land
+			}
 			if c.said {
 				y.yardr("bead", "update", id, "--add-label", "merge-ok", "--meta", "merge_head="+c.o.yes)
 			}
@@ -562,6 +570,9 @@ func TestMergePRHoldsWhatGitHubRefuses(t *testing.T) {
 			wants: []string{"has no GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY_FILE", "env_file"},
 			// Whatever the machine running the test exports is not the group's.
 			change: func(y *yard) { y.envFile, y.opts = "", y.opts+" GITHUB_APP_ID= GITHUB_APP_PRIVATE_KEY_FILE=" }},
+		{what: "a YARDR_LAND that is neither mode", tokens: true,
+			wants:  []string{"YARDR_LAND is rebas in this group's cmd", "rebase or by squash"},
+			change: func(y *yard) { y.opts += " YARDR_LAND=rebas" }},
 		{what: "no mint anywhere", tokens: true,
 			wants:  []string{"the github source has no mint_command", "YARDR_GITHUB_MINT", "yardr source set github mint_command="},
 			change: func(y *yard) { y.opts = "" }},

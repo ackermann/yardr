@@ -12,13 +12,11 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"yardr.dev/yardr/internal/config"
-	"yardr.dev/yardr/internal/hooks"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/telemetry"
 	"yardr.dev/yardr/internal/version"
@@ -61,41 +59,6 @@ type Job struct {
 	// that gives the bead a worktree makes it stand on the pull request's
 	// head (see runner.Herdr).
 	Pull *Pull
-}
-
-// Pull is a pull request a bead tracks: somebody else's change, which the
-// bead's sessions read and do not write.
-type Pull struct {
-	URL    string // as the bead's link has it
-	Number int
-	// Head is the commit the session's worktree was put on, the pull
-	// request's head when the session started. The runner sets it; it is
-	// empty where there is no worktree.
-	Head string
-}
-
-// pullOf is the pull request among a bead's links: the one it tracks, of a
-// source that has pull requests. An issue it tracks is none, and neither is
-// a link that only relates.
-func (d *Dispatcher) pullOf(ctx context.Context, links []store.Link) *Pull {
-	for _, l := range links {
-		if l.Kind != store.LinkTracks {
-			continue
-		}
-		p, ok := hooks.PullerFor(l.Source, d.declOf(ctx, l.Source))
-		if !ok {
-			continue
-		}
-		thread := p.PullOf(l.URL)
-		if thread == "" {
-			continue
-		}
-		_, num, _ := strings.Cut(thread, "#")
-		if n, err := strconv.Atoi(num); err == nil {
-			return &Pull{URL: l.URL, Number: n}
-		}
-	}
-	return nil
 }
 
 // NextStage is one stage a flow allows the bead to move to, with who would
@@ -1403,7 +1366,7 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 			if err != nil {
 				return err
 			}
-			pull = d.pullOf(ctx, links)
+			pull = d.pullOf(ctx, links, b.Metadata)
 		}
 
 		if paused {

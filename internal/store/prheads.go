@@ -13,8 +13,9 @@ import (
 // agent that reads a pull request's text is exactly the one a pull request
 // would try to talk into writing them, so the checks here refuse a bead's
 // agent (beadAgent) the writes that would make the yard trust a head nobody
-// accepted, read, ran or merged. Each runs inside UpdateBead's write, and the
-// creation of a bead is refused them in checkAgentCreate.
+// accepted, read, ran or merged, or post a review nobody wrote. Each runs
+// inside UpdateBead's write, and the creation of a bead is refused them in
+// checkAgentCreate.
 
 // labelMergeOK says the yard may merge the pull request a pr bead tracks
 // (the contributors pack's approved stage, merge-pr); metaMergeHead is the
@@ -70,6 +71,42 @@ func (w *wtx) checkReviewedHead(ctx context.Context, b *beadRow, p BeadPatch) er
 	}
 	return fmt.Errorf("bead %s: the session %s of a bead's agent may record reviewed_head only on its own bead %s, whatever actor the command names; it says which head the reviewer read, and the reviewer records it on the pull request it read: yardr bead note %s \"which head should be read\"",
 		b.ID, sess.ID, handlesIn(w.Tx).of(sess.Bead), b.ID)
+}
+
+// metaReview is the review a reviewer stored on the bead it read, as the
+// public line's reviewers do (the flow yardr.public): post-review posts it
+// on the bead's pull request as the yard's bot and sends the bead on the way
+// its outcome says, giving merge-ok with an approval.
+const metaReview = "review"
+
+// checkReview refuses a bead's agent (beadAgent) a patch that records review
+// on a bead its session does not own, as checkReviewedHead does for
+// reviewed_head. The stored review is posted in public as the yard's bot and
+// decides the bead's way on, so an agent that could say it on another bead
+// could put its own words on another bead's pull request and have the yard
+// merge a head its reviewers rejected. On its own bead the agent may: the
+// review is the reviewer's own to write. A person may write it anywhere, and
+// the posting script empties it once posted, as no bead's agent.
+func (w *wtx) checkReview(ctx context.Context, b *beadRow, p BeadPatch) error {
+	if _, ok := p.Metadata[metaReview]; !ok {
+		return nil
+	}
+	sess, err := beadAgent(w.Tx, ctx)
+	if err != nil || sess == nil || sess.Bead == b.UUID {
+		return err
+	}
+	return fmt.Errorf("bead %s: the session %s of a bead's agent may record review only on its own bead %s, whatever actor the command names; it is the review the yard posts on the pull request it read, and the reviewer stores it on the pull request it read: yardr bead note %s \"which review should be stored\"",
+		b.ID, sess.ID, handlesIn(w.Tx).of(sess.Bead), b.ID)
+}
+
+// checkReviewRecords runs the two checks on what a reviewer records of the
+// pull request it read: the head (checkReviewedHead) and the review of it
+// (checkReview), which the reviewer writes in one update.
+func (w *wtx) checkReviewRecords(ctx context.Context, b *beadRow, p BeadPatch) error {
+	if err := w.checkReviewedHead(ctx, b, p); err != nil {
+		return err
+	}
+	return w.checkReview(ctx, b, p)
 }
 
 // metaCIHead is the commit the yard's own CI passed on, as the script that runs

@@ -1,0 +1,370 @@
+#!/bin/sh
+# open-pr: publishes a bead's branch as a pull request on the depot's GitHub
+# repository, as the yard's GitHub App, and parks the bead for its reviewers.
+# Run it as the cmd of an exec group (yardr-pr, limit 1), routed for the pr
+# stage of the public line (the flow yardr.public; docs/line.md, "The public
+# line"). It is the open step that docs/line.md's "A PR-based variant" sketches,
+# with the pull request opened by the App and never by the operator's own gh
+# login.
+#
+# What it does, each time the bead enters pr (the first time and after every
+# round the bead was sent back to new):
+#
+#   1. pushes yard/<bead> to the depot's remote with the yard's own git
+#      credentials, as merge-local and pr-ci reach the remote. The lease is what
+#      the remote has now, and the branch must have had it: a remote tip that is
+#      in the branch's history (a fast-forward) or in its reflog (the builder
+#      rebased, which rewrites the pushed commits) is replaced; a remote branch
+#      with a commit the bead's branch never had is not overwritten.
+#   2. opens the pull request, or updates the one the bead tracks, as the App: a
+#      token minted for the one repository by contrib/github-mint (the github
+#      source's mint_command, or YARDR_GITHUB_MINT in the group's cmd) from
+#      GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY_FILE, which the group's env_file
+#      supplies. gh gets it in its environment and is never logged in as anyone.
+#   3. links the bead as tracking the pull request, the link that pr-ci and
+#      merge-pr read, and records it as the bead's own (metadata own_pr), so that
+#      the bead's sessions stay on its branch instead of being put on the pull
+#      request's head as if it were somebody else's change.
+#   4. takes the label merge-ok off the bead: a new head voids the yes the
+#      reviewers gave the old one, and they give it again on the head they read.
+#
+# The title is the squash subject line merge-local would write for the bead,
+# <type>[(<scope>)][!]: <bead title> (<bead id>), and the body is made from the
+# branch's commit messages and the bead's title alone, then the footers
+# Yardr-Bead and Yardr-Agent that the squash commit carries. Nothing of the bead's
+# body or notes is read into either: the pull request is public, and those
+# are the yard's. The title and body are written again on every run.
+#
+# It reads the environment the exec runner gives it: YARDR_BEAD, YARDR_DEPOT_PATH,
+# YARDR_BASE, YARDR_BRANCH, YARDR_WORKTREE and YARDR_BIN. Option, set in the
+# group's cmd:
+#
+#   YARDR_PUSH   the remote the branch is pushed to (default origin); it must be
+#                a github.com repository, whose owner and name the pull request
+#                is opened under. Read as the repository's own configuration
+#                has it, before any insteadOf rewrite.
+#
+# The outcomes at pr are done and failed. Done: the branch is on the remote and
+# the pull request is open and up to date. Failed (back to new): the branch has
+# no commit past the base, or GitHub says the pull request conflicts with the
+# base; the builder rebases. Everything else holds the bead with a note and
+# reports nothing: no token, a refused push, a remote branch with commits the
+# bead's branch never had, a pull request that is not the branch's, a closed one,
+# a worktree with uncommitted changes. Nothing retries; unhold runs it again.
+# Needs gh and jq on PATH.
+#
+# Every outcome ends in a report or a hold: exiting without one counts as a
+# failed session, and three of those hold the bead.
+set -u
+# A dir depot (YARDR_DEPOT_KIND=dir) has no branches: there is nothing here to
+# open a pull request for. A route that hands one over is a mistake in the
+# depot's flow, so refuse to run (exit 2) rather than guess.
+if [ "${YARDR_DEPOT_KIND:-git}" = dir ]; then
+  echo "open-pr: depot ${YARDR_DEPOT:-?} is a dir depot, with no branch to work on; route its stages to other groups" >&2
+  exit 2
+fi
+: "${YARDR_BEAD:?not run by an exec group}" "${YARDR_DEPOT_PATH:?bead has no depot}" "${YARDR_BASE:?}"
+Y=${YARDR_BIN:-yardr}
+BEAD=$YARDR_BEAD
+REPO=$YARDR_DEPOT_PATH
+BASE=$YARDR_BASE
+BR=${YARDR_BRANCH:-yard/$BEAD}
+WT=${YARDR_WORKTREE:-}
+PUSH=${YARDR_PUSH:-origin}
+# The top-level directories that say nothing as the scope of the subject
+# (merge-local's squash_message has the same list): a change under internal/
+# alone is better named by its package. A depot's copy of this script changes it.
+CONTAINERS="internal contrib packs cmd pkg src lib"
+echo "== $(date '+%Y-%m-%dT%H:%M:%S%z') open-pr $BEAD ($BR)"
+
+# bye takes away everything the script made, whichever of it exists. It is the
+# first thing hold and report do, so that nothing is left to do once the
+# session ends (the daemon stops the script as soon as it has reported), and
+# the EXIT trap, for every other way out. The directory the script works in
+# goes from outside it. TERM and INT are ignored while it runs, so that a stop
+# of the session that comes meanwhile cannot leave it half done.
+bye() {
+  trap '' TERM INT
+  cd /
+  [ -z "${work:-}" ] || rm -rf "${work:?}"
+  return 0
+}
+trap 'bye' EXIT
+# A signal that kills the script does not run its EXIT trap in every shell
+# (dash's does not), so TERM and INT exit, which does, as a shell would, 128+n.
+trap 'exit 143' TERM
+trap 'exit 130' INT
+
+# Reporting ends this session (the daemon stops the script), so it is
+# always the last thing done, and bye the first.
+hold() { bye; echo "== hold $BEAD: $1"; "$Y" bead note "$BEAD" "open-pr: $1"; "$Y" bead hold "$BEAD"; exit 0; }
+report() {
+  bye
+  echo "== $BEAD $1"
+  printf '%s\n' "open-pr: $2" | "$Y" bead "done" "$BEAD" --outcome "$1" --note - && exit 0
+  hold "could not report $1 (does the bead's flow name it for its stage?): $2"
+}
+work=$(mktemp -d) && errf=$work/err
+# gh is run from a directory that is no checkout, so nothing it does to a
+# local branch can reach anyone's work. Every call names its repository.
+cd "$work" || exit 1
+
+command -v gh >/dev/null 2>&1 || hold "gh is not on PATH; not opening a pull request."
+command -v jq >/dev/null 2>&1 || hold "jq is not on PATH; not opening a pull request."
+
+bead=$("$Y" bead show "$BEAD" --json) || hold "reading $BEAD failed"
+
+git -C "$REPO" rev-parse --verify -q "refs/heads/$BR" >/dev/null || hold "branch $BR does not exist in $REPO"
+if [ -n "$WT" ] && [ -d "$WT" ]; then
+  [ -z "$(git -C "$WT" status --porcelain)" ] ||
+    hold "worktree $WT has uncommitted changes; commit them on $BR (or drop them), then unhold"
+fi
+# What the pull request merges into: the base without its remote.
+prbase=$BASE
+remote=${BASE%%/*}
+[ "$remote" != "$BASE" ] && git -C "$REPO" remote | grep -qx "$remote" && prbase=${BASE#*/}
+# Read once: what is pushed, described and tested is this commit, even if the
+# branch moves while the script runs.
+tip=$(git -C "$REPO" rev-parse --verify -q "refs/heads/$BR^{commit}") || hold "branch $BR does not resolve"
+short() { printf '%s' "$1" | cut -c1-7; }
+lower() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
+
+[ "$(git -C "$REPO" rev-list --count "$BASE..$tip")" != 0 ] ||
+  report failed "nothing to publish: $BR has no commit past $BASE."
+
+# The repository: the address the remote pushes to, as its configuration has
+# it. A pushurl can differ from the fetch URL, but this line needs both to name
+# the same repository: it opens a pull request there and pushes the branch
+# there. One destination also keeps a remote with several URLs from publishing
+# the branch to more than one place.
+NOT="not opening a pull request" STAGE=pr
+urls=$(git -C "$REPO" config --get-all "remote.$PUSH.url" 2>/dev/null || true)
+pushurls=$(git -C "$REPO" config --get-all "remote.$PUSH.pushurl" 2>/dev/null || true)
+if [ -n "$pushurls" ]; then
+  rurl=$pushurls
+else
+  rurl=$urls
+fi
+[ -n "$rurl" ] ||
+  hold "the depot has no remote $PUSH to push $BR to; $NOT. Name the remote in the group's cmd (YARDR_PUSH), then unhold."
+url_count=$(printf '%s\n' "$rurl" | awk 'NF { n++ } END { print n+0 }')
+[ "$url_count" = 1 ] ||
+  hold "the remote $PUSH has more than one push URL; configure one destination before opening a pull request. $NOT."
+if [ -n "$pushurls" ] && [ -n "$urls" ]; then
+  fetch_count=$(printf '%s\n' "$urls" | awk 'NF { n++ } END { print n+0 }')
+  [ "$fetch_count" = 1 ] ||
+    hold "the remote $PUSH has more than one repository URL; configure one destination before opening a pull request. $NOT."
+fi
+github_slug() {
+  printf '%s' "$1" |
+    sed -n -E 's#^(https://([^@/]+@)?|ssh://git@|git@)github\.com[:/]([A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?/[A-Za-z0-9._-]+)$#\3#p' |
+    sed -E 's#\.git$##'
+}
+slug=$(github_slug "$rurl")
+case $slug in '' | */. | */..) slug= ;; esac
+[ -n "$slug" ] ||
+  hold "the remote $PUSH is no github.com repository, so there is no pull request to open for $BR; $NOT."
+if [ -n "$pushurls" ] && [ -n "$urls" ]; then
+  fetch_slug=$(github_slug "$urls")
+  [ -n "$fetch_slug" ] && [ "$(lower "$fetch_slug")" = "$(lower "$slug")" ] ||
+    hold "the remote $PUSH fetch URL and push URL name different repositories; set them to the same github.com repository before opening a pull request. $NOT."
+fi
+
+# --- github_token: merge-pr's github_binding from "The token" to its end (a test holds them equal) ---
+# The token: minted for this repository alone, from the App's id and key file
+# the group's env_file gives, and held in this process's memory for the calls
+# below. It is passed to gh in its environment, never in an argument, and is
+# printed nowhere. The mint command is the github source's own unless the
+# group's cmd names another.
+[ -n "${GITHUB_APP_ID:-}" ] && [ -n "${GITHUB_APP_PRIVATE_KEY_FILE:-}" ] ||
+  hold "this group's environment has no GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY_FILE, which the yard's GitHub App is minted from (the group's env_file); $NOT."
+mint=${YARDR_GITHUB_MINT:-}
+[ -n "$mint" ] || mint=$("$Y" source show github --json 2>/dev/null | jq -r '.source.mint_command // empty')
+[ -n "$mint" ] ||
+  hold "the github source has no mint_command and the group's cmd sets no YARDR_GITHUB_MINT; $NOT. Install contrib/github-mint, then yardr source set github mint_command=<its path>."
+# mint_command has the same space-split, no-shell contract as yardr's source
+# mint. Disable pathname expansion while forming argv so a configured `*`
+# stays an argument and never grows into files in the runner's directory.
+mint_token() {
+  set -f
+  # shellcheck disable=SC2086
+  set -- $mint
+  set +f
+  [ "$#" -gt 0 ] || return 1
+  YARDR_SOURCE_BASE=https://api.github.com "$@" 2>/dev/null
+}
+tokjson=$(jq -nc --arg id "$GITHUB_APP_ID" --arg key "$GITHUB_APP_PRIVATE_KEY_FILE" --arg scope "$slug" \
+  '{inputs: {GITHUB_APP_ID: $id, GITHUB_APP_PRIVATE_KEY_FILE: $key}, scope: $scope}' |
+  mint_token) ||
+  hold "minting a token for $slug failed; the mint's output is not copied to the bead. $NOT."
+token=$(printf '%s' "$tokjson" | jq -r '.token // empty')
+unset tokjson
+[ -n "$token" ] || hold "minting a token for $slug answered no token; $NOT."
+gh_() { GH_TOKEN=$token gh "$@"; }
+# --- end of github_token ---
+
+# The pull request the bead already has: the one it tracks, which must be a pull
+# request of this repository (a bead that comes back after a round has one). A
+# link of another shape or another repository is not this script's to push to.
+url=$(printf '%s' "$bead" | jq -r '[.links[]? | select(.kind == "tracks" and .source == "github") | .url] | first // empty')
+if [ -n "$url" ]; then
+  printf '%s' "$url" | grep -Eqi "^https://github\.com/$(printf '%s' "$slug" | sed 's/[.]/[.]/g')/pull/[1-9][0-9]*$" ||
+    hold "$BEAD tracks $url, which is no pull request of $slug (https://github.com/$slug/pull/<n>); not pushing $BR to another one. Take the link off (yardr link rm), then unhold."
+fi
+
+# pr_state prints what GitHub says of the pull request at $1, as one JSON object.
+pr_state() {
+  gh_ pr view "$1" --json number,state,headRefName,headRepositoryOwner,headRepository,mergeable 2>"$errf"
+}
+# ours succeeds when the JSON in $1 is a pull request from $BR of $slug itself.
+ours() {
+  [ "$(printf '%s' "$1" | jq -r '.headRefName // empty')" = "$BR" ] &&
+    [ "$(lower "$(printf '%s' "$1" | jq -r 'if .headRepositoryOwner.login and .headRepository.name then .headRepositoryOwner.login + "/" + .headRepository.name else empty end')")" = "$(lower "$slug")" ]
+}
+if [ -n "$url" ]; then
+  pr=$(pr_state "$url") || hold "reading pull request $url failed: $(head -c 500 "$errf")"
+  ours "$pr" || hold "pull request $url is not from $BR of $slug, so it is not the one $BEAD is to push to. Not touched. Take the link off (yardr link rm), then unhold."
+  case $(printf '%s' "$pr" | jq -r '.state // empty') in
+  OPEN) ;;
+  MERGED) hold "pull request $url is merged already; $BEAD has nothing to open. If its work is in, close the bead; else take the link off (yardr link rm), then unhold for a new pull request." ;;
+  *) hold "pull request $url is not open; not pushing to it. Reopen it on GitHub, or take the link off (yardr link rm), then unhold." ;;
+  esac
+fi
+
+# The push carries what the branch has. The lease is what the remote has now:
+# a remote tip that is in the branch (a fast-forward) or was once the branch's
+# own tip, which the reflog keeps (the builder rebased onto the base, so the
+# pushed commits are rewritten) is replaced; one the bead's branch never had is
+# somebody else's work, and is not overwritten.
+theirs=$(git -C "$REPO" ls-remote "$rurl" "refs/heads/$BR" 2>"$errf") ||
+  hold "reading the remote branch $PUSH/$BR failed; not pushing."
+theirs=$(printf '%s' "$theirs" | cut -f1)
+if [ -n "$theirs" ] && [ "$theirs" != "$tip" ]; then
+  if git -C "$REPO" merge-base --is-ancestor "$theirs" "$tip" 2>/dev/null; then
+    :
+  elif git -C "$REPO" reflog show --format=%H "refs/heads/$BR" 2>/dev/null | grep -qx "$theirs"; then
+    echo "== $BR was rewritten since $(short "$theirs") was pushed: replacing it"
+  else
+    hold "$PUSH/$BR has the commit $(short "$theirs"), which $BR never had; not forced. Bring it into $BR (or delete it on $PUSH), then unhold."
+  fi
+fi
+if [ "$theirs" != "$tip" ]; then
+  if ! out=$(git -C "$REPO" push --force-with-lease="refs/heads/$BR:$theirs" "$PUSH" "$tip:refs/heads/$BR" 2>&1); then
+    hold "pushing $BR to $PUSH failed; git's output is omitted because remote URLs may contain credentials."
+  fi
+fi
+
+# The title: merge-local's squash subject for the bead, from the bead's type and
+# kind: label, the diff's scope and a BREAKING CHANGE the commits carry.
+type=$(printf '%s' "$bead" | jq -r '[.labels[]? | select(startswith("kind:")) | .[5:]] | first // empty')
+if [ -z "$type" ]; then
+  if [ "$(printf '%s' "$bead" | jq -r '.type // empty')" = bug ]; then type=fix; else type=chore; fi
+fi
+title=$(printf '%s' "$bead" | jq -r '.title // empty | gsub("[\\p{Cc}]+"; " ") | gsub(" +"; " ") | sub("^ "; "") | sub(" $"; "")')
+[ -n "$title" ] || hold "$BEAD has no title to write the pull request's title from; not opening one."
+paths=$(git -c core.quotePath=false -C "$REPO" diff --name-only --no-renames "$BASE...$tip") ||
+  hold "listing what $BR changes since $BASE failed"
+dir=
+if [ -n "$paths" ]; then
+  dir=$(printf '%s\n' "$paths" | awk '
+    {
+      n = split($0, p, "/"); d = n - 1
+      if (NR == 1) { len = d; for (i = 1; i <= d; i++) c[i] = p[i] }
+      else {
+        if (d < len) len = d
+        for (i = 1; i <= len; i++) if (c[i] != p[i]) { len = i - 1; break }
+      }
+    }
+    END { for (i = 1; i <= len; i++) printf "%s%s", (i > 1 ? "/" : ""), c[i]; print "" }
+  ')
+fi
+scope=${dir##*/}
+case " $CONTAINERS " in *" $dir "*) scope= ;; esac
+[ "$scope" != "$type" ] || scope=
+msgs=$(git -C "$REPO" log --reverse --no-show-signature --format='%B%x1e' "$BASE..$tip") ||
+  hold "reading the commits of $BR since $BASE failed"
+subject=$type
+[ -z "$scope" ] || subject="$subject($scope)"
+printf '%s\n' "$msgs" | grep -Eq '^BREAKING[ -]CHANGE:([ 	]|$)' && subject="$subject!"
+subject="$subject: $title ($BEAD)"
+
+# The body: each commit's message, oldest first, without the footers the yard's
+# commit hook wrote, then the two that the squash commit carries.
+{
+  printf '%s\n' "$msgs" | awk '
+    function flush(   i, first, last, blank) {
+      first = 1; last = n
+      while (first <= last && line[first] ~ /^[ \t]*$/) first++
+      while (last >= first && line[last] ~ /^[ \t]*$/) last--
+      if (first <= last) {
+        if (printed) print ""
+        blank = 0
+        for (i = first; i <= last; i++) {
+          if (line[i] ~ /^[ \t]*$/) { if (!blank) print ""; blank = 1; continue }
+          blank = 0; print line[i]
+        }
+        printed = 1
+      }
+      n = 0
+    }
+    function keep(l) { return l !~ /^Yardr-(Agent|Bead):/ }
+    {
+      p = index($0, "\036")
+      if (p == 0) { if (keep($0)) line[++n] = $0; next }
+      if (p > 1 && keep(substr($0, 1, p - 1))) line[++n] = substr($0, 1, p - 1)
+      flush()
+    }
+    END { if (n > 0) flush() }
+  '
+  printf '\nYardr-Bead: %s\n' "$BEAD"
+  printf '%s\n' "$msgs" | sed -n 's/^Yardr-Agent:[ 	]*//p' | awk 'NF && !seen[$0]++' | sed 's/^/Yardr-Agent: /'
+} | head -c 60000 >"$work/body"
+
+# Open it, or write the one the bead has again. A pull request GitHub already
+# has for this branch (an earlier run died between opening it and linking it) is
+# found by its head, and taken only if it is of this repository's own branch.
+created=0
+if [ -z "$url" ]; then
+  if out=$(gh_ pr create -R "$slug" --head "$BR" --base "$prbase" --title "$subject" --body-file "$work/body" 2>"$errf"); then
+    url=$(printf '%s\n' "$out" | grep -Eo "https://github\.com/$(printf '%s' "$slug" | sed 's/[.]/[.]/g')/pull/[1-9][0-9]*" | tail -n 1)
+    [ -n "$url" ] || hold "GitHub opened a pull request for $BR but gave no address: $(printf '%s' "$out" | head -c 300)"
+    created=1
+  else
+    why=$(head -c 500 "$errf")
+    found=$(gh_ pr list -R "$slug" --head "$BR" --state open --json url,headRefName,headRepositoryOwner,headRepository 2>/dev/null |
+      jq -r --arg br "$BR" --arg slug "$(lower "$slug")" '[.[]? | select(.headRefName == $br and ((.headRepositoryOwner.login + "/" + .headRepository.name) | ascii_downcase) == $slug) | .url] | first // empty')
+    [ -n "$found" ] || hold "GitHub did not open a pull request for $BR on $slug: $why. The branch is pushed. Act on that (the App needs Pull requests write on the repository), then unhold."
+    url=$found
+  fi
+fi
+
+# The bead tracks it from now on, once, and before anything else is done with
+# it: GitHub tells the yard's hook that a pull request was opened, and the hook
+# makes a bead of any pull request no open bead tracks, so the link is made
+# before that delivery can be read. It is what pr-ci and merge-pr read. A bead
+# of another that already tracks it (the hook made one of the pull request
+# first) is named by the refusal.
+if [ -z "$(printf '%s' "$bead" | jq -r '[.links[]? | select(.kind == "tracks" and .source == "github") | .url] | first // empty')" ]; then
+  "$Y" link add "$BEAD" "$url" >"$errf" 2>&1 ||
+    hold "linking $BEAD to $url failed: $(head -c 500 "$errf"). The pull request is open. Resolve it (yardr link list; yardr link move for a pull request another bead tracks), then unhold."
+fi
+"$Y" bead update "$BEAD" --meta "own_pr=\"$url\"" --remove-label merge-ok >"$errf" 2>&1 ||
+  hold "pushed $BR and opened $url, but recording it on $BEAD failed: $(head -c 500 "$errf")"
+
+if [ "$created" = 0 ]; then
+  gh_ pr edit "$url" --title "$subject" --body-file "$work/body" >/dev/null 2>"$errf" ||
+    hold "updating pull request $url failed: $(head -c 500 "$errf"). The branch is pushed."
+fi
+pr=$(pr_state "$url") || hold "reading pull request $url failed: $(head -c 500 "$errf")"
+ours "$pr" || hold "pull request $url is not from $BR of $slug, which is the only one $BEAD is to push to; take its link off (yardr link rm) and unhold."
+
+# GitHub's view of whether it merges: CONFLICTING means the base moved under it,
+# which the builder's rebase resolves. UNKNOWN (not computed yet) is let through:
+# merge-pr is where a merge GitHub refuses is held.
+if [ "$(printf '%s' "$pr" | jq -r '.mergeable // empty')" = CONFLICTING ]; then
+  report failed "pull request $url conflicts with $prbase; rebase $BR onto $prbase, run the tests, and report done: the same pull request is updated."
+fi
+
+how=updated
+[ "$created" = 0 ] || how=opened
+report "done" "pushed $BR at $(short "$tip") to $PUSH; $how $url as $subject."

@@ -1427,7 +1427,7 @@ func (s *Store) UpdateBead(ctx context.Context, id string, p BeadPatch, exp Expe
 			if err := w.checkMergeOK(ctx, b, p); err != nil {
 				return "", nil, err
 			}
-			if err := w.checkReviewedHead(ctx, b, p); err != nil {
+			if err := w.checkReviewRecords(ctx, b, p); err != nil {
 				return "", nil, err
 			}
 			if err := w.checkCIHead(ctx, b, p); err != nil {

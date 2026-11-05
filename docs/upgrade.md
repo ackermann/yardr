@@ -208,7 +208,8 @@ codesign --force --sign "<the certificate's name>" --identifier dev.yardr.yardr 
 
 The groups of a yard run scripts from `<home>/scripts`: `merge-local` for
 the assembly, `integrate-train`, `pr-train` and `pr-merge` for trains,
-`merge-pr` and `pr-ci` for the pull requests of outside, `deploy-dokku` and
+`merge-pr` and `pr-ci` for the pull requests of outside, `open-pr` and
+`post-review` for the public line, `deploy-dokku` and
 `deploy-void` for deploy stages, `return-branch` for a peer. The
 operator installs each once by hand (`install contrib/assembly/merge-local
 ~/.yardr/scripts/`, [line.md](line.md#setup)), and a copy is only as new
@@ -217,9 +218,10 @@ someone installs it again. So after the install the depot road refreshes
 the copies from the same checkout, and a fix to a script is live for the
 next landing, as a fix to the binary is. (The release road has no
 checkout to refresh from, as [its section](#from-a-signed-release)
-says, and leaves the copies as they are.) It reads the nine scripts from
+says, and leaves the copies as they are.) It reads the eleven scripts from
 where the docs have the operator install them from, `contrib/assembly/`
-(`merge-local`, `integrate-train`, `pr-train`, `pr-merge`, `merge-pr`, `pr-ci`),
+(`merge-local`, `integrate-train`, `pr-train`, `pr-merge`, `merge-pr`, `open-pr`,
+`post-review`, `pr-ci`),
 `contrib/deploy/` (`deploy-dokku`, `deploy-void`) and
 `contrib/peer/return-branch`, and
 writes each under its own name.

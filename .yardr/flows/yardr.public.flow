@@ -1,0 +1,51 @@
+# yardr.public: depot yardr's work on the public line (a bead is pinned to it
+# with yardr bead update <id> --meta flow=yardr.public). It is default.flow with
+# the bead's branch published as a pull request: after new, a script pushes
+# yard/<bead> and opens (or updates) the pull request as the yard's GitHub
+# App, the reviewers read it and store their review on the bead, a script posts
+# each stored review on the pull request as the App (review-post after review,
+# review-security-post after review-security), the yard runs the depot's tests
+# on the head they read (ciwait, pr-ci), and the App merges it (approved,
+# merge-pr). The reviewers hold no key: the App's id and key file are in the
+# environment of the exec groups of the scripts alone. Every stage default.flow
+# has is here, so a bead on it goes back to the old line by taking the pin off
+# (docs/line.md, "The public line").
+#
+# A reviewer keeps its outcomes: done, done-safe and changes take the bead to
+# the posting stage, and the posting stage sends it on the way the stored
+# review's outcome says, which is the edge default.flow gives the reviewer.
+# question goes straight to decide, since a question for a person is not posted.
+# The check of done-safe against .yardr/security_paths is made at the reviewer's
+# report, and again at the posting stage's.
+#
+# The ways back to new (changes from review-post, from review-security-post and
+# from ciwait, failed from pr) are limited to 3 rounds together, as
+# default.flow limits its own: the fourth goes to decide. A review that cannot
+# be posted as stored (failed) goes back to its reviewer once: the second goes
+# to decide. A limit counts the arrivals at the stage it sends the bead to,
+# whichever outcome made them, and a bead that went round through new arrives at
+# review again from pr, so for such a bead the one retry is used already and its
+# first failed post goes to decide. A bead that comes back is pushed to the same
+# pull request.
+#
+# The bare edges are for a person and the yardmaster, and are the moves the
+# scripts' own notes tell them to make: pr-ci's hold sends a head nobody read
+# back to review, merge-pr's sends a head that moved back to ciwait, a pull
+# request that conflicts with main goes back to new to be rebased, and a bead
+# that a second failed post sent to decide goes back to be read again (review,
+# review-security) or to be posted again once the stored review is put right
+# (review-post, review-security-post).
+backlog -> shape | siding | new | decide
+shape -> siding on small | new on done | decide on question | backlog
+siding -> ready | backlog
+ready -> new | backlog
+new -> pr on done | decide on question | backlog
+pr -> review on done | new on failed max 3 then decide
+review -> review-post on done | review-post on done-safe | review-post on changes | decide on question
+review-post -> review-security on done | ciwait on done-safe | new on changes max 3 then decide | review on failed max 1 then decide
+review-security -> review-security-post on done | review-security-post on changes | decide on question
+review-security-post -> ciwait on done | new on changes max 3 then decide | review-security on failed max 1 then decide
+ciwait -> approved on done | new on changes max 3 then decide | review
+approved -> merged on merged | decide on dropped | ciwait | new
+decide -> backlog | new | review | review-security | review-post | review-security-post
+merged terminal

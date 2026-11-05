@@ -33,6 +33,17 @@
 # rebased on and deleted. --match-head-commit closes the gap between the look
 # and the merge.
 #
+# Option, set in the group's cmd:
+#
+#   YARDR_LAND  rebase (default) or squash: how a branch of the repository's own
+#               is merged. With squash it becomes one commit on the base whose
+#               subject and message are the pull request's title and body, as
+#               the pull request has them when it is merged: the public line's
+#               open-pr writes them as the squash commit merge-local would have
+#               written (docs/line.md, "The public line"). A fork is merged with
+#               a merge commit either way. Any other value holds the bead before
+#               anything is merged.
+#
 # The outcomes at approved are merged and dropped, and nothing here reports
 # anything else. A pull request already merged reports merged, one closed
 # unmerged reports dropped; every other thing that stops the merge (no label,
@@ -92,6 +103,11 @@ cd "$work" || exit 1
 
 command -v gh >/dev/null 2>&1 || hold "gh is not on PATH; not merging."
 command -v jq >/dev/null 2>&1 || hold "jq is not on PATH; not merging."
+LAND=${YARDR_LAND:-rebase}
+case $LAND in
+rebase | squash) ;;
+*) hold "YARDR_LAND is $LAND in this group's cmd, and a pull request is merged by rebase or by squash; not merging. Correct the cmd, then unhold." ;;
+esac
 
 bead=$("$Y" bead show "$BEAD" --json) || hold "reading $BEAD failed"
 
@@ -152,13 +168,15 @@ unset tokjson
 gh_() { GH_TOKEN=$token gh "$@"; }
 # --- end of github_binding ---
 
-pr=$(gh_ pr view "$url" --json number,state,headRefOid,headRepository,headRepositoryOwner,author 2>"$errf") ||
+pr=$(gh_ pr view "$url" --json number,state,headRefOid,headRepository,headRepositoryOwner,author,title,body 2>"$errf") ||
   hold "reading pull request $url failed: $(head -c 500 "$errf")"
 state=$(printf '%s' "$pr" | jq -r '.state // empty')
 head=$(printf '%s' "$pr" | jq -r '.headRefOid // empty')
 headrepo=$(printf '%s' "$pr" | jq -r 'if .headRepositoryOwner.login and .headRepository.name then .headRepositoryOwner.login + "/" + .headRepository.name else empty end')
 bot=$(printf '%s' "$pr" | jq -r '.author.is_bot // false')
 author=$(printf '%s' "$pr" | jq -r '.author.login // "unknown"')
+title=$(printf '%s' "$pr" | jq -r '.title // empty')
+body=$(printf '%s' "$pr" | jq -r '.body // empty')
 
 # A pull request that is not open is nothing to merge: the merge is done
 # already (by a maintainer, or by an earlier run that could not report it), or
@@ -220,7 +238,11 @@ passed=nothing
 # longer the commit looked at; gh can merge and still exit non-zero (a local
 # branch it could not delete, say), so what GitHub says the pull request is
 # decides.
-if [ "$samerepo" = 1 ]; then
+if [ "$samerepo" = 1 ] && [ "$LAND" = squash ]; then
+  [ -n "$title" ] || hold "GitHub gave no title for $url, which is the squash commit's subject; not merging."
+  how=squash
+  out=$(gh_ pr merge "$url" --squash --delete-branch --match-head-commit "$sha" --subject "$title" --body "$body" 2>&1) && rc=0 || rc=$?
+elif [ "$samerepo" = 1 ]; then
   how=rebase
   out=$(gh_ pr merge "$url" --rebase --delete-branch --match-head-commit "$sha" 2>&1) && rc=0 || rc=$?
 else

@@ -37,7 +37,12 @@ and `yardr prime --bead` name the commit. `yard/<bead>` stays where the base
 is, and a fetch that fails (the pull request's ref gone, no network) fails the
 start with git's error and holds the bead for a person to fix and release,
 instead of starting it on the base. A train is not worked this way: its pull
-request is of its own branch.
+request is of its own branch. Nor is a bead whose metadata `own_pr` is the
+address of the pull request it tracks: that is the pull request the bead
+opened from its own branch, the work published and not somebody else's change,
+so its sessions stand on the branch, where their commits are the ones the pull
+request is updated from. The public line's `open-pr` records it
+([line.md](line.md#the-public-line)).
 
 ## The rules
 

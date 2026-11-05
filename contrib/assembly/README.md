@@ -1,9 +1,9 @@
 # contrib/assembly
 
-Five shell scripts, each run as the `cmd` of an `exec` group with `--limit 1`
-(one bead at a time). They are how depot yard lands work; the flow they sit in
-is described in [docs/line.md](../../docs/line.md), sections 4 and
-Trains. The daemon stops a script as soon as it has reported, so each takes
+Shell scripts, each run as the `cmd` of an `exec` group with `--limit 1` (one
+bead at a time). They are how depot yard lands work; the flows they sit in are
+described in [docs/line.md](../../docs/line.md), sections 4, Trains and The
+public line. The daemon stops a script as soon as it has reported, so each takes
 away what it made (the files of a test run, a directory to work in) and stops
 what it started (the test command and every process below it) before it
 reports; a script stopped sooner, by TERM or INT, does the same before it
@@ -196,11 +196,56 @@ commit holds the bead ("moved since your yes"). The yard's CI must have passed
 on that commit: the bead's `ci_head`, which pr-ci records, is it, and GitHub's
 check runs are not asked. `gh pr merge` runs with
 `--match-head-commit`: `--rebase --delete-branch` for a branch of the
-repository's own, `--merge` and no deletion for a fork. A pull request merged
+repository's own (`--squash --delete-branch --subject <the pull request's title>
+--body <its body>` where the group's cmd sets `YARDR_LAND=squash`), `--merge` and
+no deletion for a fork. A pull request merged
 already reports `merged`, one closed unmerged `dropped`, and nothing else is
 ever reported: whatever stops the merge holds the bead with a note. It
 touches no checkout and needs `gh` and `jq`, and never uses the operator's
 own `gh` login. docs/line.md, "Merging pull requests", has the setup.
+
+**open-pr** is routed for `pr`, the stage of the public line (the flow
+`yardr.public`) after `new`. It pushes `yard/<bead>` to `YARDR_PUSH` (default
+`origin`, which must be a github.com repository, read as the depot's
+configuration has it) with the yard's own git credentials: a remote tip that is
+in the branch, or that the branch once had (a rebase rewrote it, which the
+reflog keeps), is replaced under a lease; one the branch never had holds the
+bead. It then opens the pull request, or writes again the one the bead tracks,
+as the yard's App (the same `env_file` and mint as merge-pr, and the same text
+for the token, held equal by a test), never as the operator's `gh` login. The
+title is the squash subject line merge-local writes for the bead, and the body
+is made from the branch's commit messages and `Yardr-Bead` and `Yardr-Agent`
+footers: nothing of the bead's body or notes is read. The bead then tracks the
+pull request and records it as its own (`own_pr`, so its sessions stand on its
+branch), and loses `merge-ok`, which was the yes to the old head. `done` goes to
+`review`; `failed` goes back to `new` when the branch has nothing past the base
+or GitHub says the pull request conflicts with it; anything else holds the bead
+with a note. Needs `gh`, `jq` and `git` on PATH. docs/line.md, "The public
+line", has the setup.
+
+**post-review** is routed for `review-post` and `review-security-post`, the two
+stages of the public line that follow a reviewer, and posts the review the
+reviewer stored on its bead (metadata `review`: `outcome`, `body` and `comments`
+of `path`, `line` and `body`), so that no reviewer holds the App's key. It posts
+one GitHub review on the pull request the bead tracks, which must be the bead's
+own (`own_pr`, written by open-pr) and be from the branch `yard/<bead>`, as the
+yard's App (the token is merge-pr's text, held equal by a test), with the
+comments inline on the right side of the diff, anchored to the bead's
+`reviewed_head`, which it requires and compares with the pull request's head.
+The GitHub review is made from the outcome (an approval for `done` and
+`done-safe`, a request for changes for `changes`) with the verdict as the first
+line of its body; GitHub does not let an account approve or ask changes of a
+pull request it opened, so a review it refuses on that ground is posted again
+as a comment review. It then gives the bead `merge-ok` when the review sends it
+to `ciwait`, empties the stored review so that it is posted once, and reports
+the review's outcome (`done`, `done-safe` or `changes`, which the flow offers at
+the stage). `failed`, back to the reviewer once, is for what the reviewer can
+put right (no review stored, a field wrong, an outcome the stage does not take,
+no head recorded, a pull request that moved since the head was read, a review
+GitHub refuses as written); anything else holds the bead with a note. It reads
+the bead's stage, tracks link, `own_pr`, `reviewed_head` and `review`, and never
+its body or notes. Needs `gh` and `jq`. docs/line.md, "The public line", has the
+setup.
 
 **pr-ci** is routed for `ciwait` (type `pr`), the stage after a reviewer has
 read a pull request of the contributors pack, which carries a copy of it that
@@ -233,7 +278,9 @@ docs/line.md, "The yard as the CI of a pull request", has the setup.
 `YARDR_DEPOT`, `YARDR_DEPOT_PATH`, `YARDR_BASE`, `YARDR_BRANCH` (default
 `yard/<bead>`), `YARDR_WORKTREE`, `YARDR_BIN` and `YARDR_HOME` (used for the
 default worktree path); merge-local also `YARDR_TYPE` and `YARDR_TRAIN`. merge-pr
-reads `YARDR_BEAD` and `YARDR_BIN` alone, and pr-ci those and `YARDR_DEPOT`,
+reads `YARDR_BEAD` and `YARDR_BIN` alone, post-review those and `YARDR_BRANCH`,
+open-pr those and `YARDR_DEPOT_PATH`,
+`YARDR_BASE`, `YARDR_BRANCH` and `YARDR_WORKTREE`, and pr-ci those and `YARDR_DEPOT`,
 `YARDR_DEPOT_PATH`, `YARDR_BASE`, `YARDR_WORKTREE` and `YARDR_TEST`, the depot's
 test command, with `YARDR_TEST_TIMEOUT` in its cmd as merge-local has it.
 Options go in the group's `cmd`: `YARDR_PUSH`, a remote to push to (off when
@@ -241,7 +288,8 @@ empty; pr-train and pr-merge default to `origin`), `YARDR_NOTIFY`, the crew memb
 mailed when that push fails (default the yard's `yardmaster` setting, else
 `yardmaster`), `YARDR_LAND`, `rebase` (the default) or `squash`, how a bead
 lands, read by merge-local and pr-merge (a copy of merge-local's message
-writer is in pr-merge, held equal by a test), and `YARDR_PR=1`, the switch for
+writer is in pr-merge, held equal by a test) and by merge-pr for a branch of the
+repository's own, and `YARDR_PR=1`, the switch for
 the pull-request path, read by integrate-train, pr-train and pr-merge.
 
 **Setup** (from docs/line.md):

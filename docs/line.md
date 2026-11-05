@@ -2,7 +2,9 @@
 
 yardr builds no line in: stages, groups, routes and a flow compose one.
 This page follows a bead down the line yardr itself is built with
-(depot yardr, as of 2026-10-03). Its flows are in [flows.md](flows.md#worked-example-depot-yardr).
+(depot yardr, as of 2026-10-03). Its flows are in [flows.md](flows.md#worked-example-depot-yardr). A second
+line takes the same work through a pull request on GitHub:
+[the public line](#the-public-line).
 
 ```
 small, specified: backlog ──pick──▶ siding ──folded──▶ ready ──release by hand──▶ new
@@ -706,7 +708,8 @@ with the flow rules `approved -> in-pr | merge | new` and
 with a subscription on the forge's merge webhook
 ([hook sources](subscriptions.md#hook-sources)) advancing the bead to
 `merged`. Beads funneling into a shared PR push to one integration branch
-instead of their own.
+instead of their own. [The public line](#the-public-line) is this variant made
+real, with the pull request opened by the yard's GitHub App.
 
 After a merge, `go install` on `main` is the whole upgrade: the running
 server and daemon replace themselves with the new build within seconds, and
@@ -1936,6 +1939,11 @@ yardr route add --stage approved --type pr --label merge-ok --originator any \
   --group pr-merges --note "the yard merges a pr bead marked merge-ok; the label outranks a depot's approved/pr to decisions"
 ```
 
+A group whose cmd sets `YARDR_LAND=squash` merges a branch of the repository's
+own as one commit on the base, with the pull request's title and body as its
+message, instead of rebasing it (a fork is merged with a merge commit either
+way); any other value holds the bead before anything is merged.
+
 The App needs Contents and Workflows read and write on the repositories (the
 second is what lets it merge a pull request that changes a workflow file),
 beside the Pull requests and Checks permissions the yard's other calls of
@@ -1947,3 +1955,193 @@ route. Without that route a depot's own
 assembly (the route for `approved`, no type) would run merge-local on a
 pull request's bead. The script is refreshed by `yardr upgrade` from the
 checkout it builds, once installed ([upgrade.md](upgrade.md#the-scripts)).
+
+## The public line
+
+Depot yardr has a second line, on which its own work goes through a pull
+request on GitHub, in public: the bead's branch is pushed and opened as a pull
+request by the yard's GitHub App, the reviewers read it and store their review
+on the bead, a script of the yard posts each review on the pull request as the
+same App, the yard runs the depot's tests on the head they read, and the App
+merges it. It is the flow
+[`yardr.public`](../.yardr/flows/yardr.public.flow), with its stage files in
+[`.yardr/flows/yardr.public/`](../.yardr/flows/yardr.public): the default flow
+with four stages added, `pr` after `new`, `review-post` after `review`,
+`review-security-post` after `review-security` and `ciwait` before `approved`,
+and every stage name the default flow has. The old line is untouched, and a bead
+that is not pinned to the new one follows it as before.
+
+```
+                   done-safe ────────────────────────────────────────────────┐
+                                                                             ▼
+new ──▶ pr ──▶ review ──▶ review-post ──▶ review-security ──▶ review-security-post ──▶ ciwait ──▶ approved ──▶ merged on main
+ ▲      │                      │                                      │                   │
+ └──────┴────── changes ───────┴──────────────────────────────────────┴───────────────────┘
+```
+
+| stage | worked by | what happens |
+|---|---|---|
+| `new` | the builders | as on the old line; every commit message is public |
+| `pr` | [`open-pr`](../contrib/assembly/open-pr) | pushes `yard/<bead>`, opens its pull request or updates the one it has, as the App; the bead tracks it |
+| `review`, `review-security` | the reviewers | read the branch as before, push the commits they make, store their review on the bead with the head they read (`review`, `reviewed_head`), and report `done`, `done-safe` or `changes` as before; they post nothing |
+| `review-post`, `review-security-post` | [`post-review`](../contrib/assembly/post-review) | posts the stored review on the pull request as the App, gives `merge-ok` with the approval that sends the bead to the tests, and sends the bead on the way the review says |
+| `ciwait` | [`pr-ci`](../contrib/assembly/pr-ci) | runs the depot's test command on that head ([above](#the-yard-as-the-ci-of-a-pull-request)) |
+| `approved` | [`merge-pr`](../contrib/assembly/merge-pr) | merges it as the App ([above](#merging-pull-requests)), squashed where the group says `YARDR_LAND=squash` |
+
+Changes go back to `new` from `pr` (nothing to publish, or a conflict with the
+base), `review-post`, `review-security-post` and `ciwait`, three rounds together
+as on the old line, and the builder's next report of `done` pushes to the pull
+request it has. `open-pr` records it as the bead's own (`own_pr`), so that the
+bead's sessions stay on its branch instead of standing on the pull request's
+head as if it were somebody else's change ([links.md](links.md#two-kinds)). A
+question for a person goes to `decide` from `review` and `review-security` as
+on the old line, and is not posted.
+
+### The reviewers hold no key
+
+Posting a review takes a token of the App, which is minted from its private key,
+and a reviewer is the agent least fit to hold that key: it reads other people's
+text (a diff, a bead's body, on another line an outsider's pull request) and
+runs shell commands in its pane, so whatever talks it into something has what
+the App has, to open, merge and push on the repository past every review and
+test. The key stays where it was, in the environment of the exec groups of fixed
+scripts (`open-pr`, `post-review`, `pr-ci`, `merge-pr`) and in no agent's. The
+reviewers' part is data. A reviewer stores its review on its bead, in the update
+that records the head it read, and reports its outcome:
+
+```sh
+yardr bead update <id> --meta reviewed_head="$(git rev-parse HEAD)" --meta review='{
+  "outcome": "done-safe",
+  "body": "What the change does…",
+  "comments": [{"path": "internal/x/y.go", "line": 42, "body": "…"}]}'
+```
+
+`outcome` is the one it reports (`done`, `done-safe` or `changes`), and the
+GitHub review is made from it: an approval for the first two, a request for
+changes for the third, with the verdict (`Approved`, `Changes needed`) written
+as the first line of the body by the script. `post-review`, which the two
+posting stages run, reads that and the bead's stage, tracks link, `own_pr` and
+`reviewed_head`, and nothing else of the bead (not its body, not its notes), and
+posts only what it checks:
+
+- the pull request is the one the bead tracks, which must be its `own_pr`, open,
+  and from the branch `yard/<bead>` of the repository it is addressed in:
+  `own_pr` is metadata an agent can write, so it is the pull request that says
+  whose branch it is, and a bead pointed at another pull request is held;
+- the review is of the head GitHub says the pull request has (`reviewed_head`);
+  a pull request that moved since is sent back to the reviewer to be read as it
+  is;
+- the review's fields are valid, one by one (an outcome the stage takes, a body
+  of 1 to 60000 bytes, at most 50 comments, each with a path inside the
+  repository, a line from 1 and text), and the request is made from them by `jq`,
+  never interpolated into a shell line;
+- the token goes to `gh` in its environment and to no argument, note or log.
+
+When it is posted the script gives the bead `merge-ok` if the review sends it to
+the tests (`done-safe` at `review-post`, `done` at `review-security-post`),
+empties the stored review so that it is posted once, and reports the review's
+outcome. If the yard refuses `done-safe` because the diff touches
+`.yardr/security_paths`, the script removes `merge-ok` and holds the bead for a
+person to send it to `review-security`; the review is already on the pull request,
+so it must not be posted again. A review it cannot post as stored (none stored, a
+field wrong, the pull
+request moved, a comment GitHub refuses because its line is not in the diff)
+goes back to its reviewer once, with the reason in a note, and the second time
+to `decide`: the flow counts the arrivals at the review stage, whichever outcome
+made them, so a bead that went round through `new` has used its one retry
+already and goes to `decide` the first time. What is not the reviewer's to put
+right (a pull request that is not the bead's own or is closed, no App inputs, a
+mint that fails, any other answer from GitHub) holds the bead in the posting
+stage, for the yard to put right and unhold.
+
+What a misled reviewer can still do is write a review that says the wrong thing
+about its own bead, which it always could: the script does not read the text for
+what it means. The rule on what may be said is in the reviewers' stage files and
+is theirs alone to keep.
+
+### What is posted
+
+- **The pull request.** Its title is the squash subject line the landing writes
+  ([Landing by squash](#landing-by-squash)): the type, the scope, the bead's
+  title and its id. Its body is made from the branch's commit messages, then
+  `Yardr-Bead` and `Yardr-Agent` as the squash commit has them. Nothing of the
+  bead's body or notes is read into either, and both are written again each
+  time the branch is pushed.
+- **The reviews.** One GitHub review for each reviewer, as the App, with inline
+  comments on lines of the diff, anchored to the head the reviewer read. GitHub
+  does not let the account that opened a pull request approve it or ask changes
+  of it, and the App opens these, so the review goes up as a comment review and
+  its first line is the verdict. The posted text describes the change and the
+  code only: it quotes no bead body or note, and names no customer, lead, price
+  or other context that only the yard has. That rule is in the reviewers' stage
+  files for the line, and the full review is still a note on the bead.
+- **The yes.** `merge-ok` is given by `post-review`, with the approving review
+  that sends the bead to the tests, and `open-pr` takes it off whenever it
+  pushes a new head. No reviewer says it.
+- **The merge.** With `YARDR_LAND=squash`, one commit on the base whose message
+  is the pull request's title and body.
+
+Comments that outsiders make on these pull requests arrive as hook
+deliveries, for a person to read, as for any pull request.
+
+### Going onto it, and back
+
+A bead goes onto the line when it is pinned, by whoever routes the work (a
+bead's own agent may not pin its flow), in any stage before `pr`:
+
+```sh
+yardr bead update <id> --meta flow=yardr.public
+```
+
+and goes back by moving it out of `pr`, `review-post`, `review-security-post` and
+`ciwait` if it is in one (`yardr bead advance <id> --to new`, or `--to review`
+or `--to review-security`), taking the yes off (`--remove-label merge-ok`) and
+taking the pin off (`--meta flow=`). It then lands by merge-local as before; a
+pull request left open is closed on GitHub by hand, and a review stored and not
+posted stays on the bead, unread. Pointing the depot itself at the flow
+(`yardr depot flow`) is a later step with a consequence of its own: a store
+pointer takes the repository's type flows out too
+([flows.md](flows.md#which-flow-governs-a-bead)).
+
+### Setup
+
+The groups and routes are the yard's, not the repository's. `pr-ci` and
+`pr-merges` are the groups of the two sections above, and the line adds one for
+`open-pr`, one for `post-review`, and one for the merge that squashes. Those
+exec groups are the only ones that get the App's id and key file, in the
+`env_file` they share with the other two; no group of reviewers, builders or
+shapers has them.
+
+```sh
+install contrib/assembly/open-pr contrib/assembly/post-review ~/.yardr/scripts/   # from main
+yardr group add yardr-pr --runner exec --limit 1 \
+  --set cmd="YARDR_PUSH=origin $HOME/.yardr/scripts/open-pr" \
+  --set env_file="$HOME/.yardr/env/pr-merges.env" \
+  --set log="$HOME/.yardr/logs/yardr-pr.log"
+yardr group add yardr-post --runner exec --limit 1 \
+  --set cmd="$HOME/.yardr/scripts/post-review" \
+  --set env_file="$HOME/.yardr/env/pr-merges.env" \
+  --set log="$HOME/.yardr/logs/yardr-post.log"
+yardr group add yardr-pr-merges --runner exec --limit 1 \
+  --set cmd="YARDR_LAND=squash $HOME/.yardr/scripts/merge-pr" \
+  --set env_file="$HOME/.yardr/env/pr-merges.env" \
+  --set log="$HOME/.yardr/logs/yardr-pr-merges.log"
+yardr route add --stage pr --depot yardr --originator any --group yardr-pr
+yardr route add --stage review-post --depot yardr --originator any --group yardr-post
+yardr route add --stage review-security-post --depot yardr --originator any --group yardr-post
+yardr route add --stage ciwait --depot yardr --originator any --group pr-ci
+for type in task bug feature; do
+  yardr route add --stage approved --depot yardr --type "$type" \
+    --label merge-ok --originator any --group yardr-pr-merges
+done
+```
+
+The `approved` routes ask for a label by name, so they rank before the depot's
+route to the assembly, which the beads of the old line (they never carry
+`merge-ok`) still take. They are limited to task, bug and feature beads so
+pull-request beads from the contributors pack keep their existing route. These
+routes put the trial on depot `yardr` only. The App needs Pull requests read
+and write on the repository, for opening a pull request and posting a review,
+beside what the two sections above name. A group with no App in its environment
+holds the bead in its stage with a note, and the bead waits until the
+yardmaster restores it.

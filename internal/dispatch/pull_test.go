@@ -11,16 +11,19 @@ import (
 )
 
 // pullBead is one bead of TestJobNamesThePullRequestTheBeadTracks: what
-// it links to, and the pull its job names, if any.
+// it links to, the pull request its metadata says is its own (own_pr, none
+// when empty), and the pull its job names, if any.
 type pullBead struct {
-	title, typ, kind, url string
-	pull                  *dispatch.Pull
+	title, typ, kind, url, own string
+	pull                       *dispatch.Pull
 }
 
 // The job of a bead that tracks a pull request names it, so the runner
 // can put the worktree on its head. A bead that tracks an issue, one that
-// only relates to a pull request, and a train, whose pull request is of
-// its own branch, are started as ever.
+// only relates to a pull request, a train, whose pull request is of its own
+// branch, and a bead that opened the pull request itself from its own branch
+// (the public line's), whose sessions work on that branch, are started as
+// ever.
 func TestJobNamesThePullRequestTheBeadTracks(t *testing.T) {
 	t.Parallel()
 	const pr = "https://github.com/acme/web/pull/7"
@@ -37,11 +40,16 @@ func TestJobNamesThePullRequestTheBeadTracks(t *testing.T) {
 			source: "github",
 			file:   filepath.Join("..", "..", "packs", "github", "github.yaml"),
 			beads: []pullBead{
-				{"theirs", "", store.LinkTracks, pr, &dispatch.Pull{URL: pr, Number: 7}},
-				{"an issue", "", store.LinkTracks, "https://github.com/acme/web/issues/8", nil},
-				{"relates", "", store.LinkRelates, pr, nil},
-				{"no link", "", "", "", nil},
-				{"train", store.TypeTrain, store.LinkTracks, "https://github.com/acme/web/pull/9", nil},
+				{"theirs", "", store.LinkTracks, pr, "", &dispatch.Pull{URL: pr, Number: 7}},
+				// The pull request it opened from its own branch is its work, not
+				// somebody else's; another it tracks, or an own_pr that names a
+				// different one, is still read.
+				{"its own", "", store.LinkTracks, "https://github.com/acme/web/pull/10", "https://github.com/acme/web/pull/10", nil},
+				{"own is another", "", store.LinkTracks, "https://github.com/acme/web/pull/11", pr, &dispatch.Pull{URL: "https://github.com/acme/web/pull/11", Number: 11}},
+				{"an issue", "", store.LinkTracks, "https://github.com/acme/web/issues/8", "", nil},
+				{"relates", "", store.LinkRelates, pr, "", nil},
+				{"no link", "", "", "", "", nil},
+				{"train", store.TypeTrain, store.LinkTracks, "https://github.com/acme/web/pull/9", "", nil},
 			},
 		},
 		{
@@ -51,8 +59,8 @@ func TestJobNamesThePullRequestTheBeadTracks(t *testing.T) {
 			source: "forge",
 			text:   forgeDecl,
 			beads: []pullBead{
-				{"theirs", "", store.LinkTracks, forgePull, &dispatch.Pull{URL: forgePull, Number: 7}},
-				{"an issue", "", store.LinkTracks, forgeIssue, nil},
+				{"theirs", "", store.LinkTracks, forgePull, "", &dispatch.Pull{URL: forgePull, Number: 7}},
+				{"an issue", "", store.LinkTracks, forgeIssue, "", nil},
 			},
 		},
 	} {
@@ -71,9 +79,13 @@ func TestJobNamesThePullRequestTheBeadTracks(t *testing.T) {
 			_, err = s.AddRoute(ctx, store.Route{Stage: "new", Group: "reviewers"}, "me")
 			must(t, err)
 
-			bead := func(title, typ, kind, url string) string {
+			bead := func(title, typ, kind, url, own string) string {
 				t.Helper()
-				b, err := s.CreateBead(ctx, store.NewBead{Title: title, Type: typ}, "me")
+				nb := store.NewBead{Title: title, Type: typ}
+				if own != "" {
+					nb.Metadata = map[string]any{"own_pr": own}
+				}
+				b, err := s.CreateBead(ctx, nb, "me")
 				must(t, err)
 				if url != "" {
 					_, err = s.AddLink(ctx, b.ID, store.NewLink{Kind: kind, Source: tc.source, URL: url}, "me")
@@ -83,7 +95,7 @@ func TestJobNamesThePullRequestTheBeadTracks(t *testing.T) {
 			}
 			want := map[string]*dispatch.Pull{}
 			for _, b := range tc.beads {
-				want[bead(b.title, b.typ, b.kind, b.url)] = b.pull
+				want[bead(b.title, b.typ, b.kind, b.url, b.own)] = b.pull
 			}
 			for range len(tc.beads) { // one start per pass for the group (starts.go)
 				must(t, d.Reconcile(ctx))
