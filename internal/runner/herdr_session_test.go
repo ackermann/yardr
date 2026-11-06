@@ -262,6 +262,38 @@ func TestHerdrSessionThatIsNotRunning(t *testing.T) {
 	}
 }
 
+// Found live: a yard that named no session, whose daemon was started from a
+// terminal with no herdr variables, asked herdr's default session, which was
+// down while another ran, and said only herdr's own words. Unset, herdr being
+// down is told with the session the environment chose and how the yard names
+// its own; the error is still herdr's, and still the runtime's failure.
+func TestHerdrSessionUnsetThatIsNotRunning(t *testing.T) {
+	// Serial: herdrSessions sets process env and session globals.
+	herdrSessions(t)
+	ctx := context.Background()
+	other := sessionListens(t, "other")
+	t.Setenv("HERDR_SOCKET_PATH", "")
+	t.Setenv("HERDR_SESSION", "")
+	h := &Herdr{Bin: sessionBin(t), Store: storetest.New(t)}
+
+	down, err := h.ServerUp(ctx)
+	var rt *dispatch.RuntimeError
+	if !down || !errors.As(err, &rt) {
+		t.Fatalf("ServerUp = %v, %v; want herdr down, the runtime's failure", down, err)
+	}
+	for _, want := range []string{"herdr is not running in session default, socket " + SessionSocket("default"),
+		"yardr settings set herdr_session <name>", "server_not_running"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("ServerUp = %v, want %q in it", err, want)
+		}
+	}
+	select {
+	case <-other:
+		t.Fatal("a session the environment does not name was asked")
+	default:
+	}
+}
+
 // A setting that cannot be read fails the call: the environment's session
 // may be another, in which every pane of the yard would look gone.
 func TestHerdrIsNotAskedWhenTheSettingCannotBeRead(t *testing.T) {
