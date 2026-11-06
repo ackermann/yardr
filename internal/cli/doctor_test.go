@@ -1589,9 +1589,13 @@ func TestDoctorHerdrServer(t *testing.T) {
 	if !errors.Is(err, errCheckFailed) {
 		t.Fatalf("err = %v\n%s", err, out)
 	}
-	wantText(t, out, "FAULT  herdr       "+herdr+": on PATH, but its server is not running (server_not_running: no herdr server is running): "+
-		"the daemon cannot start agents until it is. Start it: run herdr in a terminal (ctrl+b q detaches, the server stays); "+
-		"on a machine without a desktop, run `herdr server`, its headless server, as a service (docs/install.md, \"herdr's server\")")
+	// The yard names no session: herdr's words come with the one the
+	// environment chose, and how the yard names its own.
+	wantText(t, out, "FAULT  herdr       "+herdr+": on PATH, but its server is not running (herdr is not running in session default, socket ",
+		"; if the yard's agents run in another herdr session, name it (herdr session list; yardr settings set herdr_session <name>): "+
+			"server_not_running: no herdr server is running): "+
+			"the daemon cannot start agents until it is. Start it: run herdr in a terminal (ctrl+b q detaches, the server stays); "+
+			"on a machine without a desktop, run `herdr server`, its headless server, as a service (docs/install.md, \"herdr's server\")")
 	rep, _ := doctorJSON(t, st)
 	var got *serverCheck
 	for _, n := range rep.Machine {

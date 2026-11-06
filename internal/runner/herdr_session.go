@@ -205,13 +205,19 @@ func herdrCommand(ctx context.Context, bin string, args ...string) *exec.Cmd {
 
 // sessionDown is err, herdr not answering, with the session the yard names
 // in front: herdr's own words name a socket, and `herdr` as what starts it,
-// which starts the default session and not the yard's.
+// which starts the default session and not the yard's. A yard that names
+// none sends its calls to the session of this process's environment, which
+// need not be the one its agents run in: a daemon started from a terminal
+// with no herdr variables asks herdr's default session, which can be down
+// while another runs. So the error says which session that was, and how the
+// yard names its own.
 func sessionDown(err error) error {
 	if name := usedSession(); name != "" {
 		return fmt.Errorf("herdr session %q, which the yard's %s setting names, is not running or herdr has none of that name "+
 			"(herdr session list; herdr session attach %s starts it): %w", name, store.HerdrSessionSetting, name, err)
 	}
-	return err
+	return fmt.Errorf("herdr is not running in %s; if the yard's agents run in another herdr session, name it "+
+		"(herdr session list; yardr settings set %s <name>): %w", SessionInUse(), store.HerdrSessionSetting, err)
 }
 
 // followSetting has this process use the herdr session the yard's setting
