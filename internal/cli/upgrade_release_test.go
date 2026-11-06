@@ -104,6 +104,51 @@ func releaseArchiveBytes(t *testing.T, yardr []byte) []byte {
 	return buf.Bytes()
 }
 
+// releaseOneMemberBytes is a release archive of the one member hdr with
+// body. With oldNUL the member's type flag is the NUL one that tar wrote
+// for a regular file before there was TypeReg: archive/tar's writer
+// promotes it, so the header is patched after and its checksum made again.
+func releaseOneMemberBytes(t *testing.T, hdr tar.Header, body []byte, oldNUL bool) []byte {
+	t.Helper()
+	var raw bytes.Buffer
+	tw := tar.NewWriter(&raw)
+	hdr.Size = int64(len(body))
+	if err := tw.WriteHeader(&hdr); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tw.Write(body); err != nil {
+		t.Fatal(err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	b := raw.Bytes()
+	if oldNUL {
+		const typeAt, checksumAt = 156, 148 // in the header block: the type flag and the 8-byte checksum
+		if b[typeAt] != tar.TypeReg {
+			t.Fatalf("the header's type flag is %q, want TypeReg to patch", b[typeAt])
+		}
+		b[typeAt] = 0
+		sum := 0
+		for i, c := range b[:512] {
+			if i >= checksumAt && i < checksumAt+8 { // the checksum counts its own field as spaces
+				c = ' '
+			}
+			sum += int(c)
+		}
+		copy(b[checksumAt:checksumAt+8], fmt.Sprintf("%06o\x00 ", sum))
+	}
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	if _, err := gz.Write(b); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
 // releaseBuilt is one tiny Go binary's bytes, built once for the
 // install and rollback tests. The tests used to read os.Executable, the
 // race test binary itself at tens of megabytes, and compressing,
@@ -632,6 +677,21 @@ func TestReleaseMemberAndListedSum(t *testing.T) {
 	}
 	if _, err := releaseMember(buf.Bytes()); err == nil || !strings.Contains(err.Error(), "evil.sh") {
 		t.Fatalf("member with an extra file = %v, want it named refused", err)
+	}
+	// A member is a regular file or the archive is refused. The old NUL
+	// type flag of a regular file reads as TypeReg, so it is still taken,
+	// and a link or a directory under the binary's name is not.
+	bin, err = releaseMember(releaseOneMemberBytes(t, tar.Header{Name: "yardr", Mode: 0o755}, []byte("legacy bytes"), true))
+	if err != nil || string(bin) != "legacy bytes" {
+		t.Fatalf("member with the old NUL type flag = %q, %v, want it taken", bin, err)
+	}
+	for _, hdr := range []tar.Header{
+		{Name: "yardr", Typeflag: tar.TypeSymlink, Linkname: "/bin/sh"},
+		{Name: "yardr", Typeflag: tar.TypeDir, Mode: 0o755},
+	} {
+		if _, err := releaseMember(releaseOneMemberBytes(t, hdr, nil, false)); err == nil || !strings.Contains(err.Error(), "its yardr is no regular file") {
+			t.Fatalf("member of type %q = %v, want it refused as no regular file", hdr.Typeflag, err)
+		}
 	}
 	sum := sha256.Sum256(good)
 	sums := []byte(fmt.Sprintf("%s  other.tar.gz\n%s *yardr_1.2.3_linux_amd64.tar.gz\n", hex.EncodeToString(sum[:]), hex.EncodeToString(sum[:])))

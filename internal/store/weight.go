@@ -569,11 +569,6 @@ func grantWeight(w *wtx, run AskRun) ([]AskWeight, error) {
 	return out, nil
 }
 
-// carriedRunWeight weighs a row that carries sources by what it carries.
-func carriedRunWeight(w *wtx, run AskRun) ([]AskWeight, error) {
-	return w.carriedWeight(run.Carried)
-}
-
 // packApplyWeight weighs a pack apply by what it carries and, where it
 // names a depot, by what its mappings give, in the classes the grant and
 // setup cards use: a call of an update is outside, and one that sends a
@@ -672,7 +667,7 @@ func packApplyWeight(w *wtx, run AskRun) ([]AskWeight, error) {
 // replaces as code whatever its files: the source keeps the credential it
 // has and every grant of it, so a declaration with no file to change can
 // still move where that credential is sent and which programs the yard
-// runs for it. A source that is new weighs as carriedRunWeight has it.
+// runs for it. A source that is new weighs as carriedWeight has it.
 func sourceAddWeight(w *wtx, run AskRun) ([]AskWeight, error) {
 	out, err := w.carriedWeight(run.Carried)
 	if err != nil || slices.ContainsFunc(out, func(a AskWeight) bool { return a.Class == WeightCode }) {

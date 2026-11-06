@@ -1554,7 +1554,7 @@ func TestRunAskPeerSet(t *testing.T) {
 	y.refusedStale(t, seq, "peer airy: not found")
 
 	// Asking refuses what the command would refuse, with nothing stored.
-	y, key = runYard(t)
+	y, _ = runYard(t)
 	if _, err := y.SetPeerURL(y.ctx, "airy", "https://airy.example.com", "mckean"); err != nil {
 		t.Fatal(err)
 	}

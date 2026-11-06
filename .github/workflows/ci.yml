@@ -99,7 +99,7 @@ jobs:
       # newer one may report what this one does not, and that is a change of
       # its own. The module is clean of it, so a finding is a new one and
       # fails the job; a deliberate exception is a //lint:ignore with its
-      # reason, on the line above (internal/cli/sourcecmd.go has the one).
+      # reason, on the line above (internal/cli/sourcecmd.go has one).
       - name: staticcheck
         run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...
       # The test gate, the installer and every contrib script with a shell

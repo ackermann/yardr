@@ -115,6 +115,7 @@ func (s *Service) WhatIsHappening(ctx context.Context, work, sinceText string) (
 func (s *Service) onePiece(ctx context.Context, work string, now time.Time) (*Result, error) {
 	view, err := s.Yard.Bead(ctx, work, s.User)
 	if err != nil {
+		//lint:ignore ST1005 the words are a sentence for the person, the whole of the tool's result and never wrapped, like NoUserMessage
 		return nil, fmt.Errorf("I can't find that piece of work among yours")
 	}
 	b, err := s.Yard.GetBead(ctx, view.ID)
@@ -197,6 +198,7 @@ func (s *Service) AskForSomething(ctx context.Context, request, project string) 
 		if len(names) > 0 {
 			list = strings.Join(names, ", ")
 		}
+		//lint:ignore ST1005 the words are a sentence for the person, the whole of the tool's result and never wrapped, and quoted in docs/design/2026-11-04-yardr-ts4d-mcp-connector.md
 		return nil, fmt.Errorf("I don't know which of your projects this belongs to. Your projects are: %s. Tell me which one you mean, and I'll file it there", list)
 	}
 	depot := ""

@@ -455,7 +455,9 @@ func releaseMember(archive []byte) ([]byte, error) {
 		if hdr.Name != "yardr" && !slices.Contains(releaseBeside, hdr.Name) {
 			return nil, fmt.Errorf("it holds %q, which is not expected in it", hdr.Name)
 		}
-		if hdr.Typeflag != tar.TypeReg && hdr.Typeflag != tar.TypeRegA {
+		// The reader reports a regular file written with the old NUL type
+		// flag as TypeReg already, so TypeReg is the one type it can be.
+		if hdr.Typeflag != tar.TypeReg {
 			return nil, fmt.Errorf("its %s is no regular file", hdr.Name)
 		}
 		if seen[hdr.Name] {

@@ -132,7 +132,7 @@ func TestDevicePairState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d := opened.Expires.Sub(time.Now()); d <= 9*time.Minute || d > store.TTL {
+	if d := time.Until(opened.Expires); d <= 9*time.Minute || d > store.TTL {
 		t.Fatalf("the code runs out in %v, want ten minutes", d)
 	}
 	got, err := api.DevicePairState(ctx)
