@@ -22,7 +22,16 @@ var _ dispatch.CrewCloser = (*Herdr)(nil)
 // pane. An id that names something else by now is left alone and
 // forgotten. A workspace with an agent in any pane is kept: someone
 // started one there by hand, and closing it would end their session.
-func (h *Herdr) CloseLeft(ctx context.Context, r store.CrewMember, handle map[string]any) (bool, error) {
+//
+// A handle that is let go, closed or forgotten, takes the session's
+// temporary directory with it, since no Stop will run for it. One that is
+// kept, or whose directory cannot be removed, stays listed.
+func (h *Herdr) CloseLeft(ctx context.Context, r store.CrewMember, handle map[string]any) (kept bool, err error) {
+	defer func() {
+		if err == nil && !kept {
+			err = removeSessionTmp(handle)
+		}
+	}()
 	ws, _ := handle["workspace"].(string)
 	pane, _ := handle["pane"].(string)
 	if ws == "" || pane == "" {

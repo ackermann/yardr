@@ -194,7 +194,8 @@ func TestPackApplyTheContributorsPack(t *testing.T) {
 	}
 	for kind, want := range map[string]string{
 		"codex": `[--enable network_proxy -c default_permissions="yardr_read_only" -c permissions.yardr_read_only.extends=":read-only"` +
-			` -c permissions.yardr_read_only.network.enabled=true -c permissions.yardr_read_only.network.unix_sockets={"{socket}"="allow"}]`,
+			` -c permissions.yardr_read_only.network.enabled=true -c permissions.yardr_read_only.network.unix_sockets={"{socket}"="allow"}` +
+			` -c permissions.yardr_read_only.filesystem={"{tmpdir}"="write"}]`,
 		"claude": `[--settings {"sandbox":{"enabled":true,"filesystem":{"denyWrite":["{workdir}"]},"network":{"allowUnixSockets":["{socket}"]}}}]`,
 	} {
 		a := packApp(t)

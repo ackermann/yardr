@@ -984,11 +984,9 @@ func TestRolesSayWhatATestMayCost(t *testing.T) {
 // (yardr-tsrv). The words are compared with the lines folded, so rewrapping
 // breaks nothing.
 //
-// One role is held out: the contributors' pull request reviewer runs in a
-// read-only sandbox that refuses the temporary file a shell makes for a
-// heredoc, so it cannot yet be told to write one, and its role still shows
-// the double-quoted form. The hold fails once the role no longer shows it,
-// so the exemption goes with the fix.
+// That holds for the contributors' pull request reviewer too: its read-only
+// sandbox lets a shell make the temporary file of a heredoc, in a private
+// directory and nowhere else (yardr-8f5k).
 func TestRolesShowNoQuotedText(t *testing.T) {
 	files := packFiles(t)
 	quoted := regexp.MustCompile(`bead note \S+ "|bead (done|advance)\b.*--note "`)
@@ -998,23 +996,12 @@ func TestRolesShowNoQuotedText(t *testing.T) {
 	quotedText := regexp.MustCompile("yardr (mail|reply) [^`]*\"|yardr bead create [^`]*\"|--title \"|bead close\\b[^`]*--reason \"")
 	agentFile := regexp.MustCompile(`^[a-z]+/(roles|flows)/.*\.md$`)
 	writers := regexp.MustCompile(`^[a-z]+/roles/(builder|reviewer|review-security|pr-reviewer)\.md$`)
-	held := map[string]bool{"contributors/roles/pr-reviewer.md": true}
 	var roles int
 	for name, body := range files {
-		shown := false
 		for n, line := range strings.Split(body, "\n") {
 			if quoted.MatchString(line) || agentFile.MatchString(name) && quotedText.MatchString(line) {
-				shown = true
-				if !held[name] {
-					t.Errorf("%s:%d shows a text as a double-quoted argument, which the shell expands: show it as stdin from a quoted heredoc (yardr bead note <id> - <<'NOTE'): %s", name, n+1, strings.TrimSpace(line))
-				}
+				t.Errorf("%s:%d shows a text as a double-quoted argument, which the shell expands: show it as stdin from a quoted heredoc (yardr bead note <id> - <<'NOTE'): %s", name, n+1, strings.TrimSpace(line))
 			}
-		}
-		if held[name] {
-			if !shown {
-				t.Errorf("%s is held out of this test and no longer shows a double-quoted note: take it out of held", name)
-			}
-			continue
 		}
 		if !writers.MatchString(name) {
 			continue
@@ -1033,9 +1020,9 @@ func TestRolesShowNoQuotedText(t *testing.T) {
 		}
 	}
 	// Not for want of looking: the builders, reviewers and security
-	// reviewers of the packs, less the one held out.
-	if roles < 12 {
-		t.Errorf("%d roles that write notes read, want at least 12", roles)
+	// reviewers of the packs, and the pull request reviewer.
+	if roles < 13 {
+		t.Errorf("%d roles that write notes read, want at least 13", roles)
 	}
 
 	// The depot's own role prompts and flow stage files are not embedded in
@@ -2617,7 +2604,7 @@ func TestContributorsTextsSayWhatIsNotRun(t *testing.T) {
 			"`git checkout --detach FETCH_HEAD`",
 			"its review stage file",
 			"fit:", "maintenance cost:", "licences:",
-			"Leave one note on the bead (`yardr bead note <id> \"...\"`): the review.",
+			"Leave one note on the bead (as under \"Writing a note\"): the review.",
 			"`yardr bead update <id> --add-label merge-ok`",
 			"opens `build(deps)`;",
 			"less a leading `PR #<number>: `",
@@ -2632,6 +2619,7 @@ func TestContributorsTextsSayWhatIsNotRun(t *testing.T) {
 			"until a fetch gives the commit you hold",
 			"Never record a head you have not read",
 			"A command the sandbox refuses is not tried another\nway",
+			"When the shell says it cannot create a temporary file\nfor the here-document, the sandbox is not the one this role expects: do not\nwrite the note another way",
 			"yardr mail {{yardmaster}} ",
 		},
 		"contributors/flows/pr/triage.md": {

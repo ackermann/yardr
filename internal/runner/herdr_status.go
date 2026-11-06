@@ -145,14 +145,18 @@ func (h *Herdr) Stop(ctx context.Context, handle map[string]any) error {
 	}
 	tab, _ := handle["tab"].(string)
 	if tab == "" {
-		return nil
+		return removeSessionTmp(handle)
 	}
 	_, err := h.run(ctx, "tab", "close", tab)
 	var herr *herdrError
 	if errors.As(err, &herr) && strings.Contains(herr.Code, "not_found") {
-		return nil
+		err = nil
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	// After the tab: nothing of the session is left to write there.
+	return removeSessionTmp(handle)
 }
 
 // Finish removes the bead's worktree once the bead is closed. It never

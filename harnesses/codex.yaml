@@ -86,9 +86,25 @@ flags:
       args: [--dangerously-bypass-approvals-and-sandbox]
       description: never asks, no sandbox
     # For an agent that reads what a stranger wrote. Inside the sandbox
-    # nothing is written and nothing reaches the network or a unix socket
-    # but the yard's, which every yardr command of the session goes through:
-    # {socket} is its path, put in by the runner.
+    # nothing is written but one private directory, and nothing reaches the
+    # network or a unix socket but the yard's, which every yardr command of
+    # the session goes through: {socket} is the socket's path and {tmpdir}
+    # the directory's, both put in by the runner.
+    #
+    # The directory is there for the shell. It makes a temporary file for a
+    # here-document, so a sandbox that writes nowhere refuses the quoted
+    # heredoc a note is written through (`yardr bead note <id> - <<'NOTE'`),
+    # the form that keeps a backtick in a review from being run. The runner
+    # makes the directory for the session (mode 0700, beside the worktrees),
+    # sets TMPDIR and TMPPREFIX, which zsh makes that file from, to it, and
+    # removes it when the session ends. The profile names it by its path and
+    # never as :tmpdir, which follows whatever TMPDIR the process has and,
+    # with the operator's own, is the user's shared temporary directory. A
+    # write anywhere else is refused, and so is one through a symlink or a
+    # hard link in the directory, and a rename into it. macOS's own sh and
+    # bash (3.2) make the file of a here-document in /var/tmp whatever TMPDIR
+    # says, so they are still refused; Codex runs its commands in the login
+    # shell, which is zsh there.
     #
     # --sandbox read-only has no way to name a socket, so this is a
     # permissions profile of its own that extends Codex's :read-only. A
@@ -98,7 +114,7 @@ flags:
     # proxy refuses every host. Without the feature the same profile opens
     # the whole network and every socket, so the feature is turned on with
     # --enable, which a Codex that no longer knows it refuses to start on.
-    # Run against 0.160.1 (codex sandbox).
+    # Run against 0.160.1 (codex sandbox), the writes too.
     - label: read only
       args:
         - --enable
@@ -111,7 +127,9 @@ flags:
         - permissions.yardr_read_only.network.enabled=true
         - -c
         - 'permissions.yardr_read_only.network.unix_sockets={"{socket}"="allow"}'
-      description: reads in a read-only sandbox, no network but the yard's socket; asks for anything else; needs Codex's network_proxy feature
+        - -c
+        - 'permissions.yardr_read_only.filesystem={"{tmpdir}"="write"}'
+      description: reads in a read-only sandbox, writes only to a private temporary directory, no network but the yard's socket; asks for anything else; needs Codex's network_proxy feature
 
 # The models to pick from: gpt-6-luna is what recent Codex session files
 # report, and gpt-6-astra is the live default in ~/.codex/config.toml, both

@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -44,7 +45,8 @@ esac
 // Found live (yardr-ybxk): the workspace of a crew member's session that was
 // gone stayed open, one for every such session. CloseLeft closes it by the
 // id yardr recorded, and only while it is still that workspace with no
-// agent in it.
+// agent in it. The session's temporary directory, if it had one, goes when
+// the handle is let go, closed or forgotten, and stays with one kept.
 func TestCloseLeft(t *testing.T) {
 	t.Parallel()
 	const shell = `{"pane_id":"w3:p1","workspace_id":"w3"}`
@@ -75,9 +77,18 @@ func TestCloseLeft(t *testing.T) {
 			mustNotAsk: "workspace get"},
 	} {
 		h, calls := leftHerdr(t, tc.label, tc.panes, tc.agents)
-		kept, err := h.CloseLeft(context.Background(), store.CrewMember{Name: "yardmaster"}, tc.handle)
+		tmp := filepath.Join(t.TempDir(), tmpdirPrefix+"1")
+		if err := os.Mkdir(tmp, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		withTmp := maps.Clone(tc.handle)
+		withTmp[handleTmpdir] = tmp
+		kept, err := h.CloseLeft(context.Background(), store.CrewMember{Name: "yardmaster"}, withTmp)
 		if err != nil || kept != tc.wantKept {
 			t.Errorf("%s: kept %v, %v; want kept %v", name, kept, err, tc.wantKept)
+		}
+		if _, err := os.Stat(tmp); os.IsNotExist(err) == tc.wantKept {
+			t.Errorf("%s: the temporary directory: %v, want it gone=%v", name, err, !tc.wantKept)
 		}
 		raw, _ := os.ReadFile(calls)
 		asked := string(raw)

@@ -248,7 +248,7 @@ at a terminal, not an agent that sets out to escape:
 
 | kind | preset | arguments | what it is |
 |---|---|---|---|
-| `codex` | `read-only` | `--enable network_proxy` and, each behind a `-c`: `default_permissions="yardr_read_only"`, `permissions.yardr_read_only.extends=":read-only"`, `permissions.yardr_read_only.network.enabled=true`, `permissions.yardr_read_only.network.unix_sockets={"{socket}"="allow"}` | Codex's read-only sandbox as a permissions profile: its commands read, and neither write nor reach the network |
+| `codex` | `read-only` | `--enable network_proxy` and, each behind a `-c`: `default_permissions="yardr_read_only"`, `permissions.yardr_read_only.extends=":read-only"`, `permissions.yardr_read_only.network.enabled=true`, `permissions.yardr_read_only.network.unix_sockets={"{socket}"="allow"}`, `permissions.yardr_read_only.filesystem={"{tmpdir}"="write"}` | Codex's read-only sandbox as a permissions profile: its commands read, write nowhere but a private temporary directory, and reach no network |
 | `claude` | `read-only` | `--settings '{"sandbox":{"enabled":true,"filesystem":{"denyWrite":["{workdir}"]},"network":{"allowUnixSockets":["{socket}"]}}}'` | Claude Code's sandbox around every shell command, with the working directory denied for writing too |
 
 `{socket}` is the yard's socket (`<home>/yard.sock`), put in when the agent
@@ -259,6 +259,17 @@ is given by its absolute path. Codex lets a profile's socket through only
 behind its network proxy, a feature Codex 0.160.1 calls experimental; with
 no domain allowed, the proxy refuses every host, and a Codex without the
 feature does not start.
+
+`{tmpdir}` is a directory the runner makes for the reviewer's session,
+beside the worktrees, for the yard's user alone, and removes when the
+session ends. It is the one place Codex's profile lets a command write. A
+shell makes a temporary file for a here-document, so without it the
+reviewer could not write its note as stdin from a quoted heredoc, the form
+that keeps the backticks in a review from being run. The runner points
+`TMPDIR` and, for zsh, `TMPPREFIX` at the directory. macOS's own `sh` and
+`bash` (3.2) make that file in `/var/tmp` whatever `TMPDIR` says, so the
+heredoc is still refused under either of them; Codex runs its commands in
+the login shell, which is zsh on a Mac.
 
 `--bind pr-reviewers=codex,read-only` at the import, or `yardr depot init
 <depot> --bind pr-reviewers=codex,read-only` where a depot is set up from a

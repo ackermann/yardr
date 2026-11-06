@@ -71,7 +71,7 @@ var HarnessPresets = map[string][]Permission{
 	"codex": {
 		{Label: "approve for me", Args: []string{"--approve-for-me"}, Note: "automatic review inside a workspace-write sandbox"},
 		{Label: "bypass", Args: []string{"--dangerously-bypass-approvals-and-sandbox"}, Note: "never asks, no sandbox"},
-		{Label: "read only", Args: []string{"--enable", "network_proxy", "-c", `default_permissions="yardr_read_only"`, "-c", `permissions.yardr_read_only.extends=":read-only"`, "-c", "permissions.yardr_read_only.network.enabled=true", "-c", `permissions.yardr_read_only.network.unix_sockets={"{socket}"="allow"}`}, Note: "reads in a read-only sandbox, no network but the yard's socket; asks for anything else; needs Codex's network_proxy feature"},
+		{Label: "read only", Args: []string{"--enable", "network_proxy", "-c", `default_permissions="yardr_read_only"`, "-c", `permissions.yardr_read_only.extends=":read-only"`, "-c", "permissions.yardr_read_only.network.enabled=true", "-c", `permissions.yardr_read_only.network.unix_sockets={"{socket}"="allow"}`, "-c", `permissions.yardr_read_only.filesystem={"{tmpdir}"="write"}`}, Note: "reads in a read-only sandbox, writes only to a private temporary directory, no network but the yard's socket; asks for anything else; needs Codex's network_proxy feature"},
 	},
 	"grok": {
 		{Label: "always approve", Args: []string{"--always-approve"}, Note: "auto-approves all tool executions"},

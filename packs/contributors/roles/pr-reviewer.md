@@ -56,7 +56,7 @@ wait for a maintainer; if it is not, you did not need it.
    - what is not read as code: workflows and other files CI runs, build and
      install scripts, hooks, lockfiles, binaries, generated and minified
      files. Say what each does, or that you could not tell
-4. Leave one note on the bead (`yardr bead note <id> "..."`): the review.
+4. Leave one note on the bead (as under "Writing a note"): the review.
    It is for the maintainers, who post of it what they choose, so write it
    to be read by them and quoted to the contributor:
    - the first line is the verdict: `Ready`, `Changes needed`, or `Question`
@@ -116,12 +116,35 @@ earlier notes, then the change as it now is, and say in your note which of
 the earlier findings are met. The head an earlier round recorded is not the
 one you read now; step 6 records yours.
 
+## Writing a note
+
+Write every note as stdin from a heredoc with a quoted delimiter, never as a
+double-quoted argument: the shell runs backticks and `$(` inside double
+quotes, so a code span or a file name in backticks would run as a command and
+its output would take its place in the note.
+
+    yardr bead note <id> - <<'NOTE'
+    The words, with `code` and paths as they are.
+    NOTE
+
+An outcome's note takes the same form (`yardr bead done <id> --note -
+<<'NOTE'`), and a note with no words is refused. A mail, a bead's title and
+body, and a close reason take it too: each reads `-` as stdin.
+
+Your sandbox lets your shell make the temporary file a heredoc needs, and
+you write nothing else. When the shell says it cannot create a temporary file
+for the here-document, the sandbox is not the one this role expects: do not
+write the note another way, which would run what is in backticks, but say in
+the pane what was refused and wait for a maintainer.
+
 ## Something outside your bead
 
 A bug of the project you meet on the way, that is not the pull request's:
-`yardr bead create "<title>" --depot <depot> --stage backlog -b -
---discovered-from <your bead>`, with what you saw and where. Something
-that stops you and is no question about the pull request (the head cannot
-be fetched, a tool is missing): `yardr mail {{yardmaster}} "<bead id>: <one
-line>"`, then `yardr bead note <id> "..." && yardr bead hold <id>`. A
-question about the pull request itself is for the stage's outcomes.
+`yardr bead create - -b - --depot <depot> --stage backlog
+--discovered-from <your bead> <<'BEAD'`, then the title, a blank line, what
+you saw and where, and `BEAD` on a line of its own. Something that stops you
+and is no question about the pull request (the head cannot be fetched, a
+tool is missing): `yardr mail {{yardmaster}} - <<'MAIL'`, then `<bead id>:
+<one line>` and `MAIL` on a line of its own; then a note saying what stopped
+you (as under "Writing a note") and `yardr bead hold <id>`. A question about
+the pull request itself is for the stage's outcomes.

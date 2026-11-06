@@ -273,10 +273,14 @@ func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, er
 	// having to export anything. On a later stage the root pane may also
 	// still hold the previous stage's agent. The environment goes over the
 	// socket, never on a command line (see call).
+	tmp, err := h.sessionTmp(job.Group.Config, handle)
+	if err != nil {
+		return handle, err
+	}
 	raw, err = h.call(ctx, "tab.create", map[string]any{
 		"workspace_id": wt.Workspace.ID, "cwd": wt.Worktree.Path,
 		"label": TabLabel(depot.Name, job.Bead.Stage, job.Train, job.Bead.ID),
-		"env":   envMap(withMemoryOff(agents.Kind(job.Group.Config), withEnvFile(h.agentEnvWithHook(job, name, hookEnv), secrets))),
+		"env":   envMap(withMemoryOff(agents.Kind(job.Group.Config), withEnvFile(append(h.agentEnvWithHook(job, name, hookEnv), sessionTmpEnv(tmp)...), secrets))),
 	})
 	if err != nil {
 		return handle, err
@@ -331,7 +335,8 @@ func (h *Herdr) brief(ctx context.Context, job dispatch.Job, name, workdir, dir,
 		return handle, err
 	}
 	args := []string{"agent", "start", name, "--kind", kind, "--pane", pane}
-	extra := append(AgentArgs(job, h.YardHome, workdir), briefDirArgs(kind, dir)...)
+	tmp, _ := handle[handleTmpdir].(string)
+	extra := append(AgentArgs(job, h.YardHome, workdir, tmp), briefDirArgs(kind, dir)...)
 	if len(extra) > 0 {
 		args = append(append(args, "--"), extra...)
 	}
@@ -382,10 +387,14 @@ func (h *Herdr) startDir(ctx context.Context, job dispatch.Job, hookEnv []string
 
 	// As for a worktree: the environment goes over the socket, never on a
 	// command line (see call).
+	tmp, err := h.sessionTmp(job.Group.Config, handle)
+	if err != nil {
+		return handle, err
+	}
 	raw, err := h.call(ctx, "tab.create", map[string]any{
 		"workspace_id": ws.Workspace.ID, "cwd": depot.Path,
 		"label": TabLabel(depot.Name, job.Bead.Stage, job.Train, job.Bead.ID),
-		"env":   envMap(withMemoryOff(agents.Kind(job.Group.Config), withEnvFile(h.agentEnvWithHook(job, name, hookEnv), secrets))),
+		"env":   envMap(withMemoryOff(agents.Kind(job.Group.Config), withEnvFile(append(h.agentEnvWithHook(job, name, hookEnv), sessionTmpEnv(tmp)...), secrets))),
 	})
 	if err != nil {
 		return handle, err
@@ -865,10 +874,10 @@ func (h *Herdr) workspaceAt(ctx context.Context, ws, path string) bool {
 // metadata.model, else the group's config.model. A model already in args is
 // replaced, so a bead can override a group default. SocketArg in an
 // argument is the socket of the yard at home, WorkdirArg the directory the
-// session works in.
-func AgentArgs(job dispatch.Job, home, workdir string) []string {
+// session works in, TmpdirArg the session's temporary directory tmpdir.
+func AgentArgs(job dispatch.Job, home, workdir, tmpdir string) []string {
 	model, _ := job.Bead.Metadata["model"].(string)
-	return agentArgs(job.Group.Config, model, home, workdir)
+	return agentArgs(job.Group.Config, model, home, workdir, tmpdir)
 }
 
 // SocketArg is where an agent's argument names the yard's socket: the
@@ -888,7 +897,7 @@ const SocketArg = "{socket}"
 // go through.
 const WorkdirArg = "{workdir}"
 
-func agentArgs(cfg map[string]any, override, home, workdir string) []string {
+func agentArgs(cfg map[string]any, override, home, workdir, tmpdir string) []string {
 	args := strs(cfg, "args")
 	kindName := agents.Kind(cfg)
 	// What the kind's harness file says every agent of it runs with
@@ -925,6 +934,9 @@ func agentArgs(cfg map[string]any, override, home, workdir string) []string {
 	}
 	if workdir != "" {
 		paths = append(paths, WorkdirArg, real(workdir))
+	}
+	if tmpdir != "" {
+		paths = append(paths, TmpdirArg, real(tmpdir))
 	}
 	if len(paths) > 0 {
 		args = slices.Clone(args) // the group's own slice is left as it is

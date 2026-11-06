@@ -155,7 +155,7 @@ func TestAgentArgsCodexRunsWithoutItsSharedDaemon(t *testing.T) {
 		{"no kind is claude", map[string]any{}, "", ""},
 	}
 	for _, c := range cases {
-		if got := strings.Join(agentArgs(c.cfg, c.bead, "", ""), " "); got != c.want {
+		if got := strings.Join(agentArgs(c.cfg, c.bead, "", "", ""), " "); got != c.want {
 			t.Errorf("%s: %q, want %q", c.name, got, c.want)
 		}
 	}
@@ -181,7 +181,7 @@ func TestAgentArgsKiroChatsFirst(t *testing.T) {
 			"chat --trust-tools=*"},
 	}
 	for _, c := range cases {
-		if got := strings.Join(agentArgs(c.cfg, c.bead, "", ""), " "); got != c.want {
+		if got := strings.Join(agentArgs(c.cfg, c.bead, "", "", ""), " "); got != c.want {
 			t.Errorf("%s: %q, want %q", c.name, got, c.want)
 		}
 	}
@@ -198,6 +198,11 @@ func TestAgentArgsKiroChatsFirst(t *testing.T) {
 // its sandbox took "." there for some other directory: a touch in the
 // workdir went through. So the preset names it as {workdir}, which the
 // runner fills the same way.
+//
+// Codex's preset lets the sandbox write to one directory, the session's
+// private temporary directory, so that a shell can make the file of a
+// here-document (yardr-8f5k). It names it as {tmpdir}, filled the same
+// way, and Claude's preset names none.
 func TestAgentArgsNameTheYardsSocket(t *testing.T) {
 	t.Parallel()
 	home := filepath.Join(t.TempDir(), "yard")
@@ -219,6 +224,12 @@ func TestAgentArgsNameTheYardsSocket(t *testing.T) {
 		t.Fatal(err)
 	}
 	realWorkdir := filepath.Join(real, "worktree")
+	// So is the temporary directory.
+	tmpdir := filepath.Join(home, ".tmp-1")
+	if err := os.Mkdir(tmpdir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	realTmp := filepath.Join(real, ".tmp-1")
 
 	preset := func(kind string) []any {
 		h, _ := agents.Lookup(kind)
@@ -237,10 +248,10 @@ func TestAgentArgsNameTheYardsSocket(t *testing.T) {
 	for _, kind := range []string{"claude", "codex"} {
 		written := preset(kind)
 		cfg := map[string]any{"kind": kind, "args": written}
-		got := agentArgs(cfg, "", home, workdir)
+		got := agentArgs(cfg, "", home, workdir, tmpdir)
 		joined := strings.Join(got, " ")
-		if strings.Contains(joined, WorkdirArg) {
-			t.Errorf("%s: %q, want no %s", kind, joined, WorkdirArg)
+		if strings.Contains(joined, WorkdirArg) || strings.Contains(joined, TmpdirArg) {
+			t.Errorf("%s: %q, want no %s or %s", kind, joined, WorkdirArg, TmpdirArg)
 		}
 		if strings.Contains(joined, SocketArg) || strings.Count(joined, socket) != 1 || strings.Count(joined, "yard.sock") != 1 {
 			t.Errorf("%s: %q, want the socket %s once and no %s", kind, joined, socket, SocketArg)
@@ -248,7 +259,7 @@ func TestAgentArgsNameTheYardsSocket(t *testing.T) {
 		if !strings.Contains(fmt.Sprint(written), SocketArg) {
 			t.Errorf("%s: the group's own args were changed: %v", kind, written)
 		}
-		if bare := strings.Join(agentArgs(cfg, "", "", ""), " "); !strings.Contains(bare, SocketArg) {
+		if bare := strings.Join(agentArgs(cfg, "", "", "", ""), " "); !strings.Contains(bare, SocketArg) {
 			t.Errorf("%s with no home: %q, want %s left", kind, bare, SocketArg)
 		}
 		switch kind {
@@ -269,18 +280,28 @@ func TestAgentArgsNameTheYardsSocket(t *testing.T) {
 				len(settings.Sandbox.Filesystem.DenyWrite) != 1 || settings.Sandbox.Filesystem.DenyWrite[0] != realWorkdir {
 				t.Errorf("claude: %q, want the socket %s allowed and %s denied for writing", got, socket, realWorkdir)
 			}
-			if bare := strings.Join(agentArgs(cfg, "", home, ""), " "); !strings.Contains(bare, WorkdirArg) {
+			if bare := strings.Join(agentArgs(cfg, "", home, "", ""), " "); !strings.Contains(bare, WorkdirArg) {
 				t.Errorf("claude with no workdir: %q, want %s left", bare, WorkdirArg)
+			}
+			if strings.Contains(joined, realTmp) {
+				t.Errorf("claude: %q, want no temporary directory in a sandbox that writes nowhere", joined)
 			}
 		case "codex":
 			if want := `permissions.yardr_read_only.network.unix_sockets={"` + socket + `"="allow"}`; !strings.Contains(joined, "-c "+want) ||
 				!strings.Contains(joined, "--enable network_proxy -c ") {
 				t.Errorf("codex: %q, want %s behind the network proxy", joined, want)
 			}
+			// The one directory the profile lets it write, by its real path.
+			if want := `permissions.yardr_read_only.filesystem={"` + realTmp + `"="write"}`; !strings.Contains(joined, "-c "+want) {
+				t.Errorf("codex: %q, want %s", joined, want)
+			}
+			if bare := strings.Join(agentArgs(cfg, "", home, workdir, ""), " "); !strings.Contains(bare, TmpdirArg) {
+				t.Errorf("codex with no temporary directory: %q, want %s left", bare, TmpdirArg)
+			}
 		}
 	}
 	// An argument of a group's own takes it too, whatever the kind.
-	if got := agentArgs(map[string]any{"kind": "cursor", "args": []any{"--socket=" + SocketArg, "-v", "--dir", WorkdirArg}}, "", home, workdir); strings.Join(got, " ") != "--socket="+socket+" -v --dir "+realWorkdir {
+	if got := agentArgs(map[string]any{"kind": "cursor", "args": []any{"--socket=" + SocketArg, "-v", "--dir", WorkdirArg, "--tmp=" + TmpdirArg}}, "", home, workdir, tmpdir); strings.Join(got, " ") != "--socket="+socket+" -v --dir "+realWorkdir+" --tmp="+realTmp {
 		t.Errorf("a group's own argument: %q", got)
 	}
 }
