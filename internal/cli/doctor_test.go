@@ -1573,6 +1573,11 @@ const (
 // to start one; a herdr that cannot be asked is a note, not a fault.
 func TestDoctorHerdrServer(t *testing.T) {
 	stub(t, &herdrServer, askHerdrServer)
+	// A herdr pane names its own session and socket, and herdr's words
+	// below are of the one the environment chose: clear both, so the test
+	// reads the same in a pane as in CI.
+	t.Setenv("HERDR_SOCKET_PATH", "")
+	t.Setenv("HERDR_SESSION", "")
 	st := storetest.New(t)
 	testYard(t, st, newHomeDir(t))
 	a := func() *app {
