@@ -820,7 +820,7 @@ func (s *Store) answerForeign(ctx context.Context, bead, peer string, ans Answer
 		case rec.Outcome != "":
 			return fmt.Errorf("ask %d on %s takes no further answer: %s", ans.Ask, id, outcomeWords(rec.Outcome, p.Name))
 		case ans.Option == 0 && !ans.Later && !ans.Decline && len(rec.Ask.Options) > 0:
-			return fmt.Errorf("ask %d has options: words for the asker go as mail, yardr mail %s \"...\", and leave the ask open; pick one with yardr bead answer %s %d <n>",
+			return fmt.Errorf("ask %d has options: words for the asker go as mail, yardr mail %s - with the words on stdin, and leave the ask open; pick one with yardr bead answer %s %d <n>",
 				ans.Ask, asker, id, ans.Ask)
 		}
 		// The answerer was checked above, against rec.To: the ask as

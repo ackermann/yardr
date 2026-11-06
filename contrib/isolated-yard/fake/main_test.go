@@ -376,6 +376,41 @@ func TestNoRunFileRunsNothing(t *testing.T) {
 	}
 }
 
+// A first prompt that asks for a greeting by mail gets one, as the prompt
+// asks: the mail command is run with - and the words on stdin, since a
+// double-quoted argument is the shell's to expand (yardr-wrb8). The sentence
+// is the shape of runner.crewPrompt's, which that package's test holds to
+// the same words.
+func TestGreetingIsMailedFromStdin(t *testing.T) {
+	s := start(t, false)
+	s.draw(boxEnd)
+	// A yardr that records what it is run with and what it is given.
+	yardr := filepath.Join(s.d, "yardr")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$0.args\"\ncat > \"$0.stdin\"\necho sent\n"
+	if err := os.WriteFile(yardr, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	prompt := "Once you have read your prime, greet them with `" + yardr + " mail ada -`, the words on stdin, and say what you need"
+	if _, err := io.WriteString(s.in, prompt+"\n"); err != nil {
+		t.Fatal(err)
+	}
+	s.waitLog("sent")
+	args, err := os.ReadFile(yardr + ".args")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(args) != "mail\nada\n-\n" {
+		t.Errorf("the greeting ran yardr with %q", args)
+	}
+	stdin, err := os.ReadFile(yardr + ".stdin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(stdin) != "Hello, this is the stand-in yardmaster: logged in and ready.\n" {
+		t.Errorf("the greeting gave yardr %q on stdin", stdin)
+	}
+}
+
 // Started as claude auth login the stand-in plays Claude Code's login
 // command on pipes (yardr-p7ex): the three lines, the last of which does
 // not end, and one line read. good#code is the login, which takes away

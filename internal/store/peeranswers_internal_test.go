@@ -476,7 +476,7 @@ func TestForeignAskAnswered(t *testing.T) {
 		want  string
 	}{
 		"another person": {"yd-links@north", Answer{Ask: 3, Option: 1}, "jo", "ask 3 on yd-links@north is for mckean: north takes no one else's answer to it"},
-		"words alone":    {"yd-links@north", Answer{Ask: 3, Words: "hm"}, "mckean", `words for the asker go as mail, yardr mail yardmaster@north "..."`},
+		"words alone":    {"yd-links@north", Answer{Ask: 3, Words: "hm"}, "mckean", `words for the asker go as mail, yardr mail yardmaster@north - with the words on stdin`},
 		"no such option": {"yd-links@north", Answer{Ask: 3, Option: 9}, "mckean", "ask 3 has options 1..3"},
 		"no such ask":    {"yd-links@north", Answer{Ask: 4, Option: 1}, "mckean", "bead yd-links@north has no ask 4"},
 		"no such bead":   {"yd-other@north", Answer{Ask: 3, Option: 1}, "mckean", "no question from north stands on it"},

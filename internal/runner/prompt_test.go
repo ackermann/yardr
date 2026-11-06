@@ -211,7 +211,7 @@ func TestFirstPromptAsksForAGreetingByMail(t *testing.T) {
 	t.Parallel()
 	r := store.CrewMember{Name: "yardmaster", Config: map[string]any{GreetKey: "ada"}}
 	got := crewPrompt("yardr --home /y", r, "")
-	for _, want := range []string{"`yardr --home /y mail ada \"<text>\"`", "`yardr --home /y chat`", "the next setup step",
+	for _, want := range []string{"`yardr --home /y mail ada -`, the words on stdin", "`yardr --home /y chat`", "the next setup step",
 		"`yardr --home /y prime --crew yardmaster` " + CrewPromptEnd} {
 		if !strings.Contains(got, want) {
 			t.Errorf("prompt lacks %q:\n%s", want, got)

@@ -303,6 +303,27 @@ func TestThreadOpen(t *testing.T) {
 		res["title"] != "Second" || res["url"] != "https://acme.test/issue/ACME-2" || res["thread"] != "issue-2" || in["body"] != "From a file." {
 		t.Fatalf("json: %q, %v, stdin %v", out, err, in)
 	}
+
+	// The title from stdin too, as typed: a code span and $( ) stay text.
+	// Alone it is the whole line; with -b - the first line is the title and
+	// the lines after it the body.
+	for _, row := range []struct {
+		stdin, title, body string
+		flags              []string
+	}{
+		{"A `code` title, $(not run)\n\n", "A `code` title, $(not run)", "", nil},
+		{"Both\n\nthe body,\nin two lines.\n", "Both", "the body,\nin two lines.", []string{"-b", "-"}},
+	} {
+		c = a.threadOpenCmd()
+		c.SetIn(strings.NewReader(row.stdin))
+		if _, err := run(t, c, append([]string{"acme", "--in", "ENG", "-"}, row.flags...)...); err != nil {
+			t.Fatalf("title from %q: %v", row.stdin, err)
+		}
+		in := lastStdin(t, dir, "open")
+		if body, _ := in["body"].(string); in["title"] != row.title || body != row.body {
+			t.Fatalf("title from %q: open stdin %v", row.stdin, in)
+		}
+	}
 }
 
 // Run again after a lost answer, yardr thread open finds the thread the
@@ -382,9 +403,13 @@ func TestThreadOpenRefusals(t *testing.T) {
 	a, st, _, dir := openYard(t, "github", ghBase)
 	ctx := context.Background()
 	head, _ := st.Head(ctx)
-	refused := func(want string, args ...string) {
+	// refusedFrom is a refusal with stdin as given, for the title or the body
+	// that is - to read.
+	refusedFrom := func(stdin, want string, args ...string) {
 		t.Helper()
-		_, err := run(t, a.threadOpenCmd(), args...)
+		c := a.threadOpenCmd()
+		c.SetIn(strings.NewReader(stdin))
+		_, err := run(t, c, args...)
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Fatalf("%v: got %v, want %q", args, err, want)
 		}
@@ -395,11 +420,21 @@ func TestThreadOpenRefusals(t *testing.T) {
 			t.Fatalf("%v: the refusal logged %d events", args, now-head)
 		}
 	}
+	refused := func(want string, args ...string) {
+		t.Helper()
+		refusedFrom("", want, args...)
+	}
 	refused("crew member yardmaster may not open threads in acme", "acme", "--in", "ENG", "Train")
 	refused("yardr crew set yardmaster open_threads=github,acme", "acme", "--in", "ENG", "Train")
 	refused("yardr cannot open threads in token (it can in acme, github)", "token", "--in", "x", "Train")
 	refused("--in is required: the repository to open the thread in", "github", "Train")
 	refused("the title is empty", "github", "--in", "Acme/webapp", "  ")
+	// A title read from stdin with no words, or with two lines and no body
+	// to take the second, opens nothing either.
+	refusedFrom("", "nothing to open: stdin gave no title", "github", "--in", "Acme/webapp", "-")
+	refusedFrom(" \n\n", "nothing to open: stdin gave no title", "github", "--in", "Acme/webapp", "-")
+	refusedFrom("\n\nthe body\n", "nothing to open: stdin gave no title", "github", "--in", "Acme/webapp", "-", "-b", "-")
+	refusedFrom("one\ntwo\n", "a title is one line, and stdin gave 2", "github", "--in", "Acme/webapp", "-")
 	refused("want owner/repo", "github", "--in", "webapp", "Train")
 	head, _ = st.Head(ctx) // the last one was recorded before the source refused it
 	refused("crew member ghost", "github", "--in", "Acme/webapp", "Train", "--crew", "ghost")

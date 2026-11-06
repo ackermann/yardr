@@ -530,7 +530,7 @@ func TestPrimeCrewOpensHowYouWorkWithMemory(t *testing.T) {
 	st := userYard(t)
 	out := mustAs(t, st, "yardmaster", "prime", "--crew", "yardmaster")
 	want := "- This session has no memory of its own: a rule or fact for later sessions is\n" +
-		"  `yardr remember \"<title>\" -b \"<body>\"`; `yardr recall` reads."
+		"  `yardr remember - -b -`; `yardr recall` reads."
 	if !strings.Contains(out, want) {
 		t.Errorf("the prime lacks the memory sentence:\n%s", out)
 	}

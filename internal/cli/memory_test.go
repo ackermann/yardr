@@ -17,7 +17,7 @@ func TestPrimeTeachesMemoryAndJournal(t *testing.T) {
 	st := userYard(t)
 	out := mustAs(t, st, "yardmaster", "prime", "--crew", "yardmaster")
 	for _, want := range []string{
-		`yardr remember "<title>" -b "<what, who said it and when, why>"`,
+		"yardr remember - -b - with the words on stdin, the title its first line and the body",
 		"the title is what a later session",
 		"so let it say the rule",
 		"yardr crew journal yardmaster",
@@ -157,25 +157,67 @@ func TestRecallFindsJournalEntries(t *testing.T) {
 	}
 }
 
-// remember -b - takes the memory from the command's stdin, trailing
-// newlines trimmed as before.
-func TestRememberStdinBody(t *testing.T) {
+// remember - and -b - take the title and the memory from the command's
+// stdin, trailing newlines trimmed as before. Stdin can be read once, so
+// with both the first line is the title and the lines after it the body, and
+// a title alone is one line. A title with no words is refused and remembers
+// nothing.
+func TestRememberStdin(t *testing.T) {
 	t.Parallel()
 	st := userYard(t)
 	ctx := context.Background()
 	a := appOn(st)
 	a.actor = "jo"
-	c := a.rememberCmd()
-	c.SetIn(strings.NewReader("no webapp deploys until Friday\n\n"))
-	out, err := run(t, c, "Deploy freeze", "-b", "-")
-	if err != nil {
-		t.Fatalf("remember -b -: %v\n%s", err, out)
+	remember := func(stdin string, args ...string) (*store.Bead, error) {
+		c := a.rememberCmd()
+		c.SetIn(strings.NewReader(stdin))
+		out, err := run(t, c, args...)
+		if err != nil {
+			return nil, err
+		}
+		return st.GetBead(ctx, strings.TrimSpace(out))
 	}
-	got, err := st.GetBead(ctx, strings.TrimSpace(out))
+	got, err := remember("no webapp deploys until Friday\n\n", "Deploy freeze", "-b", "-")
+	if err != nil {
+		t.Fatalf("remember -b -: %v", err)
+	}
+	if got.Title != "Deploy freeze" || got.Body != "no webapp deploys until Friday" {
+		t.Fatalf("remember -b - wrote %+v", got)
+	}
+	// The title from stdin, as typed: a code span and $( ) stay text.
+	got, err = remember("the `title`, $(not run)\n\n", "-")
+	if err != nil {
+		t.Fatalf("remember -: %v", err)
+	}
+	if got.Title != "the `title`, $(not run)" || got.Body != "" {
+		t.Fatalf("remember - wrote %+v", got)
+	}
+	got, err = remember("  the title \t\n\nthe body\nwith two lines\n\n", "-", "-b", "-")
+	if err != nil {
+		t.Fatalf("remember - -b -: %v", err)
+	}
+	if got.Title != "  the title \t" || got.Body != "the body\nwith two lines" {
+		t.Fatalf("remember - -b - wrote %+v", got)
+	}
+	head, err := st.Head(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Body != "no webapp deploys until Friday" {
-		t.Fatalf("remember -b - wrote body %q", got.Body)
+	for _, row := range []struct {
+		stdin string
+		flags []string
+		want  string
+	}{
+		{"", []string{"-"}, "nothing to remember: stdin gave no title"},
+		{" \n\n", []string{"-"}, "nothing to remember: stdin gave no title"},
+		{"\n\nthe body\n", []string{"-", "-b", "-"}, "nothing to remember: stdin gave no title"},
+		{"one\ntwo\n", []string{"-"}, "a title is one line, and stdin gave 2"},
+	} {
+		if _, err := remember(row.stdin, row.flags...); err == nil || !strings.Contains(err.Error(), row.want) {
+			t.Fatalf("remember %v with %q stdin: %v", row.flags, row.stdin, err)
+		}
+	}
+	if now, err := st.Head(ctx); err != nil || now != head {
+		t.Fatalf("refused remembers logged %d events, %v", now-head, err)
 	}
 }

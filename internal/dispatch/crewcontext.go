@@ -58,7 +58,7 @@ func (d *Dispatcher) crewContext(ctx context.Context, runner Runner, s *memberSe
 		return false, nil
 	}
 	typed, err := d.nudge(ctx, runner, s, fmt.Sprintf(
-		"Your context is %d%% of the window. Write your handoff when this conversation allows: yardr crew handoff %s \"<what you are doing, what is next, what to watch>\".",
+		"Your context is %d%% of the window. Write your handoff when this conversation allows: yardr crew handoff %s - with the words on stdin: what you are doing, what is next, what to watch.",
 		pct, def.Name))
 	if err != nil || !typed {
 		return false, err // not asked yet: the reading above is still recorded

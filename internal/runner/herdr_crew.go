@@ -154,7 +154,7 @@ func crewPrompt(yardr string, r store.CrewMember, user string) string {
 		prime = fmt.Sprintf("`%s prime --crew %s --for %s`", yardr, r.Name, user)
 	} else if greets := Greets(r); greets != "" {
 		run = fmt.Sprintf("%s set this yard up a moment ago and waits for your first message in `%s chat`, which shows "+
-			"them your mail and not your pane. Once you have read your prime, greet them with `%s mail %s \"<text>\"` and say "+
+			"them your mail and not your pane. Once you have read your prime, greet them with `%s mail %s -`, the words on stdin, and say "+
 			"what you need from them for the next setup step; go on with them by mail. First run", greets, yardr, yardr, greets)
 	}
 	return fmt.Sprintf(CrewPromptLead+" %s. %s %s "+CrewPromptEnd, who, run, prime)

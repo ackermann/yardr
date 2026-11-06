@@ -17,11 +17,17 @@ import (
 func (a *app) threadOpenCmd() *cobra.Command {
 	var member, in, body, assign string
 	cmd := &cobra.Command{
-		Use:   "open <source> --in <team|repo> [--assign <user>] <title>",
+		Use:   "open <source> --in <team|repo> [--assign <user>] <title|->",
 		Short: "Open a thread in a source, as yourself",
 		Long: `Opens a thread of the crew member's own in a source: in Linear an issue in the
 team --in names (its key or its name), in GitHub an issue in the repository
 --in names (owner/repo). -b is the body (- reads it from stdin); text only.
+The title may be - too, to read it from stdin: write a title or a body that
+quotes code or file names that way, since inside a double-quoted argument the
+shell runs every backtick span and $( ) and puts what it prints in the text.
+Stdin is read once, so with both the first line is the title and the lines
+after it the body, as for yardr bead create - -b -. One with no words on
+stdin is refused, and nothing is opened.
 
 --assign opens it assigned to a user of the yard (yardr user list), as who
 they are in the source: yardr user identity <user> --source <source>. A
@@ -50,9 +56,9 @@ part in it (yardr thread list shows it, how=opened), so an involved
 subscription delivers what others say there with no mention, to be
 answered with yardr reply; a thread_opened event is logged. Prints the URL
 of the thread.`,
-		Example: `  yardr thread open linear --in YRD "Web view: train" -b - < train.md
-  yardr thread open linear --in YRD --assign jo "Decide: retries or a queue"
-  yardr thread open github --in acme/webapp "Retries drop the last attempt" -b "Seen in yard-k3f9."`,
+		Example: `  yardr thread open linear --in YRD - -b - < train.md
+  yardr thread open linear --in YRD --assign jo - < decide.md
+  yardr thread open github --in acme/webapp - -b - < retries.md`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(c *cobra.Command, args []string) error {
 			ctx := c.Context()
@@ -60,7 +66,15 @@ of the thread.`,
 			if err != nil {
 				return err
 			}
-			source, title := args[0], strings.TrimSpace(args[1])
+			source := args[0]
+			// Stdin is read once, for whichever of the title and the body is
+			// -, before anything is looked up: a title with no words opens
+			// nothing.
+			title, text, err := stdinTitleBody(c, args[1], body)
+			if err != nil {
+				return err
+			}
+			title, body = strings.TrimSpace(title), strings.TrimSpace(text)
 			st, err := a.store(ctx)
 			if err != nil {
 				return err
@@ -81,6 +95,9 @@ of the thread.`,
 				return fmt.Errorf("--in is required: the %s to open the thread in", o.Place())
 			}
 			if title == "" {
+				if args[1] == "-" {
+					return fmt.Errorf("nothing to open: stdin gave no title (with -b - as well, the title is its first line)")
+				}
 				return fmt.Errorf("nothing to open: the title is empty")
 			}
 			// Whom it is assigned to is settled before the thread is on
@@ -91,14 +108,6 @@ of the thread.`,
 					return err
 				}
 			}
-			if body == "-" {
-				b, err := io.ReadAll(c.InOrStdin())
-				if err != nil {
-					return err
-				}
-				body = string(b)
-			}
-			body = strings.TrimSpace(body)
 			// The thread is on record, with its key, before anything is
 			// posted, and the record is where a crew member that may not open
 			// threads in the source is refused.
@@ -151,7 +160,7 @@ of the thread.`,
 	}
 	cmd.Flags().StringVar(&member, "crew", "", "who is opening it (default $YARDR_CREW)")
 	cmd.Flags().StringVar(&in, "in", "", "where: a Linear team's key or name, a GitHub owner/repo")
-	cmd.Flags().StringVarP(&body, "body", "b", "", "the thread's body (- reads stdin)")
+	cmd.Flags().StringVarP(&body, "body", "b", "", "the thread's body (- reads stdin; with the title - too, the lines after the first)")
 	cmd.Flags().StringVar(&assign, "assign", "", "the user of the yard it is assigned to, as who they are in the source")
 	return cmd
 }

@@ -766,7 +766,7 @@ func (d *Dispatcher) crewRunning(ctx context.Context, runner Runner, s *memberSe
 		switch {
 		case s.st.RotationAskedAt == nil && idle:
 			typed, err := d.nudge(ctx, runner, s, fmt.Sprintf(
-				"Your session is due for rotation. Write your handoff now: yardr crew handoff %s \"<what you are doing, what is next, what to watch>\". "+
+				"Your session is due for rotation. Write your handoff now: yardr crew handoff %s - with the words on stdin: what you are doing, what is next, what to watch. "+
 					"yardr then starts your next session from it.", def.Name))
 			if err != nil || !typed {
 				return err // not asked yet: the grace runs from the asking

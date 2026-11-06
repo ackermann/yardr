@@ -266,26 +266,85 @@ func TestNoGoCodeNamesANotifyService(t *testing.T) {
 	}
 }
 
-// A refusal, a brief or a help text that shows a bead note as a
-// double-quoted argument teaches the shape whose backtick spans and $( ) the
-// shell runs before yardr starts: a reviewer's backticked file name ran a
-// pull request's own test script (yardr-vmbn). So no Go code yardr is built
-// from shows `yardr bead note <id> "..."` or a move's `--note "..."`; it
-// names the - form, which reads the words from stdin, and leaves how they
-// get there to the role, since one sandbox that reads these refusals cannot
-// make a heredoc's temporary file (yardr-g8ky). Tests are not held to this:
-// they say what the refusals must not.
-func TestNoGoCodeShowsAQuotedNote(t *testing.T) {
+// A refusal, a brief or a help text that shows a bead note, a mail, a reply,
+// a handoff, a journal entry, a memory or a thread's title as a double-quoted
+// argument teaches the shape whose backtick spans and $( ) the shell runs
+// before yardr starts: a reviewer's backticked file name ran a pull request's
+// own test script (yardr-vmbn). So no Go code yardr is built from shows
+// `yardr bead note <id> "..."`, a move's `--note "..."` or the like for the
+// other free text an agent writes (yardr-tsrv, yardr-wrb8); it names the -
+// form, which reads the words from stdin, and leaves how they get there to the
+// role, since one sandbox that reads these refusals cannot make a heredoc's
+// temporary file (yardr-g8ky). Tests are not held to this: they say what the
+// refusals must not.
+//
+// Each shape has its pattern and two samples: the quoted form, which the
+// pattern must hold both in a Go string (\") and in a raw one ("), and the -
+// form, which it must not, so that a pattern that stopped matching would not
+// leave its shape unheld without a failure.
+func TestNoGoCodeShowsAQuotedText(t *testing.T) {
 	t.Parallel()
-	quoted := regexp.MustCompile(`bead note \S+ \\?"|bead (done|advance)\b.*--note \\?"`)
+	// A pattern runs from the command's name over the few words before the
+	// text to the quote that opens it; no more are allowed, or the closing
+	// quote of a Go string later on the line would be taken for it. Mail,
+	// reply and remember are English words as well, so their pattern starts
+	// at `yardr`, or at the %s that stands for it in a text that is given the
+	// program's path.
+	shapes := []struct {
+		name, pattern, quoted, dash string
+		re                          *regexp.Regexp
+	}{
+		{name: "a bead note", pattern: `bead note \S+ \\?"|bead (done|advance)\b.*--note \\?"`,
+			quoted: `yardr bead note web-1 "..."`, dash: `yardr bead note <id> -`},
+		{name: "a mail", pattern: `(yardr|%s) mail (\S+ ){1,2}\\?"`,
+			quoted: `yardr mail <crew member>@<peer> "..."`, dash: `yardr mail <name> -`},
+		{name: "a reply", pattern: `(yardr|%s) reply (\S+ ){1,3}\\?"`,
+			quoted: `yardr reply 4211 "..."`, dash: `yardr reply <seq> -`},
+		{name: "a handoff", pattern: `crew handoff \S+ \\?"`,
+			quoted: `yardr crew handoff %s "..."`, dash: `yardr crew handoff <name> -`},
+		{name: "a journal entry", pattern: `crew journal \S+ \\?"`,
+			quoted: `yardr crew journal %[1]s "..."`, dash: `yardr crew journal <name> -`},
+		{name: "a memory", pattern: `(yardr|%s) remember (\S+ ){0,3}\\?"`,
+			quoted: `yardr remember "<title>" -b "<body>"`, dash: `yardr remember - -b -`},
+		{name: "a thread's title", pattern: `thread open (\S+ ){1,9}\\?"`,
+			quoted: `yardr thread open github --crew yardmaster --in acme/webapp --assign jo -b body "Retries"`,
+			dash:   `yardr thread open <source> --crew <member> --in <place> --assign <user> -b body -`},
+	}
+	var patterns []string
+	for i := range shapes {
+		sh := &shapes[i]
+		sh.re = regexp.MustCompile(sh.pattern)
+		patterns = append(patterns, sh.pattern)
+		if !sh.re.MatchString(sh.quoted) || !sh.re.MatchString(strings.ReplaceAll(sh.quoted, `"`, `\"`)) {
+			t.Errorf("the pattern for %s misses %q", sh.name, sh.quoted)
+		}
+		if sh.re.MatchString(sh.dash) {
+			t.Errorf("the pattern for %s holds the - form %q", sh.name, sh.dash)
+		}
+	}
+	anyShape := regexp.MustCompile(strings.Join(patterns, "|"))
 	files, err := loadRepoGoFiles()
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, f := range files {
 		for n, line := range f.lines {
-			if quoted.MatchString(line) {
-				t.Errorf("%s:%d shows a note as a double-quoted argument, which the shell expands: name the - form, which reads stdin (yardr bead note <id> - with the words on stdin): %s", f.path, n+1, strings.TrimSpace(line))
+			// Every shape needs the quote, and most lines have none.
+			if !strings.Contains(line, `"`) || !anyShape.MatchString(line) {
+				continue
+			}
+			// What a person types at a terminal is held out: the pairing form
+			// prints one fixed greeting for the operator to mail the other
+			// yard, with no code span for a shell to run and no words of an
+			// agent's.
+			if f.path == "internal/cli/pairform.go" && strings.Contains(line, `mail yardmaster@%s \"hello from the other yard\"`) {
+				continue
+			}
+			for _, sh := range shapes {
+				if sh.re.MatchString(line) {
+					t.Errorf("%s:%d shows %s as a double-quoted argument, which the shell expands: name the - form, which reads the words from stdin (%s with the words on stdin): %s", f.path, n+1, sh.name, sh.dash, strings.TrimSpace(line))
+					break
+				}
 			}
 		}
 	}

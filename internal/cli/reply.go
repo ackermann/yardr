@@ -155,10 +155,10 @@ lost answer (a timeout), yardr first looks for the comment that id made
 and does not post it twice. After posting, the crew member takes part in
 the thread at once (yardr thread list shows it, how=replied) and a replied
 event with the comment's id is logged. Prints the URL of the reply.`,
-		Example: `  yardr reply 4211 "Filed as yard-k3f9; I'll post here when it lands."
+		Example: `  yardr reply 4211 - < filed.md
   yardr reply 4211 --to 2174add1-f7c8-44e3-bbf3-2d60b5ea8bc9 - < answer.md
-  yardr reply 13974 "Noted; I'll post here when it lands."
-  yardr reply web-d5zc "CSV only. XLSX is a later bead."`,
+  yardr reply 13974 - < noted.md
+  yardr reply web-d5zc - < csv-only.md`,
 		Args: func(c *cobra.Command, args []string) error {
 			if len(replyFiles) > store.MaxMailFiles {
 				return fmt.Errorf("a reply carries at most %d files, not %d", store.MaxMailFiles, len(replyFiles))

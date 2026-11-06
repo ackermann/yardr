@@ -200,7 +200,10 @@ func main() {
 			// gets a first message.
 			if m := greet.FindStringSubmatch(line); m != nil && !greeted {
 				greeted = true
-				out, err := exec.Command(m[1], "mail", m[2], "Hello, this is the stand-in yardmaster: logged in and ready.").CombinedOutput()
+				// As the prompt asks: the words go on stdin.
+				mail := exec.Command(m[1], "mail", m[2], "-")
+				mail.Stdin = strings.NewReader("Hello, this is the stand-in yardmaster: logged in and ready.\n")
+				out, err := mail.CombinedOutput()
 				logf("greeted %s: %v %s", m[2], err, strings.TrimSpace(string(out)))
 				fmt.Printf("⏺ Greeted %s by mail.\n", m[2])
 			}
@@ -256,7 +259,7 @@ const busyLine = "✻ Working…"
 
 // greet finds, in a first prompt, the mail command it asks to greet with:
 // yardr's path and the user to write to.
-var greet = regexp.MustCompile("greet them with `(\\S+) mail (\\S+) \"<text>\"`")
+var greet = regexp.MustCompile("greet them with `(\\S+) mail (\\S+) -`")
 
 // runFile runs each line of the file run as a command (sh -c), one after the
 // other, and appends to the file out the line, what it printed and the status

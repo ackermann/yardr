@@ -1124,7 +1124,7 @@ func (a *app) handoffs(warn io.Writer, ctx context.Context, st store.API, runner
 		}
 		at := time.Now()
 		err := n.Nudge(ctx, g.handle, fmt.Sprintf(
-			"The yard is being stopped (yardr down). Write your handoff now: yardr crew handoff %s \"<what you are doing, what is next, what to watch>\". "+
+			"The yard is being stopped (yardr down). Write your handoff now: yardr crew handoff %s - with the words on stdin: what you are doing, what is next, what to watch. "+
 				"Your session is stopped once it is written, or in %s without one; your next session starts from it.", g.Name, wait))
 		// Typed and not seen to be taken is typed: the handoff says whether
 		// it was.

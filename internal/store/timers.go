@@ -219,12 +219,12 @@ func (s *Store) AddTimer(ctx context.Context, nt NewTimer, actor string) (*Timer
 		switch {
 		case t.To == actor:
 		case toCrew:
-			return fmt.Errorf("timer: nobody sets a timer for another crew member: mail it (yardr mail %s \"...\"), "+
+			return fmt.Errorf("timer: nobody sets a timer for another crew member: mail it (yardr mail %s - with the words on stdin), "+
 				"and it sets its own if it wants one", t.To)
 		case !t.ToUser:
 			return fmt.Errorf("timer: --to %s: no user of that name (yardr user list): %w", t.To, ErrNotFound)
 		case !byCrew:
-			return fmt.Errorf("timer: a user sets timers for themselves; what %s should know, mail them (yardr mail %s \"...\")", t.To, t.To)
+			return fmt.Errorf("timer: a user sets timers for themselves; what %s should know, mail them (yardr mail %s - with the words on stdin)", t.To, t.To)
 		}
 		limit, minEvery := timerLimits(w.Tx)
 		t.SetAt = now()

@@ -202,7 +202,7 @@ func TestAddNoteForeignRefused(t *testing.T) {
 	y.takeAsk(t, "f1", ask)
 
 	err := y.AddNote(y.ctx, "yd-links@north", "a thought", "mckean")
-	if err == nil || err.Error() != `bead yd-links@north is a question north asked: words for the asker go as mail, yardr mail yardmaster@north "..."` {
+	if err == nil || err.Error() != `bead yd-links@north is a question north asked: words for the asker go as mail, yardr mail yardmaster@north - with the words on stdin` {
 		t.Fatalf("AddNote(bead@peer) = %v", err)
 	}
 	if err := y.AddNote(y.ctx, "yd-links@south", "a thought", "mckean"); err == nil || !strings.Contains(err.Error(), "peer south") {

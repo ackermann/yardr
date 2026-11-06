@@ -753,7 +753,7 @@ func (s *Store) PeerSend(ctx context.Context, name, kind string, body json.RawMe
 		return nil, fmt.Errorf("a bead that is at %s is read with yardr thread show <bead>", name)
 	case PeerBeadNote:
 		// PeerNote is what checks that the writer may write at the peer.
-		return nil, fmt.Errorf("a note goes on %s's bead with yardr reply <bead> \"<text>\"", name)
+		return nil, fmt.Errorf("a note goes on %s's bead with yardr reply <bead> - with the words on stdin", name)
 	case PeerThread:
 		return nil, fmt.Errorf("%s is what a link is allowed to carry of a bead that is away, and the kind of no message: the yard sends what it covers itself", kind)
 	case PeerAsk:

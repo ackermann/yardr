@@ -176,7 +176,7 @@ func TestBeadAnswerForeign(t *testing.T) {
 	// Words alone on an ask with options go as mail to the asker.
 	south.a.actor = "ada"
 	if _, err := run(t, south.a.beadCmd(), "answer", ref, "1", "--words", "a thought"); err == nil ||
-		!strings.Contains(err.Error(), `yardr mail jo@up-north "..."`) {
+		!strings.Contains(err.Error(), `yardr mail jo@up-north - with the words on stdin`) {
 		t.Fatalf("words alone on a foreign ask with options = %v", err)
 	}
 	// And words as a note are refused with the same way.

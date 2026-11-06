@@ -1126,7 +1126,7 @@ func (s *Store) refuseForeignNote(bead, peer string) error {
 		who := rec.From + "@" + p.Name
 		if !seen[who] {
 			seen[who] = true
-			askers = append(askers, "yardr mail "+who+` "..."`)
+			askers = append(askers, "yardr mail "+who+" - with the words on stdin")
 		}
 	}
 	return fmt.Errorf("bead %s@%s is a question %s asked: words for the asker go as mail, %s",
