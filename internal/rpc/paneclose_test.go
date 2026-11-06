@@ -51,7 +51,7 @@ func TestSocketRefusesABeadsPaneClosingAnotherBead(t *testing.T) {
 
 	for _, b := range []*store.Bead{y.blocker, y.other} {
 		_, err := c.CloseBead(ctx, b.ID, "fixed", store.Expect{}, "jo")
-		if err == nil || !strings.Contains(err.Error(), "may close only its own bead "+y.mine.ID) || !strings.Contains(err.Error(), "yardr bead note "+b.ID) {
+		if err == nil || !strings.Contains(err.Error(), "may close only its own bead "+y.mine.ID) || !strings.Contains(err.Error(), "yardr bead note "+b.ID+" - with the words on stdin (why it can close)") {
 			t.Errorf("CloseBead(%s) from a bead's pane = %v, want it refused, pointing at a note", b.ID, err)
 		}
 		if got, err := st.GetBead(ctx, b.ID); err != nil || got.Status == "closed" {

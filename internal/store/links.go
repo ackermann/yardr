@@ -176,7 +176,7 @@ func (w *wtx) checkPRTracks(ctx context.Context, b *beadRow, what string) error 
 	if err != nil || sess == nil {
 		return err
 	}
-	return fmt.Errorf("bead %s is a pr bead past triage (in %s): the session %s of a bead's agent may not %s, whatever actor the command names; the yard fetches, tests and merges the pull request that link names, so a maintainer re-points it from their own terminal (yardr link rm %s <the old pull request>, then yardr link add %s <the new one>); an agent writes a note on the bead instead: yardr bead note %s \"which pull request it should track, and why\"",
+	return fmt.Errorf("bead %s is a pr bead past triage (in %s): the session %s of a bead's agent may not %s, whatever actor the command names; the yard fetches, tests and merges the pull request that link names, so a maintainer re-points it from their own terminal (yardr link rm %s <the old pull request>, then yardr link add %s <the new one>); an agent writes a note on the bead instead: yardr bead note %s - with the words on stdin (which pull request it should track, and why)",
 		b.ID, b.Stage, sess.ID, what, b.ID, b.ID, b.ID)
 }
 

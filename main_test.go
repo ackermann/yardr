@@ -266,6 +266,35 @@ func TestNoGoCodeNamesANotifyService(t *testing.T) {
 	}
 }
 
+// A refusal, a brief or a help text that shows a bead note as a
+// double-quoted argument teaches the shape whose backtick spans and $( ) the
+// shell runs before yardr starts: a reviewer's backticked file name ran a
+// pull request's own test script (yardr-vmbn). So no Go code yardr is built
+// from shows `yardr bead note <id> "..."` or a move's `--note "..."`; it
+// names the - form, which reads the words from stdin, and leaves how they
+// get there to the role, since one sandbox that reads these refusals cannot
+// make a heredoc's temporary file (yardr-g8ky). Tests are not held to this:
+// they say what the refusals must not.
+func TestNoGoCodeShowsAQuotedNote(t *testing.T) {
+	t.Parallel()
+	quoted := regexp.MustCompile(`bead note \S+ \\?"|bead (done|advance)\b.*--note \\?"`)
+	files, err := loadRepoGoFiles()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range files {
+		for n, line := range f.lines {
+			if quoted.MatchString(line) {
+				t.Errorf("%s:%d shows a note as a double-quoted argument, which the shell expands: name the - form, which reads stdin (yardr bead note <id> - with the words on stdin): %s", f.path, n+1, strings.TrimSpace(line))
+			}
+		}
+	}
+	// Not for want of looking: the walk started at the repository's root.
+	if len(files) < 100 {
+		t.Fatalf("%d Go files read", len(files))
+	}
+}
+
 // GitHub left the core for packs/github: no Go code yardr is built from
 // names it, except what the move audited (bead yardr-2c8b): the pack's own
 // name; the stand-in and the trial sources, which serve its API shape so

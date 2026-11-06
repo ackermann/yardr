@@ -295,7 +295,7 @@ func TestAnswerWords(t *testing.T) {
 
 	oseq := y.ask(t, linksAsk(), "yardmaster")
 	if err := y.AddAnswer(y.ctx, y.bead, Answer{Ask: oseq, Words: "just words"}, "mckean"); err == nil ||
-		!strings.Contains(err.Error(), "words alone go as yardr bead note") ||
+		!strings.Contains(err.Error(), "words alone go as yardr bead note "+y.bead+" - with the words on stdin and") ||
 		!strings.Contains(err.Error(), "leave the ask open") {
 		t.Fatalf("words alone on an ask with options: err = %v", err)
 	}

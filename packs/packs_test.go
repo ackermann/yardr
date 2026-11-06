@@ -142,8 +142,8 @@ func TestTemplatesAreGeneric(t *testing.T) {
 	// And how to answer a user: with yardr reply when they wrote by mail
 	// (yardr mail is for writing first), in the pane when they wrote
 	// there.
-	if body := files[yardmaster]; !strings.Contains(body, "When a user wrote to you by mail, answer with\n  `yardr reply <seq> \"…\"`") ||
-		!strings.Contains(body, "`yardr mail <user> \"…\"` is for writing first") ||
+	if body := files[yardmaster]; !strings.Contains(body, "When a user wrote to you by mail, answer with\n  `yardr reply <seq> -`") ||
+		!strings.Contains(body, "`yardr mail <user> -` is for writing first") ||
 		!strings.Contains(body, "In a conversation in your\n  pane, answer in the pane") {
 		t.Error("yardmaster.md does not say to answer a user's mail with yardr reply and a pane conversation in the pane")
 	}
@@ -160,7 +160,7 @@ func TestTemplatesAreGeneric(t *testing.T) {
 	}
 	// And that the onboarding's conversation is by mail: the operator sits
 	// in yardr chat, which shows mail and nothing of the yardmaster's pane.
-	if body := files[yardmaster]; !strings.Contains(body, "greet them, do it by mail: `yardr mail {{operator}} \"…\"`") ||
+	if body := files[yardmaster]; !strings.Contains(body, "greet them, do it by mail: `yardr mail {{operator}} - <<'MAIL'`") ||
 		!strings.Contains(body, "It stays by mail for as long as they write by\nmail") {
 		t.Error("yardmaster.md does not say to greet the operator by mail, or that the setup conversation stays by mail")
 	}
@@ -978,27 +978,35 @@ func TestRolesSayWhatATestMayCost(t *testing.T) {
 // role or stage file shows a bead note, or the note of a move, as a
 // double-quoted argument, and each role that has its agent write a note
 // shows it as stdin from a heredoc with a quoted delimiter, which expands
-// nothing, and says why. The words are compared with the lines folded, so
-// rewrapping breaks nothing.
+// nothing, and says why. The other texts an agent gives yardr (a mail, a
+// reply, a bead's title and body, a close reason) read - the same way, and
+// a role or stage file shows none of them in double quotes either
+// (yardr-tsrv). The words are compared with the lines folded, so rewrapping
+// breaks nothing.
 //
 // One role is held out: the contributors' pull request reviewer runs in a
 // read-only sandbox that refuses the temporary file a shell makes for a
 // heredoc, so it cannot yet be told to write one, and its role still shows
 // the double-quoted form. The hold fails once the role no longer shows it,
 // so the exemption goes with the fix.
-func TestRolesShowNoQuotedNote(t *testing.T) {
+func TestRolesShowNoQuotedText(t *testing.T) {
 	files := packFiles(t)
 	quoted := regexp.MustCompile(`bead note \S+ "|bead (done|advance)\b.*--note "`)
+	// What an agent gives yardr beside a note: only in the code span of the
+	// command, and only where an agent reads it, since a pack's SETUP.md
+	// and README are a person's at a terminal, where a quote is safe.
+	quotedText := regexp.MustCompile("yardr (mail|reply) [^`]*\"|yardr bead create [^`]*\"|--title \"|bead close\\b[^`]*--reason \"")
+	agentFile := regexp.MustCompile(`^[a-z]+/(roles|flows)/.*\.md$`)
 	writers := regexp.MustCompile(`^[a-z]+/roles/(builder|reviewer|review-security|pr-reviewer)\.md$`)
 	held := map[string]bool{"contributors/roles/pr-reviewer.md": true}
 	var roles int
 	for name, body := range files {
 		shown := false
 		for n, line := range strings.Split(body, "\n") {
-			if quoted.MatchString(line) {
+			if quoted.MatchString(line) || agentFile.MatchString(name) && quotedText.MatchString(line) {
 				shown = true
 				if !held[name] {
-					t.Errorf("%s:%d shows a note as a double-quoted argument, which the shell expands: show it as stdin from a quoted heredoc (yardr bead note <id> - <<'NOTE'): %s", name, n+1, strings.TrimSpace(line))
+					t.Errorf("%s:%d shows a text as a double-quoted argument, which the shell expands: show it as stdin from a quoted heredoc (yardr bead note <id> - <<'NOTE'): %s", name, n+1, strings.TrimSpace(line))
 				}
 			}
 		}
@@ -1047,8 +1055,8 @@ func TestRolesShowNoQuotedNote(t *testing.T) {
 				return err
 			}
 			for n, line := range strings.Split(string(body), "\n") {
-				if quoted.MatchString(line) {
-					t.Errorf(".yardr/%s:%d shows a note as a double-quoted argument, which the shell expands: %s", name, n+1, strings.TrimSpace(line))
+				if quoted.MatchString(line) || quotedText.MatchString(line) {
+					t.Errorf(".yardr/%s:%d shows a text as a double-quoted argument, which the shell expands: %s", name, n+1, strings.TrimSpace(line))
 				}
 			}
 			return nil

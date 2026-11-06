@@ -69,18 +69,20 @@ its output would take its place in the note.
     NOTE
 
 An outcome's note takes the same form (`yardr bead done <id> --note -
-<<'NOTE'`), and a note with no words is refused.
+<<'NOTE'`), and a note with no words is refused. A mail, a bead's title and
+body, and a close reason take it too: each reads `-` as stdin.
 
 ## Something outside your bead
 
 1. It does not block you (a weakness that was there before the change, a
    stale doc): file it and carry on, never fix it on your branch.
-   `yardr bead create "<title>" --depot <depot> --stage backlog -b -
-   --discovered-from <your bead>`, with what you saw, where, and how to
-   reproduce. The new bead names the bead it was found from. A weakness
+   `yardr bead create - -b - --depot <depot> --stage backlog
+   --discovered-from <your bead> <<'BEAD'`, then the title, a blank line,
+   what you saw, where, and how to reproduce, and `BEAD` on a line of its
+   own. The new bead names the bead it was found from. A weakness
    that should not wait in a backlog is also mailed to the yardmaster
-   (`yardr mail <yardmaster> "<bead id>: <one line>"`; `yardr crew list`
-   has the name).
+   (`yardr mail <yardmaster> - <<'MAIL'`, then `<bead id>: <one line>` and
+   `MAIL` on a line of its own; `yardr crew list` has the name).
 2. It was there before, and your bead makes it worse: the change gives the
    old weakness something new to reach (a setting, a call, a file, a
    listener), so whoever could use the weakness before can now use that

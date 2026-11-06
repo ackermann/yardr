@@ -2201,7 +2201,7 @@ func (w *wtx) checkCloseOwn(ctx context.Context, b *beadRow) error {
 	if err != nil || sess == nil || sess.Bead == b.UUID {
 		return err
 	}
-	return fmt.Errorf("bead %s: the session %s of a bead's agent may close only its own bead %s, whatever actor the command names; write a note on it instead, so a person or the line closes it: yardr bead note %s \"why it can close\"",
+	return fmt.Errorf("bead %s: the session %s of a bead's agent may close only its own bead %s, whatever actor the command names; write a note on it instead, so a person or the line closes it: yardr bead note %s - with the words on stdin (why it can close)",
 		b.ID, sess.ID, handlesIn(w.Tx).of(sess.Bead), b.ID)
 }
 
@@ -2225,7 +2225,7 @@ func (w *wtx) checkFlowChange(ctx context.Context, b *beadRow, p BeadPatch) erro
 	if err != nil || sess == nil {
 		return err
 	}
-	return fmt.Errorf("bead %s: the session %s of a bead's agent may not change a bead's %s, which chooses the flow it goes by, whatever actor the command names; ask the yardmaster: yardr bead note %s \"which %s, and why\"",
+	return fmt.Errorf("bead %s: the session %s of a bead's agent may not change a bead's %s, which chooses the flow it goes by, whatever actor the command names; ask the yardmaster: yardr bead note %s - with the words on stdin (which %s, and why)",
 		b.ID, sess.ID, what, b.ID, what)
 }
 
@@ -2519,7 +2519,7 @@ func (s *Store) SetHold(ctx context.Context, id string, hold bool, exp Expect, a
 			if sess, err := beadAgent(w.Tx, ctx); err != nil {
 				return "", nil, err
 			} else if sess != nil {
-				return "", nil, fmt.Errorf("bead %s: the session %s of a bead's agent may hold a bead but not lift a hold, whatever actor the command names; ask the yardmaster: yardr bead note %s \"why it can go on\"", b.ID, sess.ID, b.ID)
+				return "", nil, fmt.Errorf("bead %s: the session %s of a bead's agent may hold a bead but not lift a hold, whatever actor the command names; ask the yardmaster: yardr bead note %s - with the words on stdin (why it can go on)", b.ID, sess.ID, b.ID)
 			}
 		}
 		if err := w.check(ctx, exp, b); err != nil {

@@ -43,7 +43,7 @@ func (w *wtx) checkMergeOK(ctx context.Context, b *beadRow, p BeadPatch) error {
 	if err != nil || sess == nil || (sess.Bead == b.UUID && !yes) {
 		return err
 	}
-	return fmt.Errorf("bead %s: the session %s of a bead's agent may say merge-ok only on its own bead %s and may not record merge_head on any, whatever actor the command names; the reviewer says merge-ok on the pull request it read, and a maintainer's yes is theirs: yardr bead note %s \"why it is merge-ok\"",
+	return fmt.Errorf("bead %s: the session %s of a bead's agent may say merge-ok only on its own bead %s and may not record merge_head on any, whatever actor the command names; the reviewer says merge-ok on the pull request it read, and a maintainer's yes is theirs: yardr bead note %s - with the words on stdin (why it is merge-ok)",
 		b.ID, sess.ID, handlesIn(w.Tx).of(sess.Bead), b.ID)
 }
 
@@ -69,7 +69,7 @@ func (w *wtx) checkReviewedHead(ctx context.Context, b *beadRow, p BeadPatch) er
 	if err != nil || sess == nil || sess.Bead == b.UUID {
 		return err
 	}
-	return fmt.Errorf("bead %s: the session %s of a bead's agent may record reviewed_head only on its own bead %s, whatever actor the command names; it says which head the reviewer read, and the reviewer records it on the pull request it read: yardr bead note %s \"which head should be read\"",
+	return fmt.Errorf("bead %s: the session %s of a bead's agent may record reviewed_head only on its own bead %s, whatever actor the command names; it says which head the reviewer read, and the reviewer records it on the pull request it read: yardr bead note %s - with the words on stdin (which head should be read)",
 		b.ID, sess.ID, handlesIn(w.Tx).of(sess.Bead), b.ID)
 }
 
@@ -95,7 +95,7 @@ func (w *wtx) checkReview(ctx context.Context, b *beadRow, p BeadPatch) error {
 	if err != nil || sess == nil || sess.Bead == b.UUID {
 		return err
 	}
-	return fmt.Errorf("bead %s: the session %s of a bead's agent may record review only on its own bead %s, whatever actor the command names; it is the review the yard posts on the pull request it read, and the reviewer stores it on the pull request it read: yardr bead note %s \"which review should be stored\"",
+	return fmt.Errorf("bead %s: the session %s of a bead's agent may record review only on its own bead %s, whatever actor the command names; it is the review the yard posts on the pull request it read, and the reviewer stores it on the pull request it read: yardr bead note %s - with the words on stdin (which review should be stored)",
 		b.ID, sess.ID, handlesIn(w.Tx).of(sess.Bead), b.ID)
 }
 
@@ -129,7 +129,7 @@ func (w *wtx) checkCIHead(ctx context.Context, b *beadRow, p BeadPatch) error {
 	if err != nil || sess == nil {
 		return err
 	}
-	return fmt.Errorf("bead %s: the session %s of a bead's agent may not record ci_head, whatever actor the command names; it says which head the yard's CI passed on, and the script that ran the tests writes it: yardr bead note %s \"why CI should run again\"",
+	return fmt.Errorf("bead %s: the session %s of a bead's agent may not record ci_head, whatever actor the command names; it says which head the yard's CI passed on, and the script that ran the tests writes it: yardr bead note %s - with the words on stdin (why CI should run again)",
 		b.ID, sess.ID, b.ID)
 }
 
@@ -154,6 +154,6 @@ func (w *wtx) checkAcceptedHead(ctx context.Context, b *beadRow, p BeadPatch) er
 	if err != nil || sess == nil {
 		return err
 	}
-	return fmt.Errorf("bead %s: the session %s of a bead's agent may not record accepted_head, whatever actor the command names; it says which head a maintainer accepted, and the maintainer writes it: yardr bead note %s \"which head should be accepted\"",
+	return fmt.Errorf("bead %s: the session %s of a bead's agent may not record accepted_head, whatever actor the command names; it says which head a maintainer accepted, and the maintainer writes it: yardr bead note %s - with the words on stdin (which head should be accepted)",
 		b.ID, sess.ID, b.ID)
 }

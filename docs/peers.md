@@ -807,7 +807,8 @@ as `yardr bead create` does and as a task, which is routed from that stage
 like any bead: in a depot's `decide` stage for one, where the people that
 stage is routed to hold it. Nothing closes it but its asker, who
 closes it when the answer is on it, with what they did with the answer as
-the reason (`yardr bead close <id> --reason "..."`). What the other yard
+the reason (`yardr bead close <id> --reason - <<'REASON'`, the reason, then
+`REASON` on a line of its own). What the other yard
 is sent is that bead's envelope, as for any ask: the question is its
 title, and what `-b` gave is its body. `--to <person>@<peer>` works with
 `--new` as it does without.

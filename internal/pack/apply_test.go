@@ -1320,7 +1320,7 @@ func TestImportFillsThePlaceholders(t *testing.T) {
 
 	builder := filepath.Join(config.At(o.Home).PackRoles("starter"), "builder.md")
 	got, _ := os.ReadFile(builder)
-	for _, want := range []string{"never Jo's own session", "`yardr mail boss \"<bead id>: <one line>\"`"} {
+	for _, want := range []string{"never Jo's own session", "`yardr mail boss - <<'MAIL'`"} {
 		if !strings.Contains(string(got), want) {
 			t.Errorf("the installed builder.md lacks %q", want)
 		}

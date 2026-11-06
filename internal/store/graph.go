@@ -582,7 +582,7 @@ func (s *Store) RemoveDep(ctx context.Context, fromRef, toRef, kind, at, until, 
 				if kind == DepParent {
 					what = "a child from its train, which takes the child's blocks edge with it"
 				}
-				return fmt.Errorf("%s -%s-> %s: the session %s of a bead's agent may add edges but not remove %s, whatever actor the command names; ask the yardmaster: yardr bead note %s \"which edge is wrong, and why\"",
+				return fmt.Errorf("%s -%s-> %s: the session %s of a bead's agent may add edges but not remove %s, whatever actor the command names; ask the yardmaster: yardr bead note %s - with the words on stdin (which edge is wrong, and why)",
 					fromRow.ID, kind, toRow.ID, sess.ID, what, toRow.ID)
 			}
 		}

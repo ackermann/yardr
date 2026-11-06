@@ -1099,7 +1099,7 @@ func answerable(id string, notes []Note, ans Answer, at time.Time, actor string,
 	case ans.Option != 0 && (ans.Option < 1 || ans.Option > len(ask.Options)):
 		return "", fmt.Errorf("ask %d has options 1..%d", ans.Ask, len(ask.Options))
 	case ans.Option == 0 && !ans.Later && !ans.Decline && len(ask.Options) > 0:
-		return "", fmt.Errorf("ask %d has options: words alone go as yardr bead note %s \"...\" and leave the ask open; pick one with yardr bead answer %s %d <n>",
+		return "", fmt.Errorf("ask %d has options: words alone go as yardr bead note %s - with the words on stdin and leave the ask open; pick one with yardr bead answer %s %d <n>",
 			ans.Ask, id, id, ans.Ask)
 	case ans.Option == 0 && !ans.Later && !ans.Decline && ans.Words == "":
 		return "", fmt.Errorf("ask %d wants words: yardr bead answer %s %d --words \"<text>\"", ans.Ask, id, ans.Ask)

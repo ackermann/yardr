@@ -193,7 +193,7 @@ func (w *wtx) checkUnfoldOwn(ctx context.Context, carrier *beadRow) error {
 	if err != nil || sess == nil || sess.Bead == carrier.UUID {
 		return err
 	}
-	return fmt.Errorf("bead %s: the session %s of a bead's agent may unfold the members of its own carrier %s and no other's, whatever actor the command names; write a note on it instead, so a person or the line takes it out: yardr bead note %s \"why it comes out\"",
+	return fmt.Errorf("bead %s: the session %s of a bead's agent may unfold the members of its own carrier %s and no other's, whatever actor the command names; write a note on it instead, so a person or the line takes it out: yardr bead note %s - with the words on stdin (why it comes out)",
 		carrier.ID, sess.ID, handlesIn(w.Tx).of(sess.Bead), carrier.ID)
 }
 

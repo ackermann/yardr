@@ -156,7 +156,7 @@ func TestBeadAnswer(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = run(t, me.beadCmd(), "answer", id, "5", "--words", "just words")
-	if err == nil || !strings.Contains(err.Error(), "words alone go as yardr bead note "+id) ||
+	if err == nil || !strings.Contains(err.Error(), "words alone go as yardr bead note "+id+" - with the words on stdin and") ||
 		!strings.Contains(err.Error(), "leave the ask open") {
 		t.Fatalf("words alone: err = %v", err)
 	}

@@ -148,10 +148,12 @@ func TestBeadUpdateRejectsUnknownPin(t *testing.T) {
 	}
 }
 
-// bead update -b - with an empty stdin is refused and the body is left
-// alone: an empty read is a broken pipe, not an intent to clear.
-// Clearing on purpose stays -b "".
-func TestBeadUpdateStdinBody(t *testing.T) {
+// bead update -b - and --title - take the body and the title from the
+// command's stdin. An empty read is refused and the field is left alone: it
+// is a broken pipe, not an intent to clear. Clearing a body on purpose stays
+// -b "". Stdin can be read once, so with both the first line is the title
+// and the lines after it the body, and a title alone is one line.
+func TestBeadUpdateStdin(t *testing.T) {
 	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
@@ -160,10 +162,10 @@ func TestBeadUpdateStdinBody(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := &app{st: st, actor: "me"}
-	update := func(stdin, body string) error {
+	update := func(id, stdin string, flags ...string) error {
 		c := a.beadCmd()
 		c.SetIn(strings.NewReader(stdin))
-		_, err := run(t, c, "update", b.ID, "-b", body)
+		_, err := run(t, c, append([]string{"update", id}, flags...)...)
 		return err
 	}
 	unchanged := func() {
@@ -173,45 +175,172 @@ func TestBeadUpdateStdinBody(t *testing.T) {
 		}
 	}
 	for _, stdin := range []string{"", " \n\n"} {
-		if err := update(stdin, "-"); err == nil || !strings.Contains(err.Error(), "nothing to write") ||
+		if err := update(b.ID, stdin, "-b", "-"); err == nil || !strings.Contains(err.Error(), "nothing to write") ||
 			!strings.Contains(err.Error(), b.ID) || !strings.Contains(err.Error(), `-b ""`) {
 			t.Fatalf("update -b - with %q stdin: %v", stdin, err)
 		}
 		unchanged()
 	}
-	if err := update("", ""); err != nil {
+	if err := update(b.ID, "", "-b", ""); err != nil {
 		t.Fatalf("update -b \"\": %v", err)
 	}
 	if got, _ := st.GetBead(ctx, b.ID); got.Body != "" {
 		t.Fatalf("update -b \"\" left body %q", got.Body)
 	}
-	if err := update("a new body\n", "-"); err != nil {
+	if err := update(b.ID, "a new body\n", "-b", "-"); err != nil {
 		t.Fatalf("update -b - with a body: %v", err)
 	}
 	if got, _ := st.GetBead(ctx, b.ID); got.Body != "a new body" {
 		t.Fatalf("update -b - wrote body %q", got.Body)
 	}
+
+	// The title reads stdin the same way: a refusal says why, and leaves
+	// the title and the body as they were.
+	tb, err := st.CreateBead(ctx, store.NewBead{Title: "the title", Body: "the body"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range []struct {
+		stdin string
+		flags []string
+		want  string
+	}{
+		{"", []string{"--title", "-"}, "stdin gave no title, so bead " + tb.ID + "'s title is unchanged"},
+		{" \n\n", []string{"--title", "-"}, "stdin gave no title"},
+		{"\n\nthe body\n", []string{"--title", "-", "-b", "-"}, "stdin gave no title"},
+		{"one\ntwo\n", []string{"--title", "-"}, "a title is one line, and stdin gave 2"},
+	} {
+		if err := update(tb.ID, row.stdin, row.flags...); err == nil || !strings.Contains(err.Error(), row.want) {
+			t.Fatalf("update %v with %q stdin: %v", row.flags, row.stdin, err)
+		}
+		if got, _ := st.GetBead(ctx, tb.ID); got.Title != "the title" || got.Body != "the body" || got.Revision != tb.Revision {
+			t.Fatalf("refused update %v changed the bead: %+v", row.flags, got)
+		}
+	}
+	if err := update(tb.ID, "a `new` title, $(not run)\n\n", "--title", "-"); err != nil {
+		t.Fatalf("update --title -: %v", err)
+	}
+	if got, _ := st.GetBead(ctx, tb.ID); got.Title != "a `new` title, $(not run)" || got.Body != "the body" {
+		t.Fatalf("update --title - wrote %+v", got)
+	}
+	if err := update(tb.ID, "  spaced title \t\n", "--title", "-"); err != nil {
+		t.Fatalf("update --title - with surrounding spaces: %v", err)
+	}
+	if got, _ := st.GetBead(ctx, tb.ID); got.Title != "  spaced title \t" {
+		t.Fatalf("update --title - trimmed the title: %q", got.Title)
+	}
+	if err := update(tb.ID, "  both \t\n\nthe body again\nin two lines\n\n", "--title", "-", "-b", "-"); err != nil {
+		t.Fatalf("update --title - -b -: %v", err)
+	}
+	if got, _ := st.GetBead(ctx, tb.ID); got.Title != "  both \t" || got.Body != "the body again\nin two lines" {
+		t.Fatalf("update --title - -b - wrote %+v", got)
+	}
 }
 
-// bead create -b - takes the body from the command's stdin, trailing
-// newlines trimmed as before: piped input stores identical bytes.
-func TestBeadCreateStdinBody(t *testing.T) {
+// bead create - takes the title from the command's stdin, and with -b - the
+// body too: the first line is the title and the lines after it the body.
+// A title with no words, or two lines without -b -, is refused and makes no
+// bead.
+func TestBeadCreateStdin(t *testing.T) {
 	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	a := &app{st: st, actor: "me"}
-	c := a.beadCmd()
-	c.SetIn(strings.NewReader("the body\nwith two lines\n\n"))
-	out, err := run(t, c, "create", "x", "-b", "-")
-	if err != nil {
-		t.Fatalf("create -b -: %v\n%s", err, out)
+	create := func(stdin string, flags ...string) (*store.Bead, error) {
+		c := a.beadCmd()
+		c.SetIn(strings.NewReader(stdin))
+		out, err := run(t, c, append([]string{"create"}, flags...)...)
+		if err != nil {
+			return nil, err
+		}
+		return st.GetBead(ctx, strings.TrimSpace(out))
 	}
-	got, err := st.GetBead(ctx, strings.TrimSpace(out))
+	// The body from stdin, trailing newlines trimmed as before: piped
+	// input stores identical bytes.
+	got, err := create("the body\nwith two lines\n\n", "x", "-b", "-")
+	if err != nil {
+		t.Fatalf("create x -b -: %v", err)
+	}
+	if got.Title != "x" || got.Body != "the body\nwith two lines" {
+		t.Fatalf("create x -b - wrote %+v", got)
+	}
+	// The title from stdin, as typed: a code span and $( ) stay text.
+	got, err = create("the `title`, $(not run)\n\n", "-")
+	if err != nil {
+		t.Fatalf("create -: %v", err)
+	}
+	if got.Title != "the `title`, $(not run)" || got.Body != "" {
+		t.Fatalf("create - wrote %+v", got)
+	}
+	got, err = create("  spaced title \t\n\n", "-")
+	if err != nil {
+		t.Fatalf("create - with surrounding spaces: %v", err)
+	}
+	if got.Title != "  spaced title \t" || got.Body != "" {
+		t.Fatalf("create - trimmed the title: %q", got.Title)
+	}
+	got, err = create("  the title \t\n\nthe body\nwith two lines\n\n", "-", "-b", "-")
+	if err != nil {
+		t.Fatalf("create - -b -: %v", err)
+	}
+	if got.Title != "  the title \t" || got.Body != "the body\nwith two lines" {
+		t.Fatalf("create - -b - wrote %+v", got)
+	}
+	before, err := st.ListBeads(ctx, store.BeadFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Body != "the body\nwith two lines" {
-		t.Fatalf("create -b - wrote body %q", got.Body)
+	for _, row := range []struct {
+		stdin string
+		flags []string
+		want  string
+	}{
+		{"", []string{"-"}, "nothing to create: stdin gave no title"},
+		{" \n\n", []string{"-"}, "nothing to create: stdin gave no title"},
+		{"\n\nthe body\n", []string{"-", "-b", "-"}, "nothing to create: stdin gave no title"},
+		{"one\ntwo\n", []string{"-"}, "a title is one line, and stdin gave 2"},
+	} {
+		if _, err := create(row.stdin, row.flags...); err == nil || !strings.Contains(err.Error(), row.want) {
+			t.Fatalf("create %v with %q stdin: %v", row.flags, row.stdin, err)
+		}
+	}
+	if after, err := st.ListBeads(ctx, store.BeadFilter{}); err != nil || len(after) != len(before) {
+		t.Fatalf("refused creates made beads: %d before, %d after, %v", len(before), len(after), err)
+	}
+}
+
+// bead close --reason - takes the reason from the command's stdin, trailing
+// newlines trimmed. One with no words is refused before anything closes.
+func TestBeadCloseStdinReason(t *testing.T) {
+	t.Parallel()
+	st := storetest.New(t)
+	ctx := context.Background()
+	a := &app{st: st, actor: "me"}
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "x"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	closeWith := func(stdin string) error {
+		c := a.beadCmd()
+		c.SetIn(strings.NewReader(stdin))
+		_, err := run(t, c, "close", b.ID, "--reason", "-")
+		return err
+	}
+	for _, stdin := range []string{"", " \n\n"} {
+		if err := closeWith(stdin); err == nil || !strings.Contains(err.Error(), "nothing to write: stdin gave no reason") ||
+			!strings.Contains(err.Error(), b.ID+" is still open") {
+			t.Fatalf("close --reason - with %q stdin: %v", stdin, err)
+		}
+		if got, _ := st.GetBead(ctx, b.ID); got.Status == "closed" || got.Revision != b.Revision {
+			t.Fatalf("refused close changed the bead: %+v", got)
+		}
+	}
+	if err := closeWith("merged as `abc123`, $(not run)\nin two lines\n\n"); err != nil {
+		t.Fatalf("close --reason -: %v", err)
+	}
+	got, err := st.GetBead(ctx, b.ID)
+	if err != nil || got.Status != "closed" || got.CloseReason == nil || *got.CloseReason != "merged as `abc123`, $(not run)\nin two lines" {
+		t.Fatalf("close --reason - left %+v, %v", got, err)
 	}
 }
 

@@ -449,7 +449,7 @@ func TestLinkTracksOfAPullRequestAreNoAgentsPastTriage(t *testing.T) {
 	// whatever actor it names.
 	h := head(t, s)
 	hand := func(bead string) []string {
-		return []string{bead + " is a pr bead past triage (in review)", "yardr link rm " + bead, "yardr link add " + bead, "yardr bead note " + bead}
+		return []string{bead + " is a pr bead past triage (in review)", "yardr link rm " + bead, "yardr link add " + bead, "yardr bead note " + bead + " - with the words on stdin"}
 	}
 	_, err = s.AddLink(pane, "web-read", tracks(pr(6)), "mckean")
 	refused(t, s, "a tracks link for another pr bead", err, h, append(hand("web-read"), "may not add a tracks link to "+pr(6))...)

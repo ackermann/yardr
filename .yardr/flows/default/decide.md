@@ -18,7 +18,8 @@ what the person answers, and the bead is moved by hand once it is.
 
 A decision that is not about one piece of code is a bead created straight
 into `decide`, and is closed with the answer as its reason
-(`yardr bead close <id> --reason "..."`).
+(`yardr bead close <id> --reason - <<'REASON'`, the answer, then `REASON`
+on a line of its own).
 
 ## Ask
 kind: moves

@@ -192,7 +192,7 @@ Your environment already names you to yardr (YARDR_ACTOR=%[1]s, YARDR_BEAD, YARD
 
 - Read the bead, its notes and dependencies: `+"`yardr prime --bead %[2]s`"+`
 - Leave evidence as you go: `+"`yardr bead note %[2]s <text>`"+` (`+"`-`"+` as the text reads the words from stdin)
-%[3]s- Or, if the work is finished entirely: `+"`yardr bead close %[2]s --reason \"...\"`"+`
+%[3]s- Or, if the work is finished entirely: `+"`yardr bead close %[2]s --reason <text>`"+` (`+"`-`"+` as the text reads the words from stdin)
 - If you are stuck and need a human: leave a note as above, then `+"`yardr bead hold %[2]s`"+`
 
 %[4]s

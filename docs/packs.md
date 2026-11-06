@@ -291,8 +291,8 @@ puts the yard's names there:
 | `{{operator}}` | the yard's operator: its `operator` setting, the name `yardr init` and `yardr depot init` put in the roles they write |
 | `{{<crew member>}}`, for a key of `crew` | the yard's crew member that takes it: `{{yardmaster}}` reads `boss` under `--crew yardmaster=boss`. A pack whose crew member is called `lead` writes `{{lead}}` |
 
-So the starter's builder is told to run ``yardr mail {{yardmaster}} "…"`` and an
-agent prompted from the installed copy reads `yardr mail boss "…"`.
+So the starter's builder is told to run ``yardr mail {{yardmaster}} - <<'MAIL'`` and an
+agent prompted from the installed copy reads `yardr mail boss - <<'MAIL'`.
 Nothing else is filled: any other `{{…}}` in a role or stage file the pack
 names, `{{ operator }}` with spaces included, is a mistake of the pack that
 `pack check` names by file and line. `{{operator}}` is the operator also in

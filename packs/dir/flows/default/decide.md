@@ -21,7 +21,8 @@ A decision that is not about one piece of work is asked with
 question and the ask on it. Without `--depot` that bead is under no flow and
 in no stage's line; `--depot <depot> --stage decide` puts it here instead.
 Either way whoever asked closes it once the answer is on it, with what they
-did with the answer as the reason (`yardr bead close <id> --reason "..."`).
+did with the answer as the reason (`yardr bead close <id> --reason - <<'REASON'`,
+the reason, then `REASON` on a line of its own).
 
 ## Ask
 kind: moves

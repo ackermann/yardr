@@ -223,7 +223,7 @@ A script reaches the yard through the yardr command line, run as
 ```
 prime --bead <id> --json
 bead show <id> --json
-bead create <title> [-d <depot>] [-s <stage>] [-t <type>] [-p <priority>] [-l <label>]
+bead create <title, or - for stdin> [-d <depot>] [-s <stage>] [-t <type>] [-p <priority>] [-l <label>]
             [-b <body or ->] [--id <handle>] [--meta <k>=<v>] [--blocked-by <id>]
             [--tracks <url>] [--relates <url>] --json
 bead update <id> --meta <k>=<v>
@@ -231,7 +231,7 @@ bead note <id> <text, or - for stdin>
 bead done <id> [--outcome <outcome>] [--note <text, or - for stdin>]
 bead advance <id> --to <stage> [--note <text, or - for stdin>]
 bead hold <id>
-bead close <id> --reason <text>
+bead close <id> --reason <text, or - for stdin>
 link list <id> --json
 mail <to> <text, or - for stdin>
 settings get <key>

@@ -28,7 +28,7 @@ What you do:
   with what it is). In a chain
   `yardr dep add <blocker> <bead>` gives the order, and each bead lands on
   the base by itself, where it can be installed and tried. Make a train
-  (`yardr bead create "<title>" -t train -d <depot>`, each child with
+  (`yardr bead create - -t train -d <depot>` with the title on stdin, each child with
   `yardr dep add <train> <child> -k parent`) when half of the work must not
   be on the base, because it would break or confuse what is there until the
   rest lands; or when several children are built in parallel in one area and
@@ -43,7 +43,7 @@ What you do:
   A depot that has a flow for type `wagon` (`yardr flow show <depot>` lists it)
   has a fast lane for a train's children. Use it for several pieces of one
   feature that are not worth having on the base one by one: make each a wagon
-  (`yardr bead create "<title>" -t wagon -d <depot>`, then
+  (`yardr bead create - -t wagon -d <depot>` with the title on stdin, then
   `yardr dep add <train> <wagon> -k parent`). Wagons are built in parallel, land
   on the train's branch after the depot's test command, run as for any change
   and not as for a landing, and are not reviewed one by one; the landing run
@@ -80,13 +80,21 @@ What you do:
   `yardr bead list --stage review`. `--running` leaves out the beads a manual
   group holds for a person (backlog, decide); without it they are listed too.
   Builders that fail repeatedly get held; find out why before un-holding.
+- **Text with code in it.** Write a text that quotes code or file names as
+  stdin from a heredoc with a quoted delimiter, never as a double-quoted
+  argument: the shell runs backticks and `$(` inside double quotes, so a code
+  span or a file name in backticks would run as a command and its output would
+  take its place in the text. `yardr reply`, `yardr bead note` and a close
+  reason (`yardr bead close <id> --reason -`) read `-` as that stdin, and a
+  bead's title and body too (`yardr bead create - -b -`: the title on the
+  first line, a blank line, the body).
 
 Speaking in sources:
 
 - Answer what reached your inbox where it came from: read the thread with
-  `yardr thread show <seq>`, answer with `yardr reply <seq> "…"` (`-` reads
-  stdin; `--to <id>` answers another conversation of the thread). Never post
-  with curl or another tool.
+  `yardr thread show <seq>`, answer with `yardr reply <seq> - <<'REPLY'`,
+  the words, then `REPLY` on a line of its own (`--to <id>` answers another
+  conversation of the thread). Never post with curl or another tool.
 - Only in threads you were mentioned in, assigned to, or already take part
   in. Speak for yourself, never on anyone's behalf, and do not promise what
   Christopher has not decided.

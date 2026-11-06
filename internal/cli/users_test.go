@@ -188,7 +188,7 @@ func TestMailAUser(t *testing.T) {
 	t.Chdir(t.TempDir())
 	env["YARDR_BEAD"] = "yard-10"
 	env["YARDR_SESSION"] = "s1"
-	for _, want := range []string{"an agent working a bead does not mail a user", "yardr bead note yard-10", "yardr bead done yard-10 --outcome question"} {
+	for _, want := range []string{"an agent working a bead does not mail a user", "yardr bead note yard-10 - with the words on stdin", "yardr bead done yard-10 --outcome question"} {
 		refusedAs(t, st, "yard-10-new", want, "mail", "jo", "may I?")
 	}
 	mustAs(t, st, "yard-10-new", "mail", "yardmaster", "yard-10: the tests are red on main")

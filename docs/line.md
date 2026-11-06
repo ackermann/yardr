@@ -964,6 +964,23 @@ note with no words, empty or only white space, is refused, and so is a
 span and had nothing to put in its place; leaving `--note` out moves the
 bead with no note.
 
+A close reason and a bead's title read stdin the same way, trailing newlines
+trimmed: `yardr bead close <id> --reason -`, `yardr bead update <id> --title -`
+and `yardr bead create -` (the title). Stdin is read once, so with `-b -` as
+well the first line is the title and the lines after it the body, as a commit
+message divides; a title alone is one line.
+
+```sh
+yardr bead create - -b - --discovered-from webapp-3 <<'BEAD'
+`TestRetry` fails once in fifty runs
+
+Seen on a loaded machine: `go test -count=50 ./retry`.
+BEAD
+```
+
+A `-` with no words on stdin is refused, and nothing is closed, changed or
+created. An explicit `--reason ""` still closes the bead with no reason.
+
 ### Dependencies
 
 Work that spans several beads and must land as one unit is a

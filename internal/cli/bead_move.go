@@ -115,8 +115,25 @@ func (a *app) newBeadCloseCmd(rev *string) *cobra.Command {
 	closeCmd := &cobra.Command{
 		Use:   "close <id>",
 		Short: "Close a bead",
-		Args:  cobra.ExactArgs(1),
+		Long: `Closes a bead, with --reason <text> as the reason.
+
+--reason - reads the reason from stdin: write one that quotes code or file
+names as a heredoc with a quoted delimiter, since inside a double-quoted
+argument the shell runs every backtick span and $( ) and puts what it prints
+in the reason. A --reason - with no words on stdin is refused, and the bead
+stays open.`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
+			// Read first, so that a reason with no words closes nothing.
+			if reason == "-" {
+				b, err := io.ReadAll(c.InOrStdin())
+				if err != nil {
+					return err
+				}
+				if reason = strings.TrimRight(string(b), "\n"); strings.TrimSpace(reason) == "" {
+					return fmt.Errorf("nothing to write: stdin gave no reason, so bead %s is still open (leave --reason out to close it with none)", args[0])
+				}
+			}
 			st, err := a.store(c.Context())
 			if err != nil {
 				return err
@@ -191,7 +208,7 @@ func (a *app) newBeadCloseCmd(rev *string) *cobra.Command {
 			})
 		},
 	}
-	closeCmd.Flags().StringVar(&reason, "reason", "", "why it is closed")
+	closeCmd.Flags().StringVar(&reason, "reason", "", "why it is closed (- reads stdin; use a quoted heredoc so the shell does not expand backticks or $( ) in double-quoted words)")
 	return closeCmd
 }
 

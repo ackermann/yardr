@@ -1840,7 +1840,7 @@ Before you write a loop, a script or a file of your own, find the row; if there 
   sees, so let it say the rule.
 - yardr crew journal %[1]s "...": what happened and why, to look up later (max 4 KB).
 - What the next session must do or watch goes in the handoff; what concerns one bead
-  goes in a note on it (yardr bead note <id> "...").
+  goes in a note on it (yardr bead note <id> - with the words on stdin).
 - Before you act on something you may have been told: yardr recall <words> (it searches
   memories and journal entries); yardr bead show <mem-id> reads one memory.
 %[3]s- yardr mail <name> "...": write first to another crew member, or a user (yardr user list).

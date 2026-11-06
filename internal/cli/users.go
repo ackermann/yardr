@@ -615,7 +615,7 @@ func (a *app) mayMailUser(user string) error {
 		return nil
 	}
 	return fmt.Errorf("mail to %s: an agent working a bead does not mail a user, its channel is the bead (%s). "+
-		"Note there what %s should read (yardr bead note %s \"…\"), and when you cannot go on without an answer, "+
+		"Note there what %s should read (yardr bead note %s - with the words on stdin), and when you cannot go on without an answer, "+
 		"end the stage with the question outcome (yardr bead done %s --outcome question)", user, bead, user, bead, bead)
 }
 
