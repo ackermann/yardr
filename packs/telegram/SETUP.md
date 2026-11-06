@@ -263,9 +263,10 @@ There is no `thread open telegram`, no status and no bead link to a chat.
     ```text
     4211 10-13 17:40  hook (all) telegram message create by mckean on "mckean": Can the shed land on Monday?
     ```
-    Answer it where it came from:
+    Answer it where it came from, with the words on stdin (here: Noted; I
+    will post here when it lands.):
     ```sh
-    yardr reply 4211 "Noted; I will post here when it lands."
+    yardr reply 4211 -
     ```
     The answer is a message from the bot in the same chat, and arrives
     once: the API sends the bot only others' messages, so no echo of
@@ -277,9 +278,10 @@ There is no `thread open telegram`, no status and no bead link to a chat.
     hook show <seq>`; and `yardr reply --to` is refused for telegram,
     since it finds the conversation by listing the thread.
 
-    A picture or a file goes with the answer, `--file` once for each:
+    A picture or a file goes with the answer, `--file` once for each, the
+    words still on stdin (here: The shed, as built.):
     ```sh
-    yardr reply 4211 "The shed, as built." --file shed.png
+    yardr reply 4211 - --file shed.png
     ```
     A picture arrives as a picture and anything else as a document. The
     words are its caption where they fit in 1024 characters, else they

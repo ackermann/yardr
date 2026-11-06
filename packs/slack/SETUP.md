@@ -157,11 +157,12 @@ yard if it differs.
    ```text
    5210 10-17 18:02  hook (mentioned) slack message create by ada (U012AB3CD): <@U…> can the shed land on Monday?
    ```
-   and `yardr reply 5210 "Noted; I will post here when it lands."`
-   answers in that thread. The thread is read back with `yardr thread
-   show 5210` on this channel delivery too — the bot belongs to the
-   channel it was invited into, and its token holds `channels:history`
-   — and `yardr hook show 5210` holds the delivery itself meanwhile.
+   and `yardr reply 5210 -` answers in that thread, with the words on stdin
+   (here: Noted; I will post here when it lands.). The thread is read back
+   with `yardr thread show 5210` on this channel delivery too — the bot
+   belongs to the channel it was invited into, and its token holds
+   `channels:history` — and `yardr hook show 5210` holds the delivery itself
+   meanwhile.
    The companion check in the same walk: a one-to-one direct message
    mentioning nobody still lands whole by the `room=dm` subscription.
    A group message mentioning nobody lands nowhere — Slack sends no

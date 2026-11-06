@@ -37,7 +37,7 @@ as it stands; follow its order, not a list from the beginning. See
 | keep the yard running after a reboot: login services for herdr's server and the daemon | `yardr up --login [--json]`; `yardr down --login` removes them | saving a service file for herdr by hand; `yardr daemon install`, which installs the daemon's alone |
 | take the yard off the machine: stop it, remove its login services, list what is left and where | `yardr uninstall [--json] [--yes]`; `--purge=<name> --yes` deletes the yard's home too | `rm -rf ~/.yardr`, which leaves the login services and deletes worktrees with uncommitted work; `--purge --yes` without the name, which is refused |
 | install yardr's service alone | `yardr daemon install` from a login shell | treating it as herdr's service; `--file-only` starts nothing |
-| message the yardmaster | `yardr mail yardmaster "<text>"`; read with `yardr mail --with yardmaster` | `yardr chat` without a terminal |
+| message the yardmaster | `yardr mail yardmaster -`, the text on stdin; read with `yardr mail --with yardmaster` | `yardr chat` without a terminal |
 
 Herdr's service is one for the user, not for the yard, and a file the person saved for it is left as it is: [install.md](install.md#keep-it-running-after-a-reboot).
 Check a flag with `--help` before using it.

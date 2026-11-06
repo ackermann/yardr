@@ -340,9 +340,9 @@ part in; only the operator may grant either. After each, the crew member takes
 part in the thread and an event lands on its journal (`replied`,
 `thread_opened`, `thread_state`).
 
-`yardr thread open <source> --in <place> --assign <user> "<title>"` opens
-the thread assigned to a user of the yard, as who they are in the source:
-`yardr user identity <user> --source <source> --id … --key …`
+`yardr thread open <source> --in <place> --assign <user> -` (the title on
+stdin) opens the thread assigned to a user of the yard, as who they are in
+the source: `yardr user identity <user> --source <source> --id … --key …`
 ([users.md](users.md#the-record)). The source says which part of that it
 names an assignee by: Linear the id, GitHub the key, a login. A user who
 has none there is refused with the command that sets it, a name that is
@@ -2167,7 +2167,7 @@ yardr bead create "Web view shows links" --depot work --tracks 16   # the issue 
 yardr link list work-h6ef
 # tracks  https://linear.app/acme/issue/YRD-1 (linear)
 yardr thread show 16                                      # (in Linear) the issue's comments
-yardr reply 16 "Filed as work-h6ef; I will post here when it lands."   # (in Linear)
+yardr reply 16 -                                          # (in Linear) the words on stdin: Filed as work-h6ef; I will post here when it lands.
 ```
 
 The last two call Linear with the credential of step 4, from the crew member's
@@ -2426,11 +2426,11 @@ them whole):
   a delivery has no `hook_files` event, and `DeliveryFiles` reads none for
   it. No total volume or per-sender bound is set; the chat is one
   person's, at a person's pace.
-- **Pictures out.** `yardr reply <seq> "See the shed." --file shot.png`
+- **Pictures out.** `yardr reply <seq> - --file shot.png`
   sends a PNG, JPEG, GIF, WebP or BMP by `sendPhoto` and anything else
   (an SVG, a PDF, a log) by `sendDocument`:
-  the text is the caption of the first where it fits in 1024
-  characters, else it goes first as its own message and the files
+  the text, the words on stdin, is the caption of the first where it fits
+  in 1024 characters, else it goes first as its own message and the files
   follow without one, several one after another. A tell with a picture
   goes through `notify.image` the same way, one picture per tell
   ([users.md](users.md#told-outside-the-yard) says which tells carry

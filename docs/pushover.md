@@ -114,10 +114,12 @@ needs a person is a subscription:
 yardr subscribe mckean yardr --where stage=decide      # every bead that enters decide
 ```
 
-Then, to see it end to end without waiting for a bead:
+Then, to see it end to end without waiting for a bead, send a line of mail.
+The words come on stdin: type them (say, the tests are green, come and look)
+and end with ctrl-D.
 
 ```sh
-yardr mail mckean "the tests are green, come and look"
+yardr mail mckean -
 ```
 
 About 20 seconds later the phone shows `mail from <you>` and the text.

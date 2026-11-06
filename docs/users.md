@@ -25,7 +25,7 @@ yardr user device pair ada phone --qr    # or a code the device calls with, and 
 yardr user device list                   # every device, when added, when and from where last used
 yardr user device rm ada phone           # an operator or ada: the token is refused from now on
 
-yardr mail mckean "The assembly is red on main: yardr-1a2b"   # a crew member's session, or a user
+yardr mail mckean -                      # a crew member's session, or a user; the words on stdin
 yardr inbox                              # as a user: Mail and Notifications, each with its unread
 yardr inbox --mail --ack 412             # one part, and mark read what is through 412
 yardr subscribe ada yardr --done         # ada is told of every bead that becomes done
@@ -256,10 +256,10 @@ when the sender is a bead's session, a note on that bead.
 file, up to 64. The text may then be left out:
 
 ```
-$ yardr mail yardmaster "The yard, painted" --file yard.png
+$ yardr mail yardmaster - --file yard.png    # the words on stdin: The yard, painted
 mail sent to yardmaster
 ◆ 1 image: /home/mckean/.yardr/blobs/497790947d46…1581 (yard.png)
-$ yardr mail mckean "The report" --file report.pdf
+$ yardr mail mckean - --file report.pdf      # the words on stdin: The report
 mail sent to mckean
 ◆ 1 file: /home/mckean/.yardr/blobs/8f3a…c41d (report.pdf)
 ```

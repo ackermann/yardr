@@ -22,7 +22,7 @@ yardr peer add north <invite>                  # add the other yard, from its li
 yardr peer allow north --send ping --receive ping
 yardr peer ping north                          # prove the link, both ways
 yardr peer allow north --send mail --receive mail
-yardr mail yardmaster@north "Our webapp depot is on Go 1.25 now"   # to north's yardmaster
+yardr mail yardmaster@north -                       # to north's yardmaster, the words on stdin
 yardr mail --with yardmaster@north                  # the mail between you and north's yardmaster
 yardr peer allow north --receive bead          # take the beads north sends to be worked here
 yardr peer intake north --depot web --flow incoming   # where they go; the flow's first stage says who looks first
@@ -352,10 +352,10 @@ yardr --home $T/a peer ping b          # ... the ping went by pull, the pong cam
 # mail between the two operators: each yard exposes its own to the other
 yardr --home $T/a peer allow b --send mail --receive mail --expose $USER
 yardr --home $T/b peer allow a --send mail --receive mail --expose $USER
-yardr --home $T/a mail $USER@b "the webapp depot is on Go 1.25 now"
+yardr --home $T/a mail $USER@b -    # the words on stdin: the webapp depot is on Go 1.25 now
 yardr --home $T/b inbox
 #   20 10-08 22:59  mail from mckean@a: the webapp depot is on Go 1.25 now
-yardr --home $T/b mail $USER@a "thanks, noted"
+yardr --home $T/b mail $USER@a -    # the words on stdin: thanks, noted
 yardr --home $T/a mail --with $USER@b
 #   20 10-08 22:59  sent    mckean: the webapp depot is on Go 1.25 now
 #   23 10-08 22:59  unread  mckean@b: thanks, noted
@@ -1095,7 +1095,7 @@ the same way. So does a user of the yard, a person, from a terminal or
 from [`yardr chat`](chat.md#those-of-a-linked-yard):
 
 ```sh
-yardr mail yardmaster@north "Our webapp depot is on Go 1.25 now"
+yardr mail yardmaster@north -    # the words on stdin
 mail for yardmaster@north queued; the daemon delivers it, and yardr peer show north lists it while it waits
 ```
 
@@ -1318,7 +1318,7 @@ only note pages open:
 
 ```sh
 yardr peer allow north --send file        # here; north: yardr peer allow south --receive file
-yardr mail yardmaster@north "The report" --file report.pdf
+yardr mail yardmaster@north - --file report.pdf
 mail for yardmaster@north queued; the daemon delivers it, and yardr peer show north lists it while it waits
 ◆ 1 file: /home/me/.yardr/blobs/5f2c… (report.pdf)
 ```
@@ -1489,8 +1489,8 @@ Decline ends it. Three rules are the link's own:
 - the link must carry `ask` out (`yardr peer allow <peer> --send ask`),
   else the answer is refused before anything is queued;
 - words alone on an ask with options are refused, naming the address to
-  mail the asker at (`yardr mail yardmaster@north "..."`): a note does not
-  cross, and mail stays the way to talk across.
+  mail the asker at (`yardr mail yardmaster@north -`, the words on stdin): a
+  note does not cross, and mail stays the way to talk across.
 
 **From the terminal.** There is no command listing the queue, but
 `yardr bead answer <bead>@<peer> <ask> <n> [words]` answers a foreign ask,
@@ -2422,11 +2422,12 @@ the record of a stay.
 ### Answering on the other yard's bead
 
 `yardr reply` takes a bead that is away, or the number of a delivery of the
-source `peer` about it, and writes a note on the other yard's bead:
+source `peer` about it, and writes a note on the other yard's bead, the words
+on stdin (here, that the export is CSV only and XLSX is a later bead):
 
 ```sh
-yardr reply web-d5zc "CSV only. XLSX is a later bead."
-yardr reply 412 "CSV only. XLSX is a later bead."
+yardr reply web-d5zc -
+yardr reply 412 -
 ```
 
 ```text

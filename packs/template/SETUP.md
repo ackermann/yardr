@@ -117,7 +117,7 @@ the service is a flow pack's to say, not this file's.
 7. **Test it.** As the crew member: open an issue, mention it from the
    service, move it:
    ```sh
-   yardr thread open acme --in <team> "Hello from the yard" -b "testing the wiring"
+   yardr thread open acme --in <team> - -b -   # stdin: the title (Hello from the yard), then the body (testing the wiring)
    # comment @<handle> on the issue in the service: it lands in the crew member's inbox as mentioned
    yardr thread state <thread id> started
    ```
@@ -126,5 +126,5 @@ the service is a flow pack's to say, not this file's.
    the service once, then name them:
    ```sh
    yardr user identity <user> --source acme --id <their user id>
-   yardr thread open acme --in <team> --assign <user> "For you"
+   yardr thread open acme --in <team> --assign <user> -   # stdin: the title (For you)
    ```

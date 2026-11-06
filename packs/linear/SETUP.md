@@ -106,7 +106,7 @@ means in Linear is a flow pack's to say, not this file's.
 6. **Test it.** As the crew member: open an issue, mention it from Linear,
    move it:
    ```sh
-   yardr thread open linear --in <team key> "Hello from the yard" -b "testing the wiring"
+   yardr thread open linear --in <team key> - -b -   # stdin: the title (Hello from the yard), then the body (testing the wiring)
    # comment @<handle> on the issue in Linear: it lands in the crew member's inbox as mentioned
    yardr thread state <thread id> started
    ```
@@ -115,7 +115,7 @@ means in Linear is a flow pack's to say, not this file's.
    Linear user id once, then name them:
    ```sh
    yardr user identity <user> --source linear --id <their user id>
-   yardr thread open linear --in <team key> --assign <user> "For you"
+   yardr thread open linear --in <team key> --assign <user> -   # stdin: the title (For you)
    ```
    The same identity names who spoke on their deliveries: a comment or an
    issue from them arrives with them as its speaker, and a subscription

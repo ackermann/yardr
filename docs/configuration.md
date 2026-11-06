@@ -915,11 +915,11 @@ chat.
 
 The yardmaster `yardr init` adds has `greet=<operator>` in its config. The first
 prompt of a crew member with that key, in its first session only, asks it to
-greet that user by mail (`yardr mail <operator> "…"`) and to say what it
-needs for the next setup step, before it points at the prime as every
-crew member's first prompt does. The chat shows mail and nothing of a pane, so
-this is how the yardmaster's first word gets there. A later session (a rotation,
-a restart) is asked for no greeting.
+greet that user by mail (`yardr mail <operator> -`, the words on stdin) and
+to say what it needs for the next setup step, before it points at the prime
+as every crew member's first prompt does. The chat shows mail and nothing of
+a pane, so this is how the yardmaster's first word gets there. A later
+session (a rotation, a restart) is asked for no greeting.
 
 No chat opens without a terminal, with `--json`, in an agent's own session
 (`YARDR_SESSION` or `YARDR_CREW` is set) and with `--no-chat`: yardr then

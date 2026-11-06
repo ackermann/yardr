@@ -140,7 +140,7 @@ file's.
 7. **Test it.** As the crew member: open an issue, mention it from GitHub,
    move it:
    ```sh
-   yardr thread open github --in <owner>/<repo> "Hello from the yard" -b "testing the wiring"
+   yardr thread open github --in <owner>/<repo> - -b -   # stdin: the title (Hello from the yard), then the body (testing the wiring)
    # comment @<login> on the issue in GitHub: it lands in the crew member's inbox as mentioned
    yardr thread state <owner>/<repo>#<n> started
    ```
@@ -151,7 +151,7 @@ file's.
    the issue but drops the assignee:
    ```sh
    yardr user identity <user> --source github --key <their login>
-   yardr thread open github --in <owner>/<repo> --assign <user> "For you"
+   yardr thread open github --in <owner>/<repo> --assign <user> -   # stdin: the title (For you)
    ```
 8. **Pushing the depot's landings.** A depot whose origin is on github.com
    pushes its landings because git itself is handed the source's token.

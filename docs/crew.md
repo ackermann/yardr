@@ -10,7 +10,7 @@ yardr crew add                     # interactive: agent, model, permissions, dir
 yardr crew add yardmaster --set kind=claude --set 'args=["--permission-mode","auto"]' \
   --set prompt=$HOME/projects/webapp/.yardr/roles/yardmaster.md --dir ~/projects --max-age 24h
 yardr crew set yardmaster model=opus --max-age 12h   # change these, keep the rest
-yardr mail yardmaster "Deploys are frozen until Friday"
+yardr mail yardmaster -                 # the words on stdin: deploys are frozen until Friday
 yardr crew show yardmaster              # state, unread inbox, recent journal
 ```
 
@@ -310,7 +310,8 @@ names its person and its slice.
   summary of what happened since instead. Its "How you work" says what goes
   where: a rule for later sessions is a memory, what happened is the journal,
   what is next is the handoff.
-- **Memories:** `yardr remember "title" -b … [--expires 7d] [--scope all]` and
+- **Memories:** `yardr remember - -b - [--expires 7d] [--scope all]` (the first
+  line on stdin is the title, the lines after it the body) and
   `yardr recall [words]`: lasting knowledge as beads. The title says the rule,
   since it is what a later session sees; memories retire automatically when
   they expire. The yard's memory is the home for anything about the yard:
@@ -881,16 +882,17 @@ A crew member answers what reached its inbox where it came from, as itself
 ```sh
 yardr inbox                                   #   4211 10-03 09:14  hook (mentioned) linear comment create by Jane on "Retries": @yardmaster can you look?
 yardr thread show 4211                        # the whole thread, read from Linear: ids, parents, authors, times, bodies
-yardr reply 4211 "Filed as yardr-k3f9; I'll post here when it lands."
+yardr reply 4211 -                            # the words on stdin; posted in the source
 yardr reply 4211 --to <message id> - < answer.md   # under another conversation of the thread
-yardr reply 13974 "Noted; I'll post here when it lands."   # mail to you, answered by mail to its sender
+yardr reply 13974 -                           # mail to you, answered by mail to its sender
 ```
 
-`<seq>` is the number an inbox line starts with. A `hook` event from a
-source with a replier (`linear`, `github`) is answered in its source: in
-Linear the reply goes under the conversation of the delivered comment
-(Linear threads one level deep, so under its root), or a new comment for
-an issue delivery; in GitHub it is a comment on the issue or pull request.
+`<seq>` is the number an inbox line starts with, and `-` takes the words from
+stdin. A `hook` event from a source with a replier (`linear`, `github`) is
+answered in its source: in Linear the reply goes under the conversation of
+the delivered comment (Linear threads one level deep, so under its root), or
+a new comment for an issue delivery; in GitHub it is a comment on the issue
+or pull request.
 A `mail` event to the crew member is answered by mail to its sender: mail
 from this yard (a user or a crew member) as `yardr mail <sender>` would
 send it; mail from `<name>@<peer>` as `yardr mail <name>@<peer>` would (it
@@ -965,18 +967,19 @@ A crew member can also speak first: open a thread of its own, when its
 definition allows it.
 
 ```sh
-yardr thread open linear --in YRD "Web view: train" -b - < train.md      # an issue in the team (key or name)
-yardr thread open github --in acme/webapp "Retries drop the last attempt" -b "Seen in yardr-k3f9."
-yardr thread open linear --in YRD --assign jo "Decide: retries or a queue"   # assigned to the yard's user jo
+yardr thread open linear --in YRD - -b - < train.md      # an issue in the team (key or name); train.md's first line is the title
+yardr thread open github --in acme/webapp - -b -         # the title and the body on stdin
+yardr thread open linear --in YRD --assign jo -   # assigned to the yard's user jo
 ```
 
 The source is `linear` or `github`; `--in` is the Linear team (its key, or
-its name when one team has it) or the GitHub repository (`owner/repo`); `-b`
-is the body (`-` reads stdin). Text only, as a reply. It prints the URL of
-the issue it made. `--assign` names a user of the yard, and the issue is
-opened assigned to who they are in the source (`yardr user identity <user>
---source <source>`, [users.md](users.md#the-record)); a user with no
-identity there is refused with the command that sets one.
+its name when one team has it) or the GitHub repository (`owner/repo`); the
+title is `-`, read from stdin, and so is `-b`, the body: with both, the first
+line is the title and the lines after it the body. Text only, as a reply. It
+prints the URL of the issue it made. `--assign` names a user of the yard, and
+the issue is opened assigned to who they are in the source (`yardr user
+identity <user> --source <source>`, [users.md](users.md#the-record)); a user
+with no identity there is refused with the command that sets one.
 
 The rules are those of `yardr reply`. The CLI in the crew member's pane makes
 the call with the credential from its `env_file`, so the issue's author is
