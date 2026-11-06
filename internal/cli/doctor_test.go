@@ -1560,11 +1560,15 @@ func TestDoctorLeavesAStoppedServerStopped(t *testing.T) {
 
 // Stand-ins for herdr, by what `herdr agent list` does in each: a server
 // that answers, no server at the socket (herdr's own error object, on
-// stderr), and something else going wrong.
+// stderr), and something else going wrong. herdr073 is herdr 0.7.3 with
+// no server: it answers its version flag, and says what went wrong in its
+// own words rather than in an error object.
 const (
 	herdrServes   = "#!/bin/sh\necho '{\"id\":\"cli:x\",\"result\":{\"agents\":[]}}'\n"
 	herdrNoServer = "#!/bin/sh\necho '{\"id\":\"cli:x\",\"error\":{\"code\":\"server_not_running\",\"message\":\"no herdr server is running\"}}' >&2\nexit 1\n"
 	herdrBroken   = "#!/bin/sh\necho 'config.toml: bad key' >&2\nexit 2\n"
+	herdr073      = "#!/bin/sh\n[ \"$1\" = --version ] && { echo 'herdr 0.7.3'; exit 0; }\n" +
+		"echo 'Error: Os { code: 111, kind: ConnectionRefused, message: \"Connection refused\" }' >&2\nexit 1\n"
 )
 
 // Found live (yardr-aa7y): herdr was installed and its server was not
@@ -1626,6 +1630,16 @@ func TestDoctorHerdrServer(t *testing.T) {
 	if strings.Contains(out, "FAULT  herdr") {
 		t.Errorf("a herdr that cannot be asked is no fault:\n%s", out)
 	}
+
+	// A herdr older than yardr starts agents with is a fault that says so
+	// and how to update it, where its own words made it one that could not
+	// be asked; one new enough is asked for its server as before.
+	scripttest.Write(t, herdr, herdr073)
+	out, _ = run(t, a().rootCmd(), "doctor")
+	wantText(t, out, "FAULT  herdr       "+herdr+": herdr 0.7.3 is older than "+herdrOldest+", the oldest yardr starts agents with. Update it: "+herdrUpdate)
+	scripttest.Write(t, herdr, "#!/bin/sh\n[ \"$1\" = --version ] && { echo 'herdr 0.9.4'; exit 0; }\n"+strings.TrimPrefix(herdrNoServer, "#!/bin/sh\n"))
+	out, _ = run(t, a().rootCmd(), "doctor")
+	wantText(t, out, "FAULT  herdr       "+herdr+": on PATH, but its server is not running (herdr is not running in session default, socket ")
 }
 
 // tryTool is a stand-in harness: it answers its version flag with the line

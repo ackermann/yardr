@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -173,6 +174,7 @@ type need struct {
 const (
 	herdrUp      = "running"
 	herdrDown    = "not_running"
+	herdrOld     = "too_old"
 	herdrUnknown = "unknown"
 )
 
@@ -180,7 +182,7 @@ const (
 // not a server that runs: without one the daemon starts no agent, and every
 // start fails with herdr's server_not_running.
 type serverCheck struct {
-	State string `json:"state"` // running not_running unknown
+	State string `json:"state"` // running not_running too_old unknown
 	// Output is what herdr said when its server is not running, or why it
 	// could not be asked.
 	Output string `json:"output,omitempty"`
@@ -444,8 +446,13 @@ func machineNeeds(ctx context.Context, uses []harnessUse, try bool) []need {
 }
 
 // herdrServer asks the herdr at path whether its server answers; tests
-// replace it. It is given the time a harness gets for its version.
+// replace it. It is given the time a harness gets for its version. A herdr
+// older than herdrOldest is not asked: it answers in words yardr does not
+// read, so its server would look unaskable when it is down.
 var herdrServer = func(ctx context.Context, path string) serverCheck {
+	if old := herdrTooOld(ctx, path); old != "" {
+		return serverCheck{State: herdrOld, Output: old}
+	}
 	ctx, cancel := context.WithTimeout(ctx, versionTimeout)
 	defer cancel()
 	down, err := (&runner.Herdr{Bin: path}).ServerUp(ctx)
@@ -456,6 +463,101 @@ var herdrServer = func(ctx context.Context, path string) serverCheck {
 		return serverCheck{State: herdrDown, Output: err.Error()}
 	}
 	return serverCheck{State: herdrUnknown, Output: lastLines(err.Error(), 1)}
+}
+
+// herdrOldest is the oldest herdr yardr starts agents with. What yardr asks
+// of herdr is herdr 0.9's: agent start with --kind, a session's socket in
+// HERDR_SOCKET_PATH, and an error object that names server_not_running. An
+// older herdr refuses the flag, so every start fails, and prints its errors
+// as text, so a server of it that is down looks unaskable rather than down.
+const herdrOldest = "0.9.0"
+
+// herdrUpdate is what to do about a herdr older than herdrOldest: herdr
+// refuses to update itself while a server of it runs.
+const herdrUpdate = "stop its server if one runs (herdr server stop) and run herdr update"
+
+// herdrVersion is the line `herdr --version` prints, such as "herdr 0.9.4".
+// A build of herdr's preview channel adds a prerelease, as in "herdr
+// 0.9.4-preview.2026-10-14-fbd2ae23927f" (herdr's src/build_info.rs: the
+// stable release it follows, then the build's date and commit). A "+build"
+// suffix is read past, since semver gives it no order.
+var herdrVersion = regexp.MustCompile(`^herdr v?(\d+)\.(\d+)\.(\d+)(-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?(?:\s|$)`)
+
+// herdrTooOld says that the herdr at path is older than herdrOldest, and is
+// "" when it is not or when its version could not be read: a herdr that does
+// not say is asked for its server as before, and what that comes to is said.
+func herdrTooOld(ctx context.Context, path string) string {
+	line, err := versionOf(ctx, path)
+	if err != nil {
+		return ""
+	}
+	have, want := dottedVersion(line), dottedVersion("herdr "+herdrOldest)
+	if have == nil || slices.Compare(have, want) >= 0 {
+		return ""
+	}
+	return fmt.Sprintf("herdr %s is older than %s, the oldest yardr starts agents with", strings.Fields(line)[1], herdrOldest)
+}
+
+// dottedVersion is the major, minor and patch numbers of a herdr version
+// line, nil when it is none, then 0 for a prerelease and 1 for a release, so
+// that a prerelease orders below its release as semver has it: 0.9.0-rc.1 is
+// older than 0.9.0 and 0.9.1-rc.1 is newer. Prereleases of one release are
+// not ordered among themselves, which a floor that is a release never needs.
+// A herdr preview is built after the release it names, so this order refuses
+// a preview of the floor itself, which would do; that errs on the safe side,
+// and herdr update replaces it with a later preview, which passes.
+func dottedVersion(line string) []int {
+	m := herdrVersion.FindStringSubmatch(line)
+	if m == nil {
+		return nil
+	}
+	out := make([]int, 4)
+	for i := range 3 {
+		out[i], _ = strconv.Atoi(m[i+1])
+	}
+	if m[4] == "" {
+		out[3] = 1
+	}
+	return out
+}
+
+// unusable is why up goes no further with the herdr at bin, what to do about
+// it, and the shorter why of a login service it did not install; why is ""
+// for a server that runs or is down, which up leaves or starts. again is the
+// command that runs up as it was run.
+func (s serverCheck) unusable(bin, again string) (why, do, short string) {
+	switch s.State {
+	case herdrOld:
+		return s.Output, herdrUpdate + "; then: " + again, "herdr is older than " + herdrOldest
+	case herdrUnknown:
+		return "herdr could not be asked for its server: " + s.Output, "run " + bin + " status server, and see what it says",
+			"herdr could not be asked whether its server runs"
+	}
+	return "", "", ""
+}
+
+// line is doctor's line for herdr's server, for the herdr need n. Which
+// session was asked is the yard's when its setting names one, else this
+// shell's (yardr status says what that means).
+func (s *serverCheck) line(n need) docLine {
+	in, start := "", "run herdr in a terminal"
+	if s.Session != nil {
+		in = "; " + s.Session.String()
+		if s.Session.From == runner.SessionSet {
+			start = fmt.Sprintf("run herdr session attach %s in a terminal", s.Session.Name)
+		}
+	}
+	switch s.State {
+	case herdrUp:
+		return docLine{tagOK, n.Program, n.Path + ", its server is running" + in}
+	case herdrDown:
+		return docLine{tagFault, n.Program, fmt.Sprintf("%s: on PATH, but its server is not running (%s): the daemon cannot start agents until it is. "+
+			"Start it: %s (ctrl+b q detaches, the server stays); on a machine without a desktop, "+
+			"run `herdr server`, its headless server, as a service (docs/install.md, \"herdr's server\")%s", n.Path, or(s.Output, "no output"), start, in)}
+	case herdrOld:
+		return docLine{tagFault, n.Program, fmt.Sprintf("%s: %s. Update it: %s%s", n.Path, s.Output, herdrUpdate, in)}
+	}
+	return docLine{tagNote, n.Program, fmt.Sprintf("%s: on PATH; whether its server is running could not be asked: %s%s", n.Path, or(s.Output, "no output"), in)}
 }
 
 // loginShell is the user's login shell, "" when it is not known; tests

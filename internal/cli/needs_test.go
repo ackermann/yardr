@@ -5,10 +5,13 @@ import (
 	"errors"
 	"io/fs"
 	"os/exec"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 
 	"yardr.dev/yardr/internal/peer"
+	"yardr.dev/yardr/internal/scripttest"
 )
 
 // Cancelling never signals a pid another process has reused since the
@@ -121,5 +124,34 @@ func TestOwnGroupCancelStillCleansAGroupWithoutItsLeader(t *testing.T) {
 	}
 	if len(kills) != 1 || kills[0] != -cmd.Process.Pid {
 		t.Fatalf("kills = %v, want the process group for its surviving children", kills)
+	}
+}
+
+// A herdr older than herdrOldest is said to be, by the numbers of its
+// version and not their text (0.10 is newer than 0.9), with a prerelease
+// below its release and build metadata ignored, as semver orders them; one
+// whose version flag fails or prints no herdr version is not called old, and
+// is asked for its server as before.
+func TestHerdrTooOld(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	for _, c := range []struct{ name, script, want string }{
+		{"old", "echo 'herdr 0.7.3'", "herdr 0.7.3 is older than " + herdrOldest + ", the oldest yardr starts agents with"},
+		{"just older", "echo 'herdr 0.8.9'", "herdr 0.8.9 is older than " + herdrOldest + ", the oldest yardr starts agents with"},
+		{"oldest", "echo 'herdr " + herdrOldest + "'", ""},
+		{"prerelease of oldest", "echo 'herdr 0.9.0-rc.1'", "herdr 0.9.0-rc.1 is older than " + herdrOldest + ", the oldest yardr starts agents with"},
+		{"prerelease of newer", "echo 'herdr 0.9.1-preview.2'", ""},
+		{"build metadata", "echo 'herdr 0.9.0+build.5'", ""},
+		{"newer", "echo 'herdr 0.9.5'", ""},
+		{"two digits", "echo 'herdr 0.10.1'", ""},
+		{"another program", "echo 'tool 0.1.0'", ""},
+		{"json", `echo '{"id":"cli:x","result":{"agents":[]}}'`, ""},
+		{"fails", "echo 'config.toml: bad key' >&2; exit 2", ""},
+	} {
+		path := filepath.Join(dir, strings.ReplaceAll(c.name, " ", "-"))
+		scripttest.Write(t, path, "#!/bin/sh\n"+c.script+"\n")
+		if got := herdrTooOld(context.Background(), path); got != c.want {
+			t.Errorf("%s: herdrTooOld = %q, want %q", c.name, got, c.want)
+		}
 	}
 }

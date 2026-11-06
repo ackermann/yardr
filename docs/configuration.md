@@ -1015,7 +1015,7 @@ yardr wrote for the yard, then a list of what it left on the machine
 
 | part | what up does |
 |---|---|
-| herdr's server | one that answers is left as it is. Else up starts herdr's headless server, `herdr server`, detached, logging to `<home>/herdr-server.log`: the server of the herdr session the yard's `herdr_session` setting names, else of the shell's. It gets no `YARDR_*` variable, since one server serves every yard |
+| herdr's server | one that answers is left as it is. Else up starts herdr's headless server, `herdr server`, detached, logging to `<home>/herdr-server.log`: the server of the herdr session the yard's `herdr_session` setting names, else of the shell's. It gets no `YARDR_*` variable, since one server serves every yard. A herdr older than 0.9.0 is neither left nor started: up says so and how to update it, and goes no further |
 | the server | started as any command starts it |
 | the daemon | through its login service where one is installed, else `yardr daemon start`, with the login shell's PATH (below). It starts the crew, the yardmaster first, and dispatches the beads that wait. It is not started while herdr's server does not answer: every start of an agent would fail and count against it |
 | the web view, the BDP server | when the yard has one: its `web_addr` or `bdp_addr` setting names its address, or its login service is installed, on the address the service's file names. Started through that service where one's installed, else as `yardr web start` and `yardr bdp start` do. The telemetry export, which has no setting, is never started |

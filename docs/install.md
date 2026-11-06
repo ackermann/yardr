@@ -255,6 +255,11 @@ herdr on PATH is a program; what starts agents is its server. Without one
 every start fails with herdr's `server_not_running`, and `yardr doctor` says
 `FAULT herdr … its server is not running`.
 
+yardr starts agents with herdr 0.9.0 or newer. An older one is
+`FAULT herdr … is older than 0.9.0` in `yardr doctor`, and `yardr up` goes
+no further: stop its server if one runs (`herdr server stop`), then
+`herdr update`.
+
 - `yardr up` starts it when it does not answer: herdr's headless server,
   in the background ([Starting and stopping a yard](configuration.md#starting-and-stopping-a-yard)).
   `yardr down` leaves it running.

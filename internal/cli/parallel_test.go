@@ -332,6 +332,7 @@ var allowSerial = map[string]string{
 	"TestUpStartsTheWebViewTheYardNames":                      "stub:answers,stub:spawn,upYard",
 	"TestUpStartsWhatDoesNotRun":                              "stub:serverRunning,upYard",
 	"TestUpWithoutAServiceUsesTheLoginShellsPATH":             "stub:loginShellPATH,stub:serviceDir,stub:spawn,t.Setenv,upYard",
+	"TestUpWithHerdrTooOld":                                   "stub:herdrServer,upYard",
 	"TestUpWithoutHerdr":                                      "stubLookPath,t.Setenv,upYard",
 	"TestUpgradeCheckAllOK":                                   "holdDaemon,stubServer,upgradeYard",
 	"TestUpgradeCheckDaemonBuildIsLatestStart":                "holdDaemon,stubServer,upgradeYard",

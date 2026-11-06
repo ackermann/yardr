@@ -725,6 +725,24 @@ func TestUpWithoutHerdr(t *testing.T) {
 		"is not up: see NOT above.\n")
 }
 
+// A herdr older than yardr starts agents with answers in its own words, so
+// its server could not be told down from unaskable and up left it down. up
+// says which herdr it is and how to update it, and starts nothing.
+func TestUpWithHerdrTooOld(t *testing.T) {
+	home, _, a, herdrStarts, daemonStarts := upYard(t, false)
+	stub(t, &herdrServer, func(context.Context, string) serverCheck {
+		return serverCheck{State: herdrOld, Output: "herdr 0.7.3 is older than " + herdrOldest + ", the oldest yardr starts agents with"}
+	})
+	out, err := run(t, a(false).rootCmd(), "up")
+	if !errors.Is(err, errCheckFailed) || *herdrStarts+*daemonStarts != 0 {
+		t.Fatalf("up: %v, herdr started %d times, the daemon %d\n%s", err, *herdrStarts, *daemonStarts, out)
+	}
+	wantText(t, out,
+		"herdr's server  NOT herdr 0.7.3 is older than "+herdrOldest+", the oldest yardr starts agents with\n",
+		"                  "+herdrUpdate+"; then: "+hereAt(home, "yardr up")+"\n",
+		"daemon          NOT herdr's server does not run")
+}
+
 // A window starts yardr without what a profile adds to PATH. up asks the
 // login shell for herdr, as doctor does, and what it starts then gets that
 // shell's PATH after its own: the daemon looks for herdr, git and the

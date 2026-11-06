@@ -464,9 +464,9 @@ func (a *app) upHerdr(ctx context.Context, cfg *config.Config, login bool) (p ya
 		p.Detail = "herdr is " + bin + ", which your login shell finds and this PATH does not; what is started here gets the login shell's PATH"
 	}
 	check := herdrServer(ctx, bin)
-	if check.State == herdrUnknown {
-		p.Error, p.Do = "herdr could not be asked for its server: "+check.Output, "run "+bin+" status server, and see what it says"
-		notInstalled("herdr could not be asked whether its server runs")
+	if why, do, short := check.unusable(bin, again); why != "" {
+		p.Error, p.Do = why, do
+		notInstalled(short)
 		return p, l
 	}
 	var u *unit

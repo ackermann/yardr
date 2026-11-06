@@ -1774,7 +1774,7 @@ internal/chat/chat.go 1070 the chat TUI model, state and rendering
 internal/cli/bead_ask.go 1292 the ask and answer commands with secret-giving and setup approval
 internal/cli/beads.go 1099 the bead show, list and history commands and their printing
 internal/cli/crew.go 2247 the crew, inbox, mail and memory commands
-internal/cli/doctor.go 1274 the doctor examinations and its report
+internal/cli/doctor.go 1255 the doctor examinations and its report
 internal/cli/init.go 1600 yard init, onboarding and settings
 internal/cli/ops.go 1829 the server, daemon, depot, group, route and session commands
 internal/cli/pack.go 2172 pack loading, import planning and its question rounds
