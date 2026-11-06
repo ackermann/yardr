@@ -27,8 +27,8 @@
 # recorded (the bead's metadata merge_head, a full sha), and a head that is
 # another commit now is held: "moved since your yes". The yard's CI must have
 # passed on that commit: the bead's metadata ci_head, which pr-ci records in
-# ciwait, is it, and GitHub's check runs are not asked (Actions is off, and one
-# source of truth is enough). A fork is merged with a merge commit and its
+# ciwait, is it, and GitHub's check runs are not asked (one source of truth is
+# enough, Actions or not). A fork is merged with a merge commit and its
 # branch is left alone, being its author's; a branch of the repository's own is
 # rebased on and deleted. --match-head-commit closes the gap between the look
 # and the merge.
@@ -225,7 +225,7 @@ fi
 # bead's metadata ci_head, which counts for that commit and no other: a head
 # that is another commit (the pull request was pushed to since the run, or the
 # bead was moved here by hand) has not passed. Nothing is asked of GitHub for
-# it: Actions is off, and one source of truth is enough.
+# it, Actions or not: one source of truth is enough.
 ciat=$(printf '%s' "$bead" | jq -r '.metadata.ci_head // empty')
 case $ciat in *[!0-9a-fA-F]*) ciat= ;; esac
 case ${#ciat} in 40 | 64) ;; *) ciat= ;; esac

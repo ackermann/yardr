@@ -317,7 +317,7 @@ func (s *stage) repo() (checkout, origin string) {
 
 // build installs the fake release build script in the checkout and pushes
 // it, as the real one rides main: the stage runs it from there when
-// Actions is off, and refuses a dirty or behind checkout first.
+// Actions are disabled, and refuses a dirty or behind checkout first.
 func (s *stage) build(checkout string) {
 	s.t.Helper()
 	dir := filepath.Join(checkout, "contrib", "release")

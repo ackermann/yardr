@@ -2,10 +2,11 @@ summary: The yard runs the depot's tests on the pull request's head the reviewer
 
 A bead whose reviews passed waits here while the yard runs the depot's own
 test command on its pull request's head, the command every landing of the
-depot runs, and counts that run as the pull request's CI (GitHub Actions is
-off). No agent and no person works this stage: `pr-ci`, the `cmd` of an exec
-group, takes the bead, tests the head GitHub says the pull request has, and
-reports how it went (docs/line.md, "The yard as the CI of a pull request").
+depot runs, and counts that run as the pull request's CI, whether or not
+GitHub Actions also runs on the repository. No agent and no person works this
+stage: `pr-ci`, the `cmd` of an exec group, takes the bead, tests the head
+GitHub says the pull request has, and reports how it went (docs/line.md, "The
+yard as the CI of a pull request").
 
 Only the head the reviewers read is tested. The reviewer records the commit it
 read as the bead's `reviewed_head` right before it reports, and `pr-ci`

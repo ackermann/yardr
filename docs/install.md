@@ -771,8 +771,8 @@ key either, so its `checksums.txt` is unsigned until it is signed by hand.
 ### With Actions off
 
 When GitHub Actions is switched off on the release repo — a private repo
-whose minutes ran out, as yardr-dev/yardr's did — there is no workflow to
-make the draft, so the flow builds the release on this machine instead.
+whose minutes ran out — there is no workflow to make the draft, so the flow
+builds the release on this machine instead.
 `build` asks `gh api repos/<owner>/<repo>/actions/permissions` after
 pushing the tag: when it answers `false`, it runs
 `contrib/release/build` from the tagged checkout with `SOURCE_DATE_EPOCH`

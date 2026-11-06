@@ -1741,16 +1741,18 @@ refused.
 
 ## The yard as the CI of a pull request
 
-GitHub Actions is off for the yard's repositories, and the yard is the CI of
-a pull request instead (decided on ask 9736): no minutes, no workflow files,
-the same for every depot. A `pr` bead of the contributors pack
+The yard is the CI of a pull request, whether or not the repository has GitHub
+Actions. A `pr` bead of the contributors pack
 ([packs.md](packs.md#the-contributors-pack)) that the reviewer found ready
 waits in `ciwait`, and [`contrib/assembly/pr-ci`](../contrib/assembly/pr-ci),
 the `cmd` of an `exec` group of its own (`pr-ci`, limit 1, so one run at a
 time) that the pack's flow gives the stage to, runs the depot's own test
-command on the pull request's head and says how it went. It reads the pull
-request from the bead's tracks link and asks GitHub as the yard's App, as
-merge-pr does (below), and:
+command on the exact head the reviewer read, on the yard's machine, and says
+how it went. It is the only CI of a repository with Actions off, and where
+Actions runs it is still the check merge-pr relies on (`ci_head`, below):
+GitHub's own check runs are not asked. It reads the pull request from the
+bead's tracks link and asks GitHub as the yard's App, as merge-pr does
+(below), and:
 
 - refuses a bead that is not in `ciwait`, before it fetches anything: the
   stage is the one after a reviewer has read the pull request, and the yard
