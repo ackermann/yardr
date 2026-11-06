@@ -5269,12 +5269,12 @@ POST /call/TakeBackAsk
 
 ### `AddNote`
 
-Puts a plain note on the bead, as `yardr bead note` does. Words about a question with no option chosen go here, and leave the ask open. On a `bead@peer`, a question another yard asked, it is refused: notes stay local, and words for the asker go as mail to `asker@peer`. With `files` the note carries files, as one written with `yardr bead note --file` does. It answers nothing; the note is then a `noted` event in the stream.
+Puts a plain note on the bead, as `yardr bead note` does. Words about a question with no option chosen go here, and leave the ask open. On a `bead@peer`, a question another yard asked, it is refused: notes stay local, and words for the asker go as mail to `asker@peer`. With `files` the note carries files, as one written with `yardr bead note --file` does. A note with no words, empty or only white space, is refused, with files or without. It answers nothing; the note is then a `noted` event in the stream.
 
 | argument | type | |
 |---|---|---|
 | `bead` | string | the bead |
-| `text` | string | the note; it may not be empty when the note carries files |
+| `text` | string | the note; it may not be empty or only white space |
 | `actor` | string | who writes it: the user's name |
 | `files` | array of object | the files the note carries, at most 64: each `{hash, name}`, the hash as `PutBlob` answered it with the file's base name. Left out, the note carries none. One the yard does not hold, or a name no letter may carry, refuses the note |
 

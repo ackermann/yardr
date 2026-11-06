@@ -51,11 +51,25 @@ depot's base (`yardr depot list`).
      fixed one.
    - Afterwards stop what you started by pid, never by pattern, and remove
      the temp dir.
-6. Leave one note on the bead (`yardr bead note <id> "..."`), then report
+6. Leave one note on the bead (as under "Writing a note"), then report
    the outcome. A finding names the caller, what they can do, and the line
    that lets them. Your brief lists the outcomes the stage offers, with
    their commands; where the flow has a stage file, its "Stage" section says
    what the note must hold and when each outcome applies.
+
+## Writing a note
+
+Write every note as stdin from a heredoc with a quoted delimiter, never as a
+double-quoted argument: the shell runs backticks and `$(` inside double
+quotes, so a code span or a file name in backticks would run as a command and
+its output would take its place in the note.
+
+    yardr bead note <id> - <<'NOTE'
+    The words, with `code` and paths as they are.
+    NOTE
+
+An outcome's note takes the same form (`yardr bead done <id> --note -
+<<'NOTE'`), and a note with no words is refused.
 
 ## Something outside your bead
 

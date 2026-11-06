@@ -25,14 +25,11 @@ func (a *app) newBeadAdvanceCmd(rev *string) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if advNote == "-" {
-				b, err := io.ReadAll(c.InOrStdin())
-				if err != nil {
-					return err
-				}
-				advNote = strings.TrimRight(string(b), "\n")
+			note, err := moveNote(c, advNote, "yardr bead advance <id> --to <stage> --note -")
+			if err != nil {
+				return err
 			}
-			b, err := st.AdvanceNote(c.Context(), args[0], to, advNote, a.expect(*rev), a.who())
+			b, err := st.AdvanceNote(c.Context(), args[0], to, note, a.expect(*rev), a.who())
 			if err != nil {
 				return err
 			}
@@ -40,7 +37,7 @@ func (a *app) newBeadAdvanceCmd(rev *string) *cobra.Command {
 		},
 	}
 	advance.Flags().StringVar(&to, "to", "", "next stage")
-	advance.Flags().StringVar(&advNote, "note", "", "attach a note with the move, e.g. the changes asked for (- reads stdin)")
+	advance.Flags().StringVar(&advNote, "note", "", "attach a note with the move (- reads stdin; use a quoted heredoc so the shell does not expand backticks or $( ) in double-quoted words; one with no words is refused)")
 	return advance
 }
 
@@ -60,21 +57,24 @@ changed file, and committing them, removing them, or attaching them to a
 note and removing them clears it. --outcome done-safe is
 refused while the bead's diff touches a path its depot lists in
 .yardr/security_paths; the refusal names the files, and done goes to the
-review that reads them.`,
+review that reads them.
+
+--note <text> attaches a note to the move, and --note - reads it from
+stdin: write one that quotes code or file names as a heredoc with a quoted
+delimiter, since inside a double-quoted argument the shell runs every
+backtick span and $( ) and puts what it prints in the note. A --note given
+with no words, empty or only white space, is refused.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
 			if err != nil {
 				return err
 			}
-			if doneNote == "-" {
-				b, err := io.ReadAll(c.InOrStdin())
-				if err != nil {
-					return err
-				}
-				doneNote = strings.TrimRight(string(b), "\n")
+			note, err := moveNote(c, doneNote, "yardr bead done <id> --note -")
+			if err != nil {
+				return err
 			}
-			b, err := st.Done(c.Context(), args[0], outcome, doneNote, a.expect(*rev), a.who())
+			b, err := st.Done(c.Context(), args[0], outcome, note, a.expect(*rev), a.who())
 			if err != nil {
 				return err
 			}
@@ -82,8 +82,32 @@ review that reads them.`,
 		},
 	}
 	done.Flags().StringVar(&outcome, "outcome", store.DefaultOutcome, "how the work ended, one of the stage's outcomes")
-	done.Flags().StringVar(&doneNote, "note", "", "attach a note with the move (- reads stdin)")
+	done.Flags().StringVar(&doneNote, "note", "", "attach a note with the move (- reads stdin; use a quoted heredoc so the shell does not expand backticks or $( ) in double-quoted words; one with no words is refused)")
 	return done
+}
+
+// moveNote is the note a move carries from its --note flag, "" for a move
+// with none: "-" reads it from stdin, trailing newlines trimmed. A note
+// that was given and has no words is refused instead of dropped, as the
+// store refuses one written on the bead: most often a shell emptied it
+// (a backtick span or $( ) in double quotes that printed nothing), and the
+// bead would move on without the words its writer meant to leave. fix is
+// the command written so that the shell expands nothing.
+func moveNote(c *cobra.Command, note, fix string) (string, error) {
+	if !c.Flags().Changed("note") {
+		return "", nil
+	}
+	if note == "-" {
+		b, err := io.ReadAll(c.InOrStdin())
+		if err != nil {
+			return "", err
+		}
+		note = strings.TrimRight(string(b), "\n")
+	}
+	if strings.TrimSpace(note) == "" {
+		return "", fmt.Errorf("--note has no words, and a shell may have emptied it, since it runs the backticks and $( ) in a double-quoted argument and puts their output in the text; give the words on stdin from a quoted heredoc (%s <<'NOTE', the words, then NOTE on a line of its own), or leave --note out to move the bead with no note", fix)
+	}
+	return note, nil
 }
 
 func (a *app) newBeadCloseCmd(rev *string) *cobra.Command {

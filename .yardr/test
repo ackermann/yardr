@@ -2282,7 +2282,7 @@ packs/posthog/                 internal/hooks internal/store
 packs/webhook/                 internal/hooks
 packs/template/                internal/pack packs
 packs/website/                 internal/pack
-.yardr/flows/                  internal/cli internal/dispatch internal/store internal/flowdraw contrib/assembly
+.yardr/flows/                  internal/cli internal/dispatch internal/store internal/flowdraw contrib/assembly packs
 .yardr/security_paths          internal/store
 .yardr/test                    .
 internal/                       internal/rpc
@@ -2335,7 +2335,7 @@ docs/packs.md                  packs
 docs/flows/                    internal/flowdraw internal/cli
 docs/                          .
 .yardr/depot.md                -
-.yardr/roles/                  -
+.yardr/roles/                  packs
 AGENTS.md                      -
 CLAUDE.md                      -
 .github/                       -

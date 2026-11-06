@@ -87,6 +87,16 @@ func TestBriefIncludesPromptAndCommands(t *testing.T) {
 			t.Errorf("brief missing %q:\n%s", want, b)
 		}
 	}
+	// A note is shown as its usage, never as a double-quoted argument, where
+	// the shell would run the backticks an agent writes in it. How to write
+	// one safely is the role's to say: the brief reaches sessions whose
+	// sandbox cannot use every form.
+	if want := "`yardr bead note web-3 <text>`"; !strings.Contains(b, want) {
+		t.Errorf("brief does not show the note's usage, %q:\n%s", want, b)
+	}
+	if strings.Contains(b, `bead note web-3 "`) || strings.Contains(b, `--note "`) {
+		t.Errorf("brief shows a note as a double-quoted argument:\n%s", b)
+	}
 	job.Group.Config["prompt"] = "missing.md"
 	if _, err := Brief(job, "x", "", "", nil); err == nil {
 		t.Fatal("missing prompt file not reported")
@@ -1021,6 +1031,7 @@ func TestBriefListsOutcomes(t *testing.T) {
 		"Reporting an outcome, closing or holding ends your session",
 		"## Outcomes",
 		"Report how your work in `new` ended",
+		"Add `--note <text>` to attach a note with the move",
 		"- `done` (to `review`): an agent in `reviewers` picks it up",
 		"  `yardr bead done web-3`\n",
 		"- `question` (to `decide`): a human in `deciders` picks it up",
@@ -1034,7 +1045,7 @@ func TestBriefListsOutcomes(t *testing.T) {
 			t.Errorf("brief missing %q:\n%s", want, b)
 		}
 	}
-	for _, not := range []string{"## Next stages", "yardr bead advance", "backlog"} {
+	for _, not := range []string{"## Next stages", "yardr bead advance", "backlog", `--note "`} {
 		if strings.Contains(b, not) {
 			t.Errorf("brief with outcomes still offers %q:\n%s", not, b)
 		}

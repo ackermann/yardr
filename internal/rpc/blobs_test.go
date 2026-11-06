@@ -69,6 +69,12 @@ func TestBlobsOverTheSocket(t *testing.T) {
 			`{"error":{"code":"not-found","message":"file ` + unknown + `: not found: the yard does not hold it; put it first (PutBlob, or yardr bead note --file)"}}`},
 		{"AddNote", `{"bead":"yd-shed","text":"  ","actor":"jo","files":[{"hash":"` + hash + `"}]}`,
 			`{"error":{"code":"error","message":"a note with files needs words: say what they show"}}`},
+		// A note with no words at all is refused as well, and the
+		// refusal tells what a shell does to a note in double quotes.
+		{"AddNote", `{"bead":"yd-shed","text":"","actor":"jo"}`,
+			`{"error":{"code":"error","message":"a note needs words: this one is empty, and a shell may have emptied it`},
+		{"AddNoted", `["yd-shed","","jo"]`,
+			`{"error":{"code":"error","message":"a note needs words: this one is empty, and a shell may have emptied it`},
 		{"AddNote", `{"bead":"yd-shed","text":"straight","actor":"jo"}`, `{}`},
 		{"AddNote", `["yd-shed","by array","jo"]`, `{}`},
 		{"Bead", `{"bead":"yd-shed"}`, `"text":"hung","at":`},

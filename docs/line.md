@@ -947,6 +947,23 @@ yardr bead hold webapp-3                     # stop routing; a human looks
 Every command takes `--json`. Set `YARDR_ACTOR` so the event log shows who
 acted.
 
+A note that quotes code or file names goes in on stdin, not as a quoted
+argument: inside double quotes the shell runs each backtick span and `$(`
+before yardr starts, and puts what it printed in the note. `-` reads the
+words from stdin, and a heredoc whose delimiter is quoted expands nothing:
+
+```sh
+yardr bead note webapp-3 - <<'NOTE'
+tests green: `go test ./...`
+NOTE
+```
+
+`--note -` on `done` and `advance` reads the move's note the same way. A
+note with no words, empty or only white space, is refused, and so is a
+`--note` given with none, whose usual cause is a shell that ran a backtick
+span and had nothing to put in its place; leaving `--note` out moves the
+bead with no note.
+
 ### Dependencies
 
 Work that spans several beads and must land as one unit is a

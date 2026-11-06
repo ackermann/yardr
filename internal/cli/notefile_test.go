@@ -299,7 +299,9 @@ func TestBeadBodyCannotForgeNotes(t *testing.T) {
 }
 
 // bead note - takes the words from the command's stdin, trailing
-// newlines trimmed as before.
+// newlines trimmed as before. A note with no words, from stdin or as the
+// argument a shell emptied, is refused with the way to write it, and
+// nothing is written.
 func TestBeadNoteStdin(t *testing.T) {
 	t.Parallel()
 	st := storetest.New(t)
@@ -317,6 +319,20 @@ func TestBeadNoteStdin(t *testing.T) {
 	notes, err := st.Notes(ctx, b.ID)
 	if err != nil || len(notes) != 1 || notes[0].Text != "the shed, painted" {
 		t.Fatalf("notes = %+v, %v", notes, err)
+	}
+	for _, c := range []struct{ text, stdin string }{
+		{"-", ""}, {"-", "\n\n"}, {"-", " \t\n"}, // nothing was piped in
+		{"", ""}, {" \n\t ", ""}, // a shell ran what the words were
+	} {
+		cmd := a.beadCmd()
+		cmd.SetIn(strings.NewReader(c.stdin))
+		out, err := run(t, cmd, "note", b.ID, c.text)
+		if err == nil || !strings.Contains(err.Error(), "a shell may have emptied it") || !strings.Contains(err.Error(), "<<'NOTE'") {
+			t.Errorf("note %q with stdin %q = %v, want the refusal with the heredoc form\n%s", c.text, c.stdin, err, out)
+		}
+	}
+	if notes, err := st.Notes(ctx, b.ID); err != nil || len(notes) != 1 {
+		t.Errorf("what was refused was written: %+v, %v", notes, err)
 	}
 }
 

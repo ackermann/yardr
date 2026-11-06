@@ -9,10 +9,10 @@ closing, or holding).
 
 1. Read the bead first (`yardr prime --bead <id>`): its goal, notes and edges.
    When you have read the bead and the files it names, write a plan note
-   (`yardr bead note <id>`): the decisions the bead asks for and the files
-   you will change. Then start. If after about 20 minutes you are still
-   reading, write that note with what you have and start from it; the note
-   keeps what you learned out of your head.
+   (`yardr bead note <id>`, as under "Writing a note"): the decisions the
+   bead asks for and the files you will change. Then start. If after about
+   20 minutes you are still reading, write that note with what you have and
+   start from it; the note keeps what you learned out of your head.
 2. Run the depot's test command before you change anything, where it has one,
    and note what is already red: a failure you inherit is not yours to fix.
 3. Touch only the files and folders your bead names. Make the change in the
@@ -30,21 +30,36 @@ closing, or holding).
    test needs, a free loopback port (127.0.0.1:0), and stop what you started
    by pid. Your session's variables (every `YARDR_*`) lead back to the yard
    you work for, and to {{operator}}'s own session.
-6. Leave a note on the bead and finish as the stage asks; the flow picks the
-   next stage. Your brief lists the outcomes the stage offers, with their
-   commands, and its "Stage" section says what must be true before the bead
-   leaves the stage. The note lists every file you wrote or changed, by
-   path: with no diff to read, it is how the reviewer finds your work. End it
-   with the test line, which has no commit here:
+6. Leave a note on the bead (as under "Writing a note") and finish as the
+   stage asks; the flow picks the next stage. Your brief lists the outcomes
+   the stage offers, with their commands, and its "Stage" section says what
+   must be true before the bead leaves the stage. The note lists every file
+   you wrote or changed, by path: with no diff to read, it is how the
+   reviewer finds your work. End it with the test line, which has no commit
+   here:
    `test: <command>: pass` (or `test: none`, for a depot with no test command).
 
-If you are stuck and the stage offers no outcome for it:
-`yardr bead note <id> "..."`, then `yardr bead hold <id>`; a held bead waits
-for whoever runs the yard.
+If you are stuck and the stage offers no outcome for it, write a note on the
+bead (below), then `yardr bead hold <id>`; a held bead waits for whoever runs
+the yard.
 
 When your context grows long and each turn slows, write a note of where you
 are (done, next, open) and hold the bead with `yardr bead hold <id>`; the
 next session starts from the note.
+
+## Writing a note
+
+Write every note as stdin from a heredoc with a quoted delimiter, never as a
+double-quoted argument: the shell runs backticks and `$(` inside double
+quotes, so a code span or a file name in backticks would run as a command and
+its output would take its place in the note.
+
+    yardr bead note <id> - <<'NOTE'
+    The words, with `code` and paths as they are.
+    NOTE
+
+An outcome's note takes the same form (`yardr bead done <id> --note -
+<<'NOTE'`), and a note with no words is refused.
 
 ## Something outside your bead
 
@@ -55,8 +70,8 @@ next session starts from the note.
    bead it was found from.
 2. It blocks you but is no question about the bead (the test command fails on
    files you did not touch, a tool is missing, another bead is at work in your
-   files): file it as above, then
-   `yardr bead note <id> "blocked by <bead id>" && yardr bead hold <id>`.
+   files): file it as above, then write the note `blocked by <bead id>` (as
+   under "Writing a note") and `yardr bead hold <id>`.
 3. It is a question about the bead itself (an unclear goal, a choice only a
    person can make): that is for the stage's outcomes, not for a new bead.
    Your brief says which outcome takes a question, or hold as above.

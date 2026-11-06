@@ -7,10 +7,10 @@ closing, or holding).
 
 1. Read the bead first (`yardr prime --bead <id>`): its goal, notes and edges.
    When you have read the bead and the files it names, write a plan note
-   (`yardr bead note <id>`): the decisions the bead asks for and the files
-   you will change. Then start. If after about 20 minutes you are still
-   reading, write that note with what you have and start from it; the note
-   keeps what you learned out of your head.
+   (`yardr bead note <id>`, as under "Writing a note"): the decisions the
+   bead asks for and the files you will change. Then start. If after about
+   20 minutes you are still reading, write that note with what you have and
+   start from it; the note keeps what you learned out of your head.
 2. Run the depot's test command on the base before you change anything, and
    note what is already red: a failure you inherit is not yours to fix, and
    finding it now saves a landing round.
@@ -70,11 +70,11 @@ closing, or holding).
    the bead's id. Add no trailers of your own: the yard adds them. A change
    that breaks a user's setup or a command's behaviour carries a line
    `BREAKING CHANGE: <what breaks>` in the body of its commit.
-7. Leave a note on the bead and finish as the stage asks; the flow picks the
-   next stage. Your brief lists the outcomes the stage offers, with their
-   commands; where the flow has a stage file, its "Stage" section says what
-   must be true before the bead leaves the stage and when each outcome
-   applies.
+7. Leave a note on the bead (as under "Writing a note") and finish as the
+   stage asks; the flow picks the next stage. Your brief lists the outcomes
+   the stage offers, with their commands; where the flow has a stage file,
+   its "Stage" section says what must be true before the bead leaves the
+   stage and when each outcome applies.
    Before you report done, retitle the bead to say what the change does,
    in the imperative: "Withhold setup candidates from non-operator
    devices", not "Bead carries ... to every device" (`yardr bead update
@@ -120,13 +120,27 @@ process in the next command. Empty a file with `: > file` rather than
 deleting it. A probe longer than a few lines goes in a script file in
 the worktree and runs as `sh <file>`.
 
-If you are stuck and the stage offers no outcome for it:
-`yardr bead note <id> "..."`, then `yardr bead hold <id>`; a hold reaches the
-yardmaster's inbox.
+If you are stuck and the stage offers no outcome for it, write a note on the
+bead (below), then `yardr bead hold <id>`; a hold reaches the yardmaster's
+inbox.
 
 When your context grows long and each turn slows, write a note of where you
 are (done, next, open) and hold the bead with `yardr bead hold <id>`; the
 next session starts from the note.
+
+## Writing a note
+
+Write every note as stdin from a heredoc with a quoted delimiter, never as a
+double-quoted argument: the shell runs backticks and `$(` inside double
+quotes, so a code span or a file name in backticks would run as a command and
+its output would take its place in the note.
+
+    yardr bead note <id> - <<'NOTE'
+    The words, with `code` and paths as they are.
+    NOTE
+
+An outcome's note takes the same form (`yardr bead done <id> --note -
+<<'NOTE'`), and a note with no words is refused.
 
 ## A screenshot, where the bead asks for one
 
@@ -159,8 +173,9 @@ after your last commit and your test run, and attach it to the note:
 - Note what the shot shows, in words first (what was opened, at what size,
   what to look at), with the short SHA of the commit it was shot at
   (`git rev-parse --short HEAD`), and attach it:
-  `yardr bead note <id> "<words>" --file /tmp/shot-<bead>.png`. The note's
-  file is the record, not the local path.
+  `yardr bead note <id> - --file /tmp/shot-<bead>.png <<'NOTE'`, the words,
+  then `NOTE` on a line of its own. The note's file is the record, not the
+  local path.
 
 ## Something outside your bead
 
@@ -173,9 +188,9 @@ after your last commit and your test run, and attach it to the note:
 2. It blocks you but is no question about the bead (the tests are red on the
    base, a tool is missing, the base moved under you): file it as above, then
    mail the yardmaster: `yardr mail {{yardmaster}} "<bead id>: <one line>"`.
-   If you cannot finish without it,
-   `yardr bead note <id> "blocked by <bead id>" && yardr bead hold <id>`; the
-   yardmaster orders the two with `yardr dep add`.
+   If you cannot finish without it, write the note `blocked by <bead id>`
+   (as under "Writing a note"), then `yardr bead hold <id>`; the yardmaster
+   orders the two with `yardr dep add`.
 3. It is a question about the bead itself (an unclear goal, a design
    choice): that is for the stage's outcomes, not for a new bead. Your brief
    says which outcome takes a question, or hold as above.

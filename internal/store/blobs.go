@@ -647,6 +647,23 @@ func (s *Store) mailFiles(files []BlobFile) ([]BlobRef, error) {
 	return out, nil
 }
 
+// noteWords refuses a note whose text is empty or white space. A note with
+// files needs its words as much, since they say what the files show. A
+// note with none is most often one a shell emptied: inside double quotes
+// the shell runs each backtick span and $( ) before the command starts,
+// and a note that was only such a span, or whose command printed nothing,
+// arrives empty. The refusal says so, and how to write the note so the
+// shell expands nothing.
+func noteWords(text string, files []BlobFile) error {
+	switch {
+	case strings.TrimSpace(text) != "":
+		return nil
+	case len(files) > 0:
+		return fmt.Errorf("a note with files needs words: say what they show")
+	}
+	return fmt.Errorf("a note needs words: this one is empty, and a shell may have emptied it, since it runs the backticks and $( ) in a double-quoted argument and puts their output in the text; give the words on stdin from a quoted heredoc (yardr bead note <id> - <<'NOTE', the words, then NOTE on a line of its own)")
+}
+
 // noteFiles are the blobs the files name, as a note carries them: each
 // with the type and size the yard holds, and the name the sender gave.
 // One the yard does not hold refuses the note: a note never names a file

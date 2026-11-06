@@ -191,9 +191,9 @@ func Brief(job dispatch.Job, actor, workdir, home string, st store.API) (string,
 Your environment already names you to yardr (YARDR_ACTOR=%[1]s, YARDR_BEAD, YARDR_SESSION): your commands are attributed to you and carry your session, so leave those set. Once the bead has moved on, a move or close from this session is refused as stale.
 
 - Read the bead, its notes and dependencies: `+"`yardr prime --bead %[2]s`"+`
-- Leave evidence as you go: `+"`yardr bead note %[2]s \"...\"`"+`
+- Leave evidence as you go: `+"`yardr bead note %[2]s <text>`"+` (`+"`-`"+` as the text reads the words from stdin)
 %[3]s- Or, if the work is finished entirely: `+"`yardr bead close %[2]s --reason \"...\"`"+`
-- If you are stuck and need a human: `+"`yardr bead note %[2]s \"...\" && yardr bead hold %[2]s`"+`
+- If you are stuck and need a human: leave a note as above, then `+"`yardr bead hold %[2]s`"+`
 
 %[4]s
 `, actor, bead.ID, advance, ends)
@@ -626,7 +626,7 @@ func writeNext(b *strings.Builder, id, stage string, next []dispatch.NextStage) 
 // would reach a person can write the note for them.
 func writeOutcomes(b *strings.Builder, id, stage string, outcomes []dispatch.NextOutcome) {
 	fmt.Fprintf(b, "\n## Outcomes\n\n")
-	fmt.Fprintf(b, "Report how your work in `%s` ended; the flow moves the bead on. Add `--note \"...\"` to attach a note with the move.\n\n", stage)
+	fmt.Fprintf(b, "Report how your work in `%s` ended; the flow moves the bead on. Add `--note <text>` to attach a note with the move (`-` as the text reads the words from stdin).\n\n", stage)
 	for _, o := range outcomes {
 		cmd := store.DoneCommand(id, o.Outcome)
 		fmt.Fprintf(b, "- `%s` (to `%s`%s): %s\n  `%s`\n", o.Outcome, o.Stage, roundNote(o), nextWhen(o.NextStage), cmd)

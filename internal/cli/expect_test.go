@@ -134,7 +134,8 @@ func TestSessionAppliesToTheOwnBeadOnly(t *testing.T) {
 }
 
 // bead advance --note - takes the note from the command's stdin,
-// trailing newlines trimmed as before.
+// trailing newlines trimmed as before. A --note given with no words is
+// refused and the bead stays, where leaving --note out moves it with none.
 func TestBeadAdvanceStdinNote(t *testing.T) {
 	t.Parallel()
 	st, ctx := reviewYard(t, "/tmp/yard")
@@ -143,6 +144,14 @@ func TestBeadAdvanceStdinNote(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := &app{st: st, actor: "me"}
+	for _, verb := range []string{"advance", "done"} {
+		help, err := run(t, a.beadCmd(), verb, "--help")
+		if err != nil || !strings.Contains(help, "quoted heredoc") ||
+			!strings.Contains(help, "shell does not expand backticks") || !strings.Contains(help, "$( )") {
+			t.Errorf("bead %s --help = %v\n%s, want the quoted-heredoc note guidance", verb, err, help)
+		}
+	}
+	refuseEmptyMoveNote(t, st, a, b.ID, "advance", "--to", "review")
 	c := a.beadCmd()
 	c.SetIn(strings.NewReader("looks good\n\n"))
 	if out, err := run(t, c, "advance", b.ID, "--to", "review", "--note", "-"); err != nil {
@@ -159,7 +168,8 @@ func TestBeadAdvanceStdinNote(t *testing.T) {
 }
 
 // bead done --note - takes the note from the command's stdin,
-// trailing newlines trimmed as before.
+// trailing newlines trimmed as before. A --note given with no words is
+// refused and the bead stays.
 func TestBeadDoneStdinNote(t *testing.T) {
 	t.Parallel()
 	st := storetest.New(t)
@@ -183,6 +193,7 @@ func TestBeadDoneStdinNote(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := &app{st: st, actor: "me"}
+	refuseEmptyMoveNote(t, st, a, b.ID, "done")
 	c := a.beadCmd()
 	c.SetIn(strings.NewReader("ready for review\n\n"))
 	if out, err := run(t, c, "done", b.ID, "--note", "-"); err != nil {
@@ -195,6 +206,36 @@ func TestBeadDoneStdinNote(t *testing.T) {
 	notes, err := st.Notes(ctx, b.ID)
 	if err != nil || len(notes) != 1 || notes[0].Text != "ready for review" {
 		t.Fatalf("notes = %+v, %v", notes, err)
+	}
+}
+
+// refuseEmptyMoveNote runs the move (done or advance, with its other
+// arguments) with every --note that has no words: given empty, white
+// space, or "-" with nothing on stdin. Each is refused with the way to
+// write the note, and the bead stays where it was with no note: leaving
+// --note out is the move with none.
+func refuseEmptyMoveNote(t *testing.T, st store.API, a *app, id, verb string, more ...string) {
+	t.Helper()
+	before, err := st.GetBead(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ note, stdin string }{
+		{"", ""}, {" \t", ""}, {"-", ""}, {"-", "\n\n"},
+	} {
+		cmd := a.beadCmd()
+		cmd.SetIn(strings.NewReader(c.stdin))
+		out, err := run(t, cmd, append([]string{verb, id, "--note", c.note}, more...)...)
+		if err == nil || !strings.Contains(err.Error(), "a shell may have emptied it") || !strings.Contains(err.Error(), "<<'NOTE'") {
+			t.Errorf("%s --note %q with stdin %q = %v, want the refusal with the heredoc form\n%s", verb, c.note, c.stdin, err, out)
+		}
+	}
+	got, err := st.GetBead(context.Background(), id)
+	if err != nil || got.Stage != before.Stage || got.Revision != before.Revision {
+		t.Errorf("a refused %s moved the bead: %+v, %v", verb, got, err)
+	}
+	if notes, err := st.Notes(context.Background(), id); err != nil || len(notes) != 0 {
+		t.Errorf("a refused %s wrote a note: %+v, %v", verb, notes, err)
 	}
 }
 

@@ -21,6 +21,18 @@ func (a *app) newBeadNoteCmd() *cobra.Command {
 words. The bead's live session is told of it, unless the writer is that
 session itself.
 
+<text> may be - to read the words from stdin, which is how to write a note
+that quotes code or file names: inside a double-quoted argument the shell
+runs every backtick span and $( ) and puts what it prints in the note,
+where a heredoc with a quoted delimiter expands nothing:
+
+  yardr bead note <id> - <<'NOTE'
+  the words, as they are
+  NOTE
+
+A note with no words, empty or only white space, is refused, with --file
+or without: a shell may have emptied it.
+
 --file <path> attaches a file to the note, and may be given more than once
 (up to ` + strconv.Itoa(store.MaxNoteFiles) + `). The yard keeps the file in its
 home, in blobs/ under the SHA-256 of its bytes, once however often it is

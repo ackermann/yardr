@@ -496,7 +496,8 @@ func TestBlobPutBy(t *testing.T) {
 
 // A note written with files names the blobs, in order, and the bead whole
 // names them too; more than the bound, and one the yard does not hold,
-// are refused with nothing written.
+// are refused with nothing written, as is a note with no words, with files
+// or without.
 func TestAddNotedAsFiles(t *testing.T) {
 	t.Parallel()
 	api, _ := storetest.NewOwned(t)
@@ -538,6 +539,18 @@ func TestAddNotedAsFiles(t *testing.T) {
 		!strings.Contains(err.Error(), "a note with files needs words") {
 		t.Errorf("a file note without words = %v", err)
 	}
+	// A note a shell emptied arrives as "" or as white space, and the
+	// refusal says so.
+	for _, empty := range []string{"", " \n\t "} {
+		if _, err := api.AddNotedAs(ctx, b.ID, empty, "jo", ""); err == nil ||
+			!strings.Contains(err.Error(), "a shell may have emptied it") {
+			t.Errorf("a note of %q = %v", empty, err)
+		}
+		if _, err := api.AddNoted(ctx, b.ID, empty, "jo"); err == nil ||
+			!strings.Contains(err.Error(), "a shell may have emptied it") {
+			t.Errorf("AddNoted of %q = %v", empty, err)
+		}
+	}
 	unknown := strings.Repeat("0", 64)
 	if _, err := api.AddNotedAs(ctx, b.ID, "a ghost", "jo", "", store.BlobFile{Hash: unknown}); err == nil ||
 		!strings.Contains(err.Error(), "the yard does not hold it") {
@@ -551,7 +564,8 @@ func TestAddNotedAsFiles(t *testing.T) {
 // A note written through AddNote with files carries them as one written
 // with yardr bead note --file does: the same bound, the same words, the
 // same refusal for one the yard does not hold. With files omitted it
-// writes a plain note, and unlike AddNotedAs it tells no live session.
+// writes a plain note, which needs words as well, and unlike AddNotedAs it
+// tells no live session.
 func TestAddNoteFiles(t *testing.T) {
 	t.Parallel()
 	api, _ := storetest.NewOwned(t)
@@ -595,6 +609,12 @@ func TestAddNoteFiles(t *testing.T) {
 	if err := api.AddNote(ctx, b.ID, " \n\t ", "jo", store.BlobFile{Hash: png.Hash}); err == nil ||
 		!strings.Contains(err.Error(), "a note with files needs words") {
 		t.Errorf("a file note without words = %v", err)
+	}
+	for _, empty := range []string{"", " \n\t "} {
+		if err := api.AddNote(ctx, b.ID, empty, "jo"); err == nil ||
+			!strings.Contains(err.Error(), "a shell may have emptied it") {
+			t.Errorf("a note of %q = %v", empty, err)
+		}
 	}
 	unknown := strings.Repeat("0", 64)
 	if err := api.AddNote(ctx, b.ID, "a ghost", "jo", store.BlobFile{Hash: unknown}); err == nil ||

@@ -971,6 +971,93 @@ func TestRolesSayWhatATestMayCost(t *testing.T) {
 	}
 }
 
+// A note shown as "..." is one an agent writes inside double quotes, where
+// the shell runs each backtick span and $( ) before yardr starts: a
+// reviewer's backticked file name ran the pull request's own test script,
+// and a note that was only such a span arrived empty (yardr-vmbn). So no
+// role or stage file shows a bead note, or the note of a move, as a
+// double-quoted argument, and each role that has its agent write a note
+// shows it as stdin from a heredoc with a quoted delimiter, which expands
+// nothing, and says why. The words are compared with the lines folded, so
+// rewrapping breaks nothing.
+//
+// One role is held out: the contributors' pull request reviewer runs in a
+// read-only sandbox that refuses the temporary file a shell makes for a
+// heredoc, so it cannot yet be told to write one, and its role still shows
+// the double-quoted form. The hold fails once the role no longer shows it,
+// so the exemption goes with the fix.
+func TestRolesShowNoQuotedNote(t *testing.T) {
+	files := packFiles(t)
+	quoted := regexp.MustCompile(`bead note \S+ "|bead (done|advance)\b.*--note "`)
+	writers := regexp.MustCompile(`^[a-z]+/roles/(builder|reviewer|review-security|pr-reviewer)\.md$`)
+	held := map[string]bool{"contributors/roles/pr-reviewer.md": true}
+	var roles int
+	for name, body := range files {
+		shown := false
+		for n, line := range strings.Split(body, "\n") {
+			if quoted.MatchString(line) {
+				shown = true
+				if !held[name] {
+					t.Errorf("%s:%d shows a note as a double-quoted argument, which the shell expands: show it as stdin from a quoted heredoc (yardr bead note <id> - <<'NOTE'): %s", name, n+1, strings.TrimSpace(line))
+				}
+			}
+		}
+		if held[name] {
+			if !shown {
+				t.Errorf("%s is held out of this test and no longer shows a double-quoted note: take it out of held", name)
+			}
+			continue
+		}
+		if !writers.MatchString(name) {
+			continue
+		}
+		roles++
+		folded := strings.Join(strings.Fields(body), " ")
+		for _, want := range []string{
+			"## Writing a note",
+			"the shell runs backticks and `$(` inside double quotes",
+			"yardr bead note <id> - <<'NOTE'",
+			"`yardr bead done <id> --note - <<'NOTE'`",
+		} {
+			if !strings.Contains(folded, want) {
+				t.Errorf("%s lacks %q, which its section on writing a note holds", name, want)
+			}
+		}
+	}
+	// Not for want of looking: the builders, reviewers and security
+	// reviewers of the packs, less the one held out.
+	if roles < 12 {
+		t.Errorf("%d roles that write notes read, want at least 12", roles)
+	}
+
+	// The depot's own role prompts and flow stage files are not embedded in
+	// the packs, so walk them from the repository as well. The test gate's
+	// read table selects this package when either directory changes.
+	yardFiles := os.DirFS("../.yardr")
+	for _, root := range []string{"roles", "flows"} {
+		if err := fs.WalkDir(yardFiles, root, func(name string, entry fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if entry.IsDir() || !strings.HasSuffix(name, ".md") {
+				return nil
+			}
+			body, err := fs.ReadFile(yardFiles, name)
+			if err != nil {
+				return err
+			}
+			for n, line := range strings.Split(string(body), "\n") {
+				if quoted.MatchString(line) {
+					t.Errorf(".yardr/%s:%d shows a note as a double-quoted argument, which the shell expands: %s", name, n+1, strings.TrimSpace(line))
+				}
+			}
+			return nil
+		}); err != nil {
+			t.Errorf("walk .yardr/%s: %v", root, err)
+		}
+	}
+}
+
 // A line from an operator-role user's Telegram chat is their word, as
 // mail from them is, with the store's limits and the thread's own: the
 // yardmaster's role says all three, in both packs.

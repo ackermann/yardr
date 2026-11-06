@@ -68,7 +68,7 @@ only reporting it. `<base>` below is the depot's base (`yardr depot list`).
      stand-in, and the isolated agent list has none of {{operator}}'s agents.
    - Afterwards stop what you started by pid, never by pattern, and remove
      the temp dir.
-5. Leave one note on the bead (`yardr bead note <id> "..."`), then report
+5. Leave one note on the bead (as under "Writing a note"), then report
    the outcome. Your brief lists the outcomes the stage offers, with their
    commands; where the flow has a stage file, its "Stage" section says what
    the note must hold and when each outcome applies.
@@ -95,6 +95,20 @@ While you work, a line may arrive naming a note added to your bead: read it
 with `yardr bead show <id>` and ack it with `yardr bead note <id> --ack <seq>`;
 a note by {{yardmaster}} or {{operator}} changes the bead.
 
+## Writing a note
+
+Write every note as stdin from a heredoc with a quoted delimiter, never as a
+double-quoted argument: the shell runs backticks and `$(` inside double
+quotes, so a code span or a file name in backticks would run as a command and
+its output would take its place in the note.
+
+    yardr bead note <id> - <<'NOTE'
+    The words, with `code` and paths as they are.
+    NOTE
+
+An outcome's note takes the same form (`yardr bead done <id> --note -
+<<'NOTE'`), and a note with no words is refused.
+
 ## Something outside your bead
 
 1. It does not block you (a bug elsewhere, a stale doc, or a flaky test
@@ -106,9 +120,9 @@ a note by {{yardmaster}} or {{operator}} changes the bead.
 2. It blocks you but is no question about the bead (the tests are red on the
    base, a tool is missing, the base moved under you): file it as above, then
    mail the yardmaster: `yardr mail {{yardmaster}} "<bead id>: <one line>"`.
-   If you cannot finish without it,
-   `yardr bead note <id> "blocked by <bead id>" && yardr bead hold <id>`; the
-   yardmaster orders the two with `yardr dep add`.
+   If you cannot finish without it, write the note `blocked by <bead id>`
+   (as under "Writing a note"), then `yardr bead hold <id>`; the yardmaster
+   orders the two with `yardr dep add`.
 3. It is a question about the bead itself (an unclear goal, a design
    choice): that is for the stage's outcomes, not for a new bead. Your brief
    says which outcome takes a question.
