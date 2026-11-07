@@ -1190,9 +1190,17 @@ func TestExecEnvWorktreesConfig(t *testing.T) {
 		t.Fatalf("config.worktrees ignored: %v", env)
 	}
 	// A child of a train lands on the train's branch, not the depot's base.
-	if env := e.env(job, nil); !slices.Contains(env, "YARDR_BASE=main") {
+	if env := e.env(job, nil); !slices.Contains(env, "YARDR_BASE=main") || !slices.Contains(env, "YARDR_DEPOT_BASE=main") {
 		t.Fatalf("no train: %v", env)
 	}
+	// A bead that came from a linked yard which named where its work starts
+	// has that commit for its base (store.Family), and the depot's base branch
+	// beside it, where merge-local lands it.
+	job.Base = "68519775aa0b6f7e1c2d3e4f5a6b7c8d9e0f1a2b"
+	if env := e.env(job, nil); !slices.Contains(env, "YARDR_BASE="+job.Base) || !slices.Contains(env, "YARDR_DEPOT_BASE=main") {
+		t.Fatalf("a linked yard's bead: %v", env)
+	}
+	job.Base = ""
 	// The type and the train are always said, the train empty for none, so a
 	// script can tell a wagon of a train (merge-local tests it without YARDR_LANDING) and no
 	// value the daemon was started with reads as the bead's.
@@ -1201,7 +1209,7 @@ func TestExecEnvWorktreesConfig(t *testing.T) {
 		t.Fatalf("no train: %v", env)
 	}
 	job.Train, job.Base = "yd-e", "yard/yd-e"
-	if env := e.env(job, nil); !slices.Contains(env, "YARDR_BASE=yard/yd-e") || !slices.Contains(env, "YARDR_TRAIN=yd-e") {
+	if env := e.env(job, nil); !slices.Contains(env, "YARDR_BASE=yard/yd-e") || !slices.Contains(env, "YARDR_TRAIN=yd-e") || !slices.Contains(env, "YARDR_DEPOT_BASE=main") {
 		t.Fatalf("child of a train: %v", env)
 	}
 	// Without a depot there is no worktree, but the branch is still known.
@@ -2258,7 +2266,7 @@ func TestHerdrDirDepot(t *testing.T) {
 func TestExecEnvDirDepot(t *testing.T) {
 	// Serial: sets the daemon's environment.
 	ctx := context.Background()
-	for _, k := range []string{"YARDR_BASE", "YARDR_BRANCH", "YARDR_WORKTREE"} {
+	for _, k := range []string{"YARDR_BASE", "YARDR_DEPOT_BASE", "YARDR_BRANCH", "YARDR_WORKTREE"} {
 		t.Setenv(k, "from-the-daemon")
 	}
 	dir := t.TempDir()
@@ -2294,7 +2302,7 @@ func TestExecEnvDirDepot(t *testing.T) {
 			t.Errorf("env lacks %s:\n%s", want, got)
 		}
 	}
-	for _, not := range []string{"YARDR_BASE=", "YARDR_BRANCH=", "YARDR_WORKTREE="} {
+	for _, not := range []string{"YARDR_BASE=", "YARDR_DEPOT_BASE=", "YARDR_BRANCH=", "YARDR_WORKTREE="} {
 		if slices.ContainsFunc(lines, func(l string) bool { return strings.HasPrefix(l, not) }) {
 			t.Errorf("env has %s for a dir depot:\n%s", not, got)
 		}

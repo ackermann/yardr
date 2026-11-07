@@ -183,6 +183,7 @@ after the pack's `env:` assignments. It gets these variables:
 | `YARDR_TYPE`, `YARDR_TRAIN` | stable | the bead's type, and the id of the train it is a child of, set and empty for a bead with none |
 | `YARDR_DEPOT`, `YARDR_DEPOT_PATH`, `YARDR_DEPOT_KIND` | stable | the bead's depot, its path, and `git` or `dir` |
 | `YARDR_BRANCH`, `YARDR_BASE`, `YARDR_WORKTREE` | stable | for a bead of a git depot: its branch, what it lands on, and where the branch is checked out. A dir depot's bead has none of the three |
+| `YARDR_DEPOT_BASE` | stable | for a bead of a git depot: the depot's base branch, whatever `YARDR_BASE` says (a bead from a linked yard has the commit its work started from there). A dir depot's bead has none |
 | `YARDR_TEST` | stable | the depot's test command, unset when the depot has none |
 | the pack's `env:` assignments | stable | for a group the import creates. A group the yard already has keeps its own `cmd`, and the assignments in it are the operator's from then on |
 | `TRACEPARENT` | stable if present | the W3C trace context of the bead's trace |

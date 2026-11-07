@@ -189,6 +189,7 @@ type yard struct {
 	opts           string // more assignments for the script's cmd, e.g. YARDR_PR=1
 	envFile        string // the group's env_file, when a test's script reads its credentials from one
 	bin            string // the script's YARDR_BIN, when not yardrBin itself
+	base           string // the base the dispatcher passes, when not the family's: a linked yard's bead's commit
 	log            string // what the last run wrote to its group's log
 
 	runs []string // the log of each run, for a failed test (showRuns)
@@ -494,6 +495,9 @@ func (y *yard) exec(script, group, id string) {
 	depot, err := rpc.NewClient((&config.Config{Home: y.home}).Socket()).GetDepot(ctx, "r")
 	if err != nil {
 		y.t.Fatal(err)
+	}
+	if y.base != "" {
+		fam.Base = y.base
 	}
 	h, err := e.Start(ctx, dispatch.Job{
 		Bead:     store.Bead{ID: id, Stage: b.Stage, Type: b.Type},
@@ -944,6 +948,75 @@ func TestMergeLocalBaseNotCheckedOut(t *testing.T) {
 	}
 	if main := y.git(y.repo, "rev-parse", "main"); main != tip {
 		t.Fatalf("main %s, want the branch tip %s", main, tip)
+	}
+}
+
+// A bead that came from a linked yard which named where its work starts has
+// that commit for YARDR_BASE (store.Family), on no branch here. With
+// YARDR_DEPOT_BASE a local branch, merge-local lands the bead on it, rebased
+// when it moved, and the log and the note name both. Where that commit is not
+// on the base, only the bead's own commits land, not the linked yard's under
+// them, which nobody here reviewed. Without YARDR_DEPOT_BASE, or with one
+// that is no branch, the bead is held with the words of any base that is not a
+// local branch.
+func TestMergeLocalLinkedYardsBead(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, opts string
+		lands      bool
+		foreign    bool // the work started at a commit of the linked yard's that the base lacks
+	}{
+		{name: "lands on the depot's base", lands: true},
+		{name: "started off the base", lands: true, foreign: true},
+		{name: "no depot base", opts: "YARDR_DEPOT_BASE="},
+		{name: "depot base no branch", opts: "YARDR_DEPOT_BASE=gone"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// A yard of its own, not the template's copy: the worktree a
+			// copy repairs is the template's on some gits, and the commit
+			// on the bead's branch must be this yard's.
+			y := newYardCLI(t)
+			y.opts = tc.opts
+			if tc.foreign {
+				y.commit(y.wt, "peer.txt", "the linked yard's\n")
+				y.base = y.git(y.wt, "rev-parse", "HEAD")
+			} else {
+				y.base = y.git(y.repo, "rev-parse", "main") // where the linked yard said its work starts
+			}
+			y.commit(y.wt, "b.txt", "bead\n")
+			y.commit(y.repo, "c.txt", "main moved\n") // a rebase is needed, cleanly
+			before := y.git(y.repo, "rev-parse", "main")
+
+			y.assembly()
+
+			start := y.git(y.repo, "rev-parse", "--short", y.base)
+			b := y.bead()
+			if !tc.lands {
+				if b.Stage != "approved" || !b.Hold || !strings.Contains(y.lastNoteOf("r-1"), "assembly: base "+y.base+" is not a local branch of "+y.repo+"; merge-local lands only on local branches") {
+					t.Fatalf("bead %s hold=%v, want held in approved with the not-a-branch words:\n%s", b.Stage, b.Hold, y.notes())
+				}
+				if main := y.git(y.repo, "rev-parse", "main"); main != before {
+					t.Fatalf("main moved to %s on a hold", main)
+				}
+				return
+			}
+			if b.Stage != "merged" || b.Status != "closed" {
+				t.Fatalf("bead %s/%s, want merged and closed:\n%s", b.Stage, b.Status, y.notes())
+			}
+			main := y.git(y.repo, "rev-parse", "main")
+			if tip := y.git(y.wt, "rev-parse", "HEAD"); tip != main || y.git(y.repo, "rev-parse", "main~1") != before {
+				t.Fatalf("main %s is not the branch %s rebased onto %s", main, tip, before)
+			}
+			if files := y.git(y.repo, "ls-tree", "--name-only", "main"); strings.Contains(files, "peer.txt") || !strings.Contains(files, "b.txt") {
+				t.Fatalf("main holds %q, want the bead's b.txt and not the linked yard's peer.txt", files)
+			}
+			if !strings.Contains(y.notes(), "; landed a bead whose work started at "+start+" onto main") {
+				t.Fatalf("the note does not name where the work started and where it landed:\n%s", y.notes())
+			}
+			if !strings.Contains(y.log, "== r-1's work started at "+start+", on no local branch: landing it on the depot's base main") {
+				t.Fatalf("the log does not say where it lands the bead:\n%s", y.log)
+			}
+		})
 	}
 }
 

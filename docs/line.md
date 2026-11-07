@@ -491,7 +491,10 @@ uses it to merge directly to `main`.
 
 **The mechanism.** The exec runner starts the script in the depot with
 everything it needs in its environment ([groups.md](groups.md#runners)):
-`YARDR_BEAD`, `YARDR_DEPOT`, `YARDR_DEPOT_PATH`, `YARDR_BASE`, `YARDR_BRANCH`
+`YARDR_BEAD`, `YARDR_DEPOT`, `YARDR_DEPOT_PATH`, `YARDR_BASE`,
+`YARDR_DEPOT_BASE` (the depot's base branch, where merge-local lands a bead
+from a linked yard whose base is a commit, see
+[peers.md](peers.md#code-that-comes-back)), `YARDR_BRANCH`
 (`yard/<bead>`), `YARDR_WORKTREE`, `YARDR_BIN` (this yardr), and
 `YARDR_ACTOR` set to the group, and `YARDR_TEST`, the depot's test command
 ([configuration.md](configuration.md#tests)), unset for a depot with none.

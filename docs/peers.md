@@ -2682,6 +2682,21 @@ yardr route add --stage push --depot web --group web/return --originator any
 The `bead-return` then carries `git`: `branch`, `commit`, `remote`. A flow
 without such a stage returns the outcome and the notes, as before.
 
+**Landing it here instead: `merge-local`.** `return-branch` is the designed
+way back, and the yard that asked lands the work. A yard may also land a
+linked yard's bead itself, by routing the bead's last stage to an assembly
+that runs [`merge-local`](line.md#4-approved-the-assembly-lands-it-on-main).
+Such a bead's `YARDR_BASE` is the commit its work started from, on no branch
+of this yard's, so merge-local lands it on the depot's base branch, which the
+exec runner gives every session of a git depot as `YARDR_DEPOT_BASE`
+([groups.md](groups.md#runners)): it rebases the bead's own commits, those
+after the commit its work started from, onto that branch, so none of the
+linked yard's commits under them land unreviewed, then tests and lands as for
+any bead, and its log and note
+say that it landed a bead whose work started at that commit onto the branch.
+A bead of a train, and one with no `YARDR_DEPOT_BASE` that is a local branch,
+is held as for any base that is not a local branch.
+
 **Taking it back.** A return with `git` does not move the bead at once.
 The daemon first, outside the store:
 

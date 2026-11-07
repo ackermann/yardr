@@ -36,6 +36,9 @@ import (
 //	                a train, else the depot's base (see BaseOf). For a bead
 //	                that came from a linked yard which named where its work
 //	                starts, that commit: nothing of it lands here
+//	YARDR_DEPOT_BASE  the depot's base branch, always, whatever YARDR_BASE
+//	                says: where merge-local lands a linked yard's bead,
+//	                whose YARDR_BASE is a commit on no branch
 //	YARDR_BRANCH    the bead's branch, yard/<bead>
 //	YARDR_WORKTREE  where the herdr runner keeps that branch checked out
 //	                (<worktrees>/<depot>/<bead>; config.worktrees as for herdr)
@@ -244,7 +247,7 @@ func withheld(job dispatch.Job, environ []string) []string {
 	env := config.WithoutServerSettings(environ)
 	names := []string{"TEST", "GIT_SYSTEM_CLEAN"}
 	if job.Depot != nil && job.Depot.IsDir() {
-		names = append(names, "BASE", "BRANCH", "WORKTREE")
+		names = append(names, "BASE", "DEPOT_BASE", "BRANCH", "WORKTREE")
 	}
 	var drop []string // "YARDR_TEST=", "YARDR_BASE=", ...
 	for _, name := range names {
@@ -294,7 +297,8 @@ func (e *Exec) env(job dispatch.Job, hookEnv []string) []string {
 	env = append(env, config.Env("BRANCH", Branch(job.Bead))...)
 	if depot := job.Depot; depot != nil {
 		env = slices.Concat(env, config.Env("DEPOT", depot.Name), config.Env("DEPOT_PATH", depot.Path),
-			config.Env("DEPOT_KIND", store.DepotGit), config.Env("BASE", BaseOf(job)))
+			config.Env("DEPOT_KIND", store.DepotGit), config.Env("BASE", BaseOf(job)),
+			config.Env("DEPOT_BASE", depot.Base))
 		root := str(job.Group.Config, "worktrees", "")
 		if root == "" && e.Home != "" {
 			root = config.At(e.Home).Worktrees()
