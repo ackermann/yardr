@@ -509,24 +509,93 @@ func TestCopiedScriptBlocksStayEqual(t *testing.T) {
 	}
 }
 
+// shellWithoutHigh is the first of shells that cannot name descriptors above
+// 9, the one sh closefds refuses under, ready to run a -c driver; false where
+// every shell the host has can. It picks by what the shell cannot do, not by
+// name: where the host's sh is dash (Debian, Ubuntu), testShells drops its dash
+// candidate as the same file and lists the one dash as sh, with a blank path
+// for the shebang's. That is /bin/sh, the file its high was asked of, not
+// whichever sh a PATH finds first.
+func shellWithoutHigh(shells []testShell) (testShell, bool) {
+	for _, sh := range shells {
+		if sh.high {
+			continue
+		}
+		if sh.path == "" {
+			sh.path = "/bin/sh"
+		}
+		return sh, true
+	}
+	return testShell{}, false
+}
+
+// shellWithoutHigh is fed the lists testShells makes on the hosts this suite
+// runs on. Debian's is the one it was written for: its dash is listed as sh,
+// and a pick by the name dash found none, so the refusal below was never run
+// there.
+func TestShellWithoutHigh(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name   string
+		shells []testShell
+		want   testShell
+		found  bool
+	}{
+		{
+			name:   "debian lists its dash once, as sh with no path",
+			shells: []testShell{{name: "sh", path: "", high: false}},
+			want:   testShell{name: "sh", path: "/bin/sh", high: false},
+			found:  true,
+		},
+		{
+			name:   "debian with bash beside it",
+			shells: []testShell{{name: "sh", path: "", high: false}, {name: "bash", path: "/usr/bin/bash", high: true}},
+			want:   testShell{name: "sh", path: "/bin/sh", high: false},
+			found:  true,
+		},
+		{
+			name:   "mac has a bash sh and its dash apart, with a path",
+			shells: []testShell{{name: "sh", path: "", high: true}, {name: "dash", path: "/bin/dash", high: false}, {name: "bash", path: "/bin/bash", high: true}},
+			want:   testShell{name: "dash", path: "/bin/dash", high: false},
+			found:  true,
+		},
+		{
+			name:   "the first of two wins",
+			shells: []testShell{{name: "sh", path: "", high: false}, {name: "dash", path: "/usr/local/bin/dash", high: false}},
+			want:   testShell{name: "sh", path: "/bin/sh", high: false},
+			found:  true,
+		},
+		{
+			name:   "none where every shell closes above 9",
+			shells: []testShell{{name: "sh", path: "", high: true}, {name: "bash", path: "/bin/bash", high: true}},
+			found:  false,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, found := shellWithoutHigh(tc.shells)
+			if got != tc.want || found != tc.found {
+				t.Errorf("shellWithoutHigh(%+v) = %+v, %v, want %+v, %v", tc.shells, got, found, tc.want, tc.found)
+			}
+		})
+	}
+}
+
 // closefds refuses when it cannot even list the descriptors it must close:
 // with no listing, the glob matches nothing, and the run must hold rather
 // than start over unseen descriptors. The block is merge-local's, read
 // from the script, so the test pins whatever the equality test holds
 // across the scripts; the unlisted row points it at a directory that does
 // not exist, which fails the listing the way a failed open does. The
-// listed row keeps the harness honest.
+// listed row keeps the harness honest. Both run under the sh that cannot
+// close above 9 (shellWithoutHigh), the one the refusal is for: a shell that
+// can close them closes what it lists and starts the command.
 func TestCloseFdsRefusesWhenDescriptorsCannotBeListed(t *testing.T) {
 	t.Parallel()
-	dash := ""
-	for _, sh := range testShells() {
-		if sh.name == "dash" {
-			dash = sh.path
-		}
+	sh, ok := shellWithoutHigh(testShells())
+	if !ok {
+		t.Skip("no shell without high descriptors on this host")
 	}
-	if dash == "" {
-		t.Skip("no dash on this host")
-	}
+	t.Logf("closefds is run under %s (%s)", sh.name, sh.path)
 	block := markedBlock(t, "merge-local", closefdsOpen, closefdsClose)
 	for _, tc := range []struct {
 		name    string
@@ -545,7 +614,7 @@ func TestCloseFdsRefusesWhenDescriptorsCannotBeListed(t *testing.T) {
 			if tc.rewrite {
 				driver = strings.ReplaceAll(driver, "/dev/fd", "/dev/no-such-dir-8hm5")
 			}
-			cmd := exec.Command(dash, "-c", driver, "closefds.sh")
+			cmd := exec.Command(sh.path, "-c", driver, "closefds.sh")
 			cmd.Dir = t.TempDir()
 			cmd.ExtraFiles = plantedFiles(t, cmd.Dir, true, 0)
 			out, err := cmd.CombinedOutput()
