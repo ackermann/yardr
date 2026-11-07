@@ -138,7 +138,7 @@ func mappingActYard(t *testing.T) (*fixture, *store.Bead, uint64) {
 	ts := httptest.NewServer(srv)
 	t.Cleanup(func() { shut(ts) })
 	f := &fixture{t: t, st: api, ts: ts, home: home}
-	f.signIn(srv, srv.ActAs("mckean"))
+	f.signIn(srv, actAs(t, srv, "mckean"))
 	ctx := context.Background()
 	must(t, func() error { _, err := f.st.AddUser(ctx, "mckean", "mckean"); return err }())
 	must(t, func() error { _, err := f.st.AddUser(ctx, "ada", "ada"); return err }())
@@ -309,7 +309,7 @@ func TestBeadAskVisibleWithBrokenFlow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	token := srv.ActAs("jo")
+	token := actAs(t, srv, "jo")
 	ts := httptest.NewServer(srv)
 	t.Cleanup(func() { shut(ts) })
 	f.ts = ts
@@ -621,7 +621,7 @@ func TestBeadConcurrentAnswers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	token := srv.ActAs("jo")
+	token := actAs(t, srv, "jo")
 	ts := httptest.NewServer(srv)
 	t.Cleanup(func() { shut(ts) })
 	f := &fixture{t: t, st: base.st, ts: ts, home: base.home}

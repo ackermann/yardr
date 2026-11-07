@@ -36,7 +36,7 @@ func talkFixture(t *testing.T, as string) (*fixture, *web.Server) {
 	}
 	var token string
 	if as != "" {
-		token = srv.ActAs(as)
+		token = actAs(t, srv, as)
 	}
 	ts := httptest.NewServer(srv)
 	t.Cleanup(func() { shut(ts) })
@@ -468,7 +468,7 @@ func talkBlobFixture(t *testing.T, as string) *fixture {
 	}
 	var token string
 	if as != "" {
-		token = srv.ActAs(as)
+		token = actAs(t, srv, as)
 	}
 	ts := httptest.NewServer(srv)
 	t.Cleanup(func() { shut(ts) })

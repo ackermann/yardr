@@ -34,7 +34,7 @@ func ownedFixture(t *testing.T, as string) (*fixture, *store.Store) {
 	must(t, err)
 	var token string
 	if as != "" {
-		token = srv.ActAs(as)
+		token = actAs(t, srv, as)
 	}
 	ts := httptest.NewServer(srv)
 	t.Cleanup(func() { shut(ts) })

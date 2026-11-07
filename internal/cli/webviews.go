@@ -11,6 +11,7 @@ import (
 
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/version"
+	"yardr.dev/yardr/internal/web"
 )
 
 // A running web view says so in a file of its own in the home's webviews
@@ -99,6 +100,13 @@ func webViews(cfg *config.Config) []webView {
 		}
 		_ = json.Unmarshal(b, &secret)
 		v.token = secret.Token
+		// The token the view takes is the one its file holds now, which
+		// yardr web revoke may have replaced since the view recorded it.
+		if v.token != "" {
+			if now, err := web.ReadViewToken(cfg.WebToken(v.As)); err == nil {
+				v.token = now
+			}
+		}
 		v.URL, v.Open = webURL(v.Addr), v.Unsafe && !loopbackOnly(v.Addr)
 		v.Build, v.Differs = version.Show(v.Revision), v.Revision != version.Current()
 		views = append(views, v)

@@ -115,12 +115,14 @@ view's own pages, and every other route stays GET. Without a user the talk
 page says the view does not act, and the view changes nothing.
 
 A view that acts takes its writes only from a browser that holds its cookie
-(docs/web.md, "The token and the cookie"). When it starts it makes a token
-of 256 random bits, keeps it in its record under <home>/webviews, a file only
-you can read, and prints a URL carrying it (http://127.0.0.1:8791/?token=...)
+(docs/web.md, "The token and the cookie"). The first view that acts as the
+user makes a token of 256 random bits and keeps it in <home>/web, a file only
+you can read, which every later start takes, until yardr web revoke replaces
+it. The view prints a URL carrying it (http://127.0.0.1:8791/?token=...)
 once, in a terminal and never into a log: open it in your browser, which
-trades the token for a cookie and is sent on to the page without it. yardr
-web open opens that URL, from the record. A
+trades the token for a cookie that lasts web_cookie_days (365 by default) and
+is sent on to the page without it, so the browser stays logged in when the
+view is started again. yardr web open opens that URL. A
 write without the cookie and the CSRF value of the page it was made from is
 refused with 403, and a browser without the cookie reads the yard as a
 view with no user does. --unsafe is refused with a user, outside JWT mode:
@@ -250,10 +252,14 @@ this machine. Both answers carry Retry-After.`,
 				return err
 			}
 			// A view that acts takes its writes from a browser that holds a
-			// cookie, which a URL with this token buys.
+			// cookie, which a URL with this token buys: the token the home
+			// keeps for the user, so a browser that opened it before this
+			// start is still logged in, until web_cookie_days have passed.
 			var token string
 			if as != "" {
-				token = srv.ActAs(as)
+				if token, err = srv.ActAs(as, webCookieAge(all)); err != nil {
+					return err
+				}
 			}
 			if jwtCfg.Issuer != "" {
 				if err := srv.UseJWT(ctx, jwtCfg); err != nil {
@@ -394,6 +400,7 @@ this machine. Both answers carry Retry-After.`,
 	serve.Flags().StringVar(&localRead, "local-read", "", "listen address of a listener on loopback, whatever --unsafe says, that answers the view's read-only JSON and stream to this machine with no gateway token (default: none)")
 	cmd.AddCommand(serve)
 	cmd.AddCommand(a.webOpenCmd())
+	cmd.AddCommand(a.webRevokeCmd())
 	v := a.longRunningCmds(cmd, serve, kindOf(svcWeb))
 	for _, c := range []*cobra.Command{v.start, v.install} {
 		c.Flags().Lookup("addr").Usage = "listen address, on loopback (default: YARDR_WEB_ADDR, else web_addr, else " + webLocalAddr + ")"
@@ -414,7 +421,7 @@ the loopback names (docs/web.md, "Behind a proxy"). --as is handed on too:
 the view acts as that user, and refuses to start when no user of the yard
 has the name; without --as it acts as YARDR_WEB_AS, else the yard's web_as
 setting, and reads only with neither (docs/web.md, "Acting as a user"). A
-view that acts keeps its token in its record, not in the log: yardr web open
+view that acts keeps its token in <home>/web, not in the log: yardr web open
 opens the view with it. --local-read is handed on too, and opens the
 local-read listener on loopback (docs/web.md, "Behind an auth gateway").`
 	v.start.Example = `  yardr web start                          # http://127.0.0.1:8791/
@@ -442,8 +449,9 @@ given besides the loopback names, and still listens on loopback only. --as
 is written into the service too: the view acts as that user. Without --as
 the view acts as YARDR_WEB_AS from the install environment when set, else
 the yard's web_as setting, which it reads at every start. A view that acts
-makes a token at every start and keeps it in its record, not in the log:
-yardr web open opens the view with it. --local-read is written into the
+takes the token kept in <home>/web at every start, so a browser stays
+logged in across logins, and keeps it out of the log: yardr web open opens
+the view with it. --local-read is written into the
 service as well, so the local-read listener comes back at every login
 (docs/web.md, "Behind an auth gateway"). To reach the
 view from another machine, forward the port over ssh or put a proxy of

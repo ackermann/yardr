@@ -212,7 +212,7 @@ func TestLocalReadAsksNoCookie(t *testing.T) {
 	st := storetest.New(t)
 	srv, err := web.NewServer(st, t.TempDir(), nil)
 	must(t, err)
-	token := srv.ActAs("jo")
+	token := actAs(t, srv, "jo")
 	local := httptest.NewServer(srv.LocalReadHandler())
 	t.Cleanup(func() { shut(local) })
 	f := &pagesFixture{t: t, st: st, srv: srv, local: local}

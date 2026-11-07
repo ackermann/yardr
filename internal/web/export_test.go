@@ -100,3 +100,7 @@ func ProviderOf(runner string, cfg map[string]any, as []limits.Answerer) string 
 func (s *Server) SetEstimates(fn func(ctx context.Context, st store.API, ids []string, now time.Time) (map[string]*eta.Result, error)) {
 	s.estimates = fn
 }
+
+// SetTokenClock sets the clock a view that acts measures its cookies' age
+// by. Call it after ActAs.
+func (s *Server) SetTokenClock(now func() time.Time) { s.token.now = now }

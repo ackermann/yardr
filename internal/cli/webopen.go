@@ -71,11 +71,11 @@ A view that acts as a user (--as, YARDR_WEB_AS or the web_as setting) takes
 its writes only from a browser that holds its cookie, which a URL with the
 view's token buys once. The view prints that URL in the terminal it runs in
 when it starts, and prints none where no terminal runs it (yardr web start,
-the login service); this command opens it from the view's record in
-<home>/webviews, a file only you can read. The cookie lasts as long as the
-browser's session, and the token as long as the view runs: a view that is
-started again has a token of its own. A view that does not act is opened at
-its plain address.
+the login service); this command opens it from the token's file in
+<home>/web, a file only you can read. The token lasts until yardr web revoke
+replaces it, and a view that is started again takes the same one, so the
+cookie it buys lasts web_cookie_days across restarts. A view that does not
+act is opened at its plain address.
 
 Where no browser opens (a machine with no display, an ssh session), the URL
 is printed instead, and it is the one to open in a browser on this machine.

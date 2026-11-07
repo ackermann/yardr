@@ -6,13 +6,19 @@ import (
 	"io"
 	"net/http"
 	"net/http/cookiejar"
+	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
+	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/storetest"
 	"yardr.dev/yardr/internal/web"
 )
 
@@ -164,8 +170,9 @@ func TestTokenGuardsEveryWrite(t *testing.T) {
 }
 
 // The token URL buys the cookie: HttpOnly, SameSite=Strict, for the whole
-// view and for the browser's session, not the token itself, and a redirect
-// to the same URL without the token. Only a GET with the right token does.
+// view and for web_cookie_days (the default 365 here), not the token itself,
+// and a redirect to the same URL without the token. Only a GET with the
+// right token does.
 func TestTokenURLSetsTheCookie(t *testing.T) {
 	t.Parallel()
 	f, _ := talkFixture(t, "jo")
@@ -182,8 +189,8 @@ func TestTokenURLSetsTheCookie(t *testing.T) {
 	}
 	c := cookies[0]
 	if c.Name != "yardr_web_"+port || c.Value == "" || !c.HttpOnly || c.SameSite != http.SameSiteStrictMode || c.Path != "/" ||
-		c.MaxAge != 0 || !c.Expires.IsZero() || c.Domain != "" {
-		t.Errorf("cookie %+v, want yardr_web_%s: HttpOnly, SameSite=Strict, Path=/, for the session and this host", c, port)
+		c.MaxAge != 365*24*3600 || c.Expires.Before(time.Now().Add(364*24*time.Hour)) || c.Domain != "" {
+		t.Errorf("cookie %+v, want yardr_web_%s: HttpOnly, SameSite=Strict, Path=/, for 365 days and this host", c, port)
 	}
 	if strings.Contains(c.Value, f.token) || strings.Contains(r.Header.Get("Set-Cookie"), f.token) {
 		t.Errorf("the cookie carries the token: %q", r.Header.Get("Set-Cookie"))
@@ -343,9 +350,10 @@ func TestEveryFormCarriesTheCSRFValue(t *testing.T) {
 	}
 }
 
-// A view's secrets are its own: a token is 256 bits in hex, the cookie and
-// the CSRF value are other than it and than each other, and none of them
-// carries over to a second view or to the same one started again.
+// A view's secrets are its home's: a token is 256 bits in hex, the cookie
+// and the CSRF value are other than it and than each other, and none of them
+// carries over to a view of another home (TestTokenOutlivesTheView has the
+// same home's).
 func TestTokenIsPerView(t *testing.T) {
 	t.Parallel()
 	a, _ := talkFixture(t, "jo")
@@ -412,5 +420,209 @@ func TestReadOnlyViewTakesNoToken(t *testing.T) {
 	r, body := f.noRedirect(http.MethodGet, "/?token=anything")
 	if r.StatusCode != 200 || len(r.Cookies()) != 0 || strings.Contains(body, "csrf") {
 		t.Errorf("status %d, %d cookies: a view that does not act took a token", r.StatusCode, len(r.Cookies()))
+	}
+}
+
+// actAs is ActAs for a test: the view acts as user behind the token its
+// home keeps, with the cookie's default age, and the token is returned.
+func actAs(t testing.TB, srv *web.Server, user string) string {
+	t.Helper()
+	token, err := srv.ActAs(user, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return token
+}
+
+// A view started again on the same home takes the token the first made, so
+// a browser that opened the first serve's token URL is still logged in on
+// the second: its cookie acts there, and its CSRF value is the one the
+// second's forms carry. The token is in a file of mode 0600, in a directory
+// of 0700, under the home.
+func TestTokenOutlivesTheView(t *testing.T) {
+	t.Parallel()
+	first, _ := talkFixture(t, "jo")
+	file := config.At(first.home).WebToken("jo")
+	if info, err := os.Stat(file); err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("the token's file %s: %v (%v), want mode 0600", file, info, err)
+	}
+	if info, err := os.Stat(filepath.Dir(file)); err != nil || info.Mode().Perm() != 0o700 {
+		t.Fatalf("the token's directory: %v (%v), want mode 0700", info, err)
+	}
+	if b, err := os.ReadFile(file); err != nil || strings.TrimSpace(string(b)) != first.token {
+		t.Fatalf("the file holds %q (%v), want the token the view took", b, err)
+	}
+
+	srv, err := web.NewServer(first.st, first.home, nil)
+	must(t, err)
+	if again := actAs(t, srv, "jo"); again != first.token {
+		t.Fatalf("the second serve took token %q, want the first's %q", again, first.token)
+	}
+	if srv.CSRF() != first.csrf {
+		t.Errorf("the second serve's CSRF value is another than the first's")
+	}
+	ts := httptest.NewServer(srv)
+	t.Cleanup(func() { shut(ts) })
+	second := &fixture{t: t, st: first.st, ts: ts, home: first.home}
+	// The browser's cookie, under the name the second serve's port gives
+	// it: a view started again listens on its port as before.
+	second.token = first.token
+	held := &http.Cookie{Name: second.cookieAt("").Name, Value: first.session.Value}
+	second.session, second.csrf = held, first.csrf
+	talkYard(t, second)
+	if r := second.get("/talk?with=yardmaster"); strings.Contains(r.body, "token URL") || !strings.Contains(r.body, "Mail to yardmaster as jo") {
+		t.Fatalf("the first serve's cookie does not act on the second:\n%s", r.body)
+	}
+	if r := second.postForm("/talk?with=yardmaster", url.Values{"text": {"still here"}}, "Origin", ts.URL); r.status != http.StatusSeeOther {
+		t.Errorf("a write with the first serve's cookie and CSRF value on the second: status %d, want 303:\n%s", r.status, r.body)
+	}
+
+	// Another user's token is a file of its own, and a name with a '/' is
+	// escaped into one name.
+	other, err := web.LoadViewToken(config.At(first.home).WebToken("ops/jo"))
+	must(t, err)
+	if other == first.token {
+		t.Error("another user has the same token")
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(file), "token-ops%2Fjo")); err != nil {
+		t.Errorf("the token of ops/jo: %v", err)
+	}
+}
+
+// A cookie lasts the age ActAs was given from when the token URL bought it,
+// and the view refuses it after, whatever the browser sends: a request that
+// carries it does not make it last longer, and a cookie whose time was
+// rewritten fails its hash.
+func TestTokenCookieExpires(t *testing.T) {
+	t.Parallel()
+	st := storetest.New(t)
+	home := filepath.Join(t.TempDir(), ".depot")
+	srv, err := web.NewServer(st, home, nil)
+	must(t, err)
+	token, err := srv.ActAs("jo", 2*time.Hour)
+	must(t, err)
+	clock := time.Now()
+	srv.SetTokenClock(func() time.Time { return clock })
+	ts := httptest.NewServer(srv)
+	t.Cleanup(func() { shut(ts) })
+	f := &fixture{t: t, st: st, ts: ts, home: home}
+	f.signIn(srv, token)
+	talkYard(t, f)
+	if f.session.MaxAge != 7200 {
+		t.Errorf("the cookie's Max-Age is %d, want 7200", f.session.MaxAge)
+	}
+	acts := func() bool {
+		t.Helper()
+		return !strings.Contains(f.get("/talk?with=yardmaster").body, "token URL")
+	}
+
+	clock = clock.Add(2*time.Hour - time.Second)
+	r := f.do(http.MethodGet, "/talk?with=yardmaster")
+	if !acts() || len(r.header.Values("Set-Cookie")) != 0 {
+		t.Fatalf("a cookie a second short of its age: acts %v, Set-Cookie %q, want it to act and no new cookie", acts(), r.header.Values("Set-Cookie"))
+	}
+	clock = clock.Add(2 * time.Second)
+	if acts() {
+		t.Fatal("a cookie past its age still acts")
+	}
+	if r := f.postForm("/talk?with=yardmaster", url.Values{"text": {"late"}}, "Origin", ts.URL); r.status != http.StatusForbidden {
+		t.Errorf("a write with a cookie past its age: status %d, want 403", r.status)
+	}
+	// A young time on the old hash is no cookie of the view's.
+	_, mac, _ := strings.Cut(f.session.Value, ".")
+	young := strconv.FormatInt(clock.Unix(), 10) + "." + mac
+	if r := f.bare().get("/talk?with=yardmaster", "Cookie", f.session.Name+"="+young); !strings.Contains(r.body, "token URL") {
+		t.Error("a cookie with its time rewritten acts")
+	}
+	// The token still buys a new one, which lasts its age from now.
+	f.session = f.cookieAt("")
+	if !acts() {
+		t.Error("a fresh cookie from the token URL does not act")
+	}
+}
+
+// yardr web revoke writes a new token to the file: on a view that runs, the
+// cookies and the token URL of the old one stop working at once, with no
+// restart, the new token URL buys a cookie that acts, and the forms carry
+// another CSRF value. A file that is gone admits no browser.
+func TestTokenRevokeReachesARunningView(t *testing.T) {
+	t.Parallel()
+	f, srv := talkFixture(t, "jo")
+	talkYard(t, f)
+	oldCSRF := f.csrf
+	file := config.At(f.home).WebToken("jo")
+	fresh, err := web.RevokeViewToken(file)
+	must(t, err)
+	if fresh == f.token || !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(fresh) {
+		t.Fatalf("the new token %q, want 256 bits in hex other than the old", fresh)
+	}
+	if info, err := os.Stat(file); err != nil || info.Mode().Perm() != 0o600 {
+		t.Errorf("the revoked token's file: %v (%v), want mode 0600", info, err)
+	}
+	if r := f.get("/talk?with=yardmaster"); !strings.Contains(r.body, "token URL") {
+		t.Error("the old cookie acts after the revoke")
+	}
+	if r := f.postForm("/talk?with=yardmaster", url.Values{"text": {"after"}, "csrf": {oldCSRF}}, "Origin", f.ts.URL); r.status != http.StatusForbidden {
+		t.Errorf("a write with the old cookie and CSRF value: status %d, want 403", r.status)
+	}
+	if r, _ := f.bare().noRedirect(http.MethodGet, "/?token="+f.token); len(r.Cookies()) != 0 {
+		t.Error("the old token URL buys a cookie after the revoke")
+	}
+	if srv.CSRF() == oldCSRF {
+		t.Error("the forms carry the old CSRF value after the revoke")
+	}
+	f.token = fresh
+	f.session, f.csrf = f.cookieAt(""), srv.CSRF()
+	if r := f.get("/talk?with=yardmaster"); strings.Contains(r.body, "token URL") {
+		t.Error("the new token URL's cookie does not act")
+	}
+	if r := f.postForm("/talk?with=yardmaster", url.Values{"text": {"back"}}, "Origin", f.ts.URL); r.status != http.StatusSeeOther {
+		t.Errorf("a write with the new cookie: status %d, want 303", r.status)
+	}
+	// Another serve takes the new token, not the old.
+	again, err := web.NewServer(f.st, f.home, nil)
+	must(t, err)
+	if got := actAs(t, again, "jo"); got != fresh {
+		t.Errorf("a serve after the revoke took %q, want the new token", got)
+	}
+
+	// The file gone: no cookie acts, and no token buys one.
+	must(t, os.Remove(file))
+	if r := f.get("/talk?with=yardmaster"); !strings.Contains(r.body, "token URL") {
+		t.Error("a cookie acts with the token's file gone")
+	}
+	if r, _ := f.bare().noRedirect(http.MethodGet, "/?token="+fresh); len(r.Cookies()) != 0 {
+		t.Error("a token buys a cookie with its file gone")
+	}
+	if srv.CSRF() != "" {
+		t.Error("a form carries a CSRF value with the token's file gone")
+	}
+}
+
+// A file that holds no token, or one others than its owner may read, is
+// refused at start, and named, rather than replaced: what logs a browser in
+// is not made over by a serve unasked.
+func TestTokenFileOfNoTokenIsRefused(t *testing.T) {
+	t.Parallel()
+	home := filepath.Join(t.TempDir(), ".depot")
+	file := config.At(home).WebToken("jo")
+	must(t, os.MkdirAll(filepath.Dir(file), 0o700))
+	must(t, os.WriteFile(file, []byte("not a token\n"), 0o600))
+	srv, err := web.NewServer(storetest.New(t), home, nil)
+	must(t, err)
+	if _, err := srv.ActAs("jo", 0); err == nil || !strings.Contains(err.Error(), "yardr web revoke") {
+		t.Errorf("ActAs over a file of no token: %v, want it refused, naming yardr web revoke", err)
+	}
+	// A good token in a file others may read is refused too: whoever read
+	// it may hold the token. A revoke writes one of mode 0600 in its place.
+	must(t, os.WriteFile(file, []byte(strings.Repeat("ab", 32)+"\n"), 0o600))
+	must(t, os.Chmod(file, 0o644))
+	if _, err := srv.ActAs("jo", 0); err == nil || !strings.Contains(err.Error(), "mode -rw-r--r--") {
+		t.Errorf("ActAs over a token others may read: %v, want it refused for its mode", err)
+	}
+	fresh, err := web.RevokeViewToken(file)
+	must(t, err)
+	if got := actAs(t, srv, "jo"); got != fresh {
+		t.Errorf("ActAs after the revoke took %q, want %q", got, fresh)
 	}
 }

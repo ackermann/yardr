@@ -31,6 +31,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/eta"
 	"yardr.dev/yardr/internal/store"
 )
@@ -707,12 +708,23 @@ func (s *Server) AllowHosts(hosts ...string) {
 // POST routes, which without it do not exist: the mux answers a POST as it
 // answers every other method. It returns the token that buys the cookie,
 // which the caller keeps for the operator alone (a view that acts has no
-// way to be without one). Call it before the server serves.
-func (s *Server) ActAs(user string) (token string) {
+// way to be without one): the one in the home's file for user
+// (config.WebToken), made there by the first serve that acts as them and
+// taken by every serve after, until yardr web revoke replaces it. A cookie
+// lasts cookieAge from when the token bought it, web_cookie_days' default
+// where it is 0. Call it before the server serves.
+func (s *Server) ActAs(user string, cookieAge time.Duration) (token string, err error) {
+	file := config.At(s.home).WebToken(user)
+	if token, err = LoadViewToken(file); err != nil {
+		return "", fmt.Errorf("the web view's token for %s: %w", user, err)
+	}
+	if cookieAge <= 0 {
+		cookieAge = store.DefaultWebCookieDays * 24 * time.Hour
+	}
 	s.as = user
-	s.token = newViewToken()
+	s.token = &viewToken{file: file, maxAge: cookieAge, now: time.Now}
 	s.postRoutes()
-	return s.token.secret
+	return token, nil
 }
 
 // postRoutes registers the routes that take a write: the talk page's

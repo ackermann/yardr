@@ -6,6 +6,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -356,6 +357,16 @@ func (c *Config) OTelLog() string { return filepath.Join(c.Home, "otel.log") }
 func (c *Config) WebViews() string    { return filepath.Join(c.Home, "webviews") }
 func (c *Config) BDPServers() string  { return filepath.Join(c.Home, "bdpservers") }
 func (c *Config) OTelExports() string { return filepath.Join(c.Home, "otelexports") }
+
+// WebToken is the file that holds the secret of a web view that acts as
+// user (internal/web, viewtoken.go), in a directory of the home's that only
+// its owner reads. It outlives the view, so a browser that opened one serve's
+// token URL is still logged in on the next. The user's name may hold a '/',
+// which the file's name escapes; it holds no '%', so two names never share
+// a file.
+func (c *Config) WebToken(user string) string {
+	return filepath.Join(c.Home, "web", "token-"+url.PathEscape(user))
+}
 
 // OTelState is where yardr otel export keeps what it has sent.
 func (c *Config) OTelState() string { return filepath.Join(c.Home, "otel-export.json") }

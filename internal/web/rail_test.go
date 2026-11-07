@@ -49,7 +49,7 @@ func TestRailReadsInboxOnce(t *testing.T) {
 		home := filepath.Join(t.TempDir(), ".depot")
 		srv, err := web.NewServer(countingInbox{API: st, n: &n}, home, nil)
 		must(t, err)
-		token := srv.ActAs("jo")
+		token := actAs(t, srv, "jo")
 		ts := httptest.NewServer(srv)
 		t.Cleanup(func() { shut(ts) })
 		f := &fixture{t: t, st: st, ts: ts, home: home}

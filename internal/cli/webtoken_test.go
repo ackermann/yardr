@@ -223,12 +223,32 @@ func TestWebServeActsBehindItsToken(t *testing.T) {
 		t.Errorf("the view ended and left %d files with its token", len(left))
 	}
 
-	// Another serve is another view with a token of its own.
-	again, _, stopAgain := serveWeb(t, st, cfg, true, "--as", "Jo")
-	stopAgain()
-	if again.token == "" || again.token == v.token {
-		t.Errorf("a second serve has token %q after the first's %q, want one of its own", again.token, v.token)
+	// Another serve on the home takes the token the first made, kept in a
+	// file of its own beside the records, so the cookie the first's URL
+	// bought acts on the second: a restart logs no browser out.
+	if b, err := os.ReadFile(cfg.WebToken("Jo")); err != nil || strings.TrimSpace(string(b)) != v.token {
+		t.Errorf("the token's file holds %q (%v) after the view ended, want its token", b, err)
 	}
+	again, _, stopAgain := serveWeb(t, st, cfg, true, "--as", "Jo")
+	if again.token != v.token {
+		t.Errorf("a second serve has token %q after the first's %q, want the same", again.token, v.token)
+	}
+	held := r.Cookies()[0]
+	page, err := http.NewRequest(http.MethodGet, "http://"+again.Addr+"/talk", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page.AddCookie(&http.Cookie{Name: "yardr_web_" + strings.TrimPrefix(again.Addr, "127.0.0.1:"), Value: held.Value})
+	if r, err := client.Do(page); err != nil {
+		t.Error(err)
+	} else {
+		body, _ := io.ReadAll(r.Body)
+		r.Body.Close()
+		if strings.Contains(string(body), "token URL") {
+			t.Errorf("the first serve's cookie does not act on the second:\n%s", body)
+		}
+	}
+	stopAgain()
 
 	// A view that does not act has none, and prints none.
 	plain, stderr, stopPlain := serveWeb(t, st, cfg, true, "--as=")
@@ -356,5 +376,85 @@ func TestWebOpen(t *testing.T) {
 	}
 	if _, err := open("--addr", "127.0.0.1:9999"); err == nil || !strings.Contains(err.Error(), "no web view runs at 127.0.0.1:9999") || len(opened) != 0 {
 		t.Errorf("--addr 127.0.0.1:9999: %v, opened %v, want to be told no view runs there", err, opened)
+	}
+}
+
+// yardr web revoke is the operator's: it writes a new token to the user's
+// file, which a later serve takes and yardr web open opens with, and names
+// no token in what it prints. With no --as it takes web_as, and with no user
+// at all, or one of no user of the yard, it refuses.
+func TestWebRevoke(t *testing.T) {
+	t.Parallel()
+	st := userYard(t)
+	mustAs(t, st, "jo", "user", "add", "ada")
+	cfg, err := appOn(st).config()
+	if err != nil {
+		t.Fatal(err)
+	}
+	refusedAs(t, st, "ada", "only the operator (jo) may revoke the web view's token; this is ada", "web", "revoke", "--as", "jo")
+	if _, err := os.Stat(cfg.WebToken("jo")); err == nil {
+		t.Fatal("a refused revoke wrote a token")
+	}
+	refusedAs(t, st, "jo", "--as names the user", "web", "revoke")
+	refusedAs(t, st, "jo", "the yard has no user of that name", "web", "revoke", "--as", "nobody")
+
+	read := func() string {
+		t.Helper()
+		b, err := os.ReadFile(cfg.WebToken("ada"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.TrimSpace(string(b))
+	}
+	out := mustAs(t, st, "jo", "web", "revoke", "--as", "ada")
+	first := read()
+	if !strings.Contains(out, "Revoked the web view's token for ada") || strings.Contains(out, first) {
+		t.Errorf("revoke printed %q, want it said for ada and no token", out)
+	}
+	mustAs(t, st, "jo", "settings", "set", "web_as", "ada")
+	mustAs(t, st, "jo", "web", "revoke")
+	if again := read(); again == first || !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(again) {
+		t.Errorf("the token after a second revoke is %q, after %q: want a new one", again, first)
+	}
+
+	// yardr web open opens a view that runs with the token its file holds
+	// now, the one a revoke wrote since the view recorded its own.
+	clear, err := announceWeb(cfg, "127.0.0.1:9000", "", "", false, "ada", "", first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer clear()
+	if views := webViews(cfg); len(views) != 1 || views[0].openURL() != "http://127.0.0.1:9000/?token="+read() {
+		t.Errorf("the view opens at %+v, want the revoked token's successor", views)
+	}
+}
+
+// web_cookie_days reads as that many days, and as the view's default (0)
+// where it is no number of days the setting takes: past MaxWebCookieDays the
+// days would wrap a time.Duration round to a cookie that lasts a moment.
+func TestWebCookieAge(t *testing.T) {
+	t.Parallel()
+	day := 24 * time.Hour
+	for _, tc := range []struct {
+		in   string
+		want time.Duration
+	}{
+		{"", 365 * day},
+		{"1", day},
+		{"36500", 36500 * day},
+		{"36501", 0},
+		{"106752", 0},
+		{"0", 0},
+		{"soon", 0},
+	} {
+		if got := webCookieAge(map[string]string{store.WebCookieDaysSetting: tc.in}); got != tc.want {
+			t.Errorf("webCookieAge(%q) = %v, want %v", tc.in, got, tc.want)
+		}
+	}
+	set, _ := store.SettingOf(store.WebCookieDaysSetting)
+	for v, ok := range map[string]bool{"1": true, "36500": true, "36501": false, "0": false} {
+		if err := set.Check(v); (err == nil) != ok {
+			t.Errorf("check of web_cookie_days %q = %v, want ok %v", v, err, ok)
+		}
 	}
 }

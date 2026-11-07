@@ -46,7 +46,7 @@ func (f *fixture) as(t *testing.T, as string) *fixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	token := srv.ActAs(as)
+	token := actAs(t, srv, as)
 	ts := httptest.NewServer(srv)
 	t.Cleanup(func() { shut(ts) })
 	acting := &fixture{t: t, st: f.st, ts: ts, home: f.home}

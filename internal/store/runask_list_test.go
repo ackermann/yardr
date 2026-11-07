@@ -1328,6 +1328,7 @@ func TestSettingRunAskClassesAreExplicit(t *testing.T) {
 		WebPagesAddrSetting:      Alone,
 		WebPagesHostSetting:      Alone,
 		WebAsSetting:             Alone,
+		WebCookieDaysSetting:     Alone,
 		WebJWTIssuerSetting:      Alone,
 		WebJWTAudienceSetting:    Alone,
 		WebJWTJWKSSetting:        Alone,

@@ -193,8 +193,8 @@ A view that acts prints its token URL under loopback, which is this
 machine's. A browser behind the proxy opens it under the name it reaches the
 view by, with the same token: `https://yard.tailnet-name.ts.net:8444/?token=<token>`,
 once, and its cookie is that name's ([Acting as a user](#acting-as-a-user)).
-The token is the `token` of the view's record (`jq -r .token
-<home>/webviews/web-*.json`). That step is not part of the run above.
+The token is in `<home>/web/token-<user>` (`cat
+<home>/web/token-mckean`). That step is not part of the run above.
 
 A proxy in front of the view forwards the sandbox origin's port too:
 run links name the view's host on the origin's port
@@ -500,13 +500,15 @@ gateway](#behind-an-auth-gateway)), and none of what follows applies.
 Loopback is open to every process on the machine and to every page the
 visitor's browser opens, and the origin check above is a client's own word.
 Outside JWT mode a view that acts therefore asks for a secret of its own,
-one per serve, and acts for the browsers that hold it:
+one per user it acts as, and acts for the browsers that hold it:
 
-- **The token** is 256 random bits, in hex. The view makes it when it starts
-  and keeps it in its record in `<home>/webviews/`
-  ([Where it runs](#where-it-runs)), a file of mode 0600 in a directory of
-  0700, which only you can read. In a terminal it prints the token once, in
-  a URL on a line of its own, as Jupyter does:
+- **The token** is 256 random bits, in hex. The first view that acts as the
+  user makes it and keeps it in `<home>/web/token-<user>`, a file of mode
+  0600 in a directory of 0700, which only you can read; every view that acts
+  as them after takes the same one, until `yardr web revoke` replaces it
+  ([below](#how-long-it-lasts)). A view's record in `<home>/webviews/`
+  ([Where it runs](#where-it-runs)) holds it too. In a terminal the view
+  prints the token once, in a URL on a line of its own, as Jupyter does:
 
   ```
   To act as mckean, open this URL in your browser: it trades the token for a cookie, and the view takes writes from that browser alone
@@ -516,12 +518,16 @@ one per serve, and acts for the browsers that hold it:
   A view that no terminal runs (`yardr web start`, the login service) writes
   its log where the terminal would be, and a log is read by more than you (a
   service's is made by its manager, with the mode it likes). It says there
-  only to run `yardr web open`, and the token stays in the record.
+  only to run `yardr web open`, and the token stays in its file.
 - **The cookie.** A GET to any page with the right `?token=`, compared in
   constant time, is answered with a cookie and a redirect to the same URL
   without the token, so that the token does not stay in the address bar. The
-  cookie is `HttpOnly` and `SameSite=Strict`, for the whole view and for the
-  browser's session, and it holds a keyed hash of the token, not the token.
+  cookie is `HttpOnly` and `SameSite=Strict`, for the whole view, and lasts
+  `web_cookie_days` (365 by default) from then. It holds the time the token
+  bought it and a keyed hash of the token and that time, not the token: the
+  view refuses a cookie older than the setting, whatever the browser sends,
+  and a request that carries it does not make it last longer, so a cookie
+  that was taken dies on schedule.
   It is named for the port the view was reached on (`yardr_web_8791`): a
   browser sends a host's cookies to every port of it, so two views on one
   machine would otherwise trade one cookie. It has no `Secure` attribute: the
@@ -548,18 +554,35 @@ and for which browsers it does ([Talk](#talk)).
 
 `yardr web open` opens the view that runs in this machine's browser: at the
 URL with its token where the view acts, and at its plain address where it does
-not. It takes the token from the view's record, so a view that was started
-again, with a token of its own, is opened the same way. `--addr <host:port>`
+not. It takes the token from the user's file, which is the one the view takes,
+after a revoke too. `--addr <host:port>`
 names the view when several run. Where no browser opens (a machine with no
 display), it prints the URL, token included, since that is all there is to
 open it by. The browser is started with the URL on its command line, which
 another user of this machine could read from the process list for as long as
 that process lives: on a machine with other users, open the URL by hand.
 
-The token lasts as long as the view. One that is started again, by a stop and
-a start or at the next login, makes a new token, and a browser's cookie from
-before no longer holds: its pages read as without a cookie until `yardr web
-open`, or the new URL, trades the new token for a new cookie.
+#### How long it lasts
+
+The token lasts until it is revoked. A view that is started again, by a stop
+and a start, a reboot or at the next login, takes the same token from its
+file, so a browser that opened the token URL before stays logged in: its
+cookie acts on the new view as on the old, until it is `web_cookie_days` old.
+Then its pages read as without a cookie until `yardr web open`, or the token
+URL, buys a new one, which lasts as long again.
+
+`yardr web revoke` replaces the token with a new one (`--as <user>` names the
+user, else `YARDR_WEB_AS` or `web_as`); only the operator may. Every cookie
+and every token URL of the old token stops working at once, on a view that
+runs too: the view reads the token's file on every request, so no restart is
+needed. `yardr web open` then opens the view with the new token. Revoke after
+a cookie, a token URL or the file may have been seen by someone else.
+Revoking is all at once: there is no list of the browsers that hold a cookie,
+and no one of them is logged out alone. A token's file that is gone logs
+every browser out as well, and so does one that others than you may read. A
+view refuses to start on a file that holds no token, or that is more open than
+0600, rather than make a new one unasked: `yardr web revoke` writes a good
+one.
 
 `--unsafe` with a view that acts is refused outside JWT mode: it would send
 the token and the cookie over plain HTTP across the network, where anyone on
@@ -571,7 +594,7 @@ gateway in front and use JWT mode ([Behind an auth
 gateway](#behind-an-auth-gateway)).
 
 What this keeps out is every other user of the machine, who cannot read the
-file, and everything that runs in a browser. It does not keep out a process
+files, and everything that runs in a browser. It does not keep out a process
 of yours: it can read the file as it reads the rest of the home.
 
 ## Keeping it running

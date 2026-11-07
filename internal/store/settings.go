@@ -477,7 +477,7 @@ var KnownSettings = append([]Setting{
 			}
 			return nil
 		}},
-}, webJWTPrivilegedSessionMaxAge)
+}, webJWTPrivilegedSessionMaxAge, webCookieDays)
 
 // SettingOf is the setting key names.
 func SettingOf(key string) (Setting, bool) {

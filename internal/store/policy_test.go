@@ -215,6 +215,7 @@ func TestMayAsksThePolicyForTheCLIGates(t *testing.T) {
 		{store.ActInstallRelease, store.Object{Kind: store.KindYard}},
 		{store.ActListAllTimers, store.Object{Kind: store.KindTimer}},
 		{store.ActDeleteYardHome, store.Object{Kind: store.KindYard}},
+		{store.ActRevokeWebTokens, store.Object{Kind: store.KindYard}},
 		{store.ActPair, store.Object{Kind: store.KindPeer}},
 	}
 	for _, g := range gates {

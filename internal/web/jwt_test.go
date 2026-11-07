@@ -1049,7 +1049,7 @@ func TestJWTFreshSession(t *testing.T) {
 	unset, _ := jwtServer(t, st, jwks, "", users)
 	outside, err := web.NewServer(st, filepath.Join(t.TempDir(), ".depot"), nil)
 	must(t, err)
-	outside.ActAs("jo")
+	actAs(t, outside, "jo")
 
 	// A gateway writes whole seconds, so a challenge can fall on the very
 	// second of a sign-in.

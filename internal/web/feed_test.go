@@ -134,7 +134,7 @@ func TestFeedOtherWords(t *testing.T) {
 	api, own := storetest.NewOwned(t)
 	srv, err := web.NewServer(api, filepath.Join(t.TempDir(), ".depot"), nil)
 	must(t, err)
-	token := srv.ActAs("ada")
+	token := actAs(t, srv, "ada")
 	ts := httptest.NewServer(srv)
 	t.Cleanup(func() { shut(ts) })
 	f := &fixture{t: t, st: api, ts: ts}
@@ -975,7 +975,7 @@ func TestFeedTimers(t *testing.T) {
 	api, _ := storetest.NewOwned(t)
 	srv, err := web.NewServer(api, filepath.Join(t.TempDir(), ".depot"), nil)
 	must(t, err)
-	token := srv.ActAs("ada")
+	token := actAs(t, srv, "ada")
 	ts := httptest.NewServer(srv)
 	t.Cleanup(func() { shut(ts) })
 	f := &fixture{t: t, st: api, ts: ts}

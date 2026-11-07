@@ -333,7 +333,7 @@ func TestPairingRefusedWithoutJWT(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	token := srv.ActAs("ada")
+	token := actAs(t, srv, "ada")
 	acting := servePagesFixture(t, plain.st, srv, plain.home)
 	if r := acting.get("/pairing"); r.status != http.StatusForbidden || strings.Contains(r.body, `href="/pairing"`) {
 		t.Errorf("an acting view's page: status %d, want 403", r.status)
