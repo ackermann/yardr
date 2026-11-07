@@ -11,6 +11,14 @@ headless Chrome:
 contrib/shot/shot <url> <file>
 ```
 
+A builder writes the file inside its worktree's own git dir, which is never
+committed and is inside its working directory, so its harness never stops to
+ask leave to read it:
+
+```sh
+contrib/shot/shot <url> "$(git rev-parse --git-path yardr)/shot.png"
+```
+
 The window is 1280 wide, or `SHOT_WIDTH` pixels where that is set
 (`SHOT_WIDTH=390 contrib/shot/shot <url> <file>` is a phone's width), and 800
 high either way. The page is laid out for a window of that width, not cropped

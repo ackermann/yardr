@@ -97,10 +97,13 @@ closing, or holding).
 
 Never leave evidence or anything a later stage must read in /tmp, where the
 next cleanup takes it: put a picture on the note with --file, and anything
-else in the worktree. Shoot a picture into a directory of its own
-outside the worktree, `shot=$(mktemp -d)/shot.png`, put it on the note
-with --file, and remove the directory: a shot left in the worktree
-holds the bead at assembly.
+else in the worktree. Write a picture, and any file you open yourself,
+inside the worktree's own git dir, `$(git rev-parse --git-path
+yardr)/shot.png`, and read it from there: that directory is never
+committed, so a shot there does not hold the bead at assembly as one in
+the worktree's files does, and it is inside your working directory, so
+your harness never stops to ask leave to read outside it, a prompt no
+one on the yard can answer. Never shoot into /tmp or your home.
 
 While you work, a line may arrive naming a note added to your bead: read it
 with `yardr bead show <id>` and ack it with `yardr bead note <id> --ack <seq>`;
@@ -153,8 +156,10 @@ after your last commit and your test run, and attach it to the note:
   `npm run build` and a static server over `dist/`, or `npm run live`),
   on a free loopback port bound to 127.0.0.1, and stop the server by pid
   after the shot.
-- Shoot it at 1280x800 with headless Chrome: `contrib/shot/shot <url>
-  <file>` from a yardr checkout (`yardr depot show yardr` names its path)
+- Shoot it at 1280x800 with headless Chrome, into the worktree's git dir:
+  `contrib/shot/shot <url> "$(git rev-parse --git-path yardr)/shot.png"`.
+  The script, `contrib/shot/shot <url> <file>` from a yardr checkout
+  (`yardr depot show yardr` names its path),
   keeps the flags (`--headless --screenshot=<file> --window-size=1280,800`)
   and refuses a missing page or an unwritable file with its reason. A page
   that answers 4xx or 5xx counts as missing (`SHOT_ANY_STATUS=1` says it is
@@ -175,7 +180,8 @@ after your last commit and your test run, and attach it to the note:
 - Note what the shot shows, in words first (what was opened, at what size,
   what to look at), with the short SHA of the commit it was shot at
   (`git rev-parse --short HEAD`), and attach it:
-  `yardr bead note <id> - --file /tmp/shot-<bead>.png <<'NOTE'`, the words,
+  `yardr bead note <id> - --file "$(git rev-parse --git-path yardr)/shot.png"
+  <<'NOTE'`, the words,
   then `NOTE` on a line of its own. The note's file is the record, not the
   local path.
 

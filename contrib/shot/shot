@@ -10,6 +10,9 @@
 # on macOS lays every narrower window out 500 wide; a page that forbids
 # framing is refused instead, naming the header.
 #
+# A builder shoots into its worktree's own git dir, never /tmp:
+#   shot <url> "$(git rev-parse --git-path yardr)/shot.png"
+#
 # A page that answers 4xx or 5xx is a page that is not there, whatever it
 # sends: an error page and a missing route can answer alike, so only the
 # person shooting can say the page is meant to. SHOT_ANY_STATUS=1 says so: a

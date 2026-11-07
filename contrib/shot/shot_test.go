@@ -1754,7 +1754,7 @@ func TestShotRefusesAURLThatIsNotAWebPage(t *testing.T) {
 }
 
 // The file is not followed through a symbolic link: a link planted at a
-// path a builder is known to shoot to (the role's /tmp/shot-<bead>.png)
+// path a builder is known to shoot to (the role's .git/.../yardr/shot.png)
 // must not have its target emptied and overwritten.
 func TestShotRefusesASymlinkedFile(t *testing.T) {
 	s := page(t)
