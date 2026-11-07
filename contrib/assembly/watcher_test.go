@@ -15,7 +15,9 @@ package assembly
 // sentinel under the process's own open-files limit, which the limit may
 // be too low for. Those above 9 only for an sh that can close them: dash
 // reads one digit as a redirection's number, so a run under it is given
-// the filler alone, and the scripts refuse the rest (see closefds).
+// the filler alone, and the scripts refuse the rest (see closefds). Nothing
+// else of the test binary's reaches a run: prepare marks what it holds
+// close-on-exec first, as the exec runner does.
 
 import (
 	"errors"
@@ -31,6 +33,7 @@ import (
 
 	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/testload"
+	"yardr.dev/yardr/internal/version"
 )
 
 // watcherRun is merge-local's world for one direct run: a repository, a
@@ -221,6 +224,19 @@ func (w *watcherRun) cmd() *exec.Cmd {
 	if w.shell != "" {
 		cmd = exec.Command(w.shell, w.script)
 	}
+	return w.prepare(cmd)
+}
+
+// prepare gives cmd the run's directory, environment and inherited files, and
+// first does what the exec runner does before it starts a script: marks every
+// descriptor this process holds above 2 close-on-exec. os/exec closes nothing
+// in a child, so whatever the test binary was handed without the flag (a CI
+// job's, an agent session's socket, a C library's) would reach the script,
+// and under an sh that cannot close above 9 it refuses to start the tests with
+// them (closefds): a yard never hands it one, so no run here may. The run's
+// own files are ExtraFiles, which a child gets whatever the flag.
+func (w *watcherRun) prepare(cmd *exec.Cmd) *exec.Cmd {
+	version.CloseOnExecAboveStdio()
 	cmd.Dir = w.tmp
 	cmd.Env = w.env
 	cmd.ExtraFiles = w.extra
@@ -567,8 +583,7 @@ func TestMergeLocalKilledWithTermLeavesNoSleepBehind(t *testing.T) {
 	// its own sleep is killed above, whatever outlives the run.
 	// Use an unrestrictive umask so the private-file check catches a PID
 	// file made by an ordinary redirection instead of mktemp.
-	cmd := exec.Command("sh", "-c", "umask 000; exec \"$1\"", "sh", w.script)
-	cmd.Dir, cmd.Env, cmd.ExtraFiles = w.tmp, w.env, w.extra
+	cmd := w.prepare(exec.Command("sh", "-c", "umask 000; exec \"$1\"", "sh", w.script))
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
@@ -621,7 +636,10 @@ func TestMergeLocalKilledWithTermLeavesNoSleepBehind(t *testing.T) {
 // descriptors and probes every inherited one: only 0, 1 and 2 may show,
 // beside ls's own directory fd, and none of the run's files may answer. It
 // does so under every sh the host has (fdRuns); and where an sh cannot close
-// what the run holds, the command is not started at all.
+// what the run holds, the command is not started at all. The test binary holds
+// a descriptor above 9 of its own without close-on-exec, which no run may see:
+// a yard hands a script nothing it was not given (watcherRun.prepare), and the
+// scripts refuse a descriptor that arrives, where an sh cannot close it.
 func TestMergeLocalTestCommandStartsWithNoInheritedFile(t *testing.T) {
 	t.Parallel()
 	for _, row := range fdRuns() {
@@ -637,6 +655,7 @@ func TestMergeLocalTestCommandStartsWithNoInheritedFile(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			holdStray(t)
 			cmd := w.cmd()
 			cmd.Stdout, cmd.Stderr = log, log
 			err = cmd.Run()
@@ -644,9 +663,6 @@ func TestMergeLocalTestCommandStartsWithNoInheritedFile(t *testing.T) {
 			out, _ := os.ReadFile(log.Name())
 			if err != nil {
 				t.Fatalf("merge-local (ls /dev/fd): %v\n%s", err, out)
-			}
-			if !row.sh.high && !row.refused {
-				strayRefusal(t, "merge-local", string(out))
 			}
 			main, tip := watcherGit(t, w.repo, "rev-parse", "main"), watcherGit(t, w.wt, "rev-parse", "HEAD")
 			awaitNoWatcherSleepers(t, w.record, "1799")
@@ -731,22 +747,24 @@ func refusedHas(got []string, fd string) bool {
 	return false
 }
 
-// strayRefusal skips a run a shell that cannot close descriptors above 9
-// held for strays: the run planted only 3 to 9, which the shell closes, so
-// any refusal names descriptors the test binary handed down without
-// close-on-exec (an agent session's socket follows it to every run), and
-// the run proves nothing about what it planted. Judged per run, after it:
-// the set handed down shifts as the test binary opens and closes files, so
-// no once-probed list holds for a later run. A hold without a refusal is
-// not a stray, and is left for the caller to fail.
-func strayRefusal(t *testing.T, script, out string) {
+// holdStray leaves a descriptor above 9 open in this process without
+// close-on-exec, as a parent does that was handed one (a CI job's, an agent
+// session's socket): F_DUPFD makes the lowest free one from 10 up, a copy of
+// the null device, and the flag is not set on it. A run started with prepare
+// must never see it; where an sh cannot close above 9 the script would refuse
+// it. The test closes it when it ends.
+func holdStray(t *testing.T) {
 	t.Helper()
-	if !strings.Contains(out, "== hold r-1: ") {
-		return
+	null, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got := refusedList(out, script); len(got) > 0 {
-		t.Skipf("%s held the run for stray fd %s, which it cannot close: the run would refuse instead of proving 3 to 9 closed", script, strings.Join(got, " "))
+	defer null.Close()
+	fd, _, errno := syscall.Syscall(syscall.SYS_FCNTL, null.Fd(), syscall.F_DUPFD, 10)
+	if errno != 0 {
+		t.Fatalf("making a descriptor above 9: %v", errno)
 	}
+	t.Cleanup(func() { _ = syscall.Close(int(fd)) })
 }
 
 // refusedRecord describes what the test command left in record: nothing when

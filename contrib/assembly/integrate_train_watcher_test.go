@@ -97,8 +97,7 @@ func TestIntegrateTrainKilledWithTermLeavesNoSleepBehind(t *testing.T) {
 	// killed; its own sleep is killed above, whatever outlives the run.
 	// Use an unrestrictive umask so the private-file check catches a PID
 	// file made by an ordinary redirection instead of mktemp.
-	cmd := exec.Command("sh", "-c", "umask 000; exec \"$1\"", "sh", w.script)
-	cmd.Dir, cmd.Env, cmd.ExtraFiles = w.tmp, w.env, w.extra
+	cmd := w.prepare(exec.Command("sh", "-c", "umask 000; exec \"$1\"", "sh", w.script))
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
@@ -224,7 +223,8 @@ func TestIntegrateTrainWritesThroughNoPlantedSymlink(t *testing.T) {
 // sentinel when the limit has room for one, and the command lists its own
 // descriptors and probes every inherited one, as that test's does, under every
 // sh the host has; where an sh cannot close what the run holds, the command is
-// not started at all.
+// not started at all. The test binary holds a descriptor above 9 of its own
+// without close-on-exec, which no run may see, as in that test.
 func TestIntegrateTrainTestCommandStartsWithNoInheritedFile(t *testing.T) {
 	t.Parallel()
 	for _, row := range fdRuns() {
@@ -239,6 +239,7 @@ func TestIntegrateTrainTestCommandStartsWithNoInheritedFile(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			holdStray(t)
 			cmd := w.cmd()
 			cmd.Stdout, cmd.Stderr = log, log
 			err = cmd.Run()
@@ -247,9 +248,6 @@ func TestIntegrateTrainTestCommandStartsWithNoInheritedFile(t *testing.T) {
 			out := string(b)
 			if err != nil {
 				t.Fatalf("integrate-train (ls /dev/fd): %v\n%s", err, out)
-			}
-			if !row.sh.high && !row.refused {
-				strayRefusal(t, "integrate-train", out)
 			}
 			awaitNoWatcherSleepers(t, w.record, "1799")
 			if row.refused {
