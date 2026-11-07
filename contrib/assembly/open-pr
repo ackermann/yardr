@@ -137,7 +137,7 @@ lower() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 # the same repository: it opens a pull request there and pushes the branch
 # there. One destination also keeps a remote with several URLs from publishing
 # the branch to more than one place.
-NOT="not opening a pull request" STAGE=pr
+NOT="not opening a pull request"
 urls=$(git -C "$REPO" config --get-all "remote.$PUSH.url" 2>/dev/null || true)
 pushurls=$(git -C "$REPO" config --get-all "remote.$PUSH.pushurl" 2>/dev/null || true)
 if [ -n "$pushurls" ]; then
