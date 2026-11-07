@@ -88,7 +88,7 @@ func TestStartCrewRecordsItsPaneBeforeTheAgentStarts(t *testing.T) {
 		t.Fatalf("the pane was recorded after the agent started; herdr's calls before the record:\n%s", st.before)
 	}
 	r, err := st.GetCrew(ctx, "yardmaster")
-	if err != nil || r.Live() || fmt.Sprint(r.Starting["shell_pid"]) != fmt.Sprint(os.Getpid()) {
+	if err != nil || r.Live() || shellPIDOf(r.Starting) != os.Getpid() {
 		t.Fatalf("the yardmaster = %+v, %v: want its starting pane on record", r, err)
 	}
 
@@ -230,7 +230,7 @@ esac`)
 		t.Fatal(err)
 	}
 	r, err = st.GetCrew(ctx, "yardmaster")
-	if err != nil || fmt.Sprint(r.Starting["shell_pid"]) != fmt.Sprint(os.Getpid()) || r.Starting["shell_start"] == nil {
+	if err != nil || shellPIDOf(r.Starting) != os.Getpid() || r.Starting["shell_start"] == nil {
 		t.Fatalf("after a second failed start the yardmaster's starting pane = %v, %v: want the pane the first one left", r.Starting, err)
 	}
 	// The start that was underway may have gone to another herdr session:
@@ -238,4 +238,20 @@ esac`)
 	if r.Starting[store.HandleHerdrSession] != "" {
 		t.Fatalf("the kept pane still names herdr session %v", r.Starting[store.HandleHerdrSession])
 	}
+}
+
+// shellPIDOf is the shell pid a record read back from the store names. The
+// store hands it back as JSON's float64, which fmt prints in exponent form
+// from 1,000,000 up (2.605612e+06), so a test compares the number, not its
+// print.
+func shellPIDOf(m map[string]any) int {
+	switch n := m["shell_pid"].(type) {
+	case int:
+		return n
+	case int64:
+		return int(n)
+	case float64:
+		return int(n)
+	}
+	return 0
 }
