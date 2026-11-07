@@ -802,7 +802,7 @@ func TestJWTTwoUsersActAsThemselves(t *testing.T) {
 	r := f.get("/talk", header, jo)
 	if r.status != 200 || !strings.Contains(r.body, "paint the shed") ||
 		strings.Contains(r.body, "fix the gate") ||
-		!strings.Contains(r.body, "Mail to yardmaster as jo") ||
+		!strings.Contains(r.body, "Write to yardmaster, as jo") ||
 		!strings.Contains(r.body, `<form id="send" method="post"`) {
 		t.Errorf("jo's talk: status %d, want jo's letters and the form, and none of kay's:\n%s", r.status, r.body)
 	}
@@ -814,7 +814,7 @@ func TestJWTTwoUsersActAsThemselves(t *testing.T) {
 	r = f.get("/talk", header, kay)
 	if r.status != 200 || !strings.Contains(r.body, "fix the gate") ||
 		strings.Contains(r.body, "paint the shed") ||
-		!strings.Contains(r.body, "Mail to yardmaster as kay") {
+		!strings.Contains(r.body, "Write to yardmaster, as kay") {
 		t.Errorf("kay's talk: status %d, want kay's letters and none of jo's:\n%s", r.status, r.body)
 	}
 	// The policy opens per request: 'self' where a user resolved, 'none'

@@ -118,8 +118,13 @@
          part, so what is typed survives what arrives. */}}
   <form id="send" method="post" action="/talk?with={{.Data.With}}" hx-post="/talk?with={{.Data.With}}" hx-target="#talk" hx-select="#talk > *" hx-swap="innerHTML ignoreTitle:true">
     {{template "csrf"}}
-    <label class="label" for="text">Mail to {{.Data.With}} as {{.Data.As}}</label>
-    <textarea id="text" name="text" rows="3" required maxlength="{{.Data.MaxMail}}" placeholder="Write to {{.Data.With}}…">{{.Data.Draft}}</textarea>
+    {{- /* iOS offered email addresses and contacts in this box: its
+           AutoFill took a label opening "Mail to" for a recipient field.
+           The label reads as the placeholder does, and autocomplete is off,
+           so neither rests alone on that guess; it is prose, so spelling
+           help and sentence capitals stay on. */}}
+    <label class="label" for="text">Write to {{.Data.With}}, as {{.Data.As}}</label>
+    <textarea id="text" name="text" autocomplete="off" autocorrect="on" spellcheck="true" autocapitalize="sentences" rows="3" required maxlength="{{.Data.MaxMail}}" placeholder="Write to {{.Data.With}}…">{{.Data.Draft}}</textarea>
     {{- /* The key that sends beside the Send button: yard.js fills the
            empty, hidden hint from the platform and shows it, so without
            scripts the page names no key, which is true. */}}

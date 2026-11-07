@@ -262,7 +262,7 @@ func TestTokenURLThenTheWriteLands(t *testing.T) {
 		t.Fatalf("the token URL ended at %s, want the page without the token", got)
 	}
 	m := csrfField.FindStringSubmatch(body)
-	if m == nil || !strings.Contains(body, "Mail to yardmaster as jo") {
+	if m == nil || !strings.Contains(body, "Write to yardmaster, as jo") {
 		t.Fatalf("the page after the token URL has no form with a CSRF field:\n%s", body)
 	}
 	// The write, from the form's own values.
@@ -470,7 +470,7 @@ func TestTokenOutlivesTheView(t *testing.T) {
 	held := &http.Cookie{Name: second.cookieAt("").Name, Value: first.session.Value}
 	second.session, second.csrf = held, first.csrf
 	talkYard(t, second)
-	if r := second.get("/talk?with=yardmaster"); strings.Contains(r.body, "token URL") || !strings.Contains(r.body, "Mail to yardmaster as jo") {
+	if r := second.get("/talk?with=yardmaster"); strings.Contains(r.body, "token URL") || !strings.Contains(r.body, "Write to yardmaster, as jo") {
 		t.Fatalf("the first serve's cookie does not act on the second:\n%s", r.body)
 	}
 	if r := second.postForm("/talk?with=yardmaster", url.Values{"text": {"still here"}}, "Origin", ts.URL); r.status != http.StatusSeeOther {

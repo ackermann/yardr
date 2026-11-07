@@ -133,7 +133,11 @@ func TestTalk(t *testing.T) {
 		"paint the shed", "it is painted", // the letters, both directions
 		"jo", "yardmaster", // who wrote each
 		`<form id="send" method="post" action="/talk?with=yardmaster"`,
-		`<textarea id="text" name="text"`,                 // yard.js sends on ctrl+Enter in this box
+		`<textarea id="text" name="text"`, // yard.js sends on ctrl+Enter in this box
+		// iOS offers no email addresses or contacts here, and keeps its
+		// spelling help: autofill off, and a label that is not "Mail to".
+		`<label class="label" for="text">Write to yardmaster, as jo</label>`,
+		`autocomplete="off" autocorrect="on" spellcheck="true" autocapitalize="sentences"`,
 		`<span class="hint" id="send-key" hidden></span>`, // yard.js names the send key here
 		`hx-post="/talk?with=yardmaster"`,
 		`hx-get="/talk?with=yardmaster"`, // the newest page is live
