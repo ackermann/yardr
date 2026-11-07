@@ -6,17 +6,17 @@
 # branch judges nothing until it has landed.
 #
 # Run plainly it is meant to take seconds: everything still has to be
-# formatted, vetted and built, but only the packages the branch touched, and
-# the packages that import those, are tested. A change in a package nearly
-# everything imports (store, config) makes it nearly the whole suite, which
-# is right; a leaf package takes seconds. It is also what a wagon of a train
-# passes to land on its train's branch. A plain run is never raced: the race
-# detector runs at landing only (docs/testing.md R4), so a plain run tests
-# with a plain go test. A plain run that covers the whole suite (70% of its
-# packages or more, wholeplain below) still queues on the race lock, as
-# class 1 behind landings (see lockplain below): two whole-suite runs at once
-# overload the machine. A smaller selection takes no ticket, whatever it
-# changed.
+# formatted, shellchecked, vetted and built, but only the packages the
+# branch touched, and the packages that import those, are tested. A change
+# in a package nearly everything imports (store, config) makes it nearly the
+# whole suite, which is right; a leaf package takes seconds. It is also what
+# a wagon of a train passes to land on its train's branch. A plain run is
+# never raced: the race detector runs at landing only (docs/testing.md R4),
+# so a plain run tests with a plain go test. A plain run that covers the
+# whole suite (70% of its packages or more, wholeplain below) still queues
+# on the race lock, as class 1 behind landings (see lockplain below): two
+# whole-suite runs at once overload the machine. A smaller selection takes
+# no ticket, whatever it changed.
 #
 # With YARDR_LANDING=1, as the assembly sets it for what lands on main, a
 # landing that changes code runs the plain selection plus always the six
@@ -2000,6 +2000,33 @@ formatted() {
     exit 1
   fi
 }
+# The shellchecked step fails the run when shellcheck finds anything in the
+# depot's shell: this script, the installer and every contrib script with a
+# shell shebang, found by that line, so a new script is covered without
+# touching the step. It is the file set and the command of CI's scan job
+# (.github/workflows/ci.yml), which fails on a finding after the landing, so
+# the landing must fail on it first. Every run judges the whole tree, like
+# gofmt and vet, whatever was selected: a selection by changed file has the
+# base edge cases the header names. The shebang gives shellcheck the dialect,
+# so install.sh is held to POSIX sh. Where shellcheck is not installed the
+# run fails and says how to get it: skipping would reopen the hole this step
+# closes (the rule addblackbox follows). This comment does not open with the
+# function's name, as its neighbours' do: shellcheck reads a comment that
+# begins with its own name as a directive, and fails this very script on it.
+shellchecked() {
+  t0=$(date +%s)
+  if ! command -v shellcheck >/dev/null 2>&1; then
+    echo "test: shellcheck is not installed, and CI runs it: brew install shellcheck, sudo apt-get install -y shellcheck, or see https://github.com/koalaman/shellcheck#installing"
+    exit 1
+  fi
+  st=0
+  grep -rlE '^#!(/bin/|/usr/bin/env )(sh|bash)' .yardr/test install.sh contrib | xargs shellcheck || st=$?
+  took "$t0" "shellcheck"
+  if [ "$st" != 0 ]; then
+    echo "test: shellcheck reported findings, which CI's scan job fails on as well"
+    exit 1
+  fi
+}
 # The six black-box suites (docs/testing.md R5): each builds the tree's
 # binary and drives it without importing the changed packages, so the
 # plain selection alone misses them. A landing that changes code runs
@@ -2085,8 +2112,10 @@ whole() {
   fi
   filesizewarnings
   listed
-  # gofmt first: CI fails on it, so this must too.
+  # gofmt first: CI fails on it, so this must too. shellcheck next, for the
+  # same reason.
   formatted
+  shellchecked
   again go vet ./...
   # CI runs on linux and this on a Mac: a darwin-only syscall.Getsid got
   # through (yardr-mrdt). vet cross-compiles, so no linux machine is needed.
@@ -2340,6 +2369,7 @@ AGENTS.md                      -
 CLAUDE.md                      -
 .github/                       -
 .github/workflows/release.yml  contrib/release
+.github/workflows/ci.yml       .
 .gitignore                     -
 conformance/                   -
 '
@@ -2347,6 +2377,7 @@ built() {
   [ -z "$YARDR_TEST_PLAN" ] || return 0
   filesizewarnings
   formatted
+  shellchecked
   again go vet ./...
   again go build ./...
   sleepbudget

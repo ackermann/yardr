@@ -269,13 +269,17 @@ func writeBins(t *testing.T, dir string, bins map[string]string) {
 }
 
 // fakeBins is the directory of fake programs a run finds first on its PATH:
-// bins, and a gofmt that finds nothing to format unless bins brings its own.
-// The programs write down their calls in it, as FAKE names it to them. A
-// directory for the run's TMPDIR is in it, which the run is to leave empty.
+// bins, a gofmt that finds nothing to format and a shellcheck that finds
+// nothing to say unless bins brings its own. The shellcheck is no stand-in
+// for the real one's work: a run against fakes would otherwise need the tool
+// on the machine and judge a fixture with it, where the gate's own run does
+// that over the checkout. The programs write down their calls in it, as FAKE
+// names it to them. A directory for the run's TMPDIR is in it, which the run
+// is to leave empty.
 func fakeBins(t *testing.T, bins map[string]string) (fake, tmp string) {
 	t.Helper()
 	fake = t.TempDir()
-	writeBins(t, fake, map[string]string{"gofmt": "#!/bin/sh\n"})
+	writeBins(t, fake, map[string]string{"gofmt": "#!/bin/sh\n", "shellcheck": "#!/bin/sh\n"})
 	writeBins(t, fake, bins)
 	tmp = filepath.Join(fake, "tmp")
 	if err := os.Mkdir(tmp, 0o755); err != nil {
@@ -1107,24 +1111,24 @@ func TestYardTestSelects(t *testing.T) {
 		{"a plain run of the docs runs without -race", nil, []string{"docs/api.md", "docs/design/2026-10-12-a.md"},
 			pre + "what changed" + sincePH + plainWhy,
 			[]string{"vet ./...", "build ./...", "test m.test/m m.test/m/internal/rpc"},
-			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "file size budgets", "redaction marker scan", "go test m.test/m m.test/m/internal/rpc"}},
+			[]string{"go list -test ./...", "gofmt -l .", "shellcheck", "go vet ./...", "go build ./...", "sleep budgets", "file size budgets", "redaction marker scan", "go test m.test/m m.test/m/internal/rpc"}},
 		{"a landing of one design document runs without -race", []string{"YARDR_LANDING=1"}, []string{"docs/design/2026-10-12-a.md"},
 			landing + "nothing compiled changed" + sincePH + unraced,
 			[]string{"vet ./...", "build ./...", "test m.test/m"},
-			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "file size budgets", "redaction marker scan", "go test m.test/m"}},
+			[]string{"go list -test ./...", "gofmt -l .", "shellcheck", "go vet ./...", "go build ./...", "sleep budgets", "file size budgets", "redaction marker scan", "go test m.test/m"}},
 		// A landing races compiled code; a plain run does not.
 		{"a plain run of a go file runs without -race", nil, []string{"alone/p.go"},
 			pre + "what changed" + sincePH + plainWhy,
 			[]string{"vet ./...", "build ./...", "test m.test/m/alone"},
-			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "file size budgets", "redaction marker scan", "go test m.test/m/alone"}},
+			[]string{"go list -test ./...", "gofmt -l .", "shellcheck", "go vet ./...", "go build ./...", "sleep budgets", "file size budgets", "redaction marker scan", "go test m.test/m/alone"}},
 		{"a plain run of a file no row knows tests every package without -race", []string{"YARDR_RACE_HELD=1"}, []string{"contrib/x.txt"},
 			pre + "what changed" + sincePH + plainWhy,
 			[]string{"vet ./...", "build ./...", "test ./..."},
-			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "file size budgets", "redaction marker scan", "go test ./..."}},
+			[]string{"go list -test ./...", "gofmt -l .", "shellcheck", "go vet ./...", "go build ./...", "sleep budgets", "file size budgets", "redaction marker scan", "go test ./..."}},
 		{"a plain run of go.mod tests every package without -race", []string{"YARDR_RACE_HELD=1"}, []string{"go.mod"},
 			pre + "what changed" + sincePH + plainWhy,
 			[]string{"vet ./...", "build ./...", "test ./..."},
-			[]string{"gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "file size budgets", "redaction marker scan", "go test ./..."}},
+			[]string{"gofmt -l .", "shellcheck", "go vet ./...", "go build ./...", "sleep budgets", "file size budgets", "redaction marker scan", "go test ./..."}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
@@ -1178,10 +1182,10 @@ func TestYardTestSelects(t *testing.T) {
 	}{
 		{"a landing over internal/cli starts no socket leg", "internal/cli/p.go", "internal/cli/p.go changed", selectionSuffix, skipSocket,
 			[]string{"vet ./...", "linux vet ./...", "test -race " + selCLI},
-			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "file size budgets", "redaction marker scan", "go test -race " + selCLI}, nil},
+			[]string{"go list -test ./...", "gofmt -l .", "shellcheck", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "file size budgets", "redaction marker scan", "go test -race " + selCLI}, nil},
 		{"a landing over internal/rpc starts the socket leg", "internal/rpc/p.go", "internal/rpc/p.go changed", selectionSuffix, runSocketStore,
 			[]string{"vet ./...", "linux vet ./...", "test -race " + selRPC, "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"},
-			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "file size budgets", "redaction marker scan", "go test -race " + selRPC,
+			[]string{"go list -test ./...", "gofmt -l .", "shellcheck", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "file size budgets", "redaction marker scan", "go test -race " + selRPC,
 				"env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"}, nil},
 		// A loaded machine, on the row that starts the socket leg: the selection's
 		// race leg takes the cores the load leaves it (gatepar), and the suites
@@ -1189,12 +1193,12 @@ func TestYardTestSelects(t *testing.T) {
 		// (yardr-fvkm), so this row replaces one instead of adding one.
 		{"a landing over internal/web starts the socket leg, and on a loaded machine runs its race leg with -p=2", "internal/web/p.go", "internal/web/p.go changed", selectionSuffix, runSocketWeb,
 			[]string{"vet ./...", "linux vet ./...", "test -race -p=2 " + selWEB, "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"},
-			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "file size budgets", "redaction marker scan", "go test -race -p=2 " + selWEB,
+			[]string{"go list -test ./...", "gofmt -l .", "shellcheck", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "file size budgets", "redaction marker scan", "go test -race -p=2 " + selWEB,
 				"env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"},
 			[]string{"YARDR_TEST_LOADAVG=40", "YARDR_TEST_CORES=10"}},
 		{"a landing over an unknown file starts the socket leg", "contrib/x.txt", "contrib/x.txt, which is read by no known package, changed", wholeSuffix, runSocketAll,
 			[]string{"vet ./...", "linux vet ./...", "test -race ./...", "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"},
-			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "file size budgets", "redaction marker scan", "go test -race ./...",
+			[]string{"go list -test ./...", "gofmt -l .", "shellcheck", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "file size budgets", "redaction marker scan", "go test -race ./...",
 				"env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"}, nil},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -1619,10 +1623,10 @@ func TestYardTestRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 				t.Errorf("the output says it ran again: %v, want %v", !c.again, c.again)
 			}
 			// One line a step says how long it took, both runs of it where
-			// there were two: gofmt's, then go's in the order they ran.
-			// The sleep budget and the redaction marker scan are timed
-			// too, after the build and before the tests.
-			steps := []string{"gofmt -l ."}
+			// there were two: gofmt's, shellcheck's, then go's in the order
+			// they ran. The sleep budget and the redaction marker scan are
+			// timed too, after the build and before the tests.
+			steps := []string{"gofmt -l .", "shellcheck"}
 			for _, call := range slices.Compact(slices.Clone(c.calls)) {
 				call = "go " + call
 				if after, ok := strings.CutPrefix(call, "go linux "); ok {
@@ -1775,8 +1779,8 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 		return fmt.Sprintf("%-18s %-6s %-4s %-7s %-8s %-7s %-15s %-13s %s\n", id, "", "P3", "task", "backlog", "open", "-", "yardr", title)
 	}
 	other := listHeader + listRow("m-1", "Something else")
-	plainSteps := []string{"gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "file size budgets", "redaction marker scan", "go test ./..."}
-	landingSteps := []string{"gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "file size budgets", "redaction marker scan", "go test -race -p=3 ./...",
+	plainSteps := []string{"gofmt -l .", "shellcheck", "go vet ./...", "go build ./...", "sleep budgets", "file size budgets", "redaction marker scan", "go test ./..."}
+	landingSteps := []string{"gofmt -l .", "shellcheck", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "file size budgets", "redaction marker scan", "go test -race -p=3 ./...",
 		"env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"}
 	landing := []string{"vet ./...", "linux vet ./...", "test -race -p=3 ./...", "test -race -p=3 " + pkg, "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"}
 	plain := []string{"vet ./...", "build ./...", "test ./...", "test " + pkg}
@@ -4903,8 +4907,10 @@ func TestYardTestRaceQueueView(t *testing.T) {
 // (took, runlogged, machineload and loadedmachine, and for the file size
 // budget sizelines and filesizeview, which it shares with the sizes run),
 // sizewaits, which reads the same load for the race leg's wait factor, and
-// gatepar and legflag, which turn it into the race leg's -p. The probe runs
-// them as the script has them, so a case over it fails when the gate would.
+// gatepar and legflag, which turn it into the race leg's -p. The two other
+// whole-tree checks come with them, the redaction marker scan and the
+// shellcheck step. The probe runs them as the script has them, so a case
+// over it fails when the gate would.
 // It also returns the allow-listed directories, how many distinct sleep
 // sites the table holds, and the filesizes rows. A script the cuts no longer
 // follow fails the test, telling its editor to move the probe with it.
@@ -4945,7 +4951,8 @@ func yardTestProbe(t *testing.T) (probe string, overDirs []string, sleepSites in
 	viewfn := cut("\nfilesizeview() {\n", "\n}\n")
 	warnfn := cut("\nfilesizewarnings() {\n", "\n}\n")
 	markfn := cut("\nnomarkers() {\n", "\n}\n")
-	if !strings.Contains(pkgfn, "60 s budget") || !strings.Contains(sleepfn, "500 ms budget") || !strings.Contains(filesizefn, "1000 lines allow-listed") || !strings.Contains(sizelinefn, "wc -l") || !strings.Contains(viewfn, "no row, fails over") || !strings.Contains(warnfn, "filesizeview warn") || !strings.Contains(markfn, "redaction marker scan") || !strings.Contains(machinefn, "load $avg on $cores cores") || !strings.Contains(loadfn, "machineload") || !strings.Contains(sizefn, "YARDR_TEST_LOAD=") || !strings.Contains(eitherfn, `echo "$1"`) || !strings.Contains(gatefn, "awk") || !strings.Contains(legfn, "gatepar") {
+	shellfn := cut("\nshellchecked() {\n", "\n}\n")
+	if !strings.Contains(pkgfn, "60 s budget") || !strings.Contains(sleepfn, "500 ms budget") || !strings.Contains(filesizefn, "1000 lines allow-listed") || !strings.Contains(sizelinefn, "wc -l") || !strings.Contains(viewfn, "no row, fails over") || !strings.Contains(warnfn, "filesizeview warn") || !strings.Contains(markfn, "redaction marker scan") || !strings.Contains(shellfn, "| xargs shellcheck") || !strings.Contains(machinefn, "load $avg on $cores cores") || !strings.Contains(loadfn, "machineload") || !strings.Contains(sizefn, "YARDR_TEST_LOAD=") || !strings.Contains(eitherfn, `echo "$1"`) || !strings.Contains(gatefn, "awk") || !strings.Contains(legfn, "gatepar") {
 		t.Fatal("the probe missed the budget functions: move it with .yardr/test")
 	}
 	for _, line := range strings.Split(over, "\n") {
@@ -4993,7 +5000,7 @@ func yardTestProbe(t *testing.T) (probe string, overDirs []string, sleepSites in
 	for _, n := range keys {
 		sites += n
 	}
-	return took + runlogfn + over + machinefn + loadfn + sizefn + eitherfn + gatefn + legfn + pkgfn + long + sleepfn + sizes + sizelinefn + viewfn + warnfn + filesizefn + markfn + "\n\"$@\"\n", overDirs, sites, sizeRows
+	return took + runlogfn + over + machinefn + loadfn + sizefn + eitherfn + gatefn + legfn + pkgfn + long + sleepfn + sizes + sizelinefn + viewfn + warnfn + filesizefn + markfn + shellfn + "\n\"$@\"\n", overDirs, sites, sizeRows
 }
 
 // The race lock is released when the race-leg command and its R1 checks end,
@@ -5653,6 +5660,95 @@ func TestYardTestBudgets(t *testing.T) {
 		out, code := runEnv(t, dir, []string{"GIT_DIR=" + filepath.Join(dir, "no-repository")}, "nomarkers")
 		if want := "test: redaction marker scan failed (git grep exited " + strconv.Itoa(code) + ")"; code == 0 || code == 1 || !strings.Contains(out, want) {
 			t.Errorf("exit %d, output %q, want git's failure status (not 0 or 1) and %q", code, out, want)
+		}
+	})
+
+	// The shellcheck step, over a directory of scripts, with the real
+	// shellcheck: what it is to catch is the tool's own findings, which a
+	// stand-in would only repeat from the case. A script is judged by its
+	// shebang wherever it sits under contrib, so one in a directory made
+	// after the step was written is covered; one with another shebang, or
+	// none, is not, and shellcheck would fail on either if it were given
+	// it (SC1071, SC2148). install.sh is judged as the POSIX sh its shebang
+	// says: the step names no dialect of its own. The tool is needed here
+	// and nowhere else in this file, so a machine without it skips the
+	// cases; its gate run fails with the install line instead.
+	const cleanSh = "#!/bin/sh\necho ok\n"
+	for _, c := range []struct {
+		name   string
+		files  map[string]string
+		code   int
+		has    []string
+		hasNot []string
+	}{
+		{"a clean tree passes the shellcheck step", map[string]string{
+			".yardr/test": cleanSh, "install.sh": cleanSh, "contrib/a/run": "#!/usr/bin/env bash\necho ok\n",
+		}, 0, []string{"test: shellcheck took "}, []string{"SC", "reported findings"}},
+		{"a finding in a script under a new contrib directory fails the shellcheck step", map[string]string{
+			".yardr/test": cleanSh, "install.sh": cleanSh, "contrib/new/deep/tool": "#!/usr/bin/env bash\nunused=1\n",
+		}, 1, []string{
+			"contrib/new/deep/tool line 2", "SC2034",
+			"test: shellcheck took ", "test: shellcheck reported findings, which CI's scan job fails on as well",
+		}, nil},
+		{"a finding in the gate script or the installer fails the shellcheck step", map[string]string{
+			".yardr/test": "#!/bin/sh\nunused=1\n", "install.sh": "#!/bin/sh\n[[ -n \"$1\" ]] && echo ok\n",
+		}, 1, []string{".yardr/test line 2", "SC2034", "install.sh line 2", "SC3010", "test: shellcheck reported findings"}, nil},
+		{"a script with another shebang, and a file with none, are not judged by the shellcheck step", map[string]string{
+			".yardr/test": cleanSh, "install.sh": cleanSh,
+			"contrib/a/tool.py": "#!/usr/bin/env python3\nprint('ok')\n", "contrib/a/notes": "unused=1\n",
+		}, 0, []string{"test: shellcheck took "}, []string{"SC1071", "SC2148", "reported findings"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			needTool(t, "shellcheck")
+			dir := t.TempDir()
+			writeFiles(t, dir, c.files)
+			out, code := run(t, dir, "shellchecked")
+			wantRun(t, out, code, c.code, c.has...)
+			wantNot(t, out, c.hasNot...)
+		})
+	}
+
+	// A machine without the tool fails the step and says how to get it:
+	// skipping would let a finding through to CI, which is what the step
+	// is for. The PATH holds date alone, which the step times itself with: a
+	// PATH of the system's directories has the tool where the system's
+	// package puts it (the ubuntu image has it in /usr/bin).
+	t.Run("a missing shellcheck fails the shellcheck step and says how to install it", func(t *testing.T) {
+		t.Parallel()
+		bin := t.TempDir()
+		if err := os.Symlink(needTool(t, "date"), filepath.Join(bin, "date")); err != nil {
+			t.Fatal(err)
+		}
+		dir := t.TempDir()
+		writeFiles(t, dir, map[string]string{".yardr/test": cleanSh, "install.sh": cleanSh})
+		out, code := runEnv(t, dir, []string{"PATH=" + bin}, "shellchecked")
+		wantRun(t, out, code, 1, "test: shellcheck is not installed, and CI runs it: brew install shellcheck, sudo apt-get install -y shellcheck, or see ")
+		wantNot(t, out, "took", "reported findings")
+	})
+
+	// The step runs CI's command, so that what CI's scan job fails on after
+	// a landing the gate fails on before it. The command is read from the
+	// workflow and the script has to hold it as it is: a file set changed in
+	// one and not the other fails here, and the gate does not fall behind
+	// CI without anyone seeing it.
+	t.Run("the shellcheck step runs the command of CI's scan job", func(t *testing.T) {
+		t.Parallel()
+		workflow, err := os.ReadFile(".github/workflows/ci.yml")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var ci []string
+		for _, line := range strings.Split(string(workflow), "\n") {
+			if strings.Contains(line, "| xargs shellcheck") {
+				ci = append(ci, strings.TrimSpace(line))
+			}
+		}
+		if len(ci) != 1 {
+			t.Fatalf("ci.yml has %d lines that pipe into shellcheck, want the one command the gate follows: %q", len(ci), ci)
+		}
+		if !strings.Contains(string(gateScript(t)), ci[0]) {
+			t.Errorf("%s does not run CI's command in its shellchecked step: move them together\nCI's command: %s", yardTest, ci[0])
 		}
 	})
 

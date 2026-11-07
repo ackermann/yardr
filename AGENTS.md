@@ -247,8 +247,10 @@ it lists every exported name with its comment, faster than grepping.
   a product assertion, a wrong result rather than a timeout) as a bug, not
   a flake; otherwise the log line is the record, named in the handover
   note.
-- `gofmt` and `go vet` are clean on every change; the module builds with
-  the Go in `go.mod`.
+- `gofmt`, `go vet` and `shellcheck` are clean on every change: shellcheck
+  over `.yardr/test`, `install.sh` and every `contrib` script with a shell
+  shebang, as CI's scan job has it, and the gate fails where it is not
+  installed rather than skip it. The module builds with the Go in `go.mod`.
 
 ## What not to touch
 
