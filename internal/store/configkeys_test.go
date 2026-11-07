@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -288,7 +289,7 @@ func TestStoreChecksSettings(t *testing.T) {
 	// Sequential: process environment.
 	s, ctx := storetest.New(t), context.Background()
 	for want, kv := range map[string][2]string{
-		`no setting "hook_adr"; there is: backup_dir, backup_every, backup_keep, bdp_addr, blob_max_bytes, codesign_identity, default_kind, default_pack, disk_keep_gb, edge, files_max, hearer, herdr_session, hook_addr, hook_public_url, hosted, max_sessions, name, operator, operator_note, operator_style, peer_file_max_bytes, permissions_preset, preview_idle, provider_terms, quiet_landings, router_addr, telemetry, timer_limit, timer_min_every, upgrade_from, upgrade_restore, web_addr, web_as, web_cookie_days, web_jwt_audience, web_jwt_header, web_jwt_issuer, web_jwt_jwks, web_jwt_privileged_session_max_age, web_jwt_users, web_pages_addr, web_pages_host, yardmaster`: {"hook_adr", "4"},
+		`no setting "hook_adr"; there is: backup_dir, backup_every, backup_keep, bdp_addr, blob_max_bytes, codesign_identity, default_kind, default_pack, disk_keep_gb, edge, files_max, hearer, herdr_session, hook_addr, hook_public_url, hosted, max_sessions, name, operator, operator_note, operator_style, peer_file_max_bytes, permissions_preset, preview_idle, provider_terms, quiet_landings, router_addr, telemetry, timer_limit, timer_min_every, upgrade_from, upgrade_restore, web_addr, web_as, web_cookie_days, web_jwt_audience, web_jwt_header, web_jwt_issuer, web_jwt_jwks, web_jwt_privileged_session_max_age, web_jwt_users, web_pages_addr, web_pages_host, web_yards, yardmaster`: {"hook_adr", "4"},
 		`default_kind "nope": herdr starts`:                                                                                 {"default_kind", "nope"},
 		`operator_style "loud": there is guide, show, work, report`:                                                         {"operator_style", "loud"},
 		`hook address "8790": want host:port`:                                                                               {"hook_addr", "8790"},
@@ -460,5 +461,45 @@ func TestParseWebJWTUsers(t *testing.T) {
 		if got[email] != user {
 			t.Fatalf("ParseWebJWTUsers = %v, want %v", got, want)
 		}
+	}
+}
+
+// ParseWebYards keeps the setting's order and trims each pair; it refuses
+// what the header could not link to, and a URL that would show a secret in
+// every page.
+func TestParseWebYards(t *testing.T) {
+	t.Parallel()
+	got, err := store.ParseWebYards(" inner = https://yard.example.net:8444/ , outer=http://127.0.0.1:8791")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []store.WebYard{{Name: "inner", URL: "https://yard.example.net:8444/"}, {Name: "outer", URL: "http://127.0.0.1:8791"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("ParseWebYards = %v, want %v", got, want)
+	}
+	if got, err := store.ParseWebYards(" "); err != nil || got != nil {
+		t.Errorf("ParseWebYards of nothing = %v, %v, want none", got, err)
+	}
+	for _, bad := range []string{
+		"inner",
+		"=https://yard.example.net/",
+		"in ner=https://yard.example.net/",
+		"inner=yard.example.net:8444",
+		"inner=javascript:alert(1)",
+		"inner=https:///path",
+		"inner=https://ada:secret@yard.example.net/",
+		"inner=https://yard.example.net/,inner=https://other.example.net/",
+	} {
+		if _, err := store.ParseWebYards(bad); err == nil {
+			t.Errorf("ParseWebYards(%q) took it", bad)
+		}
+	}
+	if _, err := store.ParseWebYards("inner=https://ada:secret@yard.example.net/"); err == nil || strings.Contains(err.Error(), "secret") {
+		t.Errorf("a URL with a password: %v, want a refusal that does not print it", err)
+	}
+	// The setting refuses what the parser refuses.
+	st := storetest.New(t)
+	if err := st.SetSetting(context.Background(), store.WebYardsSetting, "inner=ftp://yard.example.net/", "me"); err == nil {
+		t.Error("web_yards took an ftp URL")
 	}
 }

@@ -56,8 +56,12 @@
   <main class="centre" id="centre">
     {{- /* Home lists what waits in its centre and the line keeps it in
            its own; every other page counts it in its header, one line
-           to home, nothing at zero. */}}
-    <header class="page-head"><h1>{{.Title}}</h1>{{if .Needs}}<a class="needs-count" href="/">{{if eq .Needs 1}}1 waits for you{{else}}{{.Needs}} wait for you{{end}}</a>{{end}}</header>
+           to home, nothing at zero. Where web_yards lists other yards'
+           views, the header names this yard and links to each: a plain
+           link, so that view's own login decides who the visitor is
+           there, and the page's referrer policy keeps this view's address
+           from it. */}}
+    <header class="page-head"><h1>{{.Title}}</h1>{{with .Yards}}<nav class="yards" aria-label="Yards"><span class="yard-here" aria-current="true">{{$.Yard}}</span>{{range .}}<a href="{{.URL}}">{{.Name}}</a>{{end}}</nav>{{end}}{{if .Needs}}<a class="needs-count" href="/">{{if eq .Needs 1}}1 waits for you{{else}}{{.Needs}} wait for you{{end}}</a>{{end}}</header>
     {{template "content" .}}
   </main>
   {{- /* The aside stands beside home and the line alone; every other

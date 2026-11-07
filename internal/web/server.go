@@ -488,7 +488,10 @@ type errorData struct {
 // itself shows around it.
 type view struct {
 	Page
-	Yard  string
+	Yard string
+	// Yards are the other yards' views the header links to (web_yards),
+	// none where the setting is unset, and the header is then as it was.
+	Yards []store.WebYard
 	Rail  rail
 	Aside *Line
 	// Needs counts what waits for the visitor, as home lists it: the
@@ -523,7 +526,7 @@ func (s *Server) respond(w http.ResponseWriter, r *http.Request, p Page) {
 	}
 	// The shell shows the yard's name on every page: the aside beside
 	// home and the line, and the header's count elsewhere.
-	v := view{Page: p, Yard: s.yardName(r.Context()), Aside: p.line, Head: p.head, Stream: p.stream}
+	v := view{Page: p, Yard: s.yardName(r.Context()), Yards: s.webYards(r.Context()), Aside: p.line, Head: p.head, Stream: p.stream}
 	if v.Aside == nil {
 		var err error
 		// A handler's own head stands: it is from before the handler read
@@ -613,7 +616,7 @@ func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 		_ = json.NewEncoder(w).Encode(p.Data)
 		return
 	}
-	v := view{Page: p, Yard: s.yardName(r.Context())}
+	v := view{Page: p, Yard: s.yardName(r.Context()), Yards: s.webYards(r.Context())}
 	// An error page stands under the rail with no open mode and no pills;
 	// it still carries the header's count when the yard can answer it.
 	// Keep the error itself renderable when those reads failed.
@@ -640,6 +643,23 @@ func (s *Server) yardName(ctx context.Context) string {
 		return all["name"]
 	}
 	return strings.TrimLeft(filepath.Base(s.home), ".")
+}
+
+// webYards are the other yards' views the web_yards setting lists. The
+// setting is read at each page, as the yard's name is, so a change shows
+// on the next one; a value that no longer parses, or a store that cannot
+// be read, links to none rather than fail the page.
+func (s *Server) webYards(ctx context.Context) []store.WebYard {
+	all, err := s.st.Settings(ctx)
+	if err != nil {
+		return nil
+	}
+	yards, err := store.ParseWebYards(all[store.WebYardsSetting])
+	if err != nil {
+		s.log.Error("web: "+store.WebYardsSetting, "err", err)
+		return nil
+	}
+	return yards
 }
 
 // Listen opens addr for the web view, which has no authentication yet and

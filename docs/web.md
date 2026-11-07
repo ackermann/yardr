@@ -2261,6 +2261,26 @@ block.
 The shell is `internal/web/templates/shell.html`; the aside is the
 `aside` template (`aside.html`), which `/line` renders in the centre too.
 
+### Other yards' views
+
+An operator with more than one yard keeps a view of each, every one its
+own server on its own address with its own login. The `web_yards` setting
+lists the others, and every page's header then names this yard and links
+to each of them, in the setting's order:
+
+```sh
+yardr settings set web_yards "inner=https://yard.example.net:8444/,south=http://127.0.0.1:8792/"
+```
+
+A link is a plain one, to the view's own address: no token or cookie of
+this view goes with it, and the page's referrer policy keeps this view's
+address from the other. That view's own cookie decides who you are there;
+where it has none, the page reads as it does to anyone it does not know.
+Set the same setting on each yard, naming the others, to move both ways.
+Unset, the header is as it was. The views are named here and not taken
+from [peers](peers.md): a peer's URL is where its yard is called, not where
+its view is opened.
+
 ## Look
 
 The dusk palette, square corners, Plex faces. The tokens are custom properties

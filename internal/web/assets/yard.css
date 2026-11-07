@@ -202,6 +202,13 @@ ul, ol { list-style: none; }
 /* What waits for the visitor, counted in the header of a page without
    the aside: one line to home, in the human face. */
 .page-head .needs-count { flex: 0 0 auto; color: var(--dim); font-family: var(--sans); font-size: var(--small); white-space: nowrap; }
+/* The yards the operator moves between (web_yards): this yard's name in
+   ink, each other yard's a link in the dim face, one row that wraps on a
+   narrow window, set apart from the count beside it. */
+.page-head .yards { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-left: auto; font-size: var(--small); letter-spacing: var(--label-spacing); text-transform: uppercase; }
+.page-head .yards .yard-here { color: var(--ink); }
+.page-head .yards a { color: var(--dim); text-decoration: none; }
+.page-head .yards a:hover, .page-head .yards a:focus-visible { color: var(--accent-hover); }
 
 /* One entry of the centre column's feed. */
 .item { padding: var(--gap); border-bottom: 1px solid var(--hairline); }

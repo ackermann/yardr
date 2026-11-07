@@ -573,3 +573,33 @@ func TestFilePagesOnPhone(t *testing.T) {
 		}
 	}
 }
+
+// With web_yards set, every page's header, an error page's too, names this
+// yard and links to each listed yard's view, in the setting's order, with
+// nothing of this view's in the link; unset, the header has no yards.
+func TestHeaderLinksToOtherYards(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	ctx := context.Background()
+	must(t, f.st.SetSetting(ctx, store.NameSetting, "north", "me"))
+	pages := []string{"/", "/line", "/beads", "/crew", "/config", "/no-such-page"}
+	for _, path := range pages {
+		if r := f.get(path); strings.Contains(r.body, `class="yards"`) {
+			t.Errorf("%s: unset, the header still lists yards", path)
+		}
+	}
+	must(t, f.st.SetSetting(ctx, store.WebYardsSetting, "inner=https://yard.example.net:8444/,south=http://127.0.0.1:8792", "me"))
+	want := `<nav class="yards" aria-label="Yards"><span class="yard-here" aria-current="true">north</span>` +
+		`<a href="https://yard.example.net:8444/">inner</a><a href="http://127.0.0.1:8792">south</a></nav>`
+	for _, path := range pages {
+		r := f.get(path)
+		head := regexp.MustCompile(`(?s)<header class="page-head">.*?</header>`).FindString(r.body)
+		if !strings.Contains(head, want) {
+			t.Errorf("%s: header %q, want it to hold %q", path, head, want)
+		}
+	}
+	// The JSON a page answers is the page's own data, with no yards in it.
+	if r := f.get("/beads", "Accept", "application/json"); strings.Contains(r.body, "yard.example.net") {
+		t.Errorf("/beads as JSON carries the yards: %s", r.body)
+	}
+}

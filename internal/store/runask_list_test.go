@@ -1356,6 +1356,9 @@ func TestSettingRunAskClassesAreExplicit(t *testing.T) {
 		TelemetrySetting:         Alone,
 
 		WebJWTPrivilegedSessionMaxAgeSetting: Alone,
+		// The header shows these links to the operator on every page, so
+		// an agent may not point one elsewhere.
+		WebYardsSetting: Alone,
 	}
 	for _, setting := range KnownSettings {
 		class, ok := want[setting.Key]
