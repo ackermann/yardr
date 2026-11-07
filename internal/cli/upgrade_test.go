@@ -434,7 +434,7 @@ func TestUpgradeCheckMixedViews(t *testing.T) {
 func TestUpgradeCheckViewOtherBuildFails(t *testing.T) {
 	home, _, a := upgradeYard(t)
 	stubServer(t, "", nil)
-	stub(t, &webService, func(*config.Config) bool { return true })
+	stub(t, &webServiceServes, func(context.Context, *config.Config) bool { return true })
 	url := serveViewOn(t, home, "bbbbbbbbbbbb", http.StatusOK, http.StatusOK)
 
 	out, err := run(t, a().rootCmd(), "upgrade", "--check")
@@ -450,21 +450,31 @@ func TestUpgradeCheckViewOtherBuildFails(t *testing.T) {
 
 // A view answering /health on another build where no login service keeps
 // one was started by hand, which the upgrade leaves alone: the line names
-// the build and the restart, and fails nothing.
+// the build and the restart, and fails nothing. A service installed but not
+// loaded (an upgrade from an ssh session with no GUI login) keeps none: the
+// gate passes and the install is not rolled back.
 func TestUpgradeCheckViewOtherBuildByHand(t *testing.T) {
-	home, _, a := upgradeYard(t)
-	stubServer(t, "", nil)
-	serveViewOn(t, home, "bbbbbbbbbbbb", http.StatusOK, http.StatusOK)
+	for _, installed := range []bool{false, true} {
+		t.Run(fmt.Sprintf("service installed %v", installed), func(t *testing.T) {
+			home, _, a := upgradeYard(t)
+			stubServer(t, "", nil)
+			serveViewOn(t, home, "bbbbbbbbbbbb", http.StatusOK, http.StatusOK)
+			if installed {
+				dir, _ := stubServices(t, "darwin")
+				writeWebService(t, config.At(home), dir, "127.0.0.1:8791")
+			}
 
-	out, err := run(t, a().rootCmd(), "upgrade", "--check")
-	if err != nil {
-		t.Fatalf("err = %v\n%s", err, out)
-	}
-	wantText(t, out, "views      ok: view on bbbbbbbbbbbb, started by hand: "+
-		hereAt(home, "yardr web stop")+" && "+hereAt(home, "yardr web start")+"\n")
-	if rep, _ := upgradeJSON(t, a()); !rep.OK || rep.Views.Verdict != checkOK ||
-		len(rep.Views.Views) != 1 || rep.Views.Views[0].Build != "bbbbbbbbbbbb" {
-		t.Fatalf("json: %+v", rep)
+			out, err := run(t, a().rootCmd(), "upgrade", "--check")
+			if err != nil {
+				t.Fatalf("err = %v\n%s", err, out)
+			}
+			wantText(t, out, "views      ok: view on bbbbbbbbbbbb, started by hand: "+
+				hereAt(home, "yardr web stop")+" && "+hereAt(home, "yardr web start")+"\n")
+			if rep, _ := upgradeJSON(t, a()); !rep.OK || rep.Views.Verdict != checkOK ||
+				len(rep.Views.Views) != 1 || rep.Views.Views[0].Build != "bbbbbbbbbbbb" {
+				t.Fatalf("json: %+v", rep)
+			}
+		})
 	}
 }
 
@@ -474,7 +484,7 @@ func TestUpgradeCheckViewOtherBuildByHand(t *testing.T) {
 func TestUpgradeCheckViewServiceCurrent(t *testing.T) {
 	home, _, a := upgradeYard(t)
 	stubServer(t, "", nil)
-	stub(t, &webService, func(*config.Config) bool { return true })
+	stub(t, &webServiceServes, func(context.Context, *config.Config) bool { return true })
 	serveView(t, home, http.StatusOK, http.StatusOK)
 
 	out, err := run(t, a().rootCmd(), "upgrade", "--check")

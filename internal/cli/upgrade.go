@@ -154,8 +154,9 @@ with no daemon running skips the daemon check, one with no web view skips
 the views. A view on a build from before GET /health (it 404s /health and
 answers /) is skipped with an old: line naming the restart, not failed.
 A view on another build fails where the yard keeps its view as a login
-service, which yardr upgrade restarts; where the view was started by hand
-the line names the restart instead, and fails nothing.
+service its manager has loaded, which yardr upgrade restarts; where the
+view was started by hand, or the service is installed but not loaded, the
+line names the restart instead, and fails nothing.
 
 The check changes nothing: it starts no server (one that does not answer
 fails the server part with why), stores nothing, and a view it probes
@@ -241,7 +242,7 @@ func (a *app) upgradeCheck(ctx context.Context, cfg *config.Config, cutoff time.
 		a.st, a.cfg = rpc.NewClient(cfg.Socket()), cfg
 	}
 	rep.Daemon = a.checkDaemon(ctx, cfg, daemonFirst, cutoff, since)
-	rep.Views = checkViews(cfg)
+	rep.Views = checkViews(ctx, cfg)
 	// The lock on every sample of the run, not only the last: a daemon
 	// that flapped (a crash loop under its service manager) fails.
 	if last := upgradeDaemonRunning(cfg.DaemonLock()); last != daemonFirst {
@@ -384,12 +385,13 @@ func ago(d time.Duration) string {
 // checkViews is the views part: every recorded web view answers on this
 // build. A view that 404s /health but answers / is on a build from before
 // the route and is skipped with an old: line, not failed. A view that
-// answers /health on another build fails when the yard keeps its view as a
-// login service — yardr upgrade restarts that service, so an old build
-// after the restart means the restart failed — and is told with the
+// answers /health on another build fails when the yard's login service
+// keeps its view running — yardr upgrade restarts that service, so an old
+// build after the restart means the restart failed — and is told with the
 // restart when the view was started by hand, which the upgrade leaves
-// alone. With no view at all the part is skipped.
-func checkViews(cfg *config.Config) upgradeCheckViews {
+// alone; a service installed but not loaded counts as by hand. With no
+// view at all the part is skipped.
+func checkViews(ctx context.Context, cfg *config.Config) upgradeCheckViews {
 	out := upgradeCheckViews{Verdict: checkOK, Views: []upgradeCheckView{}}
 	views := webViews(cfg)
 	if len(views) == 0 {
@@ -397,7 +399,7 @@ func checkViews(cfg *config.Config) upgradeCheckViews {
 		return out
 	}
 	this := version.Current()
-	service := webService(cfg)
+	service := webServiceServes(ctx, cfg)
 	var current int
 	var stale, byHand []viewBuild
 	var olds, deads []string

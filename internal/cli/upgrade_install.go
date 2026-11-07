@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -403,20 +404,41 @@ func upgradeRestoreOn(stored map[string]string, noRestore bool) bool {
 // before the upgrade goes on to the gate, which fails it there.
 var webRestartWait = 30 * time.Second
 
-// upgradeRestartViews restarts the yard's web view where it runs as a
-// login service, so the view serves the build the install just wrote, and
-// waits until /health answers. With no service installed there is nothing
-// to restart: a view started by hand is the operator's to restart, and the
-// check names it. Tests replace serviceCtl and serve /health.
+// webServiceServes reports whether the web view's login service keeps a
+// view running now: installed, and loaded in launchd (asked as yardr web
+// status asks) or active in systemd. A service written but not loaded, as
+// on a yard upgraded from an ssh or su session with no GUI login, keeps
+// nothing: the view that runs there was started by hand. Tests replace it.
+var webServiceServes = func(ctx context.Context, cfg *config.Config) bool {
+	manager, name, _, err := unitFile(cfg, svcWeb)
+	if err != nil || !serviceInstalled(cfg, svcWeb) {
+		return false
+	}
+	return (&unit{Manager: manager, Name: name}).serving(ctx)
+}
+
+// upgradeRestartViews restarts the yard's web view where its login service
+// keeps it running, so the view serves the build the install just wrote,
+// and waits until /health answers. With no service, or one installed but
+// not loaded, there is nothing to restart: a view started by hand is the
+// operator's to restart, and the check names it. So is one whose launchd
+// domain this session cannot reach (kickstart's exit 125, "Domain does not
+// support specified action"), or whose service is gone when asked again
+// after the refusal: neither is a failed install, and neither may roll it
+// back. Tests replace serviceCtl and serve /health.
 func upgradeRestartViews(ctx context.Context, cfg *config.Config) error {
-	if !serviceInstalled(cfg, svcWeb) {
+	if !webServiceServes(ctx, cfg) {
 		return nil
 	}
 	manager, name, _, err := unitFile(cfg, svcWeb)
 	if err != nil {
 		return nil
 	}
-	if err := ctl(ctx, (&unit{Manager: manager, Name: name}).restartCommand()); err != nil {
+	u := &unit{Manager: manager, Name: name}
+	if err := ctl(ctx, u.restartCommand()); err != nil {
+		if domainUnreachable(manager, err) || !u.serving(ctx) {
+			return nil
+		}
 		return err
 	}
 	addr := serviceAddr(cfg, svcWeb)
@@ -435,4 +457,13 @@ func upgradeRestartViews(ctx context.Context, cfg *config.Config) error {
 		}
 	}
 	return fmt.Errorf("the web view did not answer %s within %s after the restart", health, webRestartWait)
+}
+
+// domainUnreachable reports whether a launchctl refusal says the session
+// cannot act in the user's gui domain: exit 125, "Domain does not support
+// specified action", as from an ssh session with no GUI login.
+func domainUnreachable(manager string, err error) bool {
+	var exit *exec.ExitError
+	return manager == launchd && (errors.As(err, &exit) && exit.ExitCode() == 125 ||
+		strings.Contains(err.Error(), "Domain does not support specified action"))
 }

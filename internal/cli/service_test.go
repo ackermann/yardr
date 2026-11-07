@@ -40,7 +40,7 @@ func (m *manager) ctl(_ context.Context, name string, args ...string) (string, e
 		unit = last[i+1:] // gui/<uid>/<label>
 	}
 	switch {
-	case slices.Contains(args, "print"), slices.Contains(args, "is-enabled"):
+	case slices.Contains(args, "print"), slices.Contains(args, "is-enabled"), slices.Contains(args, "is-active"):
 		if !m.loaded[unit] {
 			return "not found", errors.New("exit status 113")
 		}

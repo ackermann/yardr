@@ -323,8 +323,16 @@ left running what was started; nothing else is started. Before the poll
 each yard's web view where it runs as a login service is restarted on
 the new build (`launchctl kickstart -k` on macOS, `systemctl --user
 restart` on Linux), waiting for `/health`, so the view serves what the
-install wrote. A yard the gate cannot check fails it and is named in
-the marker and the message.
+install wrote. The upgrade first asks the manager whether it has the
+service, as `yardr web status` does (`launchctl print` on macOS, an
+active unit on Linux). A service installed but not loaded, as when the
+upgrade runs from an ssh or su session with no GUI login, keeps no view:
+the one that runs was started by hand, and the upgrade leaves it to the
+operator and names its restart. So does a restart launchd refuses
+because the session cannot reach the user's GUI domain (`launchctl
+kickstart` exit 125, "Domain does not support specified action"): the
+install is not rolled back for it. A yard the gate cannot check fails it
+and is named in the marker and the message.
 
 `yardr upgrade --check` is the gate by hand: it asserts the yard runs
 this build — the build of the `yardr` that was asked — read-only.
@@ -372,8 +380,9 @@ over 3 minutes old with no daemon holding the lock. The server writes one
 `views` probes every recorded web view with one GET of `/health`, and
 counts each with the build it answers on. A view that answers on this
 build passes; one that answers on another build fails where the yard
-keeps its view as a login service, since the upgrade restarts that
-service before the gate. Where the view was started by hand the line
+keeps its view as a login service loaded in its manager, since the
+upgrade restarts that service before the gate. Where the view was started
+by hand, a service installed but not loaded included, the line
 names the restart instead (`view on <build>, started by hand: yardr web
 stop && yardr web start`), and fails nothing: the upgrade leaves a
 hand-started view alone. A view that 404s `/health` but answers `/` is

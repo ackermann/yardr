@@ -366,6 +366,16 @@ func (u *unit) loaded(ctx context.Context) bool {
 	return err == nil
 }
 
+// serving reports whether the manager keeps the unit running now: launchd
+// has it loaded (a RunAtLoad job it started), systemd has it active.
+func (u *unit) serving(ctx context.Context) bool {
+	if u.Manager == launchd {
+		return u.loaded(ctx)
+	}
+	_, err := serviceCtl(ctx, "systemctl", "--user", "is-active", u.Name)
+	return err == nil
+}
+
 // loadCommands are the manager's command lines that start the unit now and
 // at every login.
 func (u *unit) loadCommands() [][]string {
