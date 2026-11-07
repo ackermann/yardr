@@ -458,10 +458,11 @@ func TestApplyReplacesADeclaredSourceAndThePlanShowsWhatChanges(t *testing.T) {
 	}
 }
 
-// A declared source may build a call's body with a pack script: the plan
-// hashes the script beside the call, whose summary stays its name and
-// kind, and a replacement whose script changed shows the file's old hash
-// against its new one.
+// A declared source may build a call's body with a pack script, or have a
+// call answered by one: the plan hashes the script beside the call, whose
+// summary stays its name and kind, lists it among the pack's programs, and a
+// replacement whose script changed shows the file's old hash against its
+// new one.
 func TestDeclaredSourceWithABuiltCall(t *testing.T) {
 	const decl = `name: docs
 base: https://docs.googleapis.com
@@ -475,6 +476,11 @@ calls:
       docId: { type: string, max: 200 }
     request: { method: POST, path: "/v1/documents/{docId}:batchUpdate" }
     build: [docs/build-write]
+  lookup:
+    kind: read
+    params:
+      query: { type: string, max: 200 }
+    run: [docs/lookup, search]
 `
 	st, o := yard(t)
 	yaml := small + "sources:\n  docs:\n    declaration: sources/docs.yaml\n"
@@ -482,12 +488,14 @@ calls:
 	files["sources/docs.yaml"] = decl
 	script := "#!/bin/sh\necho '{}'\n"
 	files["sources/docs/build-write"] = script
+	lookup := "#!/bin/sh\necho '{}'\n"
+	files["sources/docs/lookup"] = lookup
 	dir := writePack(t, files)
 	plan := build(t, st, load(t, dir), o)
 
 	d := declared(t, plan, "docs")
-	if !slices.Contains(d.Calls, "write (update)") {
-		t.Fatalf("the plan's calls = %v, want the built call by name and kind", d.Calls)
+	if !slices.Contains(d.Calls, "write (update)") || !slices.Contains(d.Calls, "lookup (read)") {
+		t.Fatalf("the plan's calls = %v, want the built and the run call by name and kind", d.Calls)
 	}
 	sum := sha256.Sum256([]byte(script))
 	var cmd *pack.CommandPlan
@@ -498,6 +506,21 @@ calls:
 	}
 	if cmd == nil || cmd.Program != "docs/build-write" || cmd.SHA256 != hex.EncodeToString(sum[:]) {
 		t.Fatalf("the plan's commands = %+v, want the build with its sha256", d.Commands)
+	}
+	ran := sha256.Sum256([]byte(lookup))
+	cmd = nil
+	for i := range d.Commands {
+		if d.Commands[i].Key == "call.lookup.run" {
+			cmd = &d.Commands[i]
+		}
+	}
+	if cmd == nil || cmd.Program != "docs/lookup" || cmd.SHA256 != hex.EncodeToString(ran[:]) {
+		t.Fatalf("the plan's commands = %+v, want the run with its sha256", d.Commands)
+	}
+	// What pack check prints as the files that run: the run call's program
+	// is one of them, as the build's is.
+	if !slices.Contains(plan.Programs, "sources/docs/lookup") || !slices.Contains(plan.Programs, "sources/docs/build-write") {
+		t.Fatalf("the plan's programs = %v, want the build's and the run's", plan.Programs)
 	}
 
 	apply(t, st, plan, nil)

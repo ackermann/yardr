@@ -34,6 +34,11 @@ reads the source's credential for the one call, or the user's with --as
 environment. This command sends the names and values of the parameters and
 gets the answer back.
 
+A call the source's file answers with a command (run) makes no request: the
+server runs the command, hands it the parameters and the credential, and the
+one JSON object it prints, 64 KB at most, is the answer. The grants, the
+limits, the record and the line above are the same.
+
 Who may call what is granted by the operator, to a group (every session it
 starts) or to a crew member: yardr source grant. Who is calling the server
 tells from its own records before this command's word: the session or the

@@ -26,33 +26,47 @@ const MaxBuildBody = AnswerLimit
 // anything else that prevents a body being sent is an error. Neither holds
 // the command's stdout.
 func RunBuild(ctx context.Context, what string, argv []string, in map[string]any, env []string, dir string, timeout time.Duration) (json.RawMessage, string, error) {
+	out, stderr, refusal, err := runRefusing(ctx, what, argv, in, env, dir, timeout, MaxBuildBody)
+	if err != nil || refusal != "" {
+		return nil, refusal, err
+	}
+	if err := oneValue(what, out); err != nil {
+		return nil, "", fmt.Errorf("%w%s", err, stderr)
+	}
+	return json.RawMessage(out), "", nil
+}
+
+// runRefusing is what RunBuild and RunCall share: the command run as Run
+// runs it, printing at most bound bytes. A non-zero exit is a refusal, and
+// the command's own bounded stderr is all it says (the exit's own words
+// where it said nothing); anything else that stops it answering is an
+// error, ending with that stderr as Run's do. stderr is the same tail for
+// a command that answered, for whoever finds its answer wanting.
+func runRefusing(ctx context.Context, what string, argv []string, in map[string]any, env []string, dir string, timeout time.Duration, bound int) (out []byte, stderr, refusal string, err error) {
 	var stdin []byte
 	if in != nil {
 		b, err := json.Marshal(in)
 		if err != nil {
-			return nil, "", fmt.Errorf("%s: its input is no JSON object: %v", what, err)
+			return nil, "", "", fmt.Errorf("%s: its input is no JSON object: %v", what, err)
 		}
 		stdin = b
 	}
 	if timeout <= 0 {
 		timeout = Timeout
 	}
-	out, stderr, err := config.Command{What: what, Argv: argv, Dir: dir, Env: env, Stdin: stdin, Timeout: timeout, Max: MaxBuildBody}.OutputWithStderr(ctx)
+	out, stderr, err = config.Command{What: what, Argv: argv, Dir: dir, Env: env, Stdin: stdin, Timeout: timeout, Max: bound}.OutputWithStderr(ctx)
 	if err != nil {
 		var exit *exec.ExitError
 		if errors.As(err, &exit) {
-			refusal := strings.TrimPrefix(stderr, "; its stderr ended: ")
+			refusal = strings.TrimPrefix(stderr, "; its stderr ended: ")
 			if refusal == "" {
 				refusal = err.Error()
 			}
-			return nil, refusal, nil
+			return nil, "", refusal, nil
 		}
-		return nil, "", err
+		return nil, "", "", err
 	}
-	if err := oneValue(what, out); err != nil {
-		return nil, "", fmt.Errorf("%w%s", err, stderr)
-	}
-	return json.RawMessage(out), "", nil
+	return out, stderr, "", nil
 }
 
 // oneValue refuses output that is not exactly one JSON value, saying nothing

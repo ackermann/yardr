@@ -74,6 +74,13 @@ func TestDigestIsOfEveryFileThePackNames(t *testing.T) {
 	// acme's declaration up to the keys that name commands.
 	noCommands, _, _ := strings.Cut(cmdDecl, "hook:")
 	depotOther := pack.Options{Depot: "web", Home: t.TempDir(), Flow: "other", Crew: map[string]string{"yardmaster": "boss"}}
+	// A call a command answers (run) has its program carried like any
+	// command's: it is a file that runs, and so one the digest pins.
+	answered := map[string]string{
+		"pack.yaml": strings.ReplaceAll(sourcePackYAML, "acme", "mail"),
+		"mail.yaml": "name: mail\nbase: http://127.0.0.1:1143\ncredential: { env: MAIL_PASSWORD }\ncalls:\n  search:\n    kind: read\n    run: [mail/imap, search]\n",
+		"mail/imap": "#!/bin/sh\necho imap\n",
+	}
 	for _, c := range []struct {
 		name  string
 		files map[string]string
@@ -85,6 +92,7 @@ func TestDigestIsOfEveryFileThePackNames(t *testing.T) {
 	}{
 		{"a pack for a depot", digestFiles(), o, depotOther, []string{"scripts/land"}},
 		{"a pack of kind source", sourcePackFiles(), pack.Options{Home: o.Home}, pack.Options{Home: t.TempDir()}, []string{"acme/normalize", "acme/thread"}},
+		{"a pack of kind source whose call a command answers", answered, pack.Options{Home: o.Home}, pack.Options{Home: t.TempDir()}, []string{"mail/imap"}},
 		{"a pack that runs nothing", noScript, o, depotOther, []string{}},
 		{"a pack of kind source that runs nothing", map[string]string{"pack.yaml": sourcePackYAML, "acme.yaml": noCommands}, pack.Options{Home: o.Home}, pack.Options{Home: t.TempDir()}, []string{}},
 	} {

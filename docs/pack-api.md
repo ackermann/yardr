@@ -201,9 +201,9 @@ three such sessions for one stage the bead is held for a person.
 ## What a source's command gets
 
 The commands a declaration names are `hook.normalize`, `thread.*`,
-`events.pr` and `events.ci`, `notify.image`, `calls.<name>.build` and
-`credential.mint_command`. Each is a program of the pack. yardr runs one
-without a shell, for one job, and stops it after 30 s.
+`events.pr` and `events.ci`, `notify.image`, `call.<name>.build`,
+`call.<name>.run` and `credential.mint_command`. Each is a program of the
+pack. yardr runs one without a shell, for one job, and stops it after 30 s.
 
 | seam | | |
 |---|---|---|

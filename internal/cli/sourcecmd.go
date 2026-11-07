@@ -801,7 +801,7 @@ credential in it whether their file sets that. The value is never printed.
 					fmt.Fprintln(w, "  check: the file names no call for it")
 				}
 				for _, call := range d.Calls {
-					line := fmt.Sprintf("  call %s  %s  %s", call.Name, call.Kind, call.Request.Line())
+					line := fmt.Sprintf("  call %s  %s  %s", call.Name, call.Kind, call.Line())
 					if call.About != "" {
 						line += "  " + call.About
 					}
@@ -809,9 +809,9 @@ credential in it whether their file sets that. The value is never printed.
 					for _, p := range call.Params {
 						fmt.Fprintln(w, "    "+paramLine(p))
 					}
-					if len(call.Build) > 0 {
-						fmt.Fprintf(w, "    build: %s\n", strings.Join(call.Build, " "))
-						fmt.Fprintln(w, "    "+commandFileLine(files["call."+call.Name+".build"]))
+					for _, cmd := range call.Commands() {
+						fmt.Fprintf(w, "    %s: %s\n", cmd.Key[strings.LastIndex(cmd.Key, ".")+1:], strings.Join(cmd.Argv, " "))
+						fmt.Fprintln(w, "    "+commandFileLine(files[cmd.Key]))
 					}
 					if len(call.Answer.Select) > 0 {
 						fmt.Fprintf(w, "    answers %s\n", strings.Join(call.Answer.Select, ", "))
@@ -2008,9 +2008,9 @@ func callChanges(was, now *source.Declaration) []string {
 		old, had := was.Call(c.Name)
 		switch {
 		case !had:
-			out = append(out, fmt.Sprintf("new call %s (%s): %s", c.Name, c.Kind, c.Request.Line()))
+			out = append(out, fmt.Sprintf("new call %s (%s): %s", c.Name, c.Kind, c.Line()))
 		case !sameCall(*old, c):
-			out = append(out, fmt.Sprintf("changed call %s (%s): %s, was (%s) %s", c.Name, c.Kind, c.Request.Line(), old.Kind, old.Request.Line()))
+			out = append(out, fmt.Sprintf("changed call %s (%s): %s, was (%s) %s", c.Name, c.Kind, c.Line(), old.Kind, old.Line()))
 		}
 	}
 	for _, c := range was.Calls {

@@ -188,8 +188,10 @@ func TestSourceAddCardNamesEveryCommand(t *testing.T) {
 
 // A built call's card says it builds its body with its command, run with
 // the credential at each call and free to make its own requests while it
-// builds, and the script's file stands with its hash whole.
-func TestSourceAddCardNamesABuiltCall(t *testing.T) {
+// builds, and the script's file stands with its hash whole. A run call's
+// says no request is sent, its command answers it, and what that command is
+// handed and may do, with its file and hash as a build's.
+func TestSourceAddCardNamesBuiltAndRunCalls(t *testing.T) {
 	t.Parallel()
 	y, _ := runYard(t)
 	ask := sourceAddAsk(carriedOf(t, builtDecl, builtFiles))
@@ -197,11 +199,17 @@ func TestSourceAddCardNamesABuiltCall(t *testing.T) {
 	seq := y.ask(t, ask, "yardmaster")
 	joined := strings.Join(y.asked(t, seq).Ask.Run.Does, "\n")
 	sum := sha256.Sum256([]byte(builtFiles["docs/build-write"]))
+	found := sha256.Sum256([]byte(builtFiles["docs/find"]))
 	for _, want := range []string{
 		"call write builds its body with the command [docs/build-write], run with the credential at each call and free to make its own requests with it while it builds",
 		"(call.write.build, handed the credential)",
 		"command file docs/build-write:",
 		"sha256 " + hex.EncodeToString(sum[:]),
+		"call find (read): runs docs/find search. It takes query (string, required, at most 200).",
+		"call find is answered by that command, run with the credential at each call and free to make requests of its own with it, since the yard sends none. Its answer keeps hits, at most 65536 bytes.",
+		"(call.find.run, handed the credential)",
+		"command file docs/find:",
+		"sha256 " + hex.EncodeToString(found[:]),
 	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("the card lacks %q:\n%s", want, joined)
@@ -209,6 +217,10 @@ func TestSourceAddCardNamesABuiltCall(t *testing.T) {
 	}
 	if strings.Contains(joined, "call write sends no body") {
 		t.Errorf("the built call reads as sending no body:\n%s", joined)
+	}
+	// No request is sent, so no query or body is said of it either.
+	if strings.Contains(joined, "call find sends no body") || strings.Contains(joined, "query (string, required, at most 200), and sends") {
+		t.Errorf("the run call reads as sending a request:\n%s", joined)
 	}
 }
 
@@ -228,10 +240,17 @@ calls:
       docId: { type: string, max: 200 }
     request: { method: POST, path: "/v1/documents/{docId}:batchUpdate" }
     build: [docs/build-write]
+  find:
+    kind: read
+    params:
+      query: { type: string, max: 200 }
+    run: [docs/find, search]
+    answer: { select: [hits] }
 `
 
 var builtFiles = map[string]string{
 	"docs/build-write": "#!/bin/sh\n# build\n",
+	"docs/find":        "#!/bin/sh\n# run\n",
 }
 
 func TestSourceAddCardNamesCredentialForAbsoluteCommands(t *testing.T) {
@@ -294,8 +313,9 @@ func TestSourceAddCardSaysTheCredentialIsTheAddress(t *testing.T) {
 credential: { env: HOOK_URL, url: true }
 calls:
   send: { kind: update, params: { text: { type: string, max: 100 } }, request: { method: POST, body: { text: "{text}" } } }
+  lookup: { kind: read, run: [hook/lookup] }
 `
-	ask := sourceAddAsk(carriedOf(t, hookDecl, nil))
+	ask := sourceAddAsk(carriedOf(t, hookDecl, map[string]string{"hook/lookup": "#!/bin/sh\necho '{}'\n"}))
 	ask.Run.Argv = []string{"source add hook.yaml"}
 	seq := y.ask(t, ask, "yardmaster")
 	joined := strings.Join(y.asked(t, seq).Ask.Run.Does, "\n")
@@ -303,12 +323,14 @@ calls:
 		"source hook: its calls go to the URL in HOOK_URL.",
 		"Its credential is the variable HOOK_URL (the name, never the value), sent as the address every call goes to (credential.url: true): whoever sets the variable chooses where the calls go, over https or plain http to this machine alone.",
 		"call send (update): POST /",
+		"call lookup is answered by that command, run with no credential at each call and free to make requests of its own without one, since the yard sends none.",
+		"(call.lookup.run, handed no credential)",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("the card lacks %q:\n%s", want, joined)
 		}
 	}
-	for _, not := range []string{"no base", "calls nothing", "no call's header, path or body holds it"} {
+	for _, not := range []string{"no base", "calls nothing", "no call's header, path or body holds it", "(call.lookup.run, handed the credential)", "run with the credential at each call"} {
 		if strings.Contains(joined, not) {
 			t.Errorf("the card says %q:\n%s", not, joined)
 		}

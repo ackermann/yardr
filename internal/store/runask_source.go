@@ -537,10 +537,21 @@ func callSaysWhole(d *source.Declaration, c *source.Call) []string {
 		}
 		sends = "and sends the query " + strings.Join(qs, ", ") + "."
 	}
-	first := fmt.Sprintf("call %s (%s): %s. %s, %s", c.Name, c.Kind, c.Request.Line(), takes, sends)
+	first := fmt.Sprintf("call %s (%s): %s. %s, %s", c.Name, c.Kind, c.Line(), takes, sends)
 	var second string
-	if len(c.Build) > 0 {
-		second = fmt.Sprintf("call %s builds its body with the command %s, run with the credential at each call and free to make its own requests with it while it builds", c.Name, showCommand(c.Build))
+	credential, withCredential := "the credential", "with it"
+	if d.Credential == nil || d.Credential.URL {
+		credential, withCredential = "no credential", "without one"
+	}
+	if len(c.Run) > 0 {
+		// No request is sent, so no query or body is said. What stands in
+		// their place is the command, with whatever credential this source
+		// hands its commands; a URL credential is the address and is handed
+		// to none of them.
+		first = fmt.Sprintf("call %s (%s): %s. %s.", c.Name, c.Kind, c.Line(), takes)
+		second = fmt.Sprintf("call %s is answered by that command, run with %s at each call and free to make requests of its own %s, since the yard sends none", c.Name, credential, withCredential)
+	} else if len(c.Build) > 0 {
+		second = fmt.Sprintf("call %s builds its body with the command %s, run with %s at each call and free to make its own requests %s while it builds", c.Name, showCommand(c.Build), credential, withCredential)
 	} else if c.Request.Body != nil {
 		raw, _ := json.Marshal(c.Request.Body)
 		second = fmt.Sprintf("call %s sends the body %s", c.Name, raw)
@@ -843,7 +854,7 @@ func commandSaysChanged(d *source.Declaration, carried AskSource, diffs map[stri
 		if !group[0].Relative() {
 			for _, c := range group {
 				handed := "handed no credential"
-				if commandGetsCredential(c.Key) {
+				if commandGetsCredential(d, c.Key) {
 					handed = "handed the credential"
 				}
 				out = append(out, fmt.Sprintf("command %s (%s): the program is the operator's own, %s.", showCommand(c.Argv), c.Key, handed))
@@ -853,7 +864,7 @@ func commandSaysChanged(d *source.Declaration, carried AskSource, diffs map[stri
 		var named []string
 		for _, c := range group {
 			handed := "handed no credential"
-			if commandGetsCredential(c.Key) {
+			if commandGetsCredential(d, c.Key) {
 				handed = "handed the credential"
 			}
 			named = append(named, fmt.Sprintf("%s (%s, %s)", showCommand(c.Argv), c.Key, handed))
@@ -875,8 +886,12 @@ func commandSaysChanged(d *source.Declaration, carried AskSource, diffs map[stri
 
 // commandGetsCredential follows the runners: limits and hook.normalize see
 // no credential; thread and events read-back commands, notify's image,
-// and each call's build do.
-func commandGetsCredential(key string) bool {
+// and each call's build and run do when the source has a credential that is
+// not its address.
+func commandGetsCredential(d *source.Declaration, key string) bool {
+	if strings.HasPrefix(key, "call.") && (d.Credential == nil || d.Credential.URL) {
+		return false
+	}
 	switch key {
 	case source.MintCommandKey:
 		// The mint is handed the mint's inputs, not the token, but runs
@@ -886,10 +901,10 @@ func commandGetsCredential(key string) bool {
 	case "thread.reply", "thread.posted", "thread.read", "thread.file", "thread.open", "thread.opened", "thread.state", "notify.image", "events.pr", "events.ci":
 		return true
 	default:
-		// A call's build runs on the call path with the call's
-		// credential in its environment; call names hold no dots,
-		// so the key is call.<name>.build and nothing else.
-		return strings.HasPrefix(key, "call.") && strings.HasSuffix(key, ".build")
+		// A call's build or run runs on the call path with the call's
+		// credential in its environment; call names hold no dots, so the
+		// key is call.<name>.build or call.<name>.run and nothing else.
+		return strings.HasPrefix(key, "call.") && (strings.HasSuffix(key, ".build") || strings.HasSuffix(key, ".run"))
 	}
 }
 

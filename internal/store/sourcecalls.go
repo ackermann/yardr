@@ -537,7 +537,7 @@ type SourceAnswer struct {
 	Source string `json:"source"`
 	Call   string `json:"call"`
 	Kind   string `json:"kind"`
-	// Status is the service's. An answer that is no success has no Answer.
+	// Status is the service's, 200 for a command's. An answer that is no success has no Answer.
 	Status int             `json:"status"`
 	Answer json.RawMessage `json:"answer,omitempty"`
 	Bytes  int             `json:"bytes"`
@@ -1067,7 +1067,7 @@ func (w *wtx) sourceCalled(c *sourceCaller, d *source.Declaration, call *source.
 // the grant and the parameters, counts the call and, for an update of a
 // source that takes a key, chooses the key or finds the one of the try
 // before (keyed). The credential is read, any build command is run, and the
-// request is then made, all outside any store transaction and each bounded
+// call is then made, all outside any store transaction and each bounded
 // by its own source.Timeout, so nothing of the store waits on a command or
 // service. A second write records how it ended. A call that is refused is
 // recorded too, and returned as an error. The answer of a call that asked for it (Note) is

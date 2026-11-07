@@ -51,14 +51,16 @@ const (
 	NotJSON      = "not_json"
 	BuildRefused = "build_refused" // the build command exited non-zero, refusing the call
 	BuildFailed  = "build_failed"  // the build command could not produce one bounded JSON value
+	RunRefused   = "run_refused"   // the run command exited non-zero, refusing the call
+	RunFailed    = "run_failed"    // the run command could not produce one bounded JSON object
 )
 
 // CallError is a call that returned nothing, with why. Its text names the
-// source, the call and the cause. Except for a build command's bounded
-// stderr, it never holds a parameter's value, the credential, the request's
-// body or the address with its values in it. The stderr may repeat parameters
-// or service-derived metadata, but the credential's literal value is removed;
-// the source_call event keeps only the reason.
+// source, the call and the cause. Except for a build or run command's
+// bounded stderr, it never holds a parameter's value, the credential, the
+// request's body or the address with its values in it. The stderr may repeat
+// parameters or service-derived metadata, but the credential's literal value
+// is removed; the source_call event keeps only the reason.
 type CallError struct {
 	Source, Call, Reason string
 	// Status is what the service answered, 0 when nothing was sent or
@@ -75,7 +77,8 @@ func (e *CallError) Error() string {
 type Result struct {
 	// Status is the service's. An answer that is no success (4xx, 5xx) is
 	// a Result too, without an Answer: what a service says of a request it
-	// refused may repeat the request, which is not kept.
+	// refused may repeat the request, which is not kept. A command's answer
+	// (RunCall) is 200: it is a success or it is no Result at all.
 	Status int `json:"status"`
 	// Answer is the JSON of a success, after the call's select; empty for
 	// a success that said nothing.
@@ -116,6 +119,9 @@ func StatusHint(status int, d *Declaration) string {
 // reads a secret-file parameter from its file: the caller passes the
 // store's reader, since source cannot import the store for it (the store
 // imports source).
+//
+// A call that names run has no request: its command is RunCall's, which
+// needs the yard's home to find its program, and Do refuses the call.
 func Do(ctx context.Context, d *Declaration, name string, params map[string]string, credential string, readSecret func(path string) (secret []byte, resolved string, err error)) (*Result, error) {
 	return DoKeyed(ctx, d, name, params, credential, "", readSecret)
 }
@@ -182,6 +188,11 @@ func doKeyed(ctx context.Context, d *Declaration, name string, params map[string
 	c, ok := d.Call(name)
 	if !ok {
 		return nil, fail(NoCall, 0, "the source has no call of that name")
+	}
+	// Nothing below makes sense of a call with no request: an empty one
+	// would be sent to the base.
+	if len(c.Run) > 0 {
+		return nil, fail(RunFailed, 0, "the call names run, and a command answers it: this makes requests alone")
 	}
 	if d.Credential != nil {
 		switch {

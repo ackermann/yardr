@@ -215,7 +215,7 @@ func (w *wtx) sourceCallCard(argv []string, asking bool) (AskRun, error) {
 		return AskRun{}, err
 	}
 	seenMap := map[string]string{"source " + srcName: fingerprint}
-	does := []string{fmt.Sprintf("it calls %s of the source %s (%s), %s, as %s.", callName, srcName, sourceHost(d), call.Request.Line(), or(as, "the source's own credential"))}
+	does := []string{fmt.Sprintf("it calls %s of the source %s (%s), %s, as %s.", callName, srcName, sourceHost(d), call.Line(), or(as, "the source's own credential"))}
 	var unreadable string
 	for _, p := range call.Params {
 		v, given := params[p.Name]

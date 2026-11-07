@@ -12,8 +12,10 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"yardr.dev/yardr/internal/config"
 )
@@ -125,7 +127,7 @@ const MintCommandKey = "credential.mint_command"
 // Commands are the commands the declaration names: the mint command it
 // brings, the limits command, thread's reply, posted, read, file, open,
 // opened and state, notify's image, hook.normalize, events' pr and ci,
-// the git credential helper, and each call's build, in that order. The
+// the git credential helper, and each call's build and run, in that order. The
 // mint command is one of them so that it is carried as every command file
 // is: copied under <home>/sources/<name>/, hashed on the plan and the
 // card, and shown again when a later pack changes it. The git helper is
@@ -174,9 +176,21 @@ func (d *Declaration) Commands() []Command {
 		out = append(out, Command{Key: "git.credential", Argv: d.Git.Credential})
 	}
 	for _, c := range d.Calls {
-		if len(c.Build) > 0 {
-			out = append(out, Command{Key: "call." + c.Name + ".build", Argv: c.Build})
-		}
+		out = append(out, c.Commands()...)
+	}
+	return out
+}
+
+// Commands are the commands the call names: its build, and its run, each
+// under the key call.<name>.<build or run>. A call's name holds no dot, so
+// the word after the last is which it is.
+func (c Call) Commands() []Command {
+	var out []Command
+	if len(c.Build) > 0 {
+		out = append(out, Command{Key: "call." + c.Name + ".build", Argv: c.Build})
+	}
+	if len(c.Run) > 0 {
+		out = append(out, Command{Key: "call." + c.Name + ".run", Argv: c.Run})
 	}
 	return out
 }
@@ -185,6 +199,22 @@ func (d *Declaration) Commands() []Command {
 // declaration's file: one with no / at its start. An absolute program is
 // the operator's own and is not copied.
 func (c Command) Relative() bool { return !strings.HasPrefix(c.Argv[0], "/") }
+
+// argvLine is argv as one line: its words apart, quoting any that holds a
+// space or a control, as the store's showCommand quotes a command's words
+// on a card, so a declaration's text cannot break the line it is shown on.
+func argvLine(argv []string) string {
+	words := make([]string, len(argv))
+	for i, word := range argv {
+		words[i] = word
+		if strings.ContainsAny(word, " \t\r\n") || strings.IndexFunc(word, func(r rune) bool {
+			return unicode.IsControl(r) || unicode.Is(unicode.Bidi_Control, r)
+		}) >= 0 {
+			words[i] = strconv.Quote(word)
+		}
+	}
+	return strings.Join(words, " ")
+}
 
 // Program is the command's program as the yard runs it: a relative one from
 // the copy yardr source add made under <home>/sources/<name>/.

@@ -882,9 +882,12 @@ declared source pushover, from sources/pushover.yaml
 - **The commands' files are the pack's to carry.** In a pack of kind
   `source`, each file a command names by a relative program stands beside
   the declaration, and the import copies it under
-  `<home>/sources/<name>/`, as `yardr source add` copies it. The plan names
+  `<home>/sources/<name>/`, as `yardr source add` copies it. A call's
+  `build` and a call a command answers (`run`,
+  [integrations.md](integrations.md)) name theirs the same way. The plan names
   each command, its file and the file's sha256, and a second apply shows a
-  changed file as a change (`file linear/thread: sha256 … -> sha256 …`). A
+  changed file as a change (`file linear/thread: sha256 … -> sha256 …`);
+  `pack check` lists each among the files that run. A
   command with an absolute program is refused: every program a pack runs
   with a credential is one the yard copies and hashes, so the operator's
   own absolute program stays a loose declaration's. A prune removes the

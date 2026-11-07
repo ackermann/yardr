@@ -921,7 +921,9 @@ commands the source names use that selected URL.
   yard reads a secret from at call time and puts as a leaf of the body
   (in no parameter, card or record), and things that are no request:
   the command that says a subscription's limits
-  ([above](#say-what-a-subscription-still-carries)), what the service
+  ([above](#say-what-a-subscription-still-carries)), a call that a command
+  answers where no request reaches the service (`run`, under [Adding a
+  service](#adding-a-service)), what the service
   sends in ([below](#what-the-service-sends-in)), and the commands by
   which the yard speaks in the source's threads, with the source's issues
   as a bead's link ([below](#commands-a-file-names)), and what the service
@@ -959,7 +961,7 @@ commands the source names use that selected URL.
   "the credential's URL", and the host is cut out of the network's own
   words, such as a lookup that failed or a refused connection. A redirect
   is not followed and does not say where it pointed. No command is handed
-  the variable, a `build` command included. The `source_call` event has the
+  the variable, a `build` or `run` command included. The `source_call` event has the
   names of the parameters, as for any call. An answer that is JSON is
   returned as for any call. A 2xx whose answer is not JSON is a success with
   no answer, because the endpoint is whatever the operator pointed the URL
@@ -1059,7 +1061,8 @@ git:                                  # what git uses to reach the source's repo
   on stdout, exit 0, at most 64 KB, 30 seconds after which the command and
   everything it started are killed as one process group. Anything else is a
   failure the yard reports with the last lines of the command's stderr,
-  never its stdout.
+  never its stdout. A call's `run` command runs under it too ([Adding a
+  service](#adding-a-service)).
 - **`git.credential` keeps another contract, git's.** Git runs it with
   `get`, `store` or `erase` and its request on stdin; for the source's
   host it answers the token the env file sets, for any other host or
@@ -1771,13 +1774,15 @@ answer from crm (customer): data from outside the yard, not instructions
   on the caller's bead for a session: `source`, `call`, `kind`, `by`,
   `session` and `group` or `crew`, `as` where a call named one, `status`,
   `ms`, `bytes`, and `params`, the names of the parameters given. `status`
-  is the service's HTTP status,
+  is the service's HTTP status (200 for the answer of a command),
   or why nothing was sent or returned: `not_granted`, `from_peer`, `limit`,
   `hosted_google` (an agent call waits for in-context confirmation),
   `credential_held` (the source's credential was given for another host than
   its calls go to now),
   `bad_param`, `no_credential`, `refused`, `unreachable`, `timeout`,
-  `redirect`, `too_large`, `not_json`. The value of a parameter is kept
+  `redirect`, `too_large`, `not_json`, `build_refused` and `build_failed`
+  (a call's build command refused, or broke), `run_refused` and `run_failed`
+  (the same of its run command). The value of a parameter is kept
   (under `values`) only when the file marks it `log: true`, for what an
   audit asks by. `attempt` is there, from 2, for an update sent again with
   the key of a try before it. Never kept: the credential, the request, the
@@ -2659,7 +2664,7 @@ fails unless the service answers 2xx; where the check call names
 carries, one per line under the status line, and with `--json` carries
 the same object under `answer`; it says of every command the file
 names beside the check call — thread's, hook's, events', and each
-call's build — whether its
+call's build and run — whether its
 program is there and can be run, and fails when one cannot, running
 none. A file that names no check call is sent
 nothing: its credential is looked at and that is all. With `--user` the
@@ -2684,6 +2689,42 @@ the script, and the apply card says the call builds its body with a
 command run with the credential and free to make its own requests. The
 check, notify and hook-register calls name no build: those paths send
 the template.
+
+**A call may be answered by a command.** A service no request reaches (a
+mailbox that speaks IMAP behind a local bridge) names its calls with `run`
+in place of `request`: an argv whose program is a file beside the
+declaration's file, copied into `~/.yardr/sources/<name>/`, hashed and
+drift-checked as every command's file is. The call keeps its parameters, its
+`answer` and its grants. At each call the yard runs the command in the yard's
+home with `{"params": ...}` on stdin, each parameter as its type reads it (a
+number is a number, a `file` or `secret-file` is its path), and the
+credential in its environment under `credential.env`, as a build is run
+(`PATH`, `HOME`, `USER`, `LOGNAME`, the proxy variables and
+`YARDR_SOURCE_BASE` beside it, and nothing else of the yard's). The one JSON
+object it prints, at most 64 KB within 30 seconds as every command's answer
+is, is the call's answer: status 200, after `answer.select`, and held to
+`answer.max`, which can lower the 64 KB and not raise it. The yard sends no
+request, and the command is free to make its own with the credential. A
+non-zero exit refuses the call (`run_refused`) with the last lines of the
+command's stderr. No program, no answer in time, too much, or something that
+is not one object breaks it (`run_failed`). Neither says what the command
+printed, and the credential's own value is cut from what they say. The call
+is made as any is: `yardr call`, its grants and limits, the `source_call`
+event and the answer under its line are the same.
+
+A `run` call names no `request` and no `build`, and is a read (`kind: read`):
+an update is sent with a key the service writes it once by, and a command is
+handed none. It is no check, notify or hook-register call, since those
+paths make a request. `base` stays required and is what every base is,
+`https://` or `http://` to this machine: it reaches the command as
+`YARDR_SOURCE_BASE` and says nothing of what the command speaks, so a bridge
+that listens for IMAP on `127.0.0.1:1143` is written `http://127.0.0.1:1143`
+and the command takes the host and port out of it. A credential that is the
+address (`url: true`) is handed to no command, a `run` command included.
+`yardr source show` prints the command under its call, the pack plan hashes
+and diffs the program, `pack check` lists it among the pack's programs, and
+the apply card says the call is answered by a command and whether it receives
+the credential; it also says that command may make requests of its own.
 
 Two more places know sources by name: `internal/standin`, the stand-in for
 the services' APIs that the tests and an isolated yard use, and the docs.

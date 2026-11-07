@@ -93,6 +93,36 @@ func TestPackCheckSourcePackNeedsNoDepot(t *testing.T) {
 	if strings.Contains(out, "its roles and scripts would be copied") {
 		t.Errorf("a pack with no roles installs none:\n%s", out)
 	}
+
+	// A call a command answers (run) brings its program as any command does:
+	// the plan names it with its hash, and the file is one of those that run.
+	text, err := os.ReadFile(filepath.Join(dir, "acme.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls := "calls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n"
+	if !strings.Contains(string(text), calls) {
+		t.Fatalf("the declaration has no calls to add one to:\n%s", text)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "acme.yaml"), []byte(strings.Replace(string(text), calls, calls+"  find: { kind: read, run: [acme/find, search] }\n", 1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "acme", "find"), []byte("#!/bin/sh\necho find\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err = run(t, a.packCmd(), "check", dir)
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	for _, want := range []string{
+		"  its calls go to https://acme.test: ping (read), find (read)\n",
+		"  command call.find.run: acme/find, sha256 ",
+		"\nruns 3 programs of the pack as you: acme/find, acme/normalize, acme/thread\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the plan with a run call lacks %q:\n%s", want, out)
+		}
+	}
 }
 
 // A pack with no flows, groups or crew is checked without --depot: the plan

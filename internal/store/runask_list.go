@@ -484,10 +484,10 @@ func (w *wtx) granteeSeen(to Grantee) (as, fingerprint string, err error) {
 }
 
 // callSays names a call as a card does: by its name, its method and its
-// path as the declaration has them, since the name alone says nothing of
-// what the call does.
+// path as the declaration has them (or the command that answers it), since
+// the name alone says nothing of what the call does.
 func callSays(c source.Call) string {
-	return oneLine(fmt.Sprintf("%s (%s %s)", c.Name, c.Request.Method, c.Request.Path))
+	return oneLine(fmt.Sprintf("%s (%s)", c.Name, c.Line()))
 }
 
 // PresetReading is what the server's reading of one preset hands the

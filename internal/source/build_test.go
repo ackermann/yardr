@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -45,6 +46,41 @@ func TestParseBuild(t *testing.T) {
 	if _, err := Parse("read.yaml", []byte(read)); err != nil {
 		t.Fatalf("a read may build too: %v", err)
 	}
+	t.Run("run", func(t *testing.T) {
+		d, err := Parse("mail.yaml", []byte(runTestDeclaration))
+		if err != nil {
+			t.Fatal(err)
+		}
+		c, ok := d.Call("search")
+		if !ok || strings.Join(c.Run, " ") != "mail/imap search" || c.Build != nil || c.Kind != Read || c.Request.Method != "" || c.Request.Path != "" {
+			t.Fatalf("call = %+v", c)
+		}
+		if c.Line() != "runs mail/imap search" || d.Commands()[0].Key != "call.search.run" {
+			t.Fatalf("run call or command = %+v, %+v", c, d.Commands())
+		}
+		if !d.HasCommandFiles() || !slices.Equal(d.programs(), []string{"mail/imap"}) {
+			t.Fatalf("programs = %v", d.programs())
+		}
+		if files := d.CommandFiles(t.TempDir()); len(files) != 1 || files[0].Key != "call.search.run" || !files[0].Declared || files[0].SHA256 != "" {
+			t.Fatalf("command files = %+v: the copy is not made yet, so it has no hash", files)
+		}
+		both := strings.Replace(runTestDeclaration, "  ping: { kind: read, request: { method: GET, path: /ping } }",
+			"  ping: { kind: read, request: { method: POST, path: /ping }, build: [mail/ping] }", 1)
+		d, err = Parse("mail.yaml", []byte(both))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var keys []string
+		for _, c := range d.Commands() {
+			keys = append(keys, c.Key)
+		}
+		if !slices.Equal(keys, []string{"call.search.run", "call.ping.build"}) {
+			t.Fatalf("command keys = %v", keys)
+		}
+		if _, err := Parse("hook.yaml", []byte("name: hook\ncredential: { env: HOOK_URL, url: true }\ncalls:\n  look: { kind: read, run: [hook/look] }\n")); err != nil {
+			t.Fatalf("a run call beside a credential that is the address: %v", err)
+		}
+	})
 }
 
 func TestParseRefusesBuild(t *testing.T) {
@@ -64,16 +100,35 @@ calls:
 	register := strings.Replace(registerText(`
   register: { call: setwebhook, url: url, secret: secret_token }
 `), `request: { method: POST, path: /setwebhook, body: { url: "{url}", secret_token: "{secret_token}", allowed_updates: ["message"] } }`, `request: { method: POST, path: /setwebhook }, build: [bot/build]`, 1)
+	runWithRequest := strings.Replace(runTestDeclaration, "    run: [mail/imap, search]", "    request: { method: GET, path: /search }\n    run: [mail/imap, search]", 1)
+	runWithBuild := strings.Replace(runTestDeclaration, "    run: [mail/imap, search]", "    build: [mail/build]\n    run: [mail/imap, search]", 1)
+	runNeither := strings.Replace(runTestDeclaration, "    run: [mail/imap, search]\n", "", 1)
+	runAbsolute := strings.Replace(runTestDeclaration, "run: [mail/imap, search]", "run: [/opt/mail/imap, search]", 1)
+	runDots := strings.Replace(runTestDeclaration, "run: [mail/imap, search]", "run: [../imap, search]", 1)
+	runEmpty := strings.Replace(runTestDeclaration, "run: [mail/imap, search]", "run: []", 1)
+	runWords := strings.Replace(runTestDeclaration, "run: [mail/imap, search]", "run: mail/imap search", 1)
+	runUpdate := strings.Replace(runTestDeclaration, "    kind: read\n    about: Find", "    kind: update\n    about: Find", 1)
+	runCheck := strings.Replace(runTestDeclaration, "calls:\n", "check: search\ncalls:\n", 1)
+	runCheck = strings.Replace(runCheck, "      folder: { type: string, max: 100 }\n", "      folder: { type: string, max: 100, optional: true }\n", 1)
 	for name, tc := range map[string]struct {
 		text string
 		want string
 	}{
-		"body and build":      {both, "a call names request.body or build, never both"},
-		"null body and build": {bothNull, "a call names request.body or build, never both"},
-		"absolute program":    {absolute, "is absolute: a build's program must be relative"},
-		"check call":          {check, "check: ping names build: source check and yardr doctor send the request's template"},
-		"notify call":         {notify, "notify.call: message names build: telling a person sends the request's template"},
-		"hook register call":  {register, "hook.register.call: setwebhook names build: registering a webhook sends the request's template"},
+		"body and build":          {both, "a call names request.body or build, never both"},
+		"null body and build":     {bothNull, "a call names request.body or build, never both"},
+		"absolute program":        {absolute, "is absolute: a build's program must be relative"},
+		"check call":              {check, "check: ping names build: source check and yardr doctor send the request's template"},
+		"notify call":             {notify, "notify.call: message names build: telling a person sends the request's template"},
+		"hook register call":      {register, "hook.register.call: setwebhook names build: registering a webhook sends the request's template"},
+		"request and run":         {runWithRequest, "a call names request or run, never both"},
+		"build and run":           {runWithBuild, "a call names build or run, never both"},
+		"neither":                 {runNeither, "missing: the method and the path the call sends, or run, the command that answers it"},
+		"absolute run program":    {runAbsolute, "is absolute: a run's program must be relative"},
+		"run program that leaves": {runDots, "has a '.' or '..' segment"},
+		"empty run command":       {runEmpty, "an empty list: want the program and its arguments"},
+		"run command in a word":   {runWords, "want a list of strings"},
+		"run update":              {runUpdate, "a call that names run is a read"},
+		"run check call":          {runCheck, "check: search names run: source check and yardr doctor send the request a call declares"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := Parse("test.yaml", []byte(tc.text))

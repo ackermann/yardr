@@ -182,6 +182,12 @@ func TestParseHookRegister(t *testing.T) {
 `))), "webhooks: { kind: read,", "webhooks: { kind: read, build: [webhooks],", 1),
 			"webhooks names build: the check sends the request's template",
 		},
+		"existing names a run call": {
+			strings.Replace(withExisting(asked(registerText(`
+  register: { call: setwebhook, url: url, secret: secret_token }
+`))), `request: { method: GET, path: /webhooks, query: { project: "{project}" } }`, "run: [webhooks]", 1),
+			"webhooks names run: the check sends the request a call declares",
+		},
 		"existing without its list": {
 			strings.Replace(withExisting(asked(registerText(`
   register: { call: setwebhook, url: url, secret: secret_token }

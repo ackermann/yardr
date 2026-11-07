@@ -507,7 +507,7 @@ func declarationDiff(was, now *source.Declaration) []Diff {
 		text, _ := json.Marshal(d.Bases) // a map of strings always marshals
 		return string(text)
 	}
-	line := func(c *source.Call) string { return "(" + c.Kind + ") " + c.Request.Line() }
+	line := func(c *source.Call) string { return "(" + c.Kind + ") " + c.Line() }
 	for _, f := range []struct{ field, old, new string }{
 		{"base", was.Address(), now.Address()}, {"bases", bases(was), bases(now)}, {"credential", credential(was), credential(now)}, {"check", was.Check, now.Check}, {"idempotency", was.Idempotency, now.Idempotency}, {"notify", notify(was), notify(now)},
 	} {

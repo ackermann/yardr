@@ -1791,7 +1791,7 @@ internal/pack/export.go 1047 pack export and its object shapes
 internal/pack/pack.go 1927 pack reading, checking and its shapes
 internal/pack/plan.go 1106 import plans, diffs and their operations
 internal/rpc/user.go 1612 the user server, callers and pairing
-internal/source/declaration.go 1736 source declarations, credentials and calls
+internal/source/declaration.go 1279 source declarations, credentials and calls
 internal/standin/standin.go 1540 the fake Linear, GitHub and edge APIs
 internal/store/asks.go 1777 ask and answer parsing and storage
 internal/store/beads.go 2563 bead CRUD, queries and dispatch reads
