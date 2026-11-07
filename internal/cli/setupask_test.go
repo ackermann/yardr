@@ -239,6 +239,13 @@ func TestBeadAnswerSetupRefusals(t *testing.T) {
 		!strings.Contains(err.Error(), "takes nothing else") {
 		t.Errorf("a pick with --secret on a secret ask was taken or refused otherwise: %v\n%s", err, out)
 	}
+	// A crew member's setup, or secret, is refused before the gate asks
+	// for the number or a value is read.
+	for _, args := range [][]string{{b.ID, "1", "1", "--secret"}, {b.ID, "3", "--secret"}} {
+		if err := unprompted(t, y, "yardmaster", nil, args...); err == nil || !strings.Contains(err.Error(), "yardmaster is a crew member") {
+			t.Errorf("answer %v as a crew member = %v", args, err)
+		}
+	}
 }
 
 // yardr bead answer <n> --account takes a listed candidate's account

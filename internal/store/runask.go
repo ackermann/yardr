@@ -985,14 +985,8 @@ func (w *wtx) approveAsk(ctx context.Context, id string, seq uint64, actor strin
 	}
 	// Before anything is written: an agent's approval changes nothing, not
 	// even what the transaction would take back.
-	if c.sole != nil && c.sole(argv) != "" {
-		err = w.may(ctx, actor, ActApproveSole, Object{Kind: KindAsk, Name: row.ID, Seq: seq, To: r.Ask.To, Whose: c.sole(argv)})
-	} else if c.whose != nil {
-		err = w.may(ctx, actor, ActApproveOwn, Object{Kind: KindAsk, Name: row.ID, Seq: seq, To: r.Ask.To, Whose: c.whose(argv)})
-	} else {
-		err = w.may(ctx, actor, ActApproveRun, Object{Kind: KindAsk, Name: row.ID, Seq: seq, To: r.Ask.To})
-	}
-	if err != nil {
+	act, obj := runGate(Object{Kind: KindAsk, Name: row.ID, Seq: seq, To: r.Ask.To}, c, argv)
+	if err := w.may(ctx, actor, act, obj); err != nil {
 		return nil, err
 	}
 	if !slices.Equal(argv, was.Argv) {

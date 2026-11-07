@@ -714,24 +714,8 @@ func (w *wtx) giveSecret(ctx context.Context, s *Store, home, id string, ask uin
 	sec := asked.Secret
 	// Before the note is put: an agent's giving writes nothing, not even
 	// what the transaction would take back.
-	if sec.Harness != "" {
-		err = w.may(ctx, actor, ActGiveHarnessKey, Object{Kind: KindHarness, Name: sec.Harness, To: sec.Crew})
-	} else if sec.User != "" {
-		err = w.may(ctx, actor, ActTell, Object{Kind: KindUser, Name: sec.User})
-	} else if sec.Login != "" && sec.As != "" {
-		err = w.may(ctx, actor, ActAnswerLogin, Object{Kind: KindUser, Name: sec.As})
-	} else if sec.As != "" {
-		err = w.may(ctx, actor, ActTell, Object{Kind: KindUser, Name: sec.As})
-	} else if sec.Crew != "" {
-		err = w.may(ctx, actor, ActGiveCrewCredential, Object{Kind: KindCrew, Name: sec.Crew})
-	} else if sec.Hook != "" {
-		err = w.may(ctx, actor, ActGiveHookSecret, Object{Kind: KindHook, Name: sec.Hook})
-	} else if sec.Login != "" {
-		err = w.may(ctx, actor, ActAnswerSourceLogin, Object{Kind: KindLogin, Name: sec.Login})
-	} else {
-		err = w.may(ctx, actor, ActSetSourceKey, Object{Kind: KindSource, Name: sec.Source})
-	}
-	if err != nil {
+	act, obj := secretGate(*sec)
+	if err := w.may(ctx, actor, act, obj); err != nil {
 		return err
 	}
 	// Weighed again, as an approval weighs every card: an ask written

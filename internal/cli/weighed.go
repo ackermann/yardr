@@ -49,13 +49,36 @@ func askedCard(ctx context.Context, st store.API, id string, seq uint64) (store.
 }
 
 // gate is weighed for the ask seq of the bead id, whose weight is the one
-// the yard stored on it.
+// the yard stored on it. Before it asks anything it asks the store's policy
+// whether this run's actor may approve the card at all, by the gate the
+// approval itself asks (store.ApprovalGate): one who may not is refused at
+// once, in the store's words, and not after typing the number back.
 func (a *app) gate(c *cobra.Command, st store.API, id string, seq uint64, act, again string) (bool, error) {
 	card, ok := askedCard(c.Context(), st, id, seq)
 	if !ok {
 		return false, nil
 	}
+	if gate, obj, ok := store.ApprovalGate(id, seq, card); ok {
+		if err := st.May(c.Context(), a.who(), gate, obj); err != nil {
+			return false, a.loginActor(c.Context(), st, err)
+		}
+	}
 	return a.weighed(c, id, seq, card.Weight, act, again)
+}
+
+// loginActor is the refusal err of what this run did as its actor, with how
+// to name another where the actor is the login's ($USER) and a crew
+// member's name: a person whose account shares a name with a crew member
+// acts as that crew member unless they say who they are, and the store's
+// refusal ("boo is a crew member") does not tell them how to.
+func (a *app) loginActor(ctx context.Context, st store.API, err error) error {
+	if a.actor != "" || a.identity().actor != "" {
+		return err
+	}
+	if _, crewErr := st.GetCrew(ctx, a.who()); crewErr != nil {
+		return err
+	}
+	return fmt.Errorf("%w.\nyardr took you for %s because that is the name you are logged in as ($USER), and %s is also the name of a crew member, so you acted as that crew member. To act as yourself, add --actor <you> or set YARDR_ACTOR to your name", err, a.who(), a.who())
 }
 
 // weighed says whether to send weighed with the approval of the ask seq of

@@ -158,7 +158,8 @@ func (w *wtx) validateSetupApproval(ctx context.Context, id string, seq uint64, 
 	was := *r.Ask.Setup
 	// Before anything is written: an agent's approval changes nothing, not
 	// even what the transaction would take back.
-	if err := w.may(ctx, actor, ActApproveRun, Object{Kind: KindAsk, Name: row.ID, Seq: seq, To: r.Ask.To}); err != nil {
+	act, obj, _ := ApprovalGate(row.ID, seq, r.Ask)
+	if err := w.may(ctx, actor, act, obj); err != nil {
 		return nil, err
 	}
 	if option < 1 || option > len(r.Ask.Options) {

@@ -332,6 +332,27 @@ func TestBeadAskRunAndApprove(t *testing.T) {
 	if _, err := y.as(t, "yardmaster", "answer", b.ID, "1", "--approve"); err == nil || !strings.Contains(err.Error(), "approving a command is the operator's (jo)") {
 		t.Fatalf("the asker's own approval = %v", err)
 	}
+	// Whoever the policy refuses is refused before the gate asks for the
+	// number. Only an actor taken from the login ($USER) that names a crew
+	// member is told how to say who they are.
+	const hint = "add --actor <you> or set YARDR_ACTOR to your name"
+	for _, c := range []struct {
+		name, actor string
+		env         map[string]string
+		want        string
+		hint        bool
+	}{
+		{"--actor a crew member", "yardmaster", nil, "; yardmaster is a crew member", false},
+		{"YARDR_ACTOR a crew member", "", map[string]string{"YARDR_ACTOR": "yardmaster", "USER": "jo"}, "; yardmaster is a crew member", false},
+		{"$USER a crew member", "", map[string]string{"USER": "yardmaster"}, "; yardmaster is a crew member.\nyardr took you for yardmaster because that is the name you are logged in as ($USER), and yardmaster is also the name of a crew member, so you acted as that crew member. To act as yourself, " + hint, true},
+		{"$USER nobody of the yard", "", map[string]string{"USER": "ada"}, "; this is ada", false},
+	} {
+		err := unprompted(t, y, c.actor, c.env, b.ID, "1", "--approve")
+		if err == nil || !strings.HasPrefix(err.Error(), "approving a command is the operator's (jo)") ||
+			!strings.Contains(err.Error(), c.want) || strings.Contains(err.Error(), hint) != c.hint {
+			t.Errorf("%s: approval = %v, want %q", c.name, err, c.want)
+		}
+	}
 	if _, err := y.as(t, "jo", "answer", b.ID, "1", "--approve", "--later"); err == nil || !strings.Contains(err.Error(), "--approve runs the command the ask holds, with --value alone beside it") {
 		t.Fatalf("--approve --later = %v", err)
 	}

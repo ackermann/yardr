@@ -157,3 +157,21 @@ func TestTypedLineTakesOneLine(t *testing.T) {
 		t.Errorf("a long line gave %q, %v, with %q of input left (%v)", got, err, left, readErr)
 	}
 }
+
+// unprompted runs yardr bead answer args at a terminal as actor (--actor;
+// "" names none) in the environment env, with the ask's number typed, and
+// fails the test unless the command asked nothing and read nothing: a
+// person the store's policy refuses is told so before the gate's prompt.
+// It returns the command's error.
+func unprompted(t *testing.T, y *cliYard, actor string, env map[string]string, args ...string) error {
+	t.Helper()
+	y.a.actor, y.a.env = actor, env
+	defer func() { y.a.actor, y.a.env = "jo", nil }()
+	typed := args[1] + "\n"
+	in := strings.NewReader(typed)
+	_, errOut, err := gated(t, y, true, in, args...)
+	if errOut != "" || in.Len() != len(typed) {
+		t.Fatalf("answer %v as %q %v: the gate asked %q and read %d bytes, want it refused first", args, actor, env, errOut, len(typed)-in.Len())
+	}
+	return err
+}

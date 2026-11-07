@@ -774,7 +774,8 @@ func (w *wtx) depotPushStale(seq uint64, was, now AskDepotPush) error {
 func (w *wtx) approveDepotPush(ctx context.Context, row *beadRow, r *ResolvedAsk, actor string, weighed bool) (*AskApproved, error) {
 	seq := r.Note.Seq
 	was := *r.Ask.DepotPush
-	if err := w.may(ctx, actor, ActApproveRun, Object{Kind: KindAsk, Name: row.ID, Seq: seq, To: r.Ask.To}); err != nil {
+	act, obj, _ := ApprovalGate(row.ID, seq, r.Ask)
+	if err := w.may(ctx, actor, act, obj); err != nil {
 		return nil, err
 	}
 	// Re-read the group's cmd and the depot's git config as they stand:

@@ -402,7 +402,8 @@ func (w *wtx) prepareSourceCheck(ctx context.Context, id string, seq uint64, act
 		return nil, fmt.Errorf("ask %d: %w", seq, err)
 	}
 	srcName, user, _ := sourceCheckOf(argv)
-	if err := w.may(ctx, actor, ActApproveOwn, Object{Kind: KindAsk, Name: row.ID, Seq: seq, To: r.Ask.To, Whose: user}); err != nil {
+	act, obj := runGate(Object{Kind: KindAsk, Name: row.ID, Seq: seq, To: r.Ask.To}, c, argv)
+	if err := w.may(ctx, actor, act, obj); err != nil {
 		return nil, err
 	}
 	if !slices.Equal(argv, was.Argv) {
