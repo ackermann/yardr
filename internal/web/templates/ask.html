@@ -5,10 +5,12 @@
        so the card opens with the ask line. The weight stands first, then
        the question with its age and asker, the context, the options with
        the recommendation under its own row, the yard's blocks, and the
-       answer row. The gate reads as ever: a weighty card offers no control
-       the yard would refuse for want of its person's word, except a strong
-       card, which approves in every place the card stands once the window
-       holds the gate (Approve): a fresh sign-in comes first. */ -}}
+       answer row. A weighty card that is not strong approves, or picks on
+       a mapping card, in every place the card stands, behind the
+       terminal's gate: the ask's number typed back in its field
+       (TypeBack). A strong card approves there too once the window holds
+       its gate (Approve): a fresh sign-in comes first. A secret card offers
+       no giving: a plain-HTTP view takes no secret. */ -}}
 {{define "ask"}}
   {{- if .OnBead}}
   <p class="ask-line">{{.Bead}} · ask {{.Ask}}</p>
@@ -49,10 +51,11 @@
   {{- end}}
   {{- with .Secret}}
   <p>{{.Line}}</p>
-  {{- /* The page has no gate to put in front of a weighty card, so it
-         offers no giving: the card is given where the line names. */}}
+  {{- /* A view may be plain HTTP, which must take no secret, so a
+         weighty secret card offers no giving: it is given where the line
+         names. */}}
   {{- if $.Weight}}
-  <p>This card is weighty and this window has no gate. Approve it in footplate, or in a terminal on the yard's machine:</p>
+  <p>This card is weighty, and this window cannot approve it. Approve it in footplate, or in a terminal on the yard's machine:</p>
   {{- end}}
   <p class="entry-note">Give it with <code>yardr bead answer {{$.Bead}} {{$.Ask}} --secret</code>.</p>
   {{- end}}
@@ -75,12 +78,12 @@
   {{- with .FullText}}
   <p class="entry-note"><a class="opens" href="{{.}}">Read the full text from the first file</a></p>
   {{- end}}
-  {{- /* A weighty run card whose approval does not stand has no gate in
-         this window, and the card is approved where the line names. A
-         strong card approves below, under a fresh sign-in, where the
-         window holds the gate. */}}
+  {{- /* A weighty run card whose approval does not stand, a strong one
+         where the window holds no sign-in, is approved where the line
+         names. Any other weighty card approves below, with its number
+         typed back, and a strong one under a fresh sign-in. */}}
   {{- if and $.Weight (not $.Approve)}}
-  <p>This card is weighty and this window has no gate. Approve it in footplate, or in a terminal on the yard's machine:</p>
+  <p>This card is weighty, and this window cannot approve it. Approve it in footplate, or in a terminal on the yard's machine:</p>
   {{- end}}
   <p class="entry-note">Back: <code>{{.Back}}</code>{{with .BackBy}} ({{.}} can take it back){{else}} (anyone can take it back){{end}}. Approve it with <code>yardr bead answer {{$.Bead}} {{$.Ask}} --approve</code>.</p>
   {{- end}}
@@ -90,20 +93,20 @@
   <p class="entry-note">{{.}}</p>
   {{- end}}
   {{- /* As a run card's: a weighty setup whose approval does not stand
-         has no gate here, and a strong one approves below, under a fresh
-         sign-in, where the window holds the gate. */}}
+         is approved where the line names; any other approves below. */}}
   {{- if and $.Weight (not $.Approve)}}
-  <p>This card is weighty and this window has no gate. Approve it in footplate, or in a terminal on the yard's machine:</p>
+  <p>This card is weighty, and this window cannot approve it. Approve it in footplate, or in a terminal on the yard's machine:</p>
   {{- end}}
   <p class="entry-note">Back: <code>{{.Back}}</code>{{with .BackBy}} ({{.}} can take it back){{else}} (anyone can take it back){{end}}. Approve it with <code>yardr bead answer {{$.Bead}} {{$.Ask}} &lt;n&gt; --secret</code>.</p>
   {{- end}}
   {{- /* A weighty mapping card's picks write a user's identity, which
          the yard refuses without its person's word that the weight was
-         seen, and the page has no gate to ask for it: the form below
-         keeps the words with Later and Decline alone, and the pick is
-         made where the line names, with the option's number. */}}
+         seen: the picks below go on with the ask's number typed back. The
+         terminal's command stands beside them, as a run card's does. */}}
   {{- if and .Weight .Mapping}}
-  <p>This card is weighty and this window has no gate. Approve it in footplate, or in a terminal on the yard's machine:</p>
+  {{- if not .Picks}}
+  <p>This card is weighty, and this window cannot approve it. Approve it in footplate, or in a terminal on the yard's machine:</p>
+  {{- end}}
   <p class="entry-note">Approve it with <code>yardr bead answer {{.Bead}} {{.Ask}} &lt;n&gt;</code>.</p>
   {{- end}}
   {{- with .About}}
@@ -112,25 +115,31 @@
   {{- /* The answer row, in footplate's order: the answer first, then the
          words, then Later, then Decline. The recommended option's button
          reads as the card's answer; Ask about this stands where the
-         viewing user may write to the asker. A weighty card offers no
-         control the yard would refuse for want of its person's word: no
-         pick on a mapping card, no giving on a secret one, no approval on
-         a run or setup card that is weighty but not strong, or strong with
-         no gate in the window. A strong card's approval stands on every
-         surface the card does, and posts to the bead's handler as the
+         viewing user may write to the asker. A weighty card that is not
+         strong offers its pick or approval with the field its number is
+         typed back in, first in the row; a secret one offers no giving,
+         and a strong one no approval where the window holds no gate. A
+         strong card's approval stands on every surface the card does, and posts to the bead's handler as the
          bead page's does: the sign-in round trip lands on the bead. The
          form posts and puts the page's answer in place on the bead's
          page; elsewhere, and without scripts, it posts and loads the bead
          it lands on. */}}
   {{- if .Form}}
-  <form class="need-answer" method="post" action="{{.Action}}"{{if .OnBead}} hx-post="{{.Action}}" hx-target="#bead" hx-select="#bead > *" hx-swap="innerHTML ignoreTitle:true"{{end}}><input type="hidden" name="rev" value="{{.Rev}}">{{template "csrf"}}<input type="hidden" name="ask" value="{{.Ask}}">{{if .Picks}}{{range $i, $o := .Options}}<button type="submit" name="option" value="{{inc $i}}">{{if eq $.Recommend (inc $i)}}Answer: {{inc $i}} · {{$o.Label}}{{else}}{{$o.Label}}{{end}}</button>{{end}}{{end}}{{if .Approve}}{{with .Run}}{{range .Ask}}<input type="text" name="value-{{.}}" placeholder="{{.}}" aria-label="{{.}}">{{end}}<button type="submit" name="action" value="approve">{{if strong $.Weight}}Approve in {{$.Yard}}{{else}}Approve{{end}}</button>{{end}}{{end}}{{if .Words}}<input type="text" name="words" placeholder="Words with the answer, or why not" aria-label="Words">{{if .Options}}{{if not .Setup}}<button type="submit" name="action" value="send">Send</button>{{end}}{{else if .Answer}}<button type="submit" name="action" value="answer">Answer</button>{{end}}{{end}}{{if and .OnBead (not .Weight)}}{{with .Secret}}{{range .Env}}<input type="password" name="secret-{{.}}" placeholder="{{.}}" aria-label="{{.}}" autocomplete="off">{{end}}<button type="submit" name="action" value="give">Give</button>{{end}}{{end}}{{with .Talk}}<a class="ask-about" href="{{.}}">Ask about this</a>{{end}}<button type="submit" name="action" value="later">Later</button><button type="submit" name="action" value="decline" title="Say no to all options. The asker finds another way.">Decline</button></form>
+  <form class="need-answer" method="post" action="{{.Action}}"{{if .OnBead}} hx-post="{{.Action}}" hx-target="#bead" hx-select="#bead > *" hx-swap="innerHTML ignoreTitle:true"{{end}}><input type="hidden" name="rev" value="{{.Rev}}">{{template "csrf"}}<input type="hidden" name="ask" value="{{.Ask}}">{{if and .TypeBack (not .Setup)}}{{template "typeback" .}}{{end}}{{if .Picks}}{{range $i, $o := .Options}}<button type="submit" name="option" value="{{inc $i}}">{{if eq $.Recommend (inc $i)}}Answer: {{inc $i}} · {{$o.Label}}{{else}}{{$o.Label}}{{end}}</button>{{end}}{{end}}{{if .Approve}}{{with .Run}}{{range .Ask}}<input type="text" name="value-{{.}}" placeholder="{{.}}" aria-label="{{.}}">{{end}}<button type="submit" name="action" value="approve">{{if strong $.Weight}}Approve in {{$.Yard}}{{else}}Approve{{end}}</button>{{end}}{{end}}{{if .Words}}<input type="text" name="words" placeholder="Words with the answer, or why not" aria-label="Words">{{if .Options}}{{if not .Setup}}<button type="submit" name="action" value="send">Send</button>{{end}}{{else if .Answer}}<button type="submit" name="action" value="answer">Answer</button>{{end}}{{end}}{{if and .OnBead (not .Weight)}}{{with .Secret}}{{range .Env}}<input type="password" name="secret-{{.}}" placeholder="{{.}}" aria-label="{{.}}" autocomplete="off">{{end}}<button type="submit" name="action" value="give">Give</button>{{end}}{{end}}{{with .Talk}}<a class="ask-about" href="{{.}}">Ask about this</a>{{end}}<button type="submit" name="action" value="later">Later</button><button type="submit" name="action" value="decline" title="Say no to all options. The asker finds another way.">Decline</button></form>
   {{- /* A setup card's approval: its preset pick with the account typed
          beside it, the candidate taken instead, or a bare pick where
-         the card keeps the account that stands. As a run card's, it
+         the card keeps the account that stands. The account is a secret,
+         typed only where the window holds the gate (Typing). As a run card's, it
          stands only where the card is routine on its bead's page, or
          strong under the gate. */}}
   {{- if and .Setup .Approve}}
-  <form class="need-approve" method="post" action="{{.Action}}"{{if .OnBead}} hx-post="{{.Action}}" hx-target="#bead" hx-select="#bead > *" hx-swap="innerHTML ignoreTitle:true"{{end}}><input type="hidden" name="rev" value="{{.Rev}}">{{template "csrf"}}<input type="hidden" name="ask" value="{{.Ask}}">{{range $i, $o := .Options}}<label><input type="radio" name="option" value="{{inc $i}}">{{$o.Label}}</label>{{end}}{{range .Setup.Account}}<input type="password" name="secret-{{.}}" placeholder="{{.}}" aria-label="{{.}}" autocomplete="off">{{end}}<input type="text" name="account" placeholder="Candidate source, or type above" aria-label="Candidate source"><button type="submit" name="action" value="approve">{{if strong .Weight}}Approve in {{.Yard}}{{else}}Approve{{end}}</button></form>
+  <form class="need-approve" method="post" action="{{.Action}}"{{if .OnBead}} hx-post="{{.Action}}" hx-target="#bead" hx-select="#bead > *" hx-swap="innerHTML ignoreTitle:true"{{end}}><input type="hidden" name="rev" value="{{.Rev}}">{{template "csrf"}}<input type="hidden" name="ask" value="{{.Ask}}">{{range $i, $o := .Options}}<label><input type="radio" name="option" value="{{inc $i}}">{{$o.Label}}</label>{{end}}{{if .Typing}}{{range .Setup.Account}}<input type="password" name="secret-{{.}}" placeholder="{{.}}" aria-label="{{.}}" autocomplete="off">{{end}}{{end}}<input type="text" name="account" placeholder="Candidate source{{if and .Typing .Setup.Account}}, or type above{{end}}" aria-label="Candidate source">{{with .TypeBack}}{{template "typeback" $}}{{end}}<button type="submit" name="action" value="approve">{{if strong .Weight}}Approve in {{.Yard}}{{else}}Approve{{end}}</button></form>
   {{- end}}
   {{- end}}
 {{end}}
+
+{{- /* The field a weighty card that is not strong takes its number in,
+       under the terminal's prompt: only the ask's number typed back lets
+       its approval or pick go on (typedBack). It echoes, as the
+       terminal's does: the number is on the card, no secret. */ -}}
+{{define "typeback"}}<label class="type-back" for="typed-{{.Bead}}-{{.Ask}}">{{.TypeBack}}</label><input type="text" id="typed-{{.Bead}}-{{.Ask}}" name="typed" inputmode="numeric" autocomplete="off">{{end}}

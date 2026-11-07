@@ -420,20 +420,20 @@ live, with the form that sends it mail as them through the socket's `Mail`
 ([api.md](api.md#mail)), as that user. An ask to the user answers with
 buttons, on the needs rows and on its bead's page, through the socket's
 `AnswerAsk`, `DeferAsk` and `DeclineAsk`. On its bead's page a weighty
-card shows its weight first, one line a class, and since the page has no
-gate to put before it, the card offers no control the yard would refuse
-for want of its person's word that the weight was seen (`weighed`,
-[api.md](api.md#weighty-cards)): a secret ask shows no field and no
-giving, a mapping ask shows its options as a list with no pick, and each
-names the terminal command instead, where the card is given or picked,
-with Later and Decline staying as ever. The needs rows and the line's
-waits follow the page: a weighty card shows its weight first there too,
-a mapping card names the pick's terminal command instead of offering its
-picks, and the words stay with Later and Decline. A strong card — trust
-or code in its weight — is the exception on a hosted yard: the needs rows
-and the line's waits approve it as its bead's page does ([One
-bead](#one-bead)). A giving or a writing pick posted straight at the
-handler is still the yard's to refuse, in its own words, with nothing
+card shows its weight first, one line a class. A card that is weighty but
+not strong (no trust or code in its weight) approves behind the
+terminal's gate ([chat.md](chat.md#the-gate-for-a-weighty-card)): a field
+under its weight asks for the ask's number typed back, and only that
+number lets its approval, or a mapping card's pick, go on with its
+person's word that the weight was seen (`weighed`,
+[api.md](api.md#weighty-cards)). A secret ask shows no field and no
+giving, since a view may be plain HTTP and takes no secret, and names the
+terminal command instead, with Later and Decline staying as ever. The
+needs rows and the line's waits follow the page: a weighty card shows its
+weight first there too, with the same field before its picks or its
+approval. A strong card — trust or code in its weight — approves there on
+a hosted yard as its bead's page does ([One bead](#one-bead)). A giving
+or a writing pick posted straight at the handler is still the yard's to refuse, in its own words, with nothing
 written. A bead in a stage that waits for
 the user sends on as `yardr review` offers it, with a note
 ([One bead](#one-bead)). The Previews page approves, refuses, stops and
@@ -1627,10 +1627,20 @@ card that is routine approves below it, with fields where the card asks
 for values in the clear; a setup card approves with its preset pick and
 the account typed beside it, the candidate taken instead, or a bare pick
 where the card keeps the account that stands. A card that is weighty but
-not strong has no gate in this window: a secret ask shows no field and no
-giving, a mapping ask shows its options as a list with no pick, a run or
-setup card shows no approval, and each names the terminal command
-instead, where the card is given, picked or approved. Each answers under
+not strong approves the same way behind the terminal's gate: its
+`WEIGHTY` lines stand first, and the row carries the terminal's prompt
+(`ask 2990 is weighty (outside): type 2990 to approve it, anything else
+stops`) over a field the ask's number is typed back in. Only that number
+sends the approval, with `weighed`; an empty field or any other number
+redraws the page with `its number was not typed back, so nothing was
+done`, and the ask stays open. A mapping card's picks stand behind the
+same field. It is friction against approving on reflex, as at the
+terminal, and no authentication: the number is on the card, and who may
+answer it is the view's sign-in. A setup's account is a secret, so its
+field stands only on a hosted yard, behind the edge's TLS; elsewhere the
+card approves with a candidate taken or the account that stands, and an
+account posted all the same is refused. A secret ask shows no field and no
+giving, and names the terminal command instead. Each answers under
 itself, with its options as buttons where the card offers any, with Later
 and Decline; a run or setup card still names the terminal command beside
 its approval. Every card but a secret's has a words field beside them, in

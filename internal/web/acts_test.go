@@ -817,7 +817,7 @@ func TestBeadSecretWeightyCard(t *testing.T) {
 		`<h3 class="label">asks for mckean</h3>`,
 		`<p class="weighty">WEIGHTY · credential: gives a credential or an address to the yard: CRM_TOKEN, for the source crm (https://crm.example.com)</p>`,
 		`a secret: CRM_TOKEN, for the source crm (https://crm.example.com)`,
-		`This card is weighty and this window has no gate. Approve it in footplate, or in a terminal on the yard's machine:`,
+		`This card is weighty, and this window cannot approve it. Approve it in footplate, or in a terminal on the yard's machine:`,
 		`Give it with <code>yardr bead answer ` + b.ID + ` ` + strconv.FormatUint(seq, 10) + ` --secret</code>`,
 		`<button type="submit" name="action" value="later">Later</button>`,
 		`<button type="submit" name="action" value="decline" title="Say no to all options. The asker finds another way.">Decline</button>`,
@@ -865,7 +865,7 @@ func TestBeadSecretGiveIsRefusedAsWeighty(t *testing.T) {
 	if strings.Contains(r.body, value) {
 		t.Errorf("the redrawn page holds the value:\n%s", r.body)
 	}
-	if !strings.Contains(r.body, "This card is weighty and this window has no gate.") {
+	if !strings.Contains(r.body, "This card is weighty, and this window cannot approve it.") {
 		t.Errorf("the redrawn page shows no decline path:\n%s", r.body)
 	}
 	for _, gone := range []string{`type="password"`, `value="give"`} {
@@ -912,7 +912,7 @@ func TestBeadSecretLoginGiveIsRefusedAsWeighty(t *testing.T) {
 	for _, want := range []string{
 		`a secret: INPUT, for the waiting login claude-a1b2c3d4`,
 		`<p class="weighty">WEIGHTY · credential:`,
-		`This card is weighty and this window has no gate.`,
+		`This card is weighty, and this window cannot approve it.`,
 		`Give it with <code>yardr bead answer ` + b.ID + ` ` + strconv.FormatUint(seq, 10) + ` --secret</code>`,
 		`<button type="submit" name="action" value="later">Later</button>`,
 		`<button type="submit" name="action" value="decline" title="Say no to all options. The asker finds another way.">Decline</button>`,
@@ -933,7 +933,7 @@ func TestBeadSecretLoginGiveIsRefusedAsWeighty(t *testing.T) {
 	if r.status != 200 || !strings.Contains(r.body, "is weighty (credential)") || strings.Contains(r.body, value) {
 		t.Fatalf("status %d, want the redrawn page with the yard's refusal and no value:\n%s", r.status, r.body)
 	}
-	if !strings.Contains(r.body, "This card is weighty and this window has no gate.") {
+	if !strings.Contains(r.body, "This card is weighty, and this window cannot approve it.") {
 		t.Errorf("the redrawn page shows no decline path:\n%s", r.body)
 	}
 	notes, err := f.st.Notes(ctx, b.ID)
@@ -949,11 +949,12 @@ func TestBeadSecretLoginGiveIsRefusedAsWeighty(t *testing.T) {
 }
 
 // A weighty mapping card's picks write a user's identity, which the yard
-// refuses without its person's word that the weight was seen, and the
-// page has no gate to ask for it: the card shows the weight first and
-// the decline path with the terminal command instead of the pick buttons.
-// The options still read as a list, and the words stay with Later and
-// Decline, riding them as the reason.
+// refuses without its person's word that the weight was seen: the card
+// shows the weight first, then its picks behind the terminal's gate, a
+// field the ask's number is typed back in, with the terminal command
+// beside them. A pick without the number, or with another, is refused
+// with the ask open; with it, the pick goes on with the person's word.
+// The words stay with Later and Decline, riding them as the reason.
 func TestBeadMappingWeightyCard(t *testing.T) {
 	t.Parallel()
 	f, b, seq := mappingActYard(t)
@@ -971,7 +972,8 @@ func TestBeadMappingWeightyCard(t *testing.T) {
 		`<pre class="text held-payload">held-body-marker</pre>`,
 		`<li><span>1. ada</span>`,
 		`<li><span>2. mckean</span>`,
-		`This card is weighty and this window has no gate. Approve it in footplate, or in a terminal on the yard's machine:`,
+		`<label class="type-back" for="typed-` + b.ID + `-` + ask + `">ask ` + ask + ` is weighty (as-user): type ` + ask + ` to pick it, anything else stops</label><input type="text" id="typed-` + b.ID + `-` + ask + `" name="typed" inputmode="numeric" autocomplete="off">`,
+		`<button type="submit" name="option" value="1">ada</button>`,
 		`Approve it with <code>yardr bead answer ` + b.ID + ` ` + ask + ` &lt;n&gt;</code>`,
 		`<input type="text" name="words"`,
 		`<button type="submit" name="action" value="later">Later</button>`,
@@ -981,34 +983,37 @@ func TestBeadMappingWeightyCard(t *testing.T) {
 			t.Errorf("the page lacks %q:\n%s", want, r.body)
 		}
 	}
-	if strings.Contains(r.body, `name="option"`) {
-		t.Errorf("the weighty card offers its picks:\n%s", r.body)
+	if strings.Contains(r.body, "this window cannot approve it") {
+		t.Errorf("the weighty card says the window cannot approve it:\n%s", r.body)
 	}
-	// A writing pick posted straight at the handler is still the yard's
-	// to refuse: the redrawn page carries the refusal with the decline
-	// path and no pick, and the ask stays open.
+	// A pick without the number, or with another, changes nothing: the
+	// redrawn page carries the refusal with the picks still behind their
+	// field, and the ask stays open.
 	rev := revOf(t, f, b.ID)
-	r = f.postForm("/beads/"+b.ID, url.Values{"rev": {rev}, "ask": {ask}, "option": {"1"}}, "Origin", f.ts.URL)
-	if r.status != 200 || !strings.Contains(r.body, "is weighty (as-user)") || !strings.Contains(r.body, "approve it where its weight is shown") {
-		t.Fatalf("status %d, want the redrawn page with the yard's refusal:\n%s", r.status, r.body)
+	for _, typed := range []string{"", "1" + ask, "yes"} {
+		r = f.postForm("/beads/"+b.ID, url.Values{"rev": {rev}, "ask": {ask}, "option": {"1"}, "typed": {typed}}, "Origin", f.ts.URL)
+		if r.status != 200 || !strings.Contains(r.body, "ask "+ask+" is weighty (as-user): its number was not typed back, so nothing was done") {
+			t.Fatalf("typed %q: status %d, want the redrawn page with the refusal:\n%s", typed, r.status, r.body)
+		}
+		if !strings.Contains(r.body, `name="typed"`) || !strings.Contains(r.body, `name="option"`) {
+			t.Errorf("typed %q: the redrawn page lost the gate or the picks:\n%s", typed, r.body)
+		}
+		v, err := f.st.Bead(ctx, b.ID)
+		must(t, err)
+		if v.Asks[0].State != "open" {
+			t.Fatalf("typed %q: the ask is %s after a refused pick", typed, v.Asks[0].State)
+		}
 	}
-	if !strings.Contains(r.body, "This card is weighty and this window has no gate.") || strings.Contains(r.body, `name="option"`) {
-		t.Errorf("the redrawn page is no decline path:\n%s", r.body)
+	// The number typed back lets the pick go on: the ask is answered with
+	// it, as a terminal's pick through its gate.
+	r = f.postForm("/beads/"+b.ID, url.Values{"rev": {rev}, "ask": {ask}, "option": {"1"}, "typed": {" " + ask + " "}}, "Origin", f.ts.URL)
+	if r.status != http.StatusSeeOther {
+		t.Fatalf("the pick with its number: status %d:\n%s", r.status, r.body)
 	}
 	v, err := f.st.Bead(ctx, b.ID)
 	must(t, err)
-	if v.Asks[0].State != "open" {
-		t.Fatalf("the ask is %s after a refused pick", v.Asks[0].State)
-	}
-	// Decline with words still posts: the words are why not.
-	r = f.postForm("/beads/"+b.ID, url.Values{"rev": {rev}, "ask": {ask}, "words": {"not now"}, "action": {"decline"}}, "Origin", f.ts.URL)
-	if r.status != http.StatusSeeOther {
-		t.Fatalf("decline: status %d", r.status)
-	}
-	v, err = f.st.Bead(ctx, b.ID)
-	must(t, err)
-	if v.Asks[0].State != "declined" || v.Asks[0].Words != "not now" {
-		t.Errorf("the ask is %s with %q, want it declined with the words", v.Asks[0].State, v.Asks[0].Words)
+	if v.Asks[0].State != "answered" || v.Asks[0].Option != 1 {
+		t.Errorf("the ask is %s with option %d, want it answered with 1", v.Asks[0].State, v.Asks[0].Option)
 	}
 }
 

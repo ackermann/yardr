@@ -10,7 +10,8 @@ package web
 // never counts. The return state is one-use and bound to its card,
 // consumed only for it, and the store takes the approval only with the
 // request's fresh witness. Anywhere but the hosted web a strong card
-// stays terminal-only.
+// stays terminal-only. A card that is weighty but not strong approves in
+// any view behind the terminal's gate: its number typed back (typedBack).
 
 import (
 	"context"
@@ -20,6 +21,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"yardr.dev/yardr/internal/store"
@@ -62,8 +64,9 @@ func freshState() string {
 
 // beadApprove approves the run or setup card ask, as the request's user. A
 // routine card is approved as it always was, asking for no witness; a card
-// that is weighty but not strong keeps the window's no-gate words; a
-// strong card goes through its sign-in (approveStrong).
+// that is weighty but not strong is approved only with its number typed
+// back (typedBack), and then with its person's word; a strong card goes
+// through its sign-in (approveStrong).
 func (s *Server) beadApprove(w http.ResponseWriter, r *http.Request, b *store.Bead, ask store.BeadAsk) {
 	ctx := r.Context()
 	user := s.acting(ctx)
@@ -72,9 +75,18 @@ func (s *Server) beadApprove(w http.ResponseWriter, r *http.Request, b *store.Be
 		return
 	}
 	if !store.StrongWeight(ask.Weight) {
-		if len(ask.Weight) > 0 {
-			s.beadAgain(w, r, b.ID, fmt.Sprintf("ask %d is %s, and this window has no gate. Approve it in footplate, or in a terminal on the yard's machine: yardr bead answer %s %d %s",
-				ask.Ask, store.WeightWords(ask.Weight), b.ID, ask.Ask, approveAgain(ask)))
+		if !typedBack(r, ask) {
+			s.beadAgain(w, r, b.ID, notTypedBack(ask))
+			return
+		}
+		// A setup's account typed beside its pick is a secret, and a view
+		// may be plain HTTP, which must take none (docs/api.md "TLS is
+		// yours"): only the hosted view, behind the edge's TLS, takes it.
+		// The card offers no account fields elsewhere, so values here were
+		// sent past the page.
+		if ask.Setup != nil && len(values) > 0 && !s.holdsGate(ctx) {
+			s.beadAgain(w, r, b.ID, fmt.Sprintf("ask %d takes its account as a secret, and this window takes no secret: take a candidate, or type the account in a terminal on the yard's machine: yardr bead answer %s %d <n> --secret",
+				ask.Ask, b.ID, ask.Ask))
 			return
 		}
 		if err := s.approveNow(ctx, b.ID, ask, option, values, account, user, store.FreshWitness{}, false); err != nil {
@@ -85,6 +97,33 @@ func (s *Server) beadApprove(w http.ResponseWriter, r *http.Request, b *store.Be
 		return
 	}
 	s.approveStrong(w, r, b, ask, option, values, account)
+}
+
+// typedBack is the web's gate for a card that is weighty but not strong,
+// the terminal's (docs/chat.md "The gate for a weighty card"): the card
+// shows its weight with a field asking for the ask's number, and only that
+// number typed back lets the approval, or a mapping card's pick, go on with
+// its person's word (weighed). A routine card asks for none. It is friction
+// against approving on reflex, not authentication: the number is on the
+// card, and who may answer it is the view's to have settled already.
+func typedBack(r *http.Request, ask store.BeadAsk) bool {
+	if len(ask.Weight) == 0 {
+		return true
+	}
+	return strings.TrimSpace(r.PostFormValue("typed")) == strconv.FormatUint(ask.Ask, 10)
+}
+
+// typeBackLine is the line above a weighty card's field, the terminal's
+// prompt: act is what the number lets go on (approve, pick).
+func typeBackLine(seq uint64, weight []store.AskWeight, act string) string {
+	return fmt.Sprintf("ask %d is %s: type %d to %s it, anything else stops", seq, store.WeightWords(weight), seq, act)
+}
+
+// notTypedBack is the refusal of a weighty card posted without its number,
+// the terminal's words: nothing was approved or picked, and the ask stays
+// open.
+func notTypedBack(ask store.BeadAsk) string {
+	return fmt.Sprintf("ask %d is %s: its number was not typed back, so nothing was done", ask.Ask, store.WeightWords(ask.Weight))
 }
 
 // approveAgain is what goes after "yardr bead answer <bead> <ask>" to
@@ -136,9 +175,10 @@ func (s *Server) approveParams(w http.ResponseWriter, r *http.Request, b *store.
 
 // approveStrong approves a strong card under a fresh sign-in. Anywhere but
 // the hosted web — no gateway, or a yard that is not hosted — the card
-// stays terminal-only. Where the session's last authentication is already
-// a strong-card re-authentication by this operator inside the window, the
-// card approves at once; otherwise the gateway authenticates now, and the
+// stays terminal-only: the typed-back number is no gate for it. Where the
+// session's last authentication is already a strong-card
+// re-authentication by this operator inside the window, the card approves
+// at once; otherwise the gateway authenticates now, and the
 // one-use state returns to this card alone. The step to the gateway is a 303,
 // except for a request htmx made (the bead page's forms), which is answered
 // 200 with HX-Redirect so the browser navigates whole.

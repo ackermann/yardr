@@ -201,7 +201,7 @@ const (
 	approveButton = `<button type="submit" name="action" value="approve">Approve in depot</button>`
 	// noGateLine is what a weighty card says where its window holds no gate
 	// for it.
-	noGateLine = "This card is weighty and this window has no gate."
+	noGateLine = "This card is weighty, and this window cannot approve it."
 	// wordsField is the field a card's words ride in, a decline's reason
 	// among them, and declineButton the button that sends the decline.
 	wordsField    = `<input type="text" name="words" placeholder="Words with the answer, or why not" aria-label="Words">`
@@ -587,10 +587,15 @@ func TestWebStrongCardStaysTerminalOffHosted(t *testing.T) {
 // strong card (trust or code in its weight, alone or beside other classes)
 // reads "Approve in <yard>" on its bead's page, on Home and on the line,
 // and approving it from any of them starts the gateway re-authentication,
-// even for a session that signed in a moment ago; a weighty card with
-// neither class (credential, outside, as-user or reads alone) offers no
-// approval on any of them, keeps its line and its terminal command, and a
-// post at the handler is refused with the ask open and nothing run.
+// even for a session that signed in a moment ago. A run card weighty with
+// neither class (outside, as-user or reads alone) offers its approval on
+// all of them behind the terminal's gate, a field the ask's number is
+// typed back in: a post without the number, or with another, is refused
+// with the ask open and nothing run, and with it the card is approved,
+// witnessed by nothing, as the terminal's gate is no strong witness. A
+// secret card (credential) offers no giving on any of them, keeps its line
+// and its terminal command, and a post at the handler is refused with the
+// ask open.
 func TestWebCardApprovalPerClassOfWeight(t *testing.T) {
 	t.Parallel()
 	const freshDecl = "name: fresh\nbase: https://fresh.example.com/v1\ncredential: { env: FRESH_TOKEN, header: \"Authorization: Bearer {credential}\" }\nthread:\n  reply: [fresh/thread, reply]\ncalls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n"
@@ -613,6 +618,8 @@ func TestWebCardApprovalPerClassOfWeight(t *testing.T) {
 		ask func(y *approveYard, bead string) (uint64, url.Values)
 		// refusal is what a withheld card's refused post says of its weight.
 		refusal string
+		// typed is whether the card approves behind its number typed back.
+		typed bool
 		// complete follows the sign-in's return and approves the card.
 		complete bool
 		// intact checks that nothing ran, before the return.
@@ -650,7 +657,7 @@ func TestWebCardApprovalPerClassOfWeight(t *testing.T) {
 				return askAs(y, bead, store.Ask{Question: "The API key for the CRM", Secret: &store.AskSecret{Source: "crm"}}),
 					url.Values{"action": {"give"}, "secret-CRM_TOKEN": {"s3cret"}}
 			}},
-		{name: "outside", classes: []string{store.WeightOutside}, refusal: "weighty (outside)",
+		{name: "outside", classes: []string{store.WeightOutside}, refusal: "weighty (outside)", typed: true,
 			ask: func(y *approveYard, bead string) (uint64, url.Values) {
 				y.putCRM(false)
 				return y.askRun(bead, "jo", "source", "set", "crm", "updates_per_hour=6000"), nil
@@ -662,12 +669,12 @@ func TestWebCardApprovalPerClassOfWeight(t *testing.T) {
 					t.Errorf("the refused approval raised the update limit to %d", src.UpdatesPerHour)
 				}
 			}},
-		{name: "as-user", classes: []string{store.WeightAsUser}, refusal: "weighty (as-user)",
+		{name: "as-user", classes: []string{store.WeightAsUser}, refusal: "weighty (as-user)", typed: true,
 			ask: func(y *approveYard, bead string) (uint64, url.Values) {
 				y.putCRM(false)
 				return y.askRun(bead, "jo", "user", "identity", "sam", "--source", "crm", "--id", "7"), nil
 			}},
-		{name: "reads", classes: []string{store.WeightReads}, refusal: "weighty (reads)",
+		{name: "reads", classes: []string{store.WeightReads}, refusal: "weighty (reads)", typed: true,
 			ask: func(y *approveYard, bead string) (uint64, url.Values) {
 				y.putCRM(true)
 				y.own.SetPackReader(func(ctx context.Context, name string, depot string, mappings store.Mappings, yard store.API) (*store.PackReading, error) {
@@ -711,6 +718,22 @@ func TestWebCardApprovalPerClassOfWeight(t *testing.T) {
 					}
 					continue
 				}
+				if c.typed {
+					n := strconv.FormatUint(seq, 10)
+					for _, want := range []string{
+						`<label class="type-back" for="typed-` + b.ID + `-` + n + `">ask ` + n + ` is ` + c.refusal + `: type ` + n + ` to approve it, anything else stops</label>`,
+						`<input type="text" id="typed-` + b.ID + `-` + n + `" name="typed" inputmode="numeric" autocomplete="off">`,
+						`<button type="submit" name="action" value="approve">Approve</button>`,
+					} {
+						if !strings.Contains(body, want) {
+							t.Errorf("%s: the weighty card lacks %q:\n%s", s.name, want, body)
+						}
+					}
+					if strings.Contains(body, noGateLine) {
+						t.Errorf("%s: the weighty card says the window cannot approve it:\n%s", s.name, body)
+					}
+					continue
+				}
 				if strings.Contains(body, `value="approve"`) || strings.Contains(body, `value="give"`) ||
 					strings.Contains(body, `type="password"`) || !strings.Contains(body, noGateLine) {
 					t.Errorf("%s: the weighty card offers a control, or lacks its line:\n%s", s.name, body)
@@ -719,6 +742,39 @@ func TestWebCardApprovalPerClassOfWeight(t *testing.T) {
 			form := y.approveForm(b.ID, seq)
 			for k, v := range extra {
 				form[k] = v
+			}
+			if c.typed {
+				// Anything but the number changes nothing, the field left
+				// empty or sent without it alike.
+				for _, typed := range []string{"", "0", "approve", strconv.FormatUint(seq+1, 10)} {
+					form.Set("typed", typed)
+					r := y.post("/beads/"+b.ID, tok, form)
+					if r.status != http.StatusOK || !strings.Contains(r.body, "ask "+strconv.FormatUint(seq, 10)+" is "+c.refusal+": its number was not typed back, so nothing was done") {
+						t.Fatalf("POST with %q typed: %d: %s", typed, r.status, r.body)
+					}
+					if c.intact != nil {
+						c.intact(t, y)
+					}
+					if got := y.askedState(b.ID, seq, "jo"); got != "open" {
+						t.Fatalf("the ask is %s after %q was typed, want it open", got, typed)
+					}
+				}
+				form.Del("typed")
+				r := y.post("/beads/"+b.ID, tok, form)
+				if r.status != http.StatusOK || !strings.Contains(r.body, "its number was not typed back") {
+					t.Fatalf("POST with no field: %d: %s", r.status, r.body)
+				}
+				form.Set("typed", strconv.FormatUint(seq, 10))
+				if r := y.post("/beads/"+b.ID, tok, form); r.status != http.StatusSeeOther || r.header.Get("Location") != "/beads/"+b.ID {
+					t.Fatalf("POST with the number: %d %q: %s", r.status, r.header.Get("Location"), r.body)
+				}
+				if got := y.askedState(b.ID, seq, "jo"); got != "answered" {
+					t.Fatalf("the ask is %s after its number was typed, want it answered", got)
+				}
+				if w := y.witness(); w != "" {
+					t.Fatalf("the approval is witnessed %q, want none", w)
+				}
+				return
 			}
 			r := y.post("/beads/"+b.ID, tok, form)
 			if !c.strong {
@@ -971,6 +1027,86 @@ func TestWebDeclinesARunOrSetupCard(t *testing.T) {
 			must(t, err)
 			if len(v.Asks) != 1 || v.Asks[0].State != "declined" || v.Asks[0].Words != "not this one" {
 				t.Fatalf("the ask: %+v, want it declined with the words", v.Asks)
+			}
+		})
+	}
+}
+
+// A setup whose pack brings no program is weighty (credential, outside)
+// and not strong: it approves in any view behind its number typed back,
+// as a run card that is not strong does. Its account is a secret, which
+// only the hosted view, behind the edge's TLS, takes: elsewhere the card
+// offers no account field, and an account posted past the page is refused
+// with the ask open and nothing written, before the number is any use.
+func TestWebApprovesAWeightySetupCard(t *testing.T) {
+	t.Parallel()
+	const plainDecl = "name: plainmail\nbase: https://plainmail.example.com/v1\ncredential: { env: PLAIN_TOKEN, header: \"Authorization: Bearer {credential}\" }\ncalls:\n  search: { kind: read, request: { method: GET, path: /messages } }\n  draft: { kind: update, request: { method: POST, path: /drafts } }\n"
+	for _, hosted := range []bool{false, true} {
+		t.Run("hosted="+strconv.FormatBool(hosted), func(t *testing.T) {
+			t.Parallel()
+			y := newApproveYard(t, hosted)
+			y.own.SetPackReader(func(ctx context.Context, name string, depot string, mappings store.Mappings, yard store.API) (*store.PackReading, error) {
+				if name != "plainmail" {
+					return nil, errors.New("no pack " + name)
+				}
+				return &store.PackReading{Name: name, Kind: pack.KindSource, Label: "embedded in yardr test1", Build: "test1",
+					Sources: []store.AskSource{{Name: "plainmail", Text: plainDecl}},
+					Presets: []store.AskPreset{{Name: "drafts", Grants: []store.AskPresetGrant{{Source: "plainmail", Calls: []string{"search", "draft"}}}}}}, nil
+			})
+			b := y.bead("set up plain mail")
+			seq, err := y.st.AddAsk(context.Background(), b.ID, store.Ask{Question: "Set up plainmail for the yardmaster?", To: "jo",
+				Context: []string{"the yardmaster reads mail to work beads"},
+				Setup:   &store.AskSetup{Pack: "plainmail", To: []store.Grantee{{Crew: "yardmaster"}}}}, "yardmaster")
+			must(t, err)
+			if got := y.weighed(b.ID, seq); !slices.Equal(got, []string{store.WeightCredential, store.WeightOutside}) {
+				t.Fatalf("the card weighs %v, want credential and outside", got)
+			}
+			n := strconv.FormatUint(seq, 10)
+			tok := y.token("jo@example.net")
+			const account = `<input type="password" name="secret-PLAIN_TOKEN"`
+			for _, s := range approveSurfaces {
+				body := y.surfaceBody(s.path(b.ID), tok)
+				for _, want := range []string{
+					`ask ` + n + ` is weighty (credential, outside): type ` + n + ` to approve it, anything else stops</label><input type="text" id="typed-` + b.ID + `-` + n + `" name="typed"`,
+					`<button type="submit" name="action" value="approve">Approve</button></form>`,
+				} {
+					if !strings.Contains(body, want) {
+						t.Errorf("%s: the setup card lacks %q:\n%s", s.name, want, body)
+					}
+				}
+				if strings.Contains(body, account) != hosted {
+					t.Errorf("%s: the account field stands %v, want %v:\n%s", s.name, !hosted, hosted, body)
+				}
+			}
+			form := y.approveForm(b.ID, seq)
+			form.Set("option", "1")
+			form.Set("secret-PLAIN_TOKEN", "s3cret")
+			r := y.post("/beads/"+b.ID, tok, form)
+			if r.status != http.StatusOK || !strings.Contains(r.body, "its number was not typed back") || strings.Contains(r.body, "s3cret") {
+				t.Fatalf("POST without the number: %d: %s", r.status, r.body)
+			}
+			form.Set("typed", n)
+			r = y.post("/beads/"+b.ID, tok, form)
+			if !hosted {
+				if r.status != http.StatusOK || !strings.Contains(r.body, "this window takes no secret") || strings.Contains(r.body, "s3cret") {
+					t.Fatalf("POST the account to a view that takes no secret: %d: %s", r.status, r.body)
+				}
+				if got := y.askedState(b.ID, seq, "jo"); got != "open" {
+					t.Fatalf("the ask is %s after the refusal, want it open", got)
+				}
+				if _, err := y.st.GetSource(context.Background(), "plainmail"); !errors.Is(err, store.ErrNotFound) {
+					t.Fatalf("the refused setup wrote the source: %v", err)
+				}
+				return
+			}
+			if r.status != http.StatusSeeOther || r.header.Get("Location") != "/beads/"+b.ID {
+				t.Fatalf("POST the approval with the number: %d %q: %s", r.status, r.header.Get("Location"), r.body)
+			}
+			if got := y.askedState(b.ID, seq, "jo"); got != "answered" {
+				t.Fatalf("the ask is %s after the approval, want it answered", got)
+			}
+			if w := y.witness(); w != "" {
+				t.Fatalf("the approval is witnessed %q, want none", w)
 			}
 		})
 	}

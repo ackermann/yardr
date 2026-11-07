@@ -5540,9 +5540,14 @@ default:
   friction against approving on reflex and no authentication.
 - **`yardr chat`**'s field for a secret asks for the ask's number typed
   back the same way, and then for the value.
+- **`yardr web`** keeps the terminal's gate for a card that is weighty but
+  not strong: the card's `WEIGHTY` lines, then a field for the ask's
+  number typed back, and `weighed` on a match alone. It takes no secret,
+  since a view may be plain HTTP, and approves a strong card only on a
+  hosted yard, under a fresh sign-in.
 - **A client with no gate** sends none, and so cannot approve a weighty
-  card: it says `this card is weighty and this window has no gate. Approve
-  it in footplate, or in a terminal on the yard's machine:` with
+  card: it says `this card is weighty, and this window cannot approve it.
+  Approve it in footplate, or in a terminal on the yard's machine:` with
   the `yardr bead answer` line of the card, and leaves the card open.
   Nothing is declined for the person.
 

@@ -79,6 +79,16 @@ type AskCard struct {
 	// Approve is whether a run or setup card's approval controls stand: its
 	// button, with the fields the card asks for (approvable).
 	Approve bool
+	// TypeBack is the line above the field a weighty card that is not
+	// strong takes its number in, the terminal's prompt (typeBackLine): ""
+	// on a routine card, a strong one, a secret one, and wherever its
+	// approval or picks do not stand.
+	TypeBack string
+	// Typing is whether a setup card's account fields stand beside its
+	// approval: the account is a secret, which only a window that holds
+	// the gate takes, behind the edge's TLS; any other window may be plain
+	// HTTP. A candidate is taken in any window.
+	Typing bool
 }
 
 // cardSecret is what a secret ask asks for, in the yard's words, with the
@@ -148,14 +158,40 @@ func (s *Server) holdsGate(ctx context.Context) bool {
 // page, as ever. A strong card — trust or code in its weight — approves
 // wherever it stands once the window holds the gate: the click goes to the
 // bead page's own handler, which starts the fresh sign-in. Any other
-// weighty card has no gate in any window, and a strong one has none where
-// the window holds no gate: both keep the line naming where they are
-// approved.
+// weighty card approves wherever it stands too, behind its own gate in
+// the form, the ask's number typed back (typedBack), and the click goes to
+// the same handler. A strong card where the window holds no gate keeps the
+// line naming where it is approved.
 func approvable(weight []store.AskWeight, onBead, gate bool) bool {
 	if len(weight) == 0 {
 		return onBead
 	}
-	return gate && store.StrongWeight(weight)
+	return gate || !store.StrongWeight(weight)
+}
+
+// typeBack is the card's TypeBack: the terminal's prompt where its
+// approval (approve) or a mapping card's picks (picks) stand on a card
+// that is weighty but not strong, "" anywhere else.
+func typeBack(seq uint64, weight []store.AskWeight, approve, picks bool) string {
+	if len(weight) == 0 || store.StrongWeight(weight) {
+		return ""
+	}
+	switch {
+	case approve:
+		return typeBackLine(seq, weight, "approve")
+	case picks:
+		return typeBackLine(seq, weight, "pick")
+	}
+	return ""
+}
+
+// pickable is whether a card's option buttons stand, setup cards aside:
+// on any card but a weighty mapping one, whose pick writes a user's
+// identity, and on that one too where it is not strong, behind the ask's
+// number typed back. A mapping card is weighed as-user, never strong; were
+// one, its picks would be made where the line names.
+func pickable(weight []store.AskWeight, mapping bool) bool {
+	return len(weight) == 0 || !mapping || !store.StrongWeight(weight)
 }
 
 // cardSite reads where the request's cards stand: the yard's name and chip
@@ -199,12 +235,13 @@ func (p BeadPage) Card(a store.BeadAsk) AskCard {
 		Context: a.Context, Options: a.Options, Recommend: a.Recommend, Why: a.Why,
 		Mapping: a.Identity != nil, About: a.About, Held: p.HeldPayloads[a.Ask], User: a.To,
 		Form: true, Rev: p.Bead.Revision, Action: p.Self(),
-		Picks: a.Setup == nil && (len(a.Weight) == 0 || a.Identity == nil),
+		Picks: a.Setup == nil && pickable(a.Weight, a.Identity != nil),
 		Words: a.Secret == nil,
 	}
 	out.Answer = out.Words && len(a.Options) == 0 && a.Run == nil
 	out.Says = a.Run != nil || a.Setup != nil
 	out.Approve = (a.Run != nil || a.Setup != nil) && approvable(a.Weight, true, p.site.Gate)
+	out.TypeBack = typeBack(a.Ask, a.Weight, out.Approve, out.Picks && out.Mapping)
 	if a.Secret != nil {
 		out.Secret = &cardSecret{Line: a.Secret.Line, Env: a.Secret.Env}
 	}
@@ -217,6 +254,7 @@ func (p BeadPage) Card(a store.BeadAsk) AskCard {
 		}
 	}
 	if a.Setup != nil {
+		out.Typing = p.site.Gate
 		out.Setup = &cardSetup{Pack: a.Setup.Pack, Does: a.Setup.Does, Back: a.Setup.Back, BackBy: a.Setup.BackBy, Account: a.Setup.Account}
 	}
 	return out
@@ -236,12 +274,13 @@ func (w Waiting) Card(r Reason) AskCard {
 		Context: r.Context, Options: r.Options, Recommend: r.Recommend, Why: r.RecommendWhy,
 		Mapping: r.Identity != nil, User: r.To,
 		Form: w.As != "", Rev: w.Revision, Action: "/beads/" + url.PathEscape(w.Bead),
-		Picks: r.SetupPack == "" && (len(r.Weight) == 0 || r.Identity == nil),
+		Picks: r.SetupPack == "" && pickable(r.Weight, r.Identity != nil),
 		Words: r.SecretLine == "",
 	}
 	out.Answer = out.Words && len(r.Options) == 0 && r.RunCommand == ""
 	out.Says = r.RunCommand != "" || r.SetupPack != ""
 	out.Approve = (r.RunCommand != "" || r.SetupPack != "") && approvable(r.Weight, false, w.site.Gate)
+	out.TypeBack = typeBack(r.Ask, r.Weight, out.Approve, out.Picks && out.Mapping)
 	if r.SecretLine != "" {
 		out.Secret = &cardSecret{Line: r.SecretLine}
 	}
@@ -249,6 +288,7 @@ func (w Waiting) Card(r Reason) AskCard {
 		out.Run = &cardRun{Command: r.RunCommand, Does: r.RunDoes, Back: r.RunBack, BackBy: r.RunBackBy, Ask: r.RunAsk}
 	}
 	if r.SetupPack != "" {
+		out.Typing = w.site.Gate
 		out.Setup = &cardSetup{Pack: r.SetupPack, Does: r.SetupDoes, Back: r.SetupBack, BackBy: r.SetupBackBy, Account: r.SetupAccount}
 	}
 	return out

@@ -539,6 +539,10 @@ ul, ol { list-style: none; }
 .need-answer button, .need-approve button { padding: 12px 16px; min-height: 44px; background: var(--panel); color: var(--dim); border: 1px solid var(--hairline-strong); overflow-wrap: anywhere; }
 .need-answer button:hover, .need-approve button:hover { color: var(--accent-hover); border-color: var(--accent-hover); }
 .need-approve label { align-self: center; }
+/* A weighty card's gate: the terminal's prompt on a line of its own, in
+   the weight's readable rust, with the field its number is typed in under
+   it, before the controls it lets go on. */
+.need-answer .type-back, .need-approve .type-back { flex: 1 1 100%; color: var(--accent-hover); }
 /* Ask about this stands in the answer row where the viewing user may
    write to the asker: a link among the buttons, not one of them. */
 .need-answer .ask-about { align-self: center; }

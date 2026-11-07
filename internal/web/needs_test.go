@@ -390,10 +390,10 @@ func TestWaitingLead(t *testing.T) {
 	}
 }
 
-// A weighty mapping card's home row shows the weight first and the decline
-// path with the terminal command instead of the pick buttons, as its bead's
-// page does. The options still read as a list, and the words stay with
-// Later and Decline, riding them as the reason.
+// A weighty mapping card's home row shows the weight first and its picks
+// behind the field its number is typed back in, with the terminal command,
+// as its bead's page does. The options still read as a list, and the words
+// stay with Later and Decline, riding them as the reason.
 func TestHomeNeedsWeightyMapping(t *testing.T) {
 	t.Parallel()
 	f, b, seq := mappingActYard(t)
@@ -402,7 +402,9 @@ func TestHomeNeedsWeightyMapping(t *testing.T) {
 	s := answerSection(t, f.get("/").body)
 	for _, want := range []string{
 		`<p class="weighty">WEIGHTY · as-user: lets calls or words count as a person&#39;s: a pick says which user U777 in talk is, and a delivery from them is then heard as that user&#39;s</p>`,
-		`This card is weighty and this window has no gate. Approve it in footplate, or in a terminal on the yard's machine:`,
+		`ask ` + ask + ` is weighty (as-user): type ` + ask + ` to pick it, anything else stops</label>`,
+		`name="typed" inputmode="numeric"`,
+		`<button type="submit" name="option" value="1">ada</button>`,
 		`Approve it with <code>yardr bead answer ` + b.ID + ` ` + ask + ` &lt;n&gt;</code>`,
 		`<li><span>1. ada</span>`,
 		`<li><span>2. mckean</span>`,
@@ -414,15 +416,15 @@ func TestHomeNeedsWeightyMapping(t *testing.T) {
 			t.Errorf("the row lacks %q:\n%s", want, s)
 		}
 	}
-	if strings.Contains(s, `name="option"`) {
-		t.Errorf("the weighty row offers its picks:\n%s", s)
+	if strings.Contains(s, "this window cannot approve it") {
+		t.Errorf("the weighty row says the window cannot approve it:\n%s", s)
 	}
-	// A writing pick posted straight at the handler is still the yard's
-	// to refuse, and the ask stays open; decline with words still posts.
+	// A pick from the row without its number is refused, and the ask
+	// stays open; decline with words still posts.
 	rev := revOf(t, f, b.ID)
 	r := f.postForm("/beads/"+b.ID, url.Values{"rev": {rev}, "ask": {ask}, "option": {"1"}}, "Origin", f.ts.URL)
-	if r.status != 200 || !strings.Contains(r.body, "is weighty (as-user)") || !strings.Contains(r.body, "approve it where its weight is shown") {
-		t.Fatalf("status %d, want the redrawn page with the yard's refusal:\n%s", r.status, r.body)
+	if r.status != 200 || !strings.Contains(r.body, "its number was not typed back, so nothing was done") {
+		t.Fatalf("status %d, want the redrawn page with the refusal:\n%s", r.status, r.body)
 	}
 	r = f.postForm("/beads/"+b.ID, url.Values{"rev": {rev}, "ask": {ask}, "words": {"not now"}, "action": {"decline"}}, "Origin", f.ts.URL)
 	if r.status != http.StatusSeeOther {
@@ -445,7 +447,7 @@ func TestHomeNeedsWeightySecret(t *testing.T) {
 	for _, want := range []string{
 		`<p class="weighty">WEIGHTY · credential: gives a credential or an address to the yard: CRM_TOKEN, for the source crm (https://crm.example.com)</p>`,
 		`a secret: CRM_TOKEN, for the source crm (https://crm.example.com)`,
-		`This card is weighty and this window has no gate. Approve it in footplate, or in a terminal on the yard's machine:`,
+		`This card is weighty, and this window cannot approve it. Approve it in footplate, or in a terminal on the yard's machine:`,
 		`Give it with <code>yardr bead answer ` + b.ID + ` ` + strconv.FormatUint(seq, 10) + ` --secret</code>`,
 		`<button type="submit" name="action" value="later">Later</button>`,
 		`<button type="submit" name="action" value="decline" title="Say no to all options. The asker finds another way.">Decline</button>`,

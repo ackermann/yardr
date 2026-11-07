@@ -282,6 +282,16 @@ ask 2990 is weighty (outside): type 2990 to approve it, anything else stops: 299
 
 It is friction against approving on reflex and no authentication: the
 terminal is the yard's own machine, and its shell is the operator's.
+
+`yardr web` keeps the same gate for a card that is weighty but not strong
+(no `trust` or `code` in its weight), in any view: the card shows its
+`WEIGHTY` lines, and above its approval, or a mapping card's picks, the
+same prompt with a field the ask's number is typed back in. Only that
+number approves it; an empty field or any other number changes nothing and
+leaves the ask open ([web.md](web.md#one-bead)). A strong card, and a
+secret, are not approved there: the card says `This card is weighty, and
+this window cannot approve it.` and names the terminal command, except
+that a hosted yard's view approves a strong card under a fresh sign-in.
 Without a terminal (standard input is not one) the command declines before
 it reads anything, and says to approve the card in footplate, or in
 a terminal on the yard's machine. A script cannot walk through the gate, and

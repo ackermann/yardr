@@ -1444,9 +1444,9 @@ func TestStreamStartsBeforeThePageWasRead(t *testing.T) {
 	}
 }
 
-// A weighty mapping card's wait shows the weight first and the decline path
-// with the terminal command instead of the pick buttons, as its bead's page
-// and its home row do. A weighty secret card's wait shows the weight with
+// A weighty mapping card's wait shows the weight first and its picks behind
+// the field its number is typed back in, with the terminal command, as its
+// bead's page and its home row do. A weighty secret card's wait shows the weight with
 // what the ask is for and the decline path, and a routine card's wait keeps
 // its picks.
 func TestWaitsWeightyAsk(t *testing.T) {
@@ -1458,7 +1458,8 @@ func TestWaitsWeightyAsk(t *testing.T) {
 		`<article class="wait"><header><a class="bead" href="/beads/` + b.ID + `">` + b.ID + `</a>`,
 		`depot · bead ` + b.ID + ` · Everything else</a></p>`,
 		`<p class="weighty">WEIGHTY · as-user: lets calls or words count as a person&#39;s: a pick says which user U777 in talk is, and a delivery from them is then heard as that user&#39;s</p>`,
-		`This card is weighty and this window has no gate. Approve it in footplate, or in a terminal on the yard's machine:`,
+		`ask ` + ask + ` is weighty (as-user): type ` + ask + ` to pick it, anything else stops</label>`,
+		`<button type="submit" name="option" value="1">ada</button>`,
 		`Approve it with <code>yardr bead answer ` + b.ID + ` ` + ask + ` &lt;n&gt;</code>`,
 		`<li><span>1. ada</span>`,
 		`<li><span>2. mckean</span>`,
@@ -1470,8 +1471,8 @@ func TestWaitsWeightyAsk(t *testing.T) {
 			t.Errorf("/line lacks %q", want)
 		}
 	}
-	if strings.Contains(text, `name="option"`) {
-		t.Errorf("the weighty wait offers its picks:\n%s", text)
+	if strings.Contains(text, "this window cannot approve it") {
+		t.Errorf("the weighty wait says the window cannot approve it:\n%s", text)
 	}
 
 	f2, b2, seq2 := secretActYard(t)
@@ -1479,7 +1480,7 @@ func TestWaitsWeightyAsk(t *testing.T) {
 	for _, want := range []string{
 		`<p class="weighty">WEIGHTY · credential: gives a credential or an address to the yard: CRM_TOKEN, for the source crm (https://crm.example.com)</p>`,
 		`a secret: CRM_TOKEN, for the source crm (https://crm.example.com)`,
-		`This card is weighty and this window has no gate. Approve it in footplate, or in a terminal on the yard's machine:`,
+		`This card is weighty, and this window cannot approve it. Approve it in footplate, or in a terminal on the yard's machine:`,
 		`Give it with <code>yardr bead answer ` + b2.ID + ` ` + strconv.FormatUint(seq2, 10) + ` --secret</code>`,
 		`<button type="submit" name="action" value="later">Later</button>`,
 		`<button type="submit" name="action" value="decline" title="Say no to all options. The asker finds another way.">Decline</button>`,

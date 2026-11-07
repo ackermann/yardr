@@ -286,6 +286,22 @@ func (s *Server) beadAnswer(w http.ResponseWriter, r *http.Request, b *store.Bea
 			return
 		}
 		answer.Option = n
+		// A weighty mapping card's pick writes a user's identity: a weighty
+		// approval, which goes on only with the ask's number typed back, and
+		// then with its person's word, as the terminal's pick does. The
+		// yard weighs the pick again in its write.
+		if ask := asks[i]; ask.Identity != nil && len(ask.Weight) > 0 {
+			if !typedBack(r, ask) {
+				s.beadAgain(w, r, b.ID, notTypedBack(ask))
+				return
+			}
+			if err := s.st.AnswerAsk(ctx, b.ID, seq, n, answer.Words, s.acting(ctx), true); err != nil {
+				s.beadAgain(w, r, b.ID, err.Error())
+				return
+			}
+			http.Redirect(w, r, "/beads/"+url.PathEscape(b.ID), http.StatusSeeOther)
+			return
+		}
 	} else {
 		switch r.PostFormValue("action") {
 		case "answer":
@@ -317,10 +333,10 @@ func (s *Server) beadAnswer(w http.ResponseWriter, r *http.Request, b *store.Bea
 // secret, and a name with no value, are refused with the page redrawn, and
 // neither refusal repeats a value that was sent.
 //
-// The page has no gate to put in front of a weighty card (every secret ask
-// is one), so it says nothing of its person's having weighed it: the yard
-// refuses the giving in its own words, which the page shows, and the card
-// is given in a terminal as its line names.
+// Every secret ask is weighty, and the page, which may be plain HTTP,
+// takes no secret behind its gate: it says nothing of its person's having
+// weighed it, the yard refuses the giving in its own words, which the page
+// shows, and the card is given in a terminal as its line names.
 func (s *Server) beadGiveSecret(w http.ResponseWriter, r *http.Request, b *store.Bead, ask store.BeadAsk) {
 	ctx := r.Context()
 	if ask.Secret == nil {
