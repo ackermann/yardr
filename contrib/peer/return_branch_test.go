@@ -115,6 +115,12 @@ push -> returned on done | new on failed
 returned terminal
 `
 
+// operator is who these tests act as, and the operator init is told of: left
+// to itself init takes the login of whoever runs the tests, and changing a
+// group's cmd is the operator's alone, so a test that acted as another name
+// passed where that was the login and failed where it was not (CI's).
+const operator = "test"
+
 // yard is one isolated yardr with depot r, a clone of a bare repository, and
 // bead r-1 in push with yard/r-1 one commit ahead of main.
 type yard struct {
@@ -140,9 +146,12 @@ func newYard(t *testing.T) *yard {
 	dir := t.TempDir()
 	y := &yard{t: t, home: home, repo: filepath.Join(dir, "repo"), remote: filepath.Join(dir, "remote.git")}
 	// os.Environ names this binary to the servers a command starts
-	// (TestMain), so a run killed by its timeout leaves none behind.
-	y.env = append(os.Environ(), "YARDR_HOME="+home, "YARDR_ACTOR=test")
-	y.yardr("init", "--harness", "claude", "--dir", home)
+	// (TestMain), so a run killed by its timeout leaves none behind. The
+	// login is made another name than the operator's, so that a test which
+	// takes the one for the other fails on every machine, not only on one
+	// whose user happens to differ.
+	y.env = append(os.Environ(), "YARDR_HOME="+home, "YARDR_ACTOR="+operator, "USER=ada", "LOGNAME=ada")
+	y.yardr("init", "--harness", "claude", "--dir", home, "--operator", operator)
 	y.git(dir, "init", "-q", "--bare", "-b", "main", y.remote)
 	y.git(dir, "clone", "-q", y.remote, y.repo)
 	y.git(y.repo, "checkout", "-q", "-b", "main")
@@ -219,7 +228,7 @@ func (y *yard) returns(opts string, job func(*dispatch.Job)) {
 	logPath := filepath.Join(y.home, "return.log")
 	ctx := context.Background()
 	st := rpc.NewClient((&config.Config{Home: y.home}).Socket())
-	if err := st.PutGroup(ctx, store.Group{Name: "return", Runner: "exec", Config: map[string]any{"cmd": "true"}}, "mckean"); err != nil {
+	if err := st.PutGroup(ctx, store.Group{Name: "return", Runner: "exec", Config: map[string]any{"cmd": "true"}}, operator); err != nil {
 		y.t.Fatal(err)
 	}
 	b := y.bead()
