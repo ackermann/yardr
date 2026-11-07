@@ -643,8 +643,9 @@ if [ -n "$PR" ]; then
       actual_num=$(printf '%s' "$pr" | jq -r '.number // empty')
       actual_headrepo=$(printf '%s' "$pr" | jq -r 'if .headRepositoryOwner.login and .headRepository.name then .headRepositoryOwner.login + "/" + .headRepository.name else empty end')
       actual_branch=$(printf '%s' "$pr" | jq -r '.headRefName // empty')
-      [ -n "$actual_num" ] && [ -n "$actual_headrepo" ] && [ "$actual_branch" = "$BR" ] ||
+      if [ -z "$actual_num" ] || [ -z "$actual_headrepo" ] || [ "$actual_branch" != "$BR" ]; then
         hold "pull request $url no longer has the expected head $BR (GitHub reports #${actual_num:-?} from ${actual_headrepo:-?}:$actual_branch); not touched. Correct the train's pr_url, pr_number and pr_head_repo, then unhold."
+      fi
       [ -z "$bound_num" ] || [ "$actual_num" = "$bound_num" ] ||
         hold "pull request $url is #$actual_num, but $TRAIN is bound to #$bound_num; not touched. Correct the train's pr_url, pr_number and pr_head_repo, then unhold."
       [ -z "$bound_headrepo" ] || [ "$actual_headrepo" = "$bound_headrepo" ] ||
@@ -677,8 +678,9 @@ If it is the train's, bind it (yardr bead update $TRAIN --meta pr_url=<its url>)
   [ -n "$pr" ] || pr=$(prview "$url") || report failed "$msg But reading pull request $url failed: $(cat "$errf")"
   num=$(printf '%s' "$pr" | jq -r '.number // empty')
   headrepo=$(printf '%s' "$pr" | jq -r 'if .headRepositoryOwner.login and .headRepository.name then .headRepositoryOwner.login + "/" + .headRepository.name else empty end')
-  [ -n "$num" ] && [ -n "$headrepo" ] ||
+  if [ -z "$num" ] || [ -z "$headrepo" ]; then
     report failed "$msg But pull request $url has no number or head repository: $pr"
+  fi
   "$Y" bead update "$TRAIN" --meta "pr_url=$url" --meta "pr_number=$num" --meta "pr_head_repo=$headrepo" >/dev/null ||
     report failed "$msg But binding $TRAIN to pull request $url failed."
 fi

@@ -106,8 +106,12 @@ func buildWorktreeTemplate(first, second string) (string, error) {
 // copyWorktreeTemplate gives a test the depot and worktrees of a template
 // buildWorktreeTemplate made: the depot at depotPath, each bead's worktree
 // under wtDir. A copied worktree names the template's paths, in its .git
-// file and in the depot's record of it, so one git worktree repair
-// repoints both at the copies'.
+// file and in the depot's record of it. Its .git file is pointed at the
+// copied depot's record first: a repair follows that file, and a git as old
+// as 2.43 follows it into the template and repoints the template's record
+// at the copy, leaving the copy's own at the template's path (and the
+// template changed under the tests after). Then one git worktree repair
+// repoints the copied record at the copy.
 func copyWorktreeTemplate(t *testing.T, template, depotPath, wtDir string, beads ...string) {
 	t.Helper()
 	if err := os.CopyFS(depotPath, os.DirFS(filepath.Join(template, "depot"))); err != nil {
@@ -117,6 +121,12 @@ func copyWorktreeTemplate(t *testing.T, template, depotPath, wtDir string, beads
 	for _, bead := range beads {
 		path := filepath.Join(wtDir, bead)
 		if err := os.CopyFS(path, os.DirFS(filepath.Join(template, "wt", bead))); err != nil {
+			t.Fatal(err)
+		}
+		// git worktree add names a worktree's record after its directory,
+		// which is the bead here.
+		record := filepath.Join(depotPath, ".git", "worktrees", bead)
+		if err := os.WriteFile(filepath.Join(path, ".git"), []byte("gitdir: "+record+"\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		paths = append(paths, path)

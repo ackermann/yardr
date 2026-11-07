@@ -3,8 +3,9 @@
 # and tell for notify.image. One JSON object on stdin, one on stdout, as
 # the thread key of the declaration says, and the notify key for tell.
 # TELEGRAM_BOT_TOKEN and YARDR_SOURCE_BASE, the declaration's base,
-# are in the environment. Needs curl, jq, file and the standard shell
-# utilities it calls (grep, head, wc, tr).
+# are in the environment. Needs curl, jq and the standard shell
+# utilities it calls (grep, head, od, wc, tr); file, where installed,
+# types a document, which goes as application/octet-stream without it.
 #
 # The service gives a bot no history to read and no idempotency key to
 # set, so posted and read answer what there is to find, nothing, and a
@@ -52,13 +53,27 @@ qform() { # a value for curl's -F, quoted, so that a ; or , or " in a file's nam
   printf '"%s"' "${s//\"/\\\"}"
 }
 
+picture_type() { # the type of a picture sendPhoto takes, read from its first bytes; empty for anything else. Asked of a photo alone, since a document that starts with BM is no bitmap. A tell sends a picture, and a machine without file (a minimal install) still sends it typed and named, not as octet-stream.
+  local h
+  h=$(od -An -tx1 -N12 "$1" 2>/dev/null | tr -d ' \n') || h=""
+  case "$h" in
+  89504e470d0a1a0a*) echo image/png ;;
+  ffd8ff*) echo image/jpeg ;;
+  474946383[79]61*) echo image/gif ;;
+  52494646????????57454250) echo image/webp ;;
+  424d*) echo image/bmp ;;
+  esac
+}
+
 send_media() { # one picture or document to the chat, by sendPhoto or sendDocument; prints the message's id
   method=$1; field=$2; file=$3; caption=$4
   [ -f "$file" ] || { echo "$method found no file at $file" >&2; return 1; }
   # The part goes with a type and a name, as a client's upload does. A
   # file the yard keeps is called by its hash, which names nothing a
   # person could open: it goes as photo.png or document.
-  mime=$(file -b --mime-type "$file" 2>/dev/null) || mime=""
+  mime=""
+  if [ "$field" = photo ]; then mime=$(picture_type "$file"); fi
+  [ -n "$mime" ] || mime=$(file -b --mime-type "$file" 2>/dev/null) || mime=""
   [[ $mime =~ ^[a-z0-9.+_-]+/[a-z0-9.+_-]+$ ]] || mime=application/octet-stream
   name=${file##*/}
   if [[ $name =~ ^[0-9a-f]{64}$ ]]; then

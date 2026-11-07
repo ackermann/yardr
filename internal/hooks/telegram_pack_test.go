@@ -774,6 +774,26 @@ func TestTelegramPackTell(t *testing.T) {
 		t.Fatalf("a picture called by its hash: %+v", got)
 	}
 	stub.sends = stub.sends[:1]
+	// The pack reads a picture's type from its first bytes, not from file,
+	// which a minimal install lacks: each kind sendPhoto takes is named by
+	// its own.
+	for _, pic := range []struct{ head, ctype, name string }{
+		{"\xff\xd8\xff\xe0\x00\x10JFIF", "image/jpeg", "photo.jpg"},
+		{"GIF89a\x01\x00\x01\x00", "image/gif", "photo.gif"},
+		{"RIFF\x24\x00\x00\x00WEBPVP8 ", "image/webp", "photo.webp"},
+		{"BM\x36\x00\x00\x00\x00\x00", "image/bmp", "photo.bmp"},
+	} {
+		if err := os.WriteFile(blob, []byte(pic.head), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tell(cred, map[string]any{"address": "123456789", "title": "t", "text": "x", "image": blob}); err != nil {
+			t.Fatal(err)
+		}
+		if got := stub.sends[1]; got.name != pic.name || got.ctype != pic.ctype {
+			t.Fatalf("a %s called by its hash: %+v", pic.ctype, got)
+		}
+		stub.sends = stub.sends[:1]
+	}
 
 	// One half alone stands without a stray newline, and a long caption
 	// is cut to 1024 characters, not bytes.
@@ -1173,8 +1193,9 @@ func TestTelegramPackHearDropsStrangersEndToEnd(t *testing.T) {
 // which answers the file's path and size for its id, and the file's own
 // address under /file/bot<token>/. Each file is its id's bytes; one under
 // an id the map lacks is refused as the service refuses one. lie is an id
-// whose getFile says fewer bytes than its file has. It counts every
-// request it is sent, by path.
+// whose getFile says fewer bytes than its file has: its file is its bytes
+// over and over, telegramLieBytes in all. It counts every request it is
+// sent, by path.
 type telegramFiles struct {
 	token string
 	files map[string][]byte
@@ -1227,9 +1248,8 @@ func (s *telegramFiles) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				flusher := w.(http.Flusher)
 				flusher.Flush()
 				sent := 0
-				for at := 0; at < len(data); at += 1024 {
-					end := min(at+1024, len(data))
-					n, err := w.Write(data[at:end])
+				for sent < telegramLieBytes {
+					n, err := w.Write(data[:min(len(data), telegramLieBytes-sent)])
 					sent += n
 					flusher.Flush()
 					if err != nil {
@@ -1247,6 +1267,13 @@ func (s *telegramFiles) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	http.NotFound(w, r)
 }
+
+// telegramLieBytes is how much the lying file sends to a reader that never
+// stops: more than the kernel's socket buffers hold between the stub and
+// curl (up to tens of MiB on Linux, where a 1 MiB file fit whole and the
+// stub counted it all sent although curl had stopped at the cap), so a
+// count short of it means the reader hung up.
+const telegramLieBytes = 256 << 20
 
 func (s *telegramFiles) requests() []string {
 	s.mu.Lock()
@@ -1274,7 +1301,7 @@ func TestTelegramPackFile(t *testing.T) {
 	stub := &telegramFiles{token: cred, lie: "lying", files: map[string][]byte{
 		"small": []byte("\x89PNG\r\n\x1a\nsmall"),
 		"big":   bytes.Repeat([]byte("b"), 100),
-		"lying": bytes.Repeat([]byte("l"), 1<<20),
+		"lying": bytes.Repeat([]byte("l"), 32<<10),
 	}}
 	srv := httptest.NewServer(stub)
 	defer srv.Close()
@@ -1311,7 +1338,7 @@ func TestTelegramPackFile(t *testing.T) {
 	if _, left, err := get("lying", 50); err == nil || !strings.Contains(err.Error(), "over the limit of 50") || left != "" {
 		t.Fatalf("lying: left %q, err %v", left, err)
 	}
-	if sent := stub.bytesSent(); sent >= len(stub.files["lying"]) {
+	if sent := stub.bytesSent(); sent >= telegramLieBytes {
 		t.Fatalf("the chunked response sent all %d bytes despite the 50-byte limit", sent)
 	}
 	if _, _, err := get("nobody", 50); err == nil || !strings.Contains(err.Error(), "getFile failed") {

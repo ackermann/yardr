@@ -190,6 +190,7 @@ func newWatcherRun(t *testing.T, test, limit string, hi int) *watcherRun {
 	copyTree(t, filepath.Join(root, "bin"), bin)
 	// Repair names the copy's worktree: a bare repair fixes the worktree
 	// the copied admin registered, which is the template's.
+	pointAtCopy(t, repo, wt)
 	watcherGit(t, repo, "worktree", "repair", wt)
 	record := filepath.Join(dir, "sleep-record")
 	// The run's fds 3 to 9 are filler and its fd 10 the lock stand-in, where

@@ -74,7 +74,7 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
-[ -n "$harness" ] && [ -n "$operator" ] || usage
+if [ -z "$harness" ] || [ -z "$operator" ]; then usage; fi
 [ "$have_permissions" != 1 ] || [ -n "$permissions" ] || usage
 # The wait below compares this value as a shell integer. Keep it in the
 # signed range every POSIX shell supports, or an oversized number could make

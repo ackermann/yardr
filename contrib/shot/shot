@@ -244,7 +244,7 @@ trap 'stop_sig=HUP; stop_code=129; stop_shot' HUP
 pid=$!
 ( timer=
   # Invoked by the subshell's TERM/INT/HUP trap below, not by name.
-  # shellcheck disable=SC2329
+  # shellcheck disable=SC2317,SC2329 # SC2317 is the code shellcheck 0.9.0 gives it
   stop_timer() {
     trap - TERM INT HUP
     if [ -n "$timer" ]; then

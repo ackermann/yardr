@@ -95,8 +95,9 @@ repo=${scope%%#*}
 owner=${repo%%/*}
 name=${repo#*/}
 case $repo in */*/*) fail "the scope names no repository ($scope): want owner/repo, or a thread there" ;; esac
-[ -n "$owner" ] && [ -n "$name" ] && [ "$owner" != "$repo" ] ||
+if [ -z "$owner" ] || [ -z "$name" ] || [ "$owner" = "$repo" ]; then
   fail "the scope names no repository ($scope): want owner/repo, or a thread there"
+fi
 
 # Silent but for the code: curl's own complaint stays out of stderr, and
 # each call ends within ten seconds, well inside the half minute the core
@@ -121,7 +122,7 @@ body=$(printf '%s' "$out" | sed '$d')
 [ "$code" = "201" ] || fail "minting a token for $owner/$name was answered $code: $(printf '%s' "$body" | head -c 500)"
 token=$(first "$body" token)
 expires=$(first "$body" expires_at)
-[ -n "$token" ] && [ -n "$expires" ] || fail "minting a token for $owner/$name came back with no token"
+if [ -z "$token" ] || [ -z "$expires" ]; then fail "minting a token for $owner/$name came back with no token"; fi
 # The answer is JSON the core reads: a token or an expiry outside what
 # GitHub sends is refused rather than printed through it.
 case $token in *[!A-Za-z0-9_.-]*) fail "the token GitHub answered is no token" ;; esac

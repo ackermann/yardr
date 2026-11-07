@@ -127,8 +127,9 @@ train=$("$Y" bead show "$TRAIN" --json) || hold "reading $TRAIN failed"
 url=$(printf '%s' "$train" | jq -r '.metadata.pr_url // empty')
 num=$(printf '%s' "$train" | jq -r '.metadata.pr_number // empty')
 headrepo=$(printf '%s' "$train" | jq -r '.metadata.pr_head_repo // empty')
-[ -n "$url" ] && [ -n "$num" ] && [ -n "$headrepo" ] ||
+if [ -z "$url" ] || [ -z "$num" ] || [ -z "$headrepo" ]; then
   report failed "no pull request bound to $TRAIN (pr_url, pr_number, pr_head_repo): integrating the train again opens one, or binds the one in pr_url"
+fi
 pr=$(cd "$REPO" && gh pr view "$url" --json number,state,headRefName,headRefOid,headRepositoryOwner,headRepository 2>"$errf") ||
   report failed "reading pull request $url failed: $(cat "$errf")"
 is="#$(printf '%s' "$pr" | jq -r .number) from $(printf '%s' "$pr" | jq -r 'if .headRepositoryOwner.login and .headRepository.name then .headRepositoryOwner.login + "/" + .headRepository.name else empty end'):$(printf '%s' "$pr" | jq -r .headRefName)"

@@ -214,8 +214,9 @@ case ${#read_head} in 40 | 64) ;; *) read_head= ;; esac
 # below. It is passed to gh in its environment, never in an argument, and is
 # printed nowhere. The mint command is the github source's own unless the
 # group's cmd names another.
-[ -n "${GITHUB_APP_ID:-}" ] && [ -n "${GITHUB_APP_PRIVATE_KEY_FILE:-}" ] ||
+if [ -z "${GITHUB_APP_ID:-}" ] || [ -z "${GITHUB_APP_PRIVATE_KEY_FILE:-}" ]; then
   hold "this group's environment has no GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY_FILE, which the yard's GitHub App is minted from (the group's env_file); $NOT."
+fi
 mint=${YARDR_GITHUB_MINT:-}
 [ -n "$mint" ] || mint=$("$Y" source show github --json 2>/dev/null | jq -r '.source.mint_command // empty')
 [ -n "$mint" ] ||

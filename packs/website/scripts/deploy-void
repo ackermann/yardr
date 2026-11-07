@@ -168,7 +168,7 @@ fi
 tmp=
 tree=
 # Invoked by the EXIT trap below, not by name.
-# shellcheck disable=SC2329
+# shellcheck disable=SC2317,SC2329 # SC2317 is the code shellcheck 0.9.0 gives it
 cleanup() {
   if [ -n "$tree" ]; then
     git -C "$REPO" worktree remove --force "$tree" >/dev/null 2>&1 ||
@@ -358,6 +358,9 @@ newest=
 for f in "$logdir"/deploy-*.jsonl; do
   [ -f "$f" ] || continue
   case "$seen " in *"$f "*) continue ;; esac
+  # -nt is in POSIX.1-2024 and every sh this runs under; shellcheck 0.9.0
+  # predates that and calls it undefined.
+  # shellcheck disable=SC3013
   if [ -z "$newest" ] || [ "$f" -nt "$newest" ]; then newest=$f; fi
 done
 url=

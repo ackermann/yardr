@@ -34,6 +34,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -156,6 +157,32 @@ func serveTemplate(t *testing.T, home string) func() {
 	}
 }
 
+// pointAtCopy points each copied worktree's .git file at its record in the
+// copied repository, under the record's own name, before the caller's git
+// worktree repair. The copied file still names the template's record, and
+// a repair follows it: a git as old as 2.43 then repoints the template's
+// record at the copy and leaves the copy's own naming the template's
+// worktree, so the copy's commits land in the shared template. With the
+// file pointed first, the repair fixes the copy's record alone, on any git.
+func pointAtCopy(t *testing.T, repo string, wts ...string) {
+	t.Helper()
+	for _, wt := range wts {
+		dotgit := filepath.Join(wt, ".git")
+		b, err := os.ReadFile(dotgit)
+		if err != nil {
+			t.Fatal(err)
+		}
+		gitdir, ok := strings.CutPrefix(strings.TrimSpace(string(b)), "gitdir: ")
+		if !ok {
+			t.Fatalf("%s names no gitdir: %q", dotgit, b)
+		}
+		record := filepath.Join(repo, ".git", "worktrees", filepath.Base(gitdir))
+		if err := os.WriteFile(dotgit, []byte("gitdir: "+record+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 // copyTree copies src into dst, which must not exist: directories, regular
 // files with their modes and mtimes (so git finds its index valid), and
 // symlinks as links. Anything else is a bug, not a state: the templates
@@ -249,6 +276,7 @@ func borrowYard(t *testing.T) *yard {
 	// Repair names the copy's worktree: a bare repair fixes the worktrees
 	// the copied admin registered, which are the template's, and every
 	// commit after would land in the shared template.
+	pointAtCopy(t, y.repo, y.wt)
 	y.git(y.repo, "worktree", "repair", y.wt)
 	serveYard(t, home)
 	y.putDepot("r", y.repo, "main", "test ! -e RED")
@@ -319,6 +347,9 @@ func borrowTrainTpl(t *testing.T, tpl *yardTemplate, check string) *yard {
 	// Repair names the copy's worktrees: a bare repair fixes the worktrees
 	// the copied admin registered, which are the template's, and every
 	// commit after would land in the shared template.
+	pointAtCopy(t, y.repo,
+		filepath.Join(home, "worktrees", "r", "r-1"),
+		filepath.Join(home, "worktrees", "r", "r-2"))
 	y.git(y.repo, "worktree", "repair",
 		filepath.Join(home, "worktrees", "r", "r-1"),
 		filepath.Join(home, "worktrees", "r", "r-2"))
@@ -352,6 +383,9 @@ func buildLandedTpl(t *testing.T, root string) {
 	y := &yard{t: t, home: home, repo: repo}
 	y.env = append(os.Environ(), "YARDR_HOME="+home, "YARDR_ACTOR=test")
 	y.push = "origin"
+	pointAtCopy(t, y.repo,
+		filepath.Join(home, "worktrees", "r", "r-1"),
+		filepath.Join(home, "worktrees", "r", "r-2"))
 	y.git(y.repo, "worktree", "repair",
 		filepath.Join(home, "worktrees", "r", "r-1"),
 		filepath.Join(home, "worktrees", "r", "r-2"))
@@ -401,6 +435,9 @@ func buildLandTpl(t *testing.T, root string) {
 	y.env = append(os.Environ(), "YARDR_HOME="+home, "YARDR_ACTOR=test")
 	y.push = "origin"
 	y.opts = "YARDR_PR=1"
+	pointAtCopy(t, y.repo,
+		filepath.Join(home, "worktrees", "r", "r-1"),
+		filepath.Join(home, "worktrees", "r", "r-2"))
 	y.git(y.repo, "worktree", "repair",
 		filepath.Join(home, "worktrees", "r", "r-1"),
 		filepath.Join(home, "worktrees", "r", "r-2"))
@@ -446,6 +483,9 @@ func borrowLand(t *testing.T) (*yard, string) {
 	y.env = append(os.Environ(), "YARDR_HOME="+home, "YARDR_ACTOR=test")
 	y.push = "origin"
 	y.opts = "YARDR_PR=1"
+	pointAtCopy(t, y.repo,
+		filepath.Join(home, "worktrees", "r", "r-1"),
+		filepath.Join(home, "worktrees", "r", "r-2"))
 	y.git(y.repo, "worktree", "repair",
 		filepath.Join(home, "worktrees", "r", "r-1"),
 		filepath.Join(home, "worktrees", "r", "r-2"))
